@@ -1,9 +1,8 @@
 mod logger;
 
-use anyhow;
-use base::server::Server;
+use anyhow::Error;
+use base::commands::start_server;
 use clap::{arg, value_parser, ArgAction, Command};
-use log::info;
 
 fn cli() -> Command {
     Command::new("rex")
@@ -25,7 +24,7 @@ fn cli() -> Command {
         .subcommand(
             Command::new("start")
                 .about("Start the server")
-                .arg(arg!(-H --host <HOST> "Host address to listen on").default_value("0.0.0.0"))
+                .arg(arg!(-i --ip <HOST> "Host IP address to listen on").default_value("0.0.0.0"))
                 .arg(
                     arg!(-p --port <PORT> "Port to listen on")
                         .default_value("9000")
@@ -35,7 +34,7 @@ fn cli() -> Command {
         )
 }
 
-fn exit_with_code(result: Result<(), anyhow::Error>) {
+fn exit_with_code(result: Result<(), Error>) {
     match result {
         Ok(()) => std::process::exit(0),
         Err(error) => {
@@ -57,11 +56,11 @@ fn main() {
 
     match matches.subcommand() {
         Some(("start", sub_matches)) => {
-            let host = sub_matches.get_one::<String>("host").cloned().unwrap();
+            let ip = sub_matches.get_one::<String>("ip").cloned().unwrap();
             let port = sub_matches.get_one::<u16>("port").copied().unwrap();
             let services_dir = sub_matches.get_one::<String>("dir").cloned().unwrap();
-            let server = Server::new(host, port, services_dir);
-            exit_with_code(server.listen())
+
+            exit_with_code(start_server(&ip.as_str(), port, services_dir))
         }
         _ => {
             // unrecognized command

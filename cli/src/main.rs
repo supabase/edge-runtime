@@ -1,7 +1,8 @@
 mod logger;
 
 use anyhow;
-use clap::{arg, ArgAction, Command};
+use base::server::Server;
+use clap::{arg, value_parser, ArgAction, Command};
 use log::info;
 
 fn cli() -> Command {
@@ -21,7 +22,17 @@ fn cli() -> Command {
                 .global(true)
                 .action(ArgAction::SetTrue),
         )
-        .subcommand(Command::new("start").about("Start the server"))
+        .subcommand(
+            Command::new("start")
+                .about("Start the server")
+                .arg(arg!(-H --host <HOST> "Host address to listen on").default_value("0.0.0.0"))
+                .arg(
+                    arg!(-p --port <PORT> "Port to listen on")
+                        .default_value("9000")
+                        .value_parser(value_parser!(u16)),
+                )
+                .arg(arg!(--dir [DIR] "Path to services directory").default_value("services")),
+        )
 }
 
 fn exit_with_code(result: Result<(), anyhow::Error>) {
@@ -45,8 +56,12 @@ fn main() {
     }
 
     match matches.subcommand() {
-        Some(("serve", _sub_matches)) => {
-            info!("This command is not implemented")
+        Some(("start", sub_matches)) => {
+            let host = sub_matches.get_one::<String>("host").cloned().unwrap();
+            let port = sub_matches.get_one::<u16>("port").copied().unwrap();
+            let services_dir = sub_matches.get_one::<String>("dir").cloned().unwrap();
+            let server = Server::new(host, port, services_dir);
+            exit_with_code(server.listen())
         }
         _ => {
             // unrecognized command

@@ -4,3 +4,7 @@ members = [
   "base",
   "cli"
 ]
+
+[workspace.dependencies]
+log = "0.4.17"
+anyhow = { version = "1.0" }

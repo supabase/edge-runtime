@@ -12,6 +12,9 @@
   const event = window.__bootstrap.event;
   const eventTarget = window.__bootstrap.eventTarget;
   const fetch = window.__bootstrap.fetch;
+  const file = window.__bootstrap.file;
+  const fileReader = window.__bootstrap.fileReader;
+  const formData = window.__bootstrap.formData;
   const headers = window.__bootstrap.headers;
   const streams = window.__bootstrap.streams;
   const timers = window.__bootstrap.timers;
@@ -60,33 +63,40 @@
       new Console((msg, level) => core.print(msg, level > 1)),
     ),
 
+    // timers
     clearInterval: writable(timers.clearInterval),
     clearTimeout: writable(timers.clearTimeout),
     setInterval: writable(timers.setInterval),
     setTimeout: writable(timers.setTimeout),
 
+    // fetch
     Request: nonEnumerable(fetch.Request),
     Response: nonEnumerable(fetch.Response),
     Headers: nonEnumerable(headers.Headers),
     fetch: writable(fetch.fetch),
 
+    // base64
     atob: writable(base64.atob),
     btoa: writable(base64.btoa),
 
+    // encoding
     TextDecoder: nonEnumerable(encoding.TextDecoder),
     TextEncoder: nonEnumerable(encoding.TextEncoder),
     TextDecoderStream: nonEnumerable(encoding.TextDecoderStream),
     TextEncoderStream: nonEnumerable(encoding.TextEncoderStream),
 
+    // url
     URL: nonEnumerable(url.URL),
     URLPattern: nonEnumerable(urlPattern.URLPattern),
     URLSearchParams: nonEnumerable(url.URLSearchParams),
 
+    // crypto
     CryptoKey: nonEnumerable(crypto.CryptoKey),
     crypto: readOnly(crypto.crypto),
     Crypto: nonEnumerable(crypto.Crypto),
     SubtleCrypto: nonEnumerable(crypto.SubtleCrypto),
 
+    // streams
     ByteLengthQueuingStrategy: nonEnumerable(
       streams.ByteLengthQueuingStrategy,
     ),
@@ -121,6 +131,7 @@
       streams.WritableStreamDefaultController,
     ),
 
+    // event
     CloseEvent: nonEnumerable(event.CloseEvent),
     CustomEvent: nonEnumerable(event.CustomEvent),
     ErrorEvent: nonEnumerable(event.ErrorEvent),
@@ -130,6 +141,14 @@
     PromiseRejectionEvent: nonEnumerable(event.PromiseRejectionEvent),
     ProgressEvent: nonEnumerable(event.ProgressEvent),
     reportError: writable(event.reportError),
+
+    // file
+    Blob: nonEnumerable(file.Blob),
+    File: nonEnumerable(file.File),
+    FileReader: nonEnumerable(fileReader.FileReader),
+
+    // form data
+    FormData: nonEnumerable(formData.FormData),
   }
 
   // Deno overrides

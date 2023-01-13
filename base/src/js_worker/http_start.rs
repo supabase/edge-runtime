@@ -1,4 +1,4 @@
-use crate::js_worker::net_override::TcpStream;
+use crate::js_worker::net_override::TcpStreamResource;
 
 use std::rc::Rc;
 
@@ -19,7 +19,10 @@ pub fn init() -> Extension {
 
 #[op]
 fn op_http_start(state: &mut OpState, tcp_stream_rid: ResourceId) -> Result<ResourceId, AnyError> {
-    if let Ok(resource_rc) = state.resource_table.take::<TcpStream>(tcp_stream_rid) {
+    if let Ok(resource_rc) = state
+        .resource_table
+        .take::<TcpStreamResource>(tcp_stream_rid)
+    {
         // This TCP connection might be used somewhere else. If it's the case, we cannot proceed with the
         // process of starting a HTTP server on top of this TCP connection, so we just return a bad
         // resource error. See also: https://github.com/denoland/deno/pull/16242

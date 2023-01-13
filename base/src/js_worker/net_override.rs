@@ -18,7 +18,7 @@ use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc;
 
-pub struct TcpStream {
+pub struct TcpStreamResource {
     rd: AsyncRefCell<tokio::net::tcp::OwnedReadHalf>,
     wr: AsyncRefCell<tokio::net::tcp::OwnedWriteHalf>,
     // When a `TcpStream` resource is closed, all pending 'read' ops are
@@ -27,7 +27,7 @@ pub struct TcpStream {
     cancel: CancelHandle,
 }
 
-impl TcpStream {
+impl TcpStreamResource {
     pub fn into_inner(
         self,
     ) -> (
@@ -51,7 +51,7 @@ impl TcpStream {
     }
 }
 
-impl Resource for TcpStream {
+impl Resource for TcpStreamResource {
     deno_core::impl_readable_byob!();
     deno_core::impl_writable!();
 
@@ -60,7 +60,7 @@ impl Resource for TcpStream {
     }
 }
 
-impl From<tokio::net::TcpStream> for TcpStream {
+impl From<tokio::net::TcpStream> for TcpStreamResource {
     fn from(s: tokio::net::TcpStream) -> Self {
         let (rd, wr) = s.into_split();
         Self {
@@ -106,7 +106,7 @@ async fn op_net_accept(
     let local_addr = IpAddr::from(tcp_stream.local_addr().unwrap().clone());
     let remote_addr = IpAddr::from(tcp_stream.peer_addr().unwrap().clone());
 
-    let tcp_stream_resource = TcpStream::from(tcp_stream);
+    let tcp_stream_resource = TcpStreamResource::from(tcp_stream);
 
     // since the op state was dropped before,
     // reborrow and add the channel receiver again

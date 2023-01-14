@@ -23,9 +23,52 @@
   const net = window.__bootstrap.net_custom;
   const { HttpConn } = window.__bootstrap.http;
 
+  class HttpConnSingleRequest {
+    #httpConn;
+    #closed;
+
+    constructor(rid, remoteAddr, localAddr) {
+      this.#httpConn = new HttpConn(rid, remoteAddr, localAddr);
+      this.#closed = false;
+    }
+
+    // Close the Http connection after serving.
+    // We don't want to keep-alive the connection,
+    // as next request may be intended to be served by another service.
+    #close() {
+      this.#httpConn.close();
+      this.closed = true;
+    }
+
+    async nextRequest() {
+      try {
+        if (this.#closed) {
+          return null;
+        }
+
+        let evt = await this.#httpConn.nextRequest();
+        if (evt) {
+          return {
+            request: evt.request,
+            respondWith: async (r) => {
+              await evt.respondWith(r);
+              this.#close();
+            }
+          }
+        }
+        return evt;
+      } catch (e) {
+        if (!e.message.includes("operation canceled")) {
+          console.error(e);
+        }
+        return null;
+      }
+    }
+  }
+
   function serveHttp(conn) {
     const rid = ops.op_http_start(conn.rid);
-    return new HttpConn(rid, conn.remoteAddr, conn.localAddr);
+    return new HttpConnSingleRequest(rid, conn.remoteAddr, conn.localAddr);
   }
 
   // FIX: this should be done after snapshot

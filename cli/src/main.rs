@@ -5,8 +5,8 @@ use base::commands::start_server;
 use clap::{arg, value_parser, ArgAction, Command};
 
 fn cli() -> Command {
-    Command::new("rex")
-        .about("An API gateway for running JavaScript, TypeScript, and WASM services")
+    Command::new("edge-runtime")
+        .about("A runtime based off Deno for running JavaScript, TypeScript, and WASM services")
         .version("0.0.1") // TODO: set version on compile time
         .arg_required_else_help(true)
         .arg(

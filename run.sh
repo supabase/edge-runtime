@@ -1,3 +1,3 @@
 #!/usr/bin/env bash
 
-cargo build && ./target/debug/rex "$@"
+cargo build && ./target/debug/edge-runtime "$@"

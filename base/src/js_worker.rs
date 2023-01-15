@@ -34,7 +34,7 @@ impl JsWorker {
         tcp_stream_rx: mpsc::UnboundedReceiver<TcpStream>,
         shutdown_tx: oneshot::Sender<()>,
     ) {
-        let user_agent = "rex".to_string();
+        let user_agent = "supabase-edge-runtime".to_string();
         let extensions_with_js = vec![
             deno_webidl::init(),
             deno_console::init(),

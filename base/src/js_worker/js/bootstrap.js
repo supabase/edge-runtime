@@ -11,6 +11,7 @@
   const encoding = window.__bootstrap.encoding;
   const event = window.__bootstrap.event;
   const eventTarget = window.__bootstrap.eventTarget;
+  const { env } = window.__bootstrap.os;
   const fetch = window.__bootstrap.fetch;
   const file = window.__bootstrap.file;
   const fileReader = window.__bootstrap.fileReader;
@@ -195,6 +196,7 @@
   }
 
   // Deno overrides
+  Deno.env = env;
   Deno.listen = window.__bootstrap.net.listen;
   Deno.serveHttp = serveHttp;
 

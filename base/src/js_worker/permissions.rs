@@ -9,6 +9,14 @@ impl Permissions {
     pub fn new() -> Self {
         Self
     }
+
+    pub fn check_env(&mut self, _var: &str) -> Result<(), AnyError> {
+        Ok(())
+    }
+
+    pub fn check_env_all(&mut self) -> Result<(), AnyError> {
+        Ok(())
+    }
 }
 
 pub fn init() -> Extension {

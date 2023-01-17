@@ -13,6 +13,7 @@ use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 
+pub mod env;
 pub mod http_start;
 pub mod module_loader;
 pub mod net_override;
@@ -52,6 +53,7 @@ impl JsWorker {
             deno_net::init::<Permissions>(None, false, None),
             deno_websocket::init::<Permissions>(user_agent.clone(), None, None),
             deno_http::init(),
+            env::init(),
         ];
         let extensions = vec![
             net_override::init(),
@@ -87,7 +89,7 @@ impl JsWorker {
             .execute_script("[js_worker]: bootstrap.js", bootstrap_js)
             .unwrap();
 
-        info!("bootstrapped function");
+        debug!("bootstrapped function");
 
         //run inside a closure, so op_state_rc is released
         {

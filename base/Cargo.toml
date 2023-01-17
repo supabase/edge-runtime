@@ -14,6 +14,7 @@ deno_crypto =  { version = "0.97.0" }
 deno_fetch = { version = "0.107.0" }
 deno_http =  { version = "0.78.0" }
 deno_net = { version = "0.75.0" }
+deno_node = { version = "0.22.0" }
 deno_url = { version = "0.83.0" }
 deno_webidl = { version = "0.83.0" }
 deno_web = { version = "0.114.0" }

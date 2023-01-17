@@ -3,6 +3,7 @@ use deno_core::url::Url;
 use deno_core::JsRuntime;
 use deno_core::RuntimeOptions;
 use log::debug;
+use log::info;
 use std::fs;
 use std::panic;
 use std::path::PathBuf;
@@ -63,7 +64,21 @@ impl JsWorker {
             extensions_with_js,
             module_loader: Some(Rc::new(DefaultModuleLoader)),
             is_main: true,
+            create_params: Some(
+                v8::CreateParams::default().heap_limits(10 * 1024 * 1024, 100 * 1024 * 1024),
+            ),
             ..Default::default()
+        });
+
+        let (memory_limit_tx, mut memory_limit_rx) = mpsc::unbounded_channel::<()>();
+
+        // add a callback when a worker reaches its memory limit
+        js_runtime.add_near_heap_limit_callback(move |cur, _init| {
+            // return current value unmodified
+            println!("near memory limit {}", cur);
+            memory_limit_tx.send(()).unwrap();
+            let cur = 110 * 1024 * 1024;
+            cur
         });
 
         // bootstrap the JS runtime
@@ -71,6 +86,8 @@ impl JsWorker {
         js_runtime
             .execute_script("[js_worker]: bootstrap.js", bootstrap_js)
             .unwrap();
+
+        info!("bootstrapped function");
 
         //run inside a closure, so op_state_rc is released
         {
@@ -99,8 +116,17 @@ impl JsWorker {
                 .load_main_module(&main_module_url, Some(main_module_code))
                 .await?;
             let result = js_runtime.mod_evaluate(mod_id);
-            js_runtime.run_event_loop(false).await?;
-            result.await?
+            tokio::select! {
+                biased;
+                _ = memory_limit_rx.recv() => {
+                    info!("memory limit reached");
+                    let _ = js_runtime.v8_isolate().terminate_execution();
+                    Ok(())
+                }
+                _ = js_runtime.run_event_loop(false) => {
+                    result.await?
+                }
+            }
         };
         let local = tokio::task::LocalSet::new();
         let res = local.block_on(&runtime, future);
@@ -114,6 +140,9 @@ impl JsWorker {
     }
 
     pub async fn serve(service_path: PathBuf, tcp_stream: TcpStream) -> Result<(), Error> {
+        let service_path_clone = service_path.clone();
+        let service_name = service_path_clone.to_str().unwrap();
+
         let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
         let (tcp_stream_tx, tcp_stream_rx) = mpsc::unbounded_channel::<TcpStream>();
 
@@ -124,10 +153,12 @@ impl JsWorker {
 
         tcp_stream_tx.send(tcp_stream)?;
 
-        debug!("js worker thread started");
+        debug!("js worker for {} started", service_name);
 
         // wait for shutdown signal
         let _ = shutdown_rx.await;
+
+        debug!("js worker for {} stopped", service_name);
 
         Ok(())
     }

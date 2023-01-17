@@ -9,3 +9,13 @@ The primary goal of this project is to have a runtime environment that can simul
 
 This enables Supabase users to test their Edge Functions locally while simulating the behavior at the edge (eg: runtime APIs like File I/O not available, memory and CPU time enforced).
 Also, this enables portability of edge functions to those users who want to self-host them outside of Deno Deploy.
+
+## TODO
+
+* TypeScript compile main module
+* Cache modules (add a flag to disable it)
+* Hot reload when a service changes
+* Support import maps
+* Check verify-jwt
+* Set configuarble memory limit (update via flag)
+* Set configurable wall clock limit (update via flag)

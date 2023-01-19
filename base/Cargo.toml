@@ -8,19 +8,19 @@ edition = "2021"
 [dependencies]
 anyhow = { workspace = true }
 deno_ast = { version = "0.23.2", features = [ "transpiling" ] }
-deno_core = { version = "0.165.0" }
-deno_console = { version = "0.83.0" }
-deno_crypto =  { version = "0.97.0" }
-deno_fetch = { version = "0.107.0" }
-deno_http =  { version = "0.78.0" }
-deno_net = { version = "0.75.0" }
+deno_core = { version = "0.167.0" }
+deno_console = { version = "0.85.0" }
+deno_crypto =  { version = "0.99.0" }
+deno_fetch = { version = "0.109.0" }
+deno_http =  { version = "0.80.0" }
+deno_net = { version = "0.77.0" }
 deno_node = { version = "0.22.0" }
-deno_url = { version = "0.83.0" }
-deno_webidl = { version = "0.83.0" }
-deno_web = { version = "0.114.0" }
-deno_websocket = { version = "0.88.0" }
+deno_url = { version = "0.85.0" }
+deno_webidl = { version = "0.85.0" }
+deno_web = { version = "0.116.0" }
+deno_websocket = { version = "0.90.0" }
 httparse = { version = "1.8.0" }
 log = { workspace = true }
 reqwest = { version = "0.11.13" }
-tokio = { version = "1.21", features = ["full"] }
+tokio = { version = "1.24", features = ["full"] }
 v8 = { version = "0.60.1", default-features = false }

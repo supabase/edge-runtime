@@ -9,6 +9,7 @@ use deno_core::ModuleSource;
 use deno_core::ModuleSourceFuture;
 use deno_core::ModuleSpecifier;
 use deno_core::ModuleType;
+use deno_core::ResolutionKind;
 use std::pin::Pin;
 
 struct ModuleTypeResult {
@@ -54,7 +55,7 @@ impl ModuleLoader for DefaultModuleLoader {
         &self,
         specifier: &str,
         referrer: &str,
-        _is_main: bool,
+        _kind: ResolutionKind,
     ) -> Result<ModuleSpecifier, Error> {
         Ok(deno_core::resolve_import(specifier, referrer)?)
     }

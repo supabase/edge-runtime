@@ -1,4 +1,4 @@
-use crate::js_worker::JsWorker;
+use crate::js_worker;
 use anyhow::{bail, Error};
 use log::{error, info};
 use std::net::IpAddr;
@@ -8,8 +8,13 @@ use std::path::Path;
 use std::str::FromStr;
 use tokio::net::{TcpListener, TcpStream};
 
-async fn process_stream(stream: TcpStream, services_dir: String) -> Result<(), Error> {
-    // parse HTTP header
+async fn process_stream(
+    stream: TcpStream,
+    services_dir: String,
+    mem_limit: u16,
+    service_timeout: u16,
+) -> Result<(), Error> {
+    // peek into the HTTP header
     // find request path
     // try to find a matching function from services_dir
     // if no function found return a 404
@@ -45,7 +50,15 @@ async fn process_stream(stream: TcpStream, services_dir: String) -> Result<(), E
 
     info!("serving function {}", service_name);
 
-    let _ = JsWorker::serve(service_path.to_path_buf(), stream).await?;
+    let memory_limit_mb = u64::from(mem_limit);
+    let worker_timeout_ms = u64::from(service_timeout * 1000);
+    let _ = js_worker::serve(
+        service_path.to_path_buf(),
+        memory_limit_mb,
+        worker_timeout_ms,
+        stream,
+    )
+    .await?;
 
     Ok(())
 }
@@ -54,15 +67,25 @@ pub struct Server {
     ip: Ipv4Addr,
     port: u16,
     services_dir: String,
+    mem_limit: u16,
+    service_timeout: u16,
 }
 
 impl Server {
-    pub fn new(ip: &str, port: u16, services_dir: String) -> Result<Self, Error> {
+    pub fn new(
+        ip: &str,
+        port: u16,
+        services_dir: String,
+        mem_limit: u16,
+        service_timeout: u16,
+    ) -> Result<Self, Error> {
         let ip = Ipv4Addr::from_str(ip)?;
         Ok(Self {
             ip,
             port,
             services_dir,
+            mem_limit,
+            service_timeout,
         })
     }
 
@@ -77,8 +100,10 @@ impl Server {
                     match msg {
                        Ok((stream, _)) => {
                            let services_dir_clone = self.services_dir.clone();
+                           let mem_limit = self.mem_limit;
+                           let service_timeout = self.service_timeout;
                            tokio::task::spawn(async move {
-                             let res = process_stream(stream, services_dir_clone).await;
+                             let res = process_stream(stream, services_dir_clone, mem_limit, service_timeout).await;
                              if res.is_err() {
                                  error!("{:?}", res.err().unwrap());
                              }

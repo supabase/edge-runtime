@@ -12,7 +12,7 @@ use deno_core::ResourceId;
 use deno_http::http_create_conn_resource;
 
 pub fn init() -> Extension {
-    Extension::builder()
+    Extension::builder("http_custom")
         .ops(vec![op_http_start::decl()])
         .build()
 }

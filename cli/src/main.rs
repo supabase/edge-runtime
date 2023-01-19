@@ -30,7 +30,9 @@ fn cli() -> Command {
                         .default_value("9000")
                         .value_parser(value_parser!(u16)),
                 )
-                .arg(arg!(--dir [DIR] "Path to services directory").default_value("services")),
+                .arg(arg!(--dir [DIR] "Path to services directory").default_value("services"))
+                .arg(arg!(--memory_limit <MiB> "Memory limit for a service (in MiB)").default_value("150").value_parser(value_parser!(u16)))
+                .arg(arg!(--service_timeout <secs> "Wall clock duration a service can run in seconds").default_value("60").value_parser(value_parser!(u16)))
         )
 }
 
@@ -59,8 +61,19 @@ fn main() {
             let ip = sub_matches.get_one::<String>("ip").cloned().unwrap();
             let port = sub_matches.get_one::<u16>("port").copied().unwrap();
             let services_dir = sub_matches.get_one::<String>("dir").cloned().unwrap();
+            let service_timeout = sub_matches
+                .get_one::<u16>("service_timeout")
+                .cloned()
+                .unwrap();
+            let mem_limit = sub_matches.get_one::<u16>("memory_limit").cloned().unwrap();
 
-            exit_with_code(start_server(&ip.as_str(), port, services_dir))
+            exit_with_code(start_server(
+                &ip.as_str(),
+                port,
+                services_dir,
+                mem_limit,
+                service_timeout,
+            ))
         }
         _ => {
             // unrecognized command

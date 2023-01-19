@@ -20,7 +20,7 @@ impl Permissions {
 }
 
 pub fn init() -> Extension {
-    Extension::builder()
+    Extension::builder("permissions")
         .state(move |state| {
             state.put::<Permissions>(Permissions::new());
             Ok(())

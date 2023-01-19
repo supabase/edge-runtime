@@ -117,7 +117,7 @@ async fn op_net_accept(
 }
 
 pub fn init() -> Extension {
-    Extension::builder()
+    Extension::builder("net_override")
         .middleware(|op| match op.name {
             "op_net_listen_tcp" => op_net_listen::decl(),
             "op_net_accept_tcp" => op_net_accept::decl(),

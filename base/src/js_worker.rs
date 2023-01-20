@@ -100,6 +100,8 @@ fn start_runtime(
             mib_to_bytes(1) as usize,
             mib_to_bytes(memory_limit_mb) as usize,
         )),
+        shared_array_buffer_store: None,
+        compiled_wasm_module_store: None,
         ..Default::default()
     });
 

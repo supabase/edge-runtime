@@ -1,9 +1,13 @@
 import { serve } from "https://deno.land/std@0.131.0/http/server.ts"
 
-Deno.env.set("foo", "bar");
+interface reqPayload {
+  name: string;
+}
 
-serve(async (req) => {
-  const { name } = await req.json()
+console.log('server started');
+
+serve(async (req: Request) => {
+  const { name } : reqPayload = await req.json()
   const data = {
     message: `Hello ${name} from foo!`,
   }
@@ -12,4 +16,4 @@ serve(async (req) => {
     JSON.stringify(data),
     { headers: { "Content-Type": "application/json", "Connection": "keep-alive" } },
   )
-})
+}, { port: 9005 })

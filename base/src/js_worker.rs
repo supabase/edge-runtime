@@ -137,7 +137,6 @@ fn start_runtime(
 
     let module_path = service_path.join("index.ts");
     // TODO: handle file missing error
-    let main_module_code = fs::read_to_string(&module_path).unwrap();
     let main_module_url = Url::from_file_path(
         std::env::current_dir()
             .map(|p| p.join(&module_path))
@@ -153,9 +152,7 @@ fn start_runtime(
         .unwrap();
 
     let future = async move {
-        let mod_id = js_runtime
-            .load_main_module(&main_module_url, Some(main_module_code))
-            .await?;
+        let mod_id = js_runtime.load_main_module(&main_module_url, None).await?;
         let result = js_runtime.mod_evaluate(mod_id);
         js_runtime.run_event_loop(false).await?;
 
@@ -165,7 +162,7 @@ fn start_runtime(
     let res = local.block_on(&runtime, future);
 
     if res.is_err() {
-        debug!("worker thread panicked {:?}", res.as_ref().err().unwrap());
+        error!("worker thread panicked {:?}", res.as_ref().err().unwrap());
     }
     shutdown_tx
         .send(())
@@ -183,14 +180,13 @@ fn start_controller_thread(
             .build()
             .unwrap();
 
-        // TODO: make it configurable
         let future = async move {
             tokio::select! {
                 _ = tokio::time::sleep(Duration::from_millis(worker_timeout_ms)) => {
-                    error!("worker timed out. (duration {})", human_elapsed(worker_timeout_ms))
+                    debug!("max duration reached for the worker. terminating the worker. (duration {})", human_elapsed(worker_timeout_ms))
                 }
                 Some(val) = memory_limit_rx.recv() => {
-                    error!("memory limit reached for worker. (used: {})", bytes_to_display(val))
+                    error!("memory limit reached for the worker. terminating the worker. (used: {})", bytes_to_display(val))
                 }
             }
         };
@@ -199,6 +195,8 @@ fn start_controller_thread(
         let ok = v8_thread_safe_handle.terminate_execution();
         if ok {
             debug!("worker terminated");
+        } else {
+            debug!("worker already terminated");
         }
     });
 }

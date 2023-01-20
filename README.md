@@ -17,8 +17,6 @@ Also, this enables portability of edge functions to those users who want to self
 * Hot reload when a service changes
 * Support import maps
 * Check verify-jwt
-* configuarble memory limit (update via flag)
-* configurable wall clock limit (update via flag)
 * better error messages for incorrect module loading paths (local)
 * handle 404 errors
 * Support snapshotting the runtime

@@ -3,10 +3,11 @@
 ((window) => {
   const core = Deno.core;
   const ops = core.ops;
-  const { ObjectDefineProperties }= window.__bootstrap.primordials;
+  const { ObjectDefineProperties, ObjectPrototypeIsPrototypeOf }= window.__bootstrap.primordials;
 
   const base64 = window.__bootstrap.base64;
   const Console = window.__bootstrap.console.Console;
+  const colors = window.__bootstrap.colors;
   const crypto = window.__bootstrap.crypto;
   const domException = window.__bootstrap.domException;
   const encoding = window.__bootstrap.encoding;
@@ -19,6 +20,7 @@
   const fileReader = window.__bootstrap.fileReader;
   const formData = window.__bootstrap.formData;
   const headers = window.__bootstrap.headers;
+  const inspectArgs = window.__bootstrap.console.inspectArgs;
   const streams = window.__bootstrap.streams;
   const timers = window.__bootstrap.timers;
   const url = window.__bootstrap.url;
@@ -260,6 +262,23 @@
   //    },
   //  );
   //}
+  //
+
+  function formatException(error) {
+    if (ObjectPrototypeIsPrototypeOf(ErrorPrototype, error)) {
+      return null;
+    } else if (typeof error == "string") {
+      return `Uncaught ${
+        inspectArgs([quoteString(error)], {
+          colors: !colors.getNoColor(),
+        })
+      }`;
+    } else {
+      return `Uncaught ${
+        inspectArgs([error], { colors: !colors.getNoColor() })
+      }`;
+    }
+  }
 
   function runtimeStart(runtimeOptions, source) {
     core.setMacrotaskCallback(timers.handleTimerMacrotask);
@@ -274,7 +293,7 @@
     //);
     //build.setBuildInfo(runtimeOptions.target);
     //util.setLogDebug(runtimeOptions.debugFlag, source);
-    //colors.setNoColor(runtimeOptions.noColor || !runtimeOptions.isTty);
+    colors.setNoColor(runtimeOptions.noColor || !runtimeOptions.isTty);
 
     // deno-lint-ignore prefer-primordials
     Error.prepareStackTrace = core.prepareStackTrace;
@@ -299,7 +318,8 @@
     denoVersion: "NA",
     v8Version: "NA",
     tsVersion: "NA",
-    noColor: false,
+    noColor: true,
+    isTty: false
   });
 })(this);
 

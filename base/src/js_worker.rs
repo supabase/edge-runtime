@@ -5,7 +5,6 @@ use deno_core::url::Url;
 use deno_core::JsRuntime;
 use deno_core::RuntimeOptions;
 use log::{debug, error};
-use std::fs;
 use std::panic;
 use std::path::PathBuf;
 use std::rc::Rc;

@@ -2,7 +2,8 @@
 
 members = [
   "base",
-  "cli"
+  "cli",
+  "module_fetcher"
 ]
 
 [workspace.dependencies]

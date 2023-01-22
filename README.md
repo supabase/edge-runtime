@@ -12,7 +12,6 @@ Also, this enables portability of edge functions to those users who want to self
 
 ## TODO
 
-* TypeScript compile main module
 * Cache modules (add a flag to disable it)
 * Hot reload when a service changes
 * Support import maps
@@ -20,3 +19,4 @@ Also, this enables portability of edge functions to those users who want to self
 * better error messages for incorrect module loading paths (local)
 * handle 404 errors
 * Support snapshotting the runtime
+* Support for private modules (DENO_AUTH_TOKENS)

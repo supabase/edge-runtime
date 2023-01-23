@@ -2,7 +2,7 @@ use deno_core::error::uri_error;
 use deno_core::error::AnyError;
 use deno_core::ModuleSpecifier;
 
-#[derive(Clone, Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct Permissions;
 
 impl Permissions {
@@ -12,7 +12,7 @@ impl Permissions {
         match specifier.scheme() {
             "file" => match specifier.to_file_path() {
                 // allow all file paths
-                Ok(path) => Ok(()),
+                Ok(_) => Ok(()),
                 Err(_) => Err(uri_error(format!(
                     "Invalid file path.\n  Specifier: {}",
                     specifier

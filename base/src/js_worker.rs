@@ -90,10 +90,13 @@ fn start_runtime(
         permissions::init(),
     ];
 
+    // FIXME: module_loader can panic
+    let module_loader = DefaultModuleLoader::new().unwrap();
+
     let mut js_runtime = JsRuntime::new(RuntimeOptions {
         extensions,
         extensions_with_js,
-        module_loader: Some(Rc::new(DefaultModuleLoader)),
+        module_loader: Some(Rc::new(module_loader)),
         is_main: true,
         create_params: Some(v8::CreateParams::default().heap_limits(
             mib_to_bytes(1) as usize,

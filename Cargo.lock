@@ -176,6 +176,7 @@ dependencies = [
  "deno_websocket",
  "httparse",
  "log",
+ "module_fetcher",
  "reqwest",
  "tokio",
  "v8",

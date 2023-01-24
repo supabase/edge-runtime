@@ -10,10 +10,14 @@ The primary goal of this project is to have a runtime environment that can simul
 This enables Supabase users to test their Edge Functions locally while simulating the behavior at the edge (eg: runtime APIs like File I/O not available, memory and CPU time enforced).
 Also, this enables portability of edge functions to those users who want to self-host them outside of Deno Deploy.
 
+## How to run locally
+
+```
+./run.sh start --dir /path/to/supabase/functions -p 9000
+```
+
 ## TODO
 
-* Cache modules (add a flag to disable it)
-* Hot reload when a service changes
 * Support import maps
 * Check verify-jwt
 * better error messages for incorrect module loading paths (local)

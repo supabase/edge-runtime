@@ -27,6 +27,7 @@ pub async fn serve(
     service_path: PathBuf,
     memory_limit_mb: u64,
     worker_timeout_ms: u64,
+    no_cache: bool,
     tcp_stream: TcpStream,
 ) -> Result<(), Error> {
     let service_path_clone = service_path.clone();
@@ -41,6 +42,7 @@ pub async fn serve(
             service_path,
             memory_limit_mb,
             worker_timeout_ms,
+            no_cache,
             tcp_stream_rx,
             shutdown_tx,
         )
@@ -62,6 +64,7 @@ fn start_runtime(
     service_path: PathBuf,
     memory_limit_mb: u64,
     worker_timeout_ms: u64,
+    no_cache: bool,
     tcp_stream_rx: mpsc::UnboundedReceiver<TcpStream>,
     shutdown_tx: oneshot::Sender<()>,
 ) {
@@ -91,7 +94,7 @@ fn start_runtime(
     ];
 
     // FIXME: module_loader can panic
-    let module_loader = DefaultModuleLoader::new().unwrap();
+    let module_loader = DefaultModuleLoader::new(no_cache).unwrap();
 
     let mut js_runtime = JsRuntime::new(RuntimeOptions {
         extensions,

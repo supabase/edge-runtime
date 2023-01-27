@@ -54,13 +54,17 @@ pub struct DefaultModuleLoader {
 }
 
 impl DefaultModuleLoader {
-    pub fn new() -> Result<Self, AnyError> {
+    pub fn new(no_cache: bool) -> Result<Self, AnyError> {
         // Note: we are reusing Deno dependency cache path
         let deno_dir = DenoDir::new(None)?;
         let deps_cache_location = deno_dir.deps_folder_path();
 
         let http_cache = HttpCache::new(&deps_cache_location);
-        let cache_setting = CacheSetting::Use;
+        let cache_setting = if no_cache {
+            CacheSetting::ReloadAll
+        } else {
+            CacheSetting::Use
+        };
         let allow_remote = true;
         let http_client = make_http_client()?;
         let blob_store = deno_web::BlobStore::default();

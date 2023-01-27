@@ -16,6 +16,13 @@ Also, this enables portability of edge functions to those users who want to self
 ./run.sh start --dir /path/to/supabase/functions -p 9000
 ```
 
+using Docker:
+
+```
+docker build -t edge-runtime .
+docker run -it --rm -p 9000:9000 -v /path/to/supabase/functions:/usr/services edge-runtime start --dir /usr/services
+```
+
 ## TODO
 
 * Support import maps

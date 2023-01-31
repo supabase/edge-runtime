@@ -20,7 +20,7 @@ using Docker:
 
 ```
 docker build -t edge-runtime .
-docker run -it --rm -p 9000:9000 -v /path/to/supabase/functions:/usr/services edge-runtime start --dir /usr/services
+docker run -it --rm -p 9000:9000 -v /path/to/supabase/functions:/usr/services supabase/edge-runtime start --dir /usr/services
 ```
 
 ## TODO

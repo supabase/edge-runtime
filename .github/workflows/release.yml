@@ -42,7 +42,6 @@ jobs:
           images: |
             supabase/edge-runtime
             public.ecr.aws/supabase/edge-runtime
-            436098097459.dkr.ecr.us-east-1.amazonaws.com/edge-runtime
             646182064048.dkr.ecr.us-east-1.amazonaws.com/edge-runtime
             ghcr.io/supabase/edge-runtime
           tags: |

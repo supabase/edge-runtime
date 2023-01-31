@@ -5,10 +5,10 @@ WORKDIR /usr/src/edge-runtime
 RUN --mount=type=cache,target=/usr/local/cargo/registry,id=${TARGETPLATFORM} \
     cargo install cargo-strip
 COPY . .
-RUN --mount=type=cache,target=/usr/local/cargo/registry,id=${TARGETPLATFORM} --mount=type=cache,target=/root/target,id=${TARGETPLATFORM} \
+RUN --mount=type=cache,target=/usr/local/cargo/registry,id=${TARGETPLATFORM} --mount=type=cache,target=/usr/src/edge-runtime/target,id=${TARGETPLATFORM} \
     cargo build --release && \
     cargo strip && \
-    mv /root/target/release/edge-runtime /root
+    mv /usr/src/edge-runtime/target/release/edge-runtime /root
 
 
 FROM debian:bullseye-slim

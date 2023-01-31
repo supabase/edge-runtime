@@ -1,10 +1,11 @@
 # syntax=docker/dockerfile:1.4
 FROM rust:1.67.0-bullseye as builder
+ARG TARGETPLATFORM
 WORKDIR /usr/src/edge-runtime
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
+RUN --mount=type=cache,target=/usr/local/cargo/registry,id=${TARGETPLATFORM} \
     cargo install cargo-strip
 COPY . .
-RUN --mount=type=cache,target=/usr/local/cargo/registry --mount=type=cache,target=/usr/target \
+RUN --mount=type=cache,target=/usr/local/cargo/registry,id=${TARGETPLATFORM} --mount=type=cache,target=/usr/target,id=${TARGETPLATFORM} \
     cargo build --release --target-dir /usr/target && \
     cargo strip
 

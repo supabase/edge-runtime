@@ -20,6 +20,7 @@ pub mod http_start;
 pub mod module_loader;
 pub mod net_override;
 pub mod permissions;
+pub mod runtime;
 
 use module_loader::DefaultModuleLoader;
 use permissions::Permissions;
@@ -70,6 +71,16 @@ fn start_runtime(
     shutdown_tx: oneshot::Sender<()>,
 ) {
     let user_agent = "supabase-edge-runtime".to_string();
+
+    let module_path = service_path.join("index.ts");
+    // TODO: handle file missing error
+    let main_module_url = Url::from_file_path(
+        std::env::current_dir()
+            .map(|p| p.join(&module_path))
+            .unwrap(),
+    )
+    .unwrap();
+
     let extensions_with_js = vec![
         deno_webidl::init(),
         deno_console::init(),
@@ -92,6 +103,7 @@ fn start_runtime(
         net_override::init(),
         http_start::init(),
         permissions::init(),
+        runtime::init(main_module_url.clone()),
     ];
 
     // FIXME: module_loader can panic
@@ -146,15 +158,6 @@ fn start_runtime(
         let mut op_state = op_state_rc.borrow_mut();
         op_state.put::<mpsc::UnboundedReceiver<TcpStream>>(tcp_stream_rx);
     }
-
-    let module_path = service_path.join("index.ts");
-    // TODO: handle file missing error
-    let main_module_url = Url::from_file_path(
-        std::env::current_dir()
-            .map(|p| p.join(&module_path))
-            .unwrap(),
-    )
-    .unwrap();
 
     start_controller_thread(v8_thread_safe_handle, worker_timeout_ms, memory_limit_rx);
 

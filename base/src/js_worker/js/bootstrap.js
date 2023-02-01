@@ -106,6 +106,16 @@
     };
   }
 
+  function getterOnly(getter) {
+    return {
+      get: getter,
+      set() {},
+      enumerable: true,
+      configurable: true,
+    };
+  }
+
+
   const globalScope = {
     console: nonEnumerable(
       new Console((msg, level) => core.print(msg, level > 1)),
@@ -303,6 +313,10 @@
     ObjectFreeze(build);
   }
 
+  function opMainModule() {
+    return ops.op_main_module();
+  }
+
   function runtimeStart(runtimeOptions, source) {
     core.setMacrotaskCallback(timers.handleTimerMacrotask);
     //core.setMacrotaskCallback(promiseRejectMacrotaskCallback);
@@ -326,7 +340,6 @@
   }
 
   // Deno overrides
-  Deno.env = env;
   Deno.listen = window.__bootstrap.net.listen;
   Deno.serveHttp = serveHttp;
 
@@ -345,7 +358,14 @@
     target: window.__build_target,
   });
 
-  // set build after starting runtime
-  Deno.build = build;
+  // set these overrides after runtimeStart
+  ObjectDefineProperties(Deno, {
+    env: readOnly(env),
+    build: readOnly(build),
+    pid: readOnly(window.__pid),
+    ppid: readOnly(window.__ppid),
+    args: readOnly([]), // args are set to be empty
+    mainModule: getterOnly(opMainModule)
+  });
 })(this);
 

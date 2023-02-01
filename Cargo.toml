@@ -9,3 +9,10 @@ members = [
 [workspace.dependencies]
 log = "0.4.17"
 anyhow = { version = "1.0" }
+
+[profile.release]
+strip="debuginfo"
+codegen-units = 1
+incremental = true
+lto = true
+opt-level = 'z' # Optimize for size

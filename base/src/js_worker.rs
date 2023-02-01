@@ -1,6 +1,7 @@
 use crate::utils::units::{bytes_to_display, human_elapsed, mib_to_bytes};
 
 use anyhow::Error;
+use deno_core::located_script_name;
 use deno_core::url::Url;
 use deno_core::JsRuntime;
 use deno_core::RuntimeOptions;
@@ -125,11 +126,17 @@ fn start_runtime(
         cur
     });
 
+    // set bootstrap options
+    let script = format!("__build_target = \"{}\"", env!("TARGET"));
+    js_runtime
+        .execute_script(&located_script_name!(), &script)
+        .expect("Failed to execute bootstrap script");
+
     // bootstrap the JS runtime
     let bootstrap_js = include_str!("./js_worker/js/bootstrap.js");
     js_runtime
         .execute_script("[js_worker]: bootstrap.js", bootstrap_js)
-        .unwrap();
+        .expect("Failed to execute bootstrap script");
 
     debug!("bootstrapped function");
 

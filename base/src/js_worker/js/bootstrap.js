@@ -3,7 +3,7 @@
 ((window) => {
   const core = Deno.core;
   const ops = core.ops;
-  const { ObjectDefineProperties, ObjectPrototypeIsPrototypeOf }= window.__bootstrap.primordials;
+  const { ObjectDefineProperties, ObjectPrototypeIsPrototypeOf, ObjectFreeze, StringPrototypeSplit }= window.__bootstrap.primordials;
 
   const base64 = window.__bootstrap.base64;
   const Console = window.__bootstrap.console.Console;
@@ -280,6 +280,29 @@
     }
   }
 
+  // set build info
+  const build = {
+   target: "unknown",
+    arch: "unknown",
+    os: "unknown",
+    vendor: "unknown",
+    env: undefined,
+  };
+
+  function setBuildInfo(target) {
+    const { 0: arch, 1: vendor, 2: os, 3: env } = StringPrototypeSplit(
+      target,
+      "-",
+      4,
+    );
+    build.target = target;
+    build.arch = arch;
+    build.vendor = vendor;
+    build.os = os;
+    build.env = env;
+    ObjectFreeze(build);
+  }
+
   function runtimeStart(runtimeOptions, source) {
     core.setMacrotaskCallback(timers.handleTimerMacrotask);
     //core.setMacrotaskCallback(promiseRejectMacrotaskCallback);
@@ -291,7 +314,7 @@
     //  runtimeOptions.v8Version,
     //  runtimeOptions.tsVersion,
     //);
-    //build.setBuildInfo(runtimeOptions.target);
+    setBuildInfo(runtimeOptions.target);
     //util.setLogDebug(runtimeOptions.debugFlag, source);
     colors.setNoColor(runtimeOptions.noColor || !runtimeOptions.isTty);
 
@@ -307,7 +330,6 @@
   Deno.listen = window.__bootstrap.net.listen;
   Deno.serveHttp = serveHttp;
 
-
   const __bootstrap = window.__bootstrap;
   delete window.__bootstrap;
   delete window.bootstrap;
@@ -319,7 +341,11 @@
     v8Version: "NA",
     tsVersion: "NA",
     noColor: true,
-    isTty: false
+    isTty: false,
+    target: window.__build_target,
   });
+
+  // set build after starting runtime
+  Deno.build = build;
 })(this);
 

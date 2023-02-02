@@ -269,8 +269,8 @@
     FormData: nonEnumerable(formData.FormData),
 
     // abort signal
-    AbortController: util.nonEnumerable(abortSignal.AbortController),
-    AbortSignal: util.nonEnumerable(abortSignal.AbortSignal),
+    AbortController: nonEnumerable(abortSignal.AbortController),
+    AbortSignal: nonEnumerable(abortSignal.AbortSignal),
   }
 
   //function registerErrors() {

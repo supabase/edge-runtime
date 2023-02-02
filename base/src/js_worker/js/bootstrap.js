@@ -12,6 +12,7 @@
     StringPrototypeSplit
   }= window.__bootstrap.primordials;
 
+  const abortSignal = window.__bootstrap.abortSignal;
   const base64 = window.__bootstrap.base64;
   const Console = window.__bootstrap.console.Console;
   const colors = window.__bootstrap.colors;
@@ -267,6 +268,9 @@
     // form data
     FormData: nonEnumerable(formData.FormData),
 
+    // abort signal
+    AbortController: util.nonEnumerable(abortSignal.AbortController),
+    AbortSignal: util.nonEnumerable(abortSignal.AbortSignal),
   }
 
   //function registerErrors() {

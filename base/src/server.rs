@@ -1,6 +1,6 @@
 use crate::js_worker;
 use anyhow::{bail, Error};
-use log::{error, info};
+use log::{debug, error, info};
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
@@ -97,7 +97,7 @@ impl Server {
     pub async fn listen(&self) -> Result<(), Error> {
         let addr = SocketAddr::new(IpAddr::V4(self.ip), self.port);
         let listener = TcpListener::bind(&addr).await?;
-        info!("listening on {:?}", listener.local_addr()?);
+        debug!("edge-runtime is listening on {:?}", listener.local_addr()?);
 
         loop {
             tokio::select! {

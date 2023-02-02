@@ -139,7 +139,7 @@ fn start_runtime(
     });
 
     // set bootstrap options
-    let script = format!("__build_target = \"{}\"", env!("TARGET"));
+    let script = format!("globalThis.__build_target = \"{}\"", env!("TARGET"));
     js_runtime
         .execute_script(&located_script_name!(), &script)
         .expect("Failed to execute bootstrap script");

@@ -3,7 +3,14 @@
 ((window) => {
   const core = Deno.core;
   const ops = core.ops;
-  const { ObjectDefineProperties, ObjectPrototypeIsPrototypeOf, ObjectFreeze, StringPrototypeSplit }= window.__bootstrap.primordials;
+  const {
+    ObjectDefineProperty,
+    ObjectDefineProperties,
+    ObjectPrototypeIsPrototypeOf,
+    ObjectSetPrototypeOf,
+    ObjectFreeze,
+    StringPrototypeSplit
+  }= window.__bootstrap.primordials;
 
   const base64 = window.__bootstrap.base64;
   const Console = window.__bootstrap.console.Console;
@@ -19,12 +26,14 @@
   const file = window.__bootstrap.file;
   const fileReader = window.__bootstrap.fileReader;
   const formData = window.__bootstrap.formData;
+  const globalInterfaces = window.__bootstrap.globalInterfaces;
   const headers = window.__bootstrap.headers;
   const inspectArgs = window.__bootstrap.console.inspectArgs;
   const streams = window.__bootstrap.streams;
   const timers = window.__bootstrap.timers;
   const url = window.__bootstrap.url;
   const urlPattern = window.__bootstrap.urlPattern;
+  const webidl = window.__bootstrap.webidl;
   const net = window.__bootstrap.net_custom;
   const { HttpConn } = window.__bootstrap.http;
 
@@ -115,6 +124,56 @@
     };
   }
 
+  // TODO move defineEventHandler to a separate file
+
+  // `init` is an optional function that will be called the first time that the
+  // event handler property is set. It will be called with the object on which
+  // the property is set as its argument.
+  // `isSpecialErrorEventHandler` can be set to true to opt into the special
+  // behavior of event handlers for the "error" event in a global scope.
+  function defineEventHandler(
+    emitter,
+    name,
+    init = undefined,
+    isSpecialErrorEventHandler = false,
+  ) {
+    // HTML specification section 8.1.7.1
+    ObjectDefineProperty(emitter, `on${name}`, {
+      get() {
+        if (!this[_eventHandlers]) {
+          return null;
+        }
+
+        return MapPrototypeGet(this[_eventHandlers], name)?.handler ?? null;
+      },
+      set(value) {
+        // All three Web IDL event handler types are nullable callback functions
+        // with the [LegacyTreatNonObjectAsNull] extended attribute, meaning
+        // anything other than an object is treated as null.
+        if (typeof value !== "object" && typeof value !== "function") {
+          value = null;
+        }
+
+        if (!this[_eventHandlers]) {
+          this[_eventHandlers] = new Map();
+        }
+        let handlerWrapper = MapPrototypeGet(this[_eventHandlers], name);
+        if (handlerWrapper) {
+          handlerWrapper.handler = value;
+        } else if (value !== null) {
+          handlerWrapper = makeWrappedHandler(
+            value,
+            isSpecialErrorEventHandler,
+          );
+          this.addEventListener(name, handlerWrapper);
+          init?.(this);
+        }
+        MapPrototypeSet(this[_eventHandlers], name, handlerWrapper);
+      },
+      configurable: true,
+      enumerable: true,
+    });
+  }
 
   const globalScope = {
     console: nonEnumerable(
@@ -207,6 +266,7 @@
 
     // form data
     FormData: nonEnumerable(formData.FormData),
+
   }
 
   //function registerErrors() {
@@ -348,6 +408,22 @@
   delete window.bootstrap;
 
   ObjectDefineProperties(window, globalScope);
+
+  ObjectDefineProperties(globalThis, {
+    Window: globalInterfaces.windowConstructorDescriptor,
+  });
+  ObjectSetPrototypeOf(globalThis, Window.prototype);
+
+  // TODO: figure out if this is needed
+  globalThis[webidl.brand] = webidl.brand;
+
+  eventTarget.setEventTargetData(globalThis);
+
+  defineEventHandler(window, "error");
+  defineEventHandler(window, "load");
+  defineEventHandler(window, "beforeunload");
+  defineEventHandler(window, "unload");
+  defineEventHandler(window, "unhandledrejection");
 
   runtimeStart({
     denoVersion: "NA",

@@ -3,7 +3,14 @@
 ((window) => {
   const core = Deno.core;
   const ops = core.ops;
-  const { ObjectDefineProperties, ObjectPrototypeIsPrototypeOf }= window.__bootstrap.primordials;
+  const {
+    ObjectDefineProperty,
+    ObjectDefineProperties,
+    ObjectPrototypeIsPrototypeOf,
+    ObjectSetPrototypeOf,
+    ObjectFreeze,
+    StringPrototypeSplit
+  }= window.__bootstrap.primordials;
 
   const base64 = window.__bootstrap.base64;
   const Console = window.__bootstrap.console.Console;
@@ -19,12 +26,14 @@
   const file = window.__bootstrap.file;
   const fileReader = window.__bootstrap.fileReader;
   const formData = window.__bootstrap.formData;
+  const globalInterfaces = window.__bootstrap.globalInterfaces;
   const headers = window.__bootstrap.headers;
   const inspectArgs = window.__bootstrap.console.inspectArgs;
   const streams = window.__bootstrap.streams;
   const timers = window.__bootstrap.timers;
   const url = window.__bootstrap.url;
   const urlPattern = window.__bootstrap.urlPattern;
+  const webidl = window.__bootstrap.webidl;
   const net = window.__bootstrap.net_custom;
   const { HttpConn } = window.__bootstrap.http;
 
@@ -104,6 +113,66 @@
       writable: false,
       configurable: true,
     };
+  }
+
+  function getterOnly(getter) {
+    return {
+      get: getter,
+      set() {},
+      enumerable: true,
+      configurable: true,
+    };
+  }
+
+  // TODO move defineEventHandler to a separate file
+
+  // `init` is an optional function that will be called the first time that the
+  // event handler property is set. It will be called with the object on which
+  // the property is set as its argument.
+  // `isSpecialErrorEventHandler` can be set to true to opt into the special
+  // behavior of event handlers for the "error" event in a global scope.
+  function defineEventHandler(
+    emitter,
+    name,
+    init = undefined,
+    isSpecialErrorEventHandler = false,
+  ) {
+    // HTML specification section 8.1.7.1
+    ObjectDefineProperty(emitter, `on${name}`, {
+      get() {
+        if (!this[_eventHandlers]) {
+          return null;
+        }
+
+        return MapPrototypeGet(this[_eventHandlers], name)?.handler ?? null;
+      },
+      set(value) {
+        // All three Web IDL event handler types are nullable callback functions
+        // with the [LegacyTreatNonObjectAsNull] extended attribute, meaning
+        // anything other than an object is treated as null.
+        if (typeof value !== "object" && typeof value !== "function") {
+          value = null;
+        }
+
+        if (!this[_eventHandlers]) {
+          this[_eventHandlers] = new Map();
+        }
+        let handlerWrapper = MapPrototypeGet(this[_eventHandlers], name);
+        if (handlerWrapper) {
+          handlerWrapper.handler = value;
+        } else if (value !== null) {
+          handlerWrapper = makeWrappedHandler(
+            value,
+            isSpecialErrorEventHandler,
+          );
+          this.addEventListener(name, handlerWrapper);
+          init?.(this);
+        }
+        MapPrototypeSet(this[_eventHandlers], name, handlerWrapper);
+      },
+      configurable: true,
+      enumerable: true,
+    });
   }
 
   const globalScope = {
@@ -197,6 +266,7 @@
 
     // form data
     FormData: nonEnumerable(formData.FormData),
+
   }
 
   //function registerErrors() {
@@ -280,6 +350,33 @@
     }
   }
 
+  // set build info
+  const build = {
+   target: "unknown",
+    arch: "unknown",
+    os: "unknown",
+    vendor: "unknown",
+    env: undefined,
+  };
+
+  function setBuildInfo(target) {
+    const { 0: arch, 1: vendor, 2: os, 3: env } = StringPrototypeSplit(
+      target,
+      "-",
+      4,
+    );
+    build.target = target;
+    build.arch = arch;
+    build.vendor = vendor;
+    build.os = os;
+    build.env = env;
+    ObjectFreeze(build);
+  }
+
+  function opMainModule() {
+    return ops.op_main_module();
+  }
+
   function runtimeStart(runtimeOptions, source) {
     core.setMacrotaskCallback(timers.handleTimerMacrotask);
     //core.setMacrotaskCallback(promiseRejectMacrotaskCallback);
@@ -291,7 +388,7 @@
     //  runtimeOptions.v8Version,
     //  runtimeOptions.tsVersion,
     //);
-    //build.setBuildInfo(runtimeOptions.target);
+    setBuildInfo(runtimeOptions.target);
     //util.setLogDebug(runtimeOptions.debugFlag, source);
     colors.setNoColor(runtimeOptions.noColor || !runtimeOptions.isTty);
 
@@ -303,10 +400,8 @@
   }
 
   // Deno overrides
-  Deno.env = env;
   Deno.listen = window.__bootstrap.net.listen;
   Deno.serveHttp = serveHttp;
-
 
   const __bootstrap = window.__bootstrap;
   delete window.__bootstrap;
@@ -314,12 +409,39 @@
 
   ObjectDefineProperties(window, globalScope);
 
+  ObjectDefineProperties(globalThis, {
+    Window: globalInterfaces.windowConstructorDescriptor,
+  });
+  ObjectSetPrototypeOf(globalThis, Window.prototype);
+
+  // TODO: figure out if this is needed
+  globalThis[webidl.brand] = webidl.brand;
+
+  eventTarget.setEventTargetData(globalThis);
+
+  defineEventHandler(window, "error");
+  defineEventHandler(window, "load");
+  defineEventHandler(window, "beforeunload");
+  defineEventHandler(window, "unload");
+  defineEventHandler(window, "unhandledrejection");
+
   runtimeStart({
     denoVersion: "NA",
     v8Version: "NA",
     tsVersion: "NA",
     noColor: true,
-    isTty: false
+    isTty: false,
+    target: window.__build_target,
+  });
+
+  // set these overrides after runtimeStart
+  ObjectDefineProperties(Deno, {
+    env: readOnly(env),
+    build: readOnly(build),
+    pid: readOnly(window.__pid),
+    ppid: readOnly(window.__ppid),
+    args: readOnly([]), // args are set to be empty
+    mainModule: getterOnly(opMainModule)
   });
 })(this);
 

@@ -17,6 +17,15 @@ impl Permissions {
     pub fn check_env_all(&mut self) -> Result<(), AnyError> {
         Ok(())
     }
+
+    pub fn check_read_blind(
+        &mut self,
+        _path: &Path,
+        _display: &str,
+        _api_name: &str,
+    ) -> Result<(), AnyError> {
+        Ok(())
+    }
 }
 
 pub fn init() -> Extension {

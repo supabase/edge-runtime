@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::env;
 
 pub fn init() -> Extension {
-    Extension::builder("env")
+    Extension::builder("custom:env")
         .js(include_js_files!(
           prefix "custom:ext/env",
           "js/env.js",

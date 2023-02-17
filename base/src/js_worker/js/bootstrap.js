@@ -36,6 +36,7 @@
   const url = window.__bootstrap.url;
   const urlPattern = window.__bootstrap.urlPattern;
   const webidl = window.__bootstrap.webidl;
+  const webSocket = window.__bootstrap.webSocket;
   const net = window.__bootstrap.net_custom;
   const { HttpConn } = window.__bootstrap.http;
 
@@ -221,6 +222,9 @@
     // abort signal
     AbortController: nonEnumerable(abortSignal.AbortController),
     AbortSignal: nonEnumerable(abortSignal.AbortSignal),
+
+    // web sockets
+    WebSocket: nonEnumerable(webSocket.WebSocket),
   }
 
   //function registerErrors() {

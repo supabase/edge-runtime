@@ -36,6 +36,7 @@
   const url = window.__bootstrap.url;
   const urlPattern = window.__bootstrap.urlPattern;
   const webidl = window.__bootstrap.webidl;
+  const webSocket = window.__bootstrap.webSocket;
   const net = window.__bootstrap.net_custom;
   const { HttpConn } = window.__bootstrap.http;
 
@@ -221,6 +222,9 @@
     // abort signal
     AbortController: nonEnumerable(abortSignal.AbortController),
     AbortSignal: nonEnumerable(abortSignal.AbortSignal),
+
+    // web sockets
+    WebSocket: nonEnumerable(webSocket.WebSocket),
   }
 
   //function registerErrors() {
@@ -355,6 +359,7 @@
 
   // Deno overrides
   Deno.listen = window.__bootstrap.net.listen;
+  Deno.connect = window.__bootstrap.net.connect;
   Deno.serveHttp = serveHttp;
 
   const __bootstrap = window.__bootstrap;
@@ -390,8 +395,8 @@
 
   // set these overrides after runtimeStart
   ObjectDefineProperties(Deno, {
-    env: readOnly(env),
     build: readOnly(build),
+    env: readOnly(env),
     pid: readOnly(window.__pid),
     ppid: readOnly(window.__ppid),
     args: readOnly([]), // args are set to be empty

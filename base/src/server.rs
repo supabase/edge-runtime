@@ -5,8 +5,10 @@ use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::path::Path;
+use std::str;
 use std::str::FromStr;
 use tokio::net::{TcpListener, TcpStream};
+use url::Url;
 
 async fn process_stream(
     stream: TcpStream,
@@ -21,8 +23,8 @@ async fn process_stream(
     // if no function found return a 404
     // if function found boot a new JS worker,
     // and pass the incoming tcp request
-    // peek into the request in 128 byte chunks
-    let mut buf = [0; 128];
+    // peek into the request in 1024 byte chunks
+    let mut buf = [0; 1024];
     let _ = stream.peek(&mut buf).await?;
 
     let mut headers = [httparse::EMPTY_HEADER; 64];
@@ -30,14 +32,27 @@ async fn process_stream(
     let _ = req.parse(&buf).unwrap();
 
     if req.path.is_none() {
-        // if the path isn't found in first 128 bytes it must not be a valid http
+        // if the path isn't found in first 1024 bytes it must not be a valid http
         // request
         bail!("invalid request")
     }
 
-    let req_path = String::from(req.path.unwrap());
-    let service_name = req_path.split("/").nth(1).unwrap_or_default();
+    let host = req
+        .headers
+        .iter()
+        .find(|&&h| h.name.to_lowercase() == "host")
+        .map(|h| h.value)
+        .unwrap_or_default();
+    let host = str::from_utf8(host).unwrap_or("example.com"); // TODO: configure the default host
+    let req_path = req.path.unwrap_or_default();
 
+    let url = Url::parse(&format!("http://{}{}", &host, &req_path).as_str())?;
+    let path_segments = url.path_segments();
+    if path_segments.is_none() {
+        bail!("need to provide a path")
+        // send a 400 response
+    }
+    let service_name = path_segments.unwrap().next().unwrap_or_default(); // get the first path segement
     if service_name == "" {
         bail!("service name cannot be empty")
         // send a 400 response

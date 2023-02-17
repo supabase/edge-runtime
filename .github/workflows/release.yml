@@ -52,7 +52,8 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - uses: docker/build-push-action@v3
+      - id: build
+        uses: docker/build-push-action@v3
         with:
           push: true
           platforms: linux/${{ env.arch }}
@@ -67,10 +68,6 @@ jobs:
     runs-on: arm-runner
     env:
       arch: arm64
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
     outputs:
       image_digest: ${{ steps.build.outputs.digest }}
     steps:
@@ -96,7 +93,8 @@ jobs:
             image=moby/buildkit:master
             network=host
 
-      - uses: docker/build-push-action@v3
+      - id: build
+        uses: docker/build-push-action@v3
         with:
           context: .
           push: true

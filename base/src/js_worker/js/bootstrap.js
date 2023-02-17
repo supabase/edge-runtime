@@ -359,6 +359,7 @@
 
   // Deno overrides
   Deno.listen = window.__bootstrap.net.listen;
+  Deno.connect = window.__bootstrap.net.connect;
   Deno.serveHttp = serveHttp;
 
   const __bootstrap = window.__bootstrap;
@@ -394,8 +395,8 @@
 
   // set these overrides after runtimeStart
   ObjectDefineProperties(Deno, {
-    env: readOnly(env),
     build: readOnly(build),
+    env: readOnly(env),
     pid: readOnly(window.__pid),
     ppid: readOnly(window.__ppid),
     args: readOnly([]), // args are set to be empty

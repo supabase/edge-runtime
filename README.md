@@ -31,3 +31,4 @@ docker run -it --rm -p 9000:9000 -v /path/to/supabase/functions:/usr/services su
 * handle 404 errors
 * Support snapshotting the runtime
 * Support for private modules (DENO_AUTH_TOKENS)
+* Enable ustable TLS support

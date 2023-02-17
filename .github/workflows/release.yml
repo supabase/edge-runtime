@@ -101,8 +101,7 @@ jobs:
           push: true
           platforms: linux/${{ env.arch }}
           tags: ${{ steps.meta.outputs.tags }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          no-cache: true
 
   merge_manifest:
     needs: [release, publish_x86, publish_arm]

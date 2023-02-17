@@ -104,7 +104,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-   merge_manifest:
+  merge_manifest:
     needs: [release, publish_x86, publish_arm]
     runs-on: ubuntu-latest
     permissions:

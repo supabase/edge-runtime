@@ -81,22 +81,28 @@ fn start_runtime(
     )
     .unwrap();
 
+    // Note: this will load Mozilla's CAs (we may also need to support
+    let root_cert_store = deno_tls::create_default_root_cert_store();
+
     let extensions_with_js = vec![
         deno_webidl::init(),
         deno_console::init(),
         deno_url::init(),
         deno_web::init::<Permissions>(deno_web::BlobStore::default(), None),
         deno_fetch::init::<Permissions>(deno_fetch::Options {
-            // TODO: update user agent
             user_agent: user_agent.clone(),
             ..Default::default()
         }),
         // TODO: support providing a custom seed for crypto
         deno_crypto::init(None),
-        // TODO: configure root cert store
-        deno_net::init::<Permissions>(None, false, None),
-        deno_websocket::init::<Permissions>(user_agent.clone(), None, None),
+        deno_net::init::<Permissions>(Some(root_cert_store.clone()), false, None),
+        deno_websocket::init::<Permissions>(
+            user_agent.clone(),
+            Some(root_cert_store.clone()),
+            None,
+        ),
         deno_http::init(),
+        deno_tls::init(),
         env::init(),
     ];
     let extensions = vec![

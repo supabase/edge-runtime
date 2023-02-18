@@ -360,6 +360,9 @@
   // Deno overrides
   Deno.listen = window.__bootstrap.net.listen;
   Deno.connect = window.__bootstrap.net.connect;
+  Deno.connectTls = window.__bootstrap.tls.connectTls;
+  Deno.startTls = window.__bootstrap.tls.startTls;
+  Deno.resolveDns = window.__bootstrap.net.resolveDns;
   Deno.serveHttp = serveHttp;
 
   const __bootstrap = window.__bootstrap;

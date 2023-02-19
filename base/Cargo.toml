@@ -21,6 +21,7 @@ deno_webidl = { version = "0.85.0" }
 deno_web = { version = "0.116.0" }
 deno_websocket = { version = "0.90.0" }
 httparse = { version = "1.8.0" }
+import_map = { version = "0.15.0" }
 log = { workspace = true }
 module_fetcher = { path = "../module_fetcher" }
 reqwest = { version = "0.11.13" }

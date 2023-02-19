@@ -1,7 +1,6 @@
 # Edge Runtime
 
-This is a custom Edge Functions Runtime based off [Deno](https://deno.land), capable of running JavaScript, TypeScript, and WASM code.
-
+A server based on [Deno](https://deno.land) runtime, capable of running JavaScript, TypeScript, and WASM services.
 
 ### Why are we building this?
 
@@ -31,4 +30,6 @@ docker run -it --rm -p 9000:9000 -v /path/to/supabase/functions:/usr/services su
 * handle 404 errors
 * Support snapshotting the runtime
 * Support for private modules (DENO_AUTH_TOKENS)
-* Enable ustable TLS support
+* HTTP/2 support (need the host to support SSL)
+* Add tests
+* Add a benchmarking suite

@@ -7,7 +7,7 @@ use clap::{arg, value_parser, ArgAction, Command};
 
 fn cli() -> Command {
     Command::new("edge-runtime")
-        .about("A runtime based off Deno for running JavaScript, TypeScript, and WASM services")
+        .about("A server based on Deno runtime, capable of running JavaScript, TypeScript, and WASM services")
         .version("0.0.1") // TODO: set version on compile time
         .arg_required_else_help(true)
         .arg(
@@ -32,9 +32,10 @@ fn cli() -> Command {
                         .value_parser(value_parser!(u16)),
                 )
                 .arg(arg!(--dir <DIR> "Path to services directory").default_value("services"))
-                .arg(arg!(--memory_limit <MiB> "Memory limit for a service (in MiB)").default_value("150").value_parser(value_parser!(u16)))
-                .arg(arg!(--service_timeout <secs> "Wall clock duration a service can run in seconds").default_value("60").value_parser(value_parser!(u16)))
-                .arg(arg!(--no_cache "Disable using module cache").default_value("false").value_parser(FalseyValueParser::new()))
+                .arg(arg!(--"memory-limit" <MiB> "Memory limit for a service (in MiB)").default_value("150").value_parser(value_parser!(u16)))
+                .arg(arg!(--"service-timeout" <secs> "Wall clock duration a service can run in seconds").default_value("60").value_parser(value_parser!(u16)))
+                .arg(arg!(--"disable-module-cache" "Disable using module cache").default_value("false").value_parser(FalseyValueParser::new()))
+                .arg(arg!(--"import-map" <Path> "Path to import map file"))
         )
 }
 
@@ -64,11 +65,15 @@ fn main() {
             let port = sub_matches.get_one::<u16>("port").copied().unwrap();
             let services_dir = sub_matches.get_one::<String>("dir").cloned().unwrap();
             let service_timeout = sub_matches
-                .get_one::<u16>("service_timeout")
+                .get_one::<u16>("service-timeout")
                 .cloned()
                 .unwrap();
-            let mem_limit = sub_matches.get_one::<u16>("memory_limit").cloned().unwrap();
-            let no_cache = sub_matches.get_one::<bool>("no_cache").cloned().unwrap();
+            let mem_limit = sub_matches.get_one::<u16>("memory-limit").cloned().unwrap();
+            let no_module_cache = sub_matches
+                .get_one::<bool>("disable-module-cache")
+                .cloned()
+                .unwrap();
+            let import_map_path = sub_matches.get_one::<String>("import-map").cloned();
 
             exit_with_code(start_server(
                 &ip.as_str(),
@@ -76,7 +81,8 @@ fn main() {
                 services_dir,
                 mem_limit,
                 service_timeout,
-                no_cache,
+                no_module_cache,
+                import_map_path,
             ))
         }
         _ => {

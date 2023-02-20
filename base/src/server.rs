@@ -15,7 +15,8 @@ async fn process_stream(
     services_dir: String,
     mem_limit: u16,
     service_timeout: u16,
-    no_cache: bool,
+    no_module_cache: bool,
+    import_map_path: Option<String>,
 ) -> Result<(), Error> {
     // peek into the HTTP header
     // find request path
@@ -72,7 +73,8 @@ async fn process_stream(
         service_path.to_path_buf(),
         memory_limit_mb,
         worker_timeout_ms,
-        no_cache,
+        no_module_cache,
+        import_map_path,
         stream,
     )
     .await?;
@@ -86,7 +88,8 @@ pub struct Server {
     services_dir: String,
     mem_limit: u16,
     service_timeout: u16,
-    no_cache: bool,
+    no_module_cache: bool,
+    import_map_path: Option<String>,
 }
 
 impl Server {
@@ -96,7 +99,8 @@ impl Server {
         services_dir: String,
         mem_limit: u16,
         service_timeout: u16,
-        no_cache: bool,
+        no_module_cache: bool,
+        import_map_path: Option<String>,
     ) -> Result<Self, Error> {
         let ip = Ipv4Addr::from_str(ip)?;
         Ok(Self {
@@ -105,7 +109,8 @@ impl Server {
             services_dir,
             mem_limit,
             service_timeout,
-            no_cache,
+            no_module_cache,
+            import_map_path,
         })
     }
 
@@ -122,9 +127,10 @@ impl Server {
                            let services_dir_clone = self.services_dir.clone();
                            let mem_limit = self.mem_limit;
                            let service_timeout = self.service_timeout;
-                           let no_cache = self.no_cache;
+                           let no_module_cache = self.no_module_cache;
+                           let import_map_path_clone = self.import_map_path.clone();
                            tokio::task::spawn(async move {
-                             let res = process_stream(stream, services_dir_clone, mem_limit, service_timeout, no_cache).await;
+                             let res = process_stream(stream, services_dir_clone, mem_limit, service_timeout, no_module_cache, import_map_path_clone).await;
                              if res.is_err() {
                                  error!("{:?}", res.err().unwrap());
                              }

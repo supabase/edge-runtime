@@ -176,6 +176,7 @@ dependencies = [
  "deno_webidl",
  "deno_websocket",
  "httparse",
+ "import_map 0.15.0",
  "log",
  "module_fetcher",
  "reqwest",
@@ -1568,6 +1569,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "import_map"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "632089ec08bd62e807311104122fb26d5c911ab172e2b9864be154a575979e29"
+dependencies = [
+ "cfg-if",
+ "indexmap",
+ "log",
+ "serde",
+ "serde_json",
+ "url",
+]
+
+[[package]]
 name = "indexmap"
 version = "1.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1892,7 +1907,7 @@ dependencies = [
  "deno_web",
  "deno_webstorage",
  "encoding_rs",
- "import_map",
+ "import_map 0.13.0",
  "libc",
  "log",
  "ring",

@@ -5,8 +5,11 @@ use deno_core::located_script_name;
 use deno_core::url::Url;
 use deno_core::JsRuntime;
 use deno_core::RuntimeOptions;
-use log::{debug, error};
+use import_map::{parse_from_json, ImportMap, ImportMapDiagnostic};
+use log::{debug, error, warn};
+use std::fs;
 use std::panic;
+use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::thread;
@@ -29,7 +32,8 @@ pub async fn serve(
     service_path: PathBuf,
     memory_limit_mb: u64,
     worker_timeout_ms: u64,
-    no_cache: bool,
+    no_module_cache: bool,
+    import_map_path: Option<String>,
     tcp_stream: TcpStream,
 ) -> Result<(), Error> {
     let service_path_clone = service_path.clone();
@@ -44,7 +48,8 @@ pub async fn serve(
             service_path,
             memory_limit_mb,
             worker_timeout_ms,
-            no_cache,
+            no_module_cache,
+            import_map_path,
             tcp_stream_rx,
             shutdown_tx,
         )
@@ -62,24 +67,52 @@ pub async fn serve(
     Ok(())
 }
 
+fn load_import_map(maybe_path: Option<String>) -> Result<Option<ImportMap>, Error> {
+    if let Some(path_str) = maybe_path {
+        let path = Path::new(&path_str);
+        let json_str = fs::read_to_string(path)?;
+
+        let abs_path = std::env::current_dir().map(|p| p.join(&path))?;
+        let base_url = Url::from_directory_path(abs_path.parent().unwrap()).unwrap();
+        let result = parse_from_json(&base_url, json_str.as_str())?;
+        print_import_map_diagnostics(&result.diagnostics);
+        Ok(Some(result.import_map))
+    } else {
+        Ok(None)
+    }
+}
+
+fn print_import_map_diagnostics(diagnostics: &[ImportMapDiagnostic]) {
+    if !diagnostics.is_empty() {
+        warn!(
+            "Import map diagnostics:\n{}",
+            diagnostics
+                .iter()
+                .map(|d| format!("  - {d}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+    }
+}
 fn start_runtime(
     service_path: PathBuf,
     memory_limit_mb: u64,
     worker_timeout_ms: u64,
-    no_cache: bool,
+    no_module_cache: bool,
+    import_map_path: Option<String>,
     tcp_stream_rx: mpsc::UnboundedReceiver<TcpStream>,
     shutdown_tx: oneshot::Sender<()>,
 ) {
     let user_agent = "supabase-edge-runtime".to_string();
 
-    let module_path = service_path.join("index.ts");
-    // TODO: handle file missing error
-    let main_module_url = Url::from_file_path(
+    let base_url = Url::from_directory_path(
         std::env::current_dir()
-            .map(|p| p.join(&module_path))
+            .map(|p| p.join(&service_path))
             .unwrap(),
     )
     .unwrap();
+    // TODO: check for other potential main paths (eg: index.js, index.tsx)
+    let main_module_url = base_url.join("index.ts").unwrap();
 
     // Note: this will load Mozilla's CAs (we may also need to support
     let root_cert_store = deno_tls::create_default_root_cert_store();
@@ -112,8 +145,10 @@ fn start_runtime(
         runtime::init(main_module_url.clone()),
     ];
 
+    // FIXME: loading import map can panic
+    let import_map = load_import_map(import_map_path).unwrap();
     // FIXME: module_loader can panic
-    let module_loader = DefaultModuleLoader::new(no_cache).unwrap();
+    let module_loader = DefaultModuleLoader::new(import_map, no_module_cache).unwrap();
 
     let mut js_runtime = JsRuntime::new(RuntimeOptions {
         extensions,

@@ -9,11 +9,14 @@ use deno_core::ModuleSourceFuture;
 use deno_core::ModuleSpecifier;
 use deno_core::ModuleType;
 use deno_core::ResolutionKind;
+use import_map::ImportMap;
 use module_fetcher::cache::{DenoDir, EmitCache, FastInsecureHasher, HttpCache, ParsedSourceCache};
 use module_fetcher::emit::emit_parsed_source;
 use module_fetcher::file_fetcher::{CacheSetting, FileFetcher};
 use module_fetcher::http_util::HttpClient;
+use std::path::Path;
 use std::pin::Pin;
+use url::Url;
 
 fn get_module_type(media_type: MediaType) -> Result<ModuleType, Error> {
     let module_type = match media_type {
@@ -44,10 +47,11 @@ pub struct DefaultModuleLoader {
     permissions: module_fetcher::permissions::Permissions,
     emit_cache: EmitCache,
     parsed_source_cache: ParsedSourceCache,
+    maybe_import_map: Option<ImportMap>,
 }
 
 impl DefaultModuleLoader {
-    pub fn new(no_cache: bool) -> Result<Self, AnyError> {
+    pub fn new(maybe_import_map: Option<ImportMap>, no_cache: bool) -> Result<Self, AnyError> {
         // Note: we are reusing Deno dependency cache path
         let deno_dir = DenoDir::new(None)?;
         let deps_cache_location = deno_dir.deps_folder_path();
@@ -78,6 +82,7 @@ impl DefaultModuleLoader {
             permissions,
             emit_cache,
             parsed_source_cache,
+            maybe_import_map,
         })
     }
 }
@@ -89,7 +94,24 @@ impl ModuleLoader for DefaultModuleLoader {
         referrer: &str,
         _kind: ResolutionKind,
     ) -> Result<ModuleSpecifier, Error> {
-        Ok(deno_core::resolve_import(specifier, referrer)?)
+        if let Some(import_map) = &self.maybe_import_map {
+            let referrer_relative = Path::new(referrer).is_relative();
+            let referrer_url = if referrer_relative {
+                import_map.base_url().join(referrer)
+            } else {
+                Url::parse(referrer)
+            };
+            if referrer_url.is_err() {
+                return referrer_url.map_err(|err| err.into());
+            }
+
+            let referrer_url = referrer_url.unwrap();
+            import_map
+                .resolve(specifier, &referrer_url)
+                .map_err(|err| err.into())
+        } else {
+            deno_core::resolve_import(specifier, referrer).map_err(|err| err.into())
+        }
     }
 
     // TODO: implement prepare_load method

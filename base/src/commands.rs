@@ -9,6 +9,7 @@ pub async fn start_server(
     mem_limit: u16,
     service_timeout: u16,
     no_module_cache: bool,
+    import_map_path: Option<String>,
 ) -> Result<(), Error> {
     let server = Server::new(
         ip,
@@ -17,6 +18,7 @@ pub async fn start_server(
         mem_limit,
         service_timeout,
         no_module_cache,
+        import_map_path,
     )?;
     server.listen().await
 }

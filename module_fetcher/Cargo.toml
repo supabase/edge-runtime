@@ -11,15 +11,15 @@ cache_control = { version = "=0.2.0" }
 chrono = { version = "=0.4.22", default-features = false, features = ["clock"] }
 data-url = { version= "=0.2.0" }
 deno_ast = { version = "0.23.2", features = [ "cjs", "transpiling" ] }
-deno_core = { version = "0.167.0" }
-deno_console = { version = "0.85.0" }
-deno_crypto =  { version = "0.99.0" }
-deno_fetch = { version = "0.109.0" }
-deno_graph = { version = "0.41.0" }
-deno_node = { version = "0.22.0" }
-deno_tls = { version = "0.72.0" }
-deno_web = { version = "0.116.0" }
-deno_webstorage = { version = "0.80.0" }
+deno_core = { workspace = true }
+deno_console = { workspace = true }
+deno_crypto =  { workspace = true }
+deno_fetch = { workspace = true }
+deno_graph = { workspace = true }
+deno_node = { workspace = true }
+deno_tls = { workspace = true }
+deno_web = { workspace = true }
+deno_webstorage = { workspace = true }
 encoding_rs = { version = "=0.8.31" }
 import_map = { version = "=0.13.0" }
 log = { workspace = true }

@@ -33,3 +33,8 @@ docker run -it --rm -p 9000:9000 -v /path/to/supabase/functions:/usr/services su
 * HTTP/2 support (need the host to support SSL)
 * Add tests
 * Add a benchmarking suite
+
+## How to update to a Deno version
+
+* Select the Deno version to upgrade and visit its tag on GitHub (eg: https://github.com/denoland/deno/blob/v1.30.3/Cargo.toml)
+* Open the `Cargo.toml` at the root of of the repo and modify all `deno_*` modules to match to the Deno's repo.

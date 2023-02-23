@@ -10,6 +10,22 @@ members = [
 log = "0.4.17"
 anyhow = { version = "1.0" }
 
+deno_ast = { version = "0.23.2", features = [ "cjs", "transpiling" ] }
+deno_core = { version = "0.171.0" }
+deno_console = { version = "0.89.0" }
+deno_crypto =  { version = "0.103.0" }
+deno_fetch = { version = "0.113.0" }
+deno_graph = { version = "0.42.0" }
+deno_http =  { version = "0.84.0" }
+deno_net = { version = "0.81.0" }
+deno_node = { version = "0.26.0" }
+deno_url = { version = "0.89.0" }
+deno_tls = { version = "0.76.0"}
+deno_webidl = { version = "0.89.0" }
+deno_web = { version = "0.120.0" }
+deno_websocket = { version = "0.94.0" }
+deno_webstorage = { version = "0.84.0" }
+
 [profile.release]
 strip="debuginfo"
 codegen-units = 1

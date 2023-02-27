@@ -260,8 +260,8 @@
         return false;
     }
 
-    return !!globalThis_.onunhandledrejection ||
-      event.listenerCount(globalThis_, "unhandledrejection") > 0;
+    return !!globalThis.onunhandledrejection ||
+      event.listenerCount(globalThis, "unhandledrejection") > 0;
   }
 
   function promiseRejectMacrotaskCallback() {
@@ -294,9 +294,9 @@
       // Add a callback for "error" event - it will be dispatched
       // if error is thrown during dispatch of "unhandledrejection"
       // event.
-      globalThis_.addEventListener("error", errorEventCb);
-      globalThis_.dispatchEvent(rejectionEvent);
-      globalThis_.removeEventListener("error", errorEventCb);
+      globalThis.addEventListener("error", errorEventCb);
+      globalThis.dispatchEvent(rejectionEvent);
+      globalThis.removeEventListener("error", errorEventCb);
 
       // If event was not prevented (or "unhandledrejection" listeners didn't
       // throw) we will let Rust side handle it.

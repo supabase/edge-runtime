@@ -4,6 +4,7 @@
   const core = Deno.core;
   const ops = core.ops;
   const {
+    ErrorPrototype,
     ObjectDefineProperty,
     ObjectDefineProperties,
     ObjectPrototypeIsPrototypeOf,
@@ -298,12 +299,12 @@
     } else if (typeof error == "string") {
       return `Uncaught ${
         inspectArgs([quoteString(error)], {
-          colors: !colors.getNoColor(),
+          colors: false,
         })
       }`;
     } else {
       return `Uncaught ${
-        inspectArgs([error], { colors: !colors.getNoColor() })
+        inspectArgs([error], { colors: false })
       }`;
     }
   }
@@ -340,7 +341,7 @@
     //core.setMacrotaskCallback(promiseRejectMacrotaskCallback);
     core.setWasmStreamingCallback(fetch.handleWasmStreaming);
     //core.setReportExceptionCallback(reportException);
-    //ops.op_set_format_exception_callback(formatException);
+    ops.op_set_format_exception_callback(formatException);
     //version.setVersions(
     //  runtimeOptions.denoVersion,
     //  runtimeOptions.v8Version,

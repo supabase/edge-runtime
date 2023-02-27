@@ -124,6 +124,7 @@ fn start_runtime(
         deno_web::init::<Permissions>(deno_web::BlobStore::default(), None),
         deno_fetch::init::<Permissions>(deno_fetch::Options {
             user_agent: user_agent.clone(),
+            root_cert_store: Some(root_cert_store.clone()),
             ..Default::default()
         }),
         // TODO: support providing a custom seed for crypto

@@ -4,13 +4,21 @@
   const core = Deno.core;
   const ops = core.ops;
   const {
+    ArrayPrototypeIndexOf,
+    ArrayPrototypePush,
+    ArrayPrototypeShift,
+    ArrayPrototypeSplice,
     ErrorPrototype,
     ObjectDefineProperty,
     ObjectDefineProperties,
     ObjectPrototypeIsPrototypeOf,
     ObjectSetPrototypeOf,
     ObjectFreeze,
-    StringPrototypeSplit
+    SafeWeakMap,
+    StringPrototypeSplit,
+    WeakMapPrototypeGet,
+    WeakMapPrototypeSet,
+    WeakMapPrototypeDelete
   }= window.__bootstrap.primordials;
 
   const abortSignal = window.__bootstrap.abortSignal;
@@ -228,6 +236,77 @@
     WebSocket: nonEnumerable(webSocket.WebSocket),
   }
 
+  const pendingRejections = [];
+  const pendingRejectionsReasons = new SafeWeakMap();
+
+  function promiseRejectCallback(type, promise, reason) {
+    switch (type) {
+      case 0: {
+        ops.op_store_pending_promise_rejection(promise, reason);
+        ArrayPrototypePush(pendingRejections, promise);
+        WeakMapPrototypeSet(pendingRejectionsReasons, promise, reason);
+        break;
+      }
+      case 1: {
+        ops.op_remove_pending_promise_rejection(promise);
+        const index = ArrayPrototypeIndexOf(pendingRejections, promise);
+        if (index > -1) {
+          ArrayPrototypeSplice(pendingRejections, index, 1);
+          WeakMapPrototypeDelete(pendingRejectionsReasons, promise);
+        }
+        break;
+      }
+      default:
+        return false;
+    }
+
+    return !!globalThis_.onunhandledrejection ||
+      event.listenerCount(globalThis_, "unhandledrejection") > 0;
+  }
+
+  function promiseRejectMacrotaskCallback() {
+    while (pendingRejections.length > 0) {
+      const promise = ArrayPrototypeShift(pendingRejections);
+      const hasPendingException = ops.op_has_pending_promise_rejection(
+        promise,
+      );
+      const reason = WeakMapPrototypeGet(pendingRejectionsReasons, promise);
+      WeakMapPrototypeDelete(pendingRejectionsReasons, promise);
+
+      if (!hasPendingException) {
+        continue;
+      }
+
+      const rejectionEvent = new event.PromiseRejectionEvent(
+        "unhandledrejection",
+        {
+          cancelable: true,
+          promise,
+          reason,
+        },
+      );
+
+      const errorEventCb = (event) => {
+        if (event.error === reason) {
+          ops.op_remove_pending_promise_rejection(promise);
+        }
+      };
+      // Add a callback for "error" event - it will be dispatched
+      // if error is thrown during dispatch of "unhandledrejection"
+      // event.
+      globalThis_.addEventListener("error", errorEventCb);
+      globalThis_.dispatchEvent(rejectionEvent);
+      globalThis_.removeEventListener("error", errorEventCb);
+
+      // If event was not prevented (or "unhandledrejection" listeners didn't
+      // throw) we will let Rust side handle it.
+      if (rejectionEvent.defaultPrevented) {
+        ops.op_remove_pending_promise_rejection(promise);
+      }
+    }
+    return true;
+  }
+
   //function registerErrors() {
   //  core.registerErrorClass("NotFound", errors.NotFound);
   //  core.registerErrorClass("PermissionDenied", errors.PermissionDenied);
@@ -338,7 +417,7 @@
 
   function runtimeStart(runtimeOptions, source) {
     core.setMacrotaskCallback(timers.handleTimerMacrotask);
-    //core.setMacrotaskCallback(promiseRejectMacrotaskCallback);
+    core.setMacrotaskCallback(promiseRejectMacrotaskCallback);
     core.setWasmStreamingCallback(fetch.handleWasmStreaming);
     //core.setReportExceptionCallback(reportException);
     ops.op_set_format_exception_callback(formatException);
@@ -348,7 +427,6 @@
     //  runtimeOptions.tsVersion,
     //);
     setBuildInfo(runtimeOptions.target);
-    //util.setLogDebug(runtimeOptions.debugFlag, source);
     colors.setNoColor(runtimeOptions.noColor || !runtimeOptions.isTty);
 
     // deno-lint-ignore prefer-primordials
@@ -387,6 +465,8 @@
   defineEventHandler(window, "beforeunload");
   defineEventHandler(window, "unload");
   defineEventHandler(window, "unhandledrejection");
+
+  core.setPromiseRejectCallback(promiseRejectCallback);
 
   runtimeStart({
     denoVersion: "NA",

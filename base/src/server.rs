@@ -1,6 +1,7 @@
 use crate::js_worker;
 use anyhow::{bail, Error};
 use log::{debug, error, info};
+use std::collections::HashMap;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
@@ -17,6 +18,7 @@ async fn process_stream(
     service_timeout: u16,
     no_module_cache: bool,
     import_map_path: Option<String>,
+    env_vars: HashMap<String, String>,
 ) -> Result<(), Error> {
     // peek into the HTTP header
     // find request path
@@ -75,6 +77,7 @@ async fn process_stream(
         worker_timeout_ms,
         no_module_cache,
         import_map_path,
+        env_vars,
         stream,
     )
     .await?;
@@ -90,6 +93,7 @@ pub struct Server {
     service_timeout: u16,
     no_module_cache: bool,
     import_map_path: Option<String>,
+    env_vars: HashMap<String, String>,
 }
 
 impl Server {
@@ -101,6 +105,7 @@ impl Server {
         service_timeout: u16,
         no_module_cache: bool,
         import_map_path: Option<String>,
+        env_vars: HashMap<String, String>,
     ) -> Result<Self, Error> {
         let ip = Ipv4Addr::from_str(ip)?;
         Ok(Self {
@@ -111,6 +116,7 @@ impl Server {
             service_timeout,
             no_module_cache,
             import_map_path,
+            env_vars,
         })
     }
 
@@ -129,6 +135,7 @@ impl Server {
                            let service_timeout = self.service_timeout;
                            let no_module_cache = self.no_module_cache;
                            let import_map_path_clone = self.import_map_path.clone();
+                           let env_vars_clone = self.env_vars.clone();
                            tokio::task::spawn(async move {
                              let res = process_stream(
                                             stream,
@@ -136,7 +143,8 @@ impl Server {
                                             mem_limit,
                                             service_timeout,
                                             no_module_cache,
-                                            import_map_path_clone).await;
+                                            import_map_path_clone,
+                                            env_vars_clone).await;
                              if res.is_err() {
                                  error!("{:?}", res.err().unwrap());
                              }

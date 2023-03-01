@@ -1,4 +1,5 @@
 use crate::js_worker::permissions::Permissions;
+use crate::js_worker::types::EnvVars;
 
 use deno_core::error::AnyError;
 use deno_core::error::{not_supported, type_error};
@@ -8,7 +9,6 @@ use deno_core::Extension;
 use deno_core::OpState;
 use deno_node::NODE_ENV_VAR_ALLOWLIST;
 use std::collections::HashMap;
-use std::env;
 
 pub fn init() -> Extension {
     Extension::builder("custom:env")
@@ -33,7 +33,8 @@ fn op_set_env(_state: &mut OpState, _key: String, _value: String) -> Result<(), 
 #[op]
 fn op_env(state: &mut OpState) -> Result<HashMap<String, String>, AnyError> {
     state.borrow_mut::<Permissions>().check_env_all()?;
-    Ok(env::vars().collect())
+    let env_vars = state.borrow::<EnvVars>();
+    Ok(env_vars.clone())
 }
 
 #[op]
@@ -55,10 +56,8 @@ fn op_get_env(state: &mut OpState, key: String) -> Result<Option<String>, AnyErr
         )));
     }
 
-    let r = match env::var(key) {
-        Err(env::VarError::NotPresent) => None,
-        v => Some(v?),
-    };
+    let env_vars = state.borrow::<EnvVars>();
+    let r = env_vars.get(&key).map(|k| k.clone());
     Ok(r)
 }
 

@@ -7,6 +7,7 @@ use deno_core::JsRuntime;
 use deno_core::RuntimeOptions;
 use import_map::{parse_from_json, ImportMap, ImportMapDiagnostic};
 use log::{debug, error, warn};
+use std::collections::HashMap;
 use std::fs;
 use std::panic;
 use std::path::Path;
@@ -24,6 +25,7 @@ pub mod module_loader;
 pub mod net_override;
 pub mod permissions;
 pub mod runtime;
+pub mod types;
 
 use module_loader::DefaultModuleLoader;
 use permissions::Permissions;
@@ -34,6 +36,7 @@ pub async fn serve(
     worker_timeout_ms: u64,
     no_module_cache: bool,
     import_map_path: Option<String>,
+    env_vars: HashMap<String, String>,
     tcp_stream: TcpStream,
 ) -> Result<(), Error> {
     let service_path_clone = service_path.clone();
@@ -50,6 +53,7 @@ pub async fn serve(
             worker_timeout_ms,
             no_module_cache,
             import_map_path,
+            env_vars,
             tcp_stream_rx,
             shutdown_tx,
         )
@@ -102,6 +106,7 @@ fn start_runtime(
     worker_timeout_ms: u64,
     no_module_cache: bool,
     import_map_path: Option<String>,
+    env_vars: HashMap<String, String>,
     tcp_stream_rx: mpsc::UnboundedReceiver<TcpStream>,
     shutdown_tx: oneshot::Sender<()>,
 ) {
@@ -201,6 +206,7 @@ fn start_runtime(
         let op_state_rc = js_runtime.op_state();
         let mut op_state = op_state_rc.borrow_mut();
         op_state.put::<mpsc::UnboundedReceiver<TcpStream>>(tcp_stream_rx);
+        op_state.put::<types::EnvVars>(env_vars);
     }
 
     let v8_thread_safe_handle = js_runtime.v8_isolate().thread_safe_handle();

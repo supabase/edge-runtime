@@ -116,7 +116,7 @@ fn start_runtime(
     // TODO: check for other potential main paths (eg: index.js, index.tsx)
     let main_module_url = base_url.join("index.ts").unwrap();
 
-    // Note: this will load Mozilla's CAs (we may also need to support
+    // Note: this will load Mozilla's CAs (we may also need to support system certs)
     let root_cert_store = deno_tls::create_default_root_cert_store();
 
     let extensions_with_js = vec![

@@ -4,6 +4,7 @@ use anyhow::Error;
 use base::commands::start_server;
 use clap::builder::FalseyValueParser;
 use clap::{arg, value_parser, ArgAction, Command};
+use std::env;
 
 fn cli() -> Command {
     Command::new("edge-runtime")
@@ -74,6 +75,8 @@ fn main() {
                 .cloned()
                 .unwrap();
             let import_map_path = sub_matches.get_one::<String>("import-map").cloned();
+            // CLI will provide all OS environment variables to a function
+            let env_vars = env::vars().collect();
 
             exit_with_code(start_server(
                 &ip.as_str(),
@@ -83,6 +86,7 @@ fn main() {
                 service_timeout,
                 no_module_cache,
                 import_map_path,
+                env_vars,
             ))
         }
         _ => {

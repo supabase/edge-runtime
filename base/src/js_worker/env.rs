@@ -1,14 +1,14 @@
 use crate::js_worker::permissions::Permissions;
+use crate::js_worker::types::EnvVars;
 
-use deno_core::error::type_error;
 use deno_core::error::AnyError;
+use deno_core::error::{not_supported, type_error};
 use deno_core::include_js_files;
 use deno_core::op;
 use deno_core::Extension;
 use deno_core::OpState;
 use deno_node::NODE_ENV_VAR_ALLOWLIST;
 use std::collections::HashMap;
-use std::env;
 
 pub fn init() -> Extension {
     Extension::builder("custom:env")
@@ -26,31 +26,15 @@ pub fn init() -> Extension {
 }
 
 #[op]
-fn op_set_env(state: &mut OpState, key: String, value: String) -> Result<(), AnyError> {
-    state.borrow_mut::<Permissions>().check_env(&key)?;
-    if key.is_empty() {
-        return Err(type_error("Key is an empty string."));
-    }
-    if key.contains(&['=', '\0'] as &[char]) {
-        return Err(type_error(format!(
-            "Key contains invalid characters: {:?}",
-            key
-        )));
-    }
-    if value.contains('\0') {
-        return Err(type_error(format!(
-            "Value contains invalid characters: {:?}",
-            value
-        )));
-    }
-    env::set_var(key, value);
-    Ok(())
+fn op_set_env(_state: &mut OpState, _key: String, _value: String) -> Result<(), AnyError> {
+    Err(not_supported())
 }
 
 #[op]
 fn op_env(state: &mut OpState) -> Result<HashMap<String, String>, AnyError> {
     state.borrow_mut::<Permissions>().check_env_all()?;
-    Ok(env::vars().collect())
+    let env_vars = state.borrow::<EnvVars>();
+    Ok(env_vars.clone())
 }
 
 #[op]
@@ -72,19 +56,12 @@ fn op_get_env(state: &mut OpState, key: String) -> Result<Option<String>, AnyErr
         )));
     }
 
-    let r = match env::var(key) {
-        Err(env::VarError::NotPresent) => None,
-        v => Some(v?),
-    };
+    let env_vars = state.borrow::<EnvVars>();
+    let r = env_vars.get(&key).map(|k| k.clone());
     Ok(r)
 }
 
 #[op]
-fn op_delete_env(state: &mut OpState, key: String) -> Result<(), AnyError> {
-    state.borrow_mut::<Permissions>().check_env(&key)?;
-    if key.is_empty() || key.contains(&['=', '\0'] as &[char]) {
-        return Err(type_error("Key contains invalid characters."));
-    }
-    env::remove_var(key);
-    Ok(())
+fn op_delete_env(_state: &mut OpState, _key: String) -> Result<(), AnyError> {
+    Err(not_supported())
 }

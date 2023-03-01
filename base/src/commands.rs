@@ -1,5 +1,6 @@
 use crate::server::Server;
 use anyhow::Error;
+use std::collections::HashMap;
 
 #[tokio::main]
 pub async fn start_server(
@@ -10,6 +11,7 @@ pub async fn start_server(
     service_timeout: u16,
     no_module_cache: bool,
     import_map_path: Option<String>,
+    env_vars: HashMap<String, String>,
 ) -> Result<(), Error> {
     let server = Server::new(
         ip,
@@ -19,6 +21,7 @@ pub async fn start_server(
         service_timeout,
         no_module_cache,
         import_map_path,
+        env_vars,
     )?;
     server.listen().await
 }

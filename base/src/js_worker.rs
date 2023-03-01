@@ -55,6 +55,7 @@ pub async fn serve(
         )
     });
 
+    // send the tcp stram to the worker
     tcp_stream_tx.send(tcp_stream)?;
 
     debug!("js worker for {} started", service_name);
@@ -94,6 +95,7 @@ fn print_import_map_diagnostics(diagnostics: &[ImportMapDiagnostic]) {
         );
     }
 }
+
 fn start_runtime(
     service_path: PathBuf,
     memory_limit_mb: u64,
@@ -165,8 +167,8 @@ fn start_runtime(
         ..Default::default()
     });
 
-    let v8_thread_safe_handle = js_runtime.v8_isolate().thread_safe_handle();
     let (memory_limit_tx, memory_limit_rx) = mpsc::unbounded_channel::<u64>();
+    let (halt_execution_tx, mut halt_execution_rx) = oneshot::channel::<()>();
 
     // add a callback when a worker reaches its memory limit
     js_runtime.add_near_heap_limit_callback(move |cur, _init| {
@@ -201,7 +203,13 @@ fn start_runtime(
         op_state.put::<mpsc::UnboundedReceiver<TcpStream>>(tcp_stream_rx);
     }
 
-    start_controller_thread(v8_thread_safe_handle, worker_timeout_ms, memory_limit_rx);
+    let v8_thread_safe_handle = js_runtime.v8_isolate().thread_safe_handle();
+    start_controller_thread(
+        v8_thread_safe_handle,
+        worker_timeout_ms,
+        memory_limit_rx,
+        halt_execution_tx,
+    );
 
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -211,7 +219,15 @@ fn start_runtime(
     let future = async move {
         let mod_id = js_runtime.load_main_module(&main_module_url, None).await?;
         let result = js_runtime.mod_evaluate(mod_id);
-        js_runtime.run_event_loop(false).await?;
+
+        tokio::select! {
+            _ = js_runtime.run_event_loop(false) => {
+                debug!("event loop completed");
+            }
+            _ = &mut halt_execution_rx => {
+                debug!("worker exectution halted");
+            }
+        }
 
         result.await?
     };
@@ -230,6 +246,7 @@ fn start_controller_thread(
     v8_thread_safe_handle: v8::IsolateHandle,
     worker_timeout_ms: u64,
     mut memory_limit_rx: mpsc::UnboundedReceiver<u64>,
+    halt_execution_tx: oneshot::Sender<()>,
 ) {
     thread::spawn(move || {
         let rt = tokio::runtime::Builder::new_current_thread()
@@ -255,5 +272,9 @@ fn start_controller_thread(
         } else {
             debug!("worker already terminated");
         }
+
+        halt_execution_tx
+            .send(())
+            .expect("failed to send halt execution signal");
     });
 }

@@ -22,12 +22,16 @@ docker build -t edge-runtime .
 docker run -it --rm -p 9000:9000 -v /path/to/supabase/functions:/usr/services supabase/edge-runtime start --dir /usr/services
 ```
 
+## Architecture
+
+Server -> Base Worker -> User Function
+
 ## TODO
 
-* Support import maps
 * Check verify-jwt
-* better error messages for incorrect module loading paths (local)
 * handle 404 errors
+* better error messages for incorrect module loading paths
+* better error messages for invalid import map paths
 * Support snapshotting the runtime
 * Support for private modules (DENO_AUTH_TOKENS)
 * HTTP/2 support (need the host to support SSL)

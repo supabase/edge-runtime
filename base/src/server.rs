@@ -30,7 +30,7 @@ async fn process_stream(
 
     let mut headers = [httparse::EMPTY_HEADER; 64];
     let mut req = httparse::Request::new(&mut headers);
-    let _ = req.parse(&buf).unwrap();
+    let _ = req.parse(&buf)?;
 
     if req.path.is_none() {
         // if the path isn't found in first 1024 bytes it must not be a valid http
@@ -130,7 +130,13 @@ impl Server {
                            let no_module_cache = self.no_module_cache;
                            let import_map_path_clone = self.import_map_path.clone();
                            tokio::task::spawn(async move {
-                             let res = process_stream(stream, services_dir_clone, mem_limit, service_timeout, no_module_cache, import_map_path_clone).await;
+                             let res = process_stream(
+                                            stream,
+                                            services_dir_clone,
+                                            mem_limit,
+                                            service_timeout,
+                                            no_module_cache,
+                                            import_map_path_clone).await;
                              if res.is_err() {
                                  error!("{:?}", res.err().unwrap());
                              }

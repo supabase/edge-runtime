@@ -39,3 +39,24 @@ docker run -it --rm -p 9000:9000 -v /path/to/supabase/functions:/usr/services su
 
 * Select the Deno version to upgrade and visit its tag on GitHub (eg: https://github.com/denoland/deno/blob/v1.30.3/Cargo.toml)
 * Open the `Cargo.toml` at the root of of this repo and modify all `deno_*` modules to match to the selected tag of Deno.
+
+## How to run tests
+
+make sure the docker daemon is running and create a docker image:
+
+```bash
+docker build -t edge-runtime .
+```
+
+install tests dependencies:
+
+```bash
+cd test
+npm install
+```
+
+run tests:
+
+```bash
+npm run test
+```

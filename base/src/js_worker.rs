@@ -15,7 +15,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::thread;
 use std::time::Duration;
-use tokio::net::TcpStream;
+use tokio::net::UnixStream;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 
@@ -37,13 +37,13 @@ pub async fn serve(
     no_module_cache: bool,
     import_map_path: Option<String>,
     env_vars: HashMap<String, String>,
-    tcp_stream: TcpStream,
+    unix_stream: UnixStream,
 ) -> Result<(), Error> {
     let service_path_clone = service_path.clone();
     let service_name = service_path_clone.to_str().unwrap();
 
+    let (unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
-    let (tcp_stream_tx, tcp_stream_rx) = mpsc::unbounded_channel::<TcpStream>();
 
     // start worker thread
     let _ = thread::spawn(move || {
@@ -54,13 +54,13 @@ pub async fn serve(
             no_module_cache,
             import_map_path,
             env_vars,
-            tcp_stream_rx,
+            unix_stream_rx,
             shutdown_tx,
         )
     });
 
-    // send the tcp stram to the worker
-    tcp_stream_tx.send(tcp_stream)?;
+    // send the tcp stream to the worker
+    unix_stream_tx.send(unix_stream)?;
 
     debug!("js worker for {} started", service_name);
 
@@ -107,7 +107,7 @@ fn start_runtime(
     no_module_cache: bool,
     import_map_path: Option<String>,
     env_vars: HashMap<String, String>,
-    tcp_stream_rx: mpsc::UnboundedReceiver<TcpStream>,
+    unix_stream_rx: mpsc::UnboundedReceiver<UnixStream>,
     shutdown_tx: oneshot::Sender<()>,
 ) {
     let user_agent = "supabase-edge-runtime".to_string();
@@ -205,7 +205,7 @@ fn start_runtime(
     {
         let op_state_rc = js_runtime.op_state();
         let mut op_state = op_state_rc.borrow_mut();
-        op_state.put::<mpsc::UnboundedReceiver<TcpStream>>(tcp_stream_rx);
+        op_state.put::<mpsc::UnboundedReceiver<UnixStream>>(unix_stream_rx);
         op_state.put::<types::EnvVars>(env_vars);
     }
 
@@ -239,6 +239,10 @@ fn start_runtime(
     };
     let local = tokio::task::LocalSet::new();
     let res = local.block_on(&runtime, future);
+    println!("module eval completed");
+    println!("{:?}", res);
+
+    // terminate the worker
 
     if res.is_err() {
         error!("worker thread panicked {:?}", res.as_ref().err().unwrap());

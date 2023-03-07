@@ -11,6 +11,7 @@ use deno_core::OpState;
 use deno_core::RcRef;
 use deno_core::Resource;
 use deno_core::ResourceId;
+use deno_net::io::UnixStreamResource;
 use deno_net::ops::IpAddr;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -89,31 +90,42 @@ async fn op_net_accept(
     state: Rc<RefCell<OpState>>,
 ) -> Result<(ResourceId, IpAddr, IpAddr), AnyError> {
     let mut op_state = state.borrow_mut();
-
     // we do not want to keep the op_state locked,
     // so we take the channel receiver from it and release op state.
     // we need to add it back later after processing a message.
-    let mut rx = op_state.take::<mpsc::UnboundedReceiver<tokio::net::TcpStream>>();
+    let mut rx = op_state.take::<mpsc::UnboundedReceiver<tokio::net::UnixStream>>();
     drop(op_state);
 
-    let tcp_stream = rx.recv().await;
-    if tcp_stream.is_none() {
-        println!("no tcp stream found");
-        return Err(bad_resource("channel is closed"));
+    let unix_stream = rx.recv().await;
+    if unix_stream.is_none() {
+        println!("no unix stream found");
+        return Err(bad_resource("unix stream channel is closed"));
     }
-    let tcp_stream = tcp_stream.unwrap();
+    let unix_stream = unix_stream.unwrap();
 
-    let local_addr = IpAddr::from(tcp_stream.local_addr().unwrap().clone());
-    let remote_addr = IpAddr::from(tcp_stream.peer_addr().unwrap().clone());
-
-    let tcp_stream_resource = TcpStreamResource::from(tcp_stream);
+    let resource = UnixStreamResource::new(unix_stream.into_split());
 
     // since the op state was dropped before,
     // reborrow and add the channel receiver again
     let mut op_state = state.borrow_mut();
-    op_state.put::<mpsc::UnboundedReceiver<tokio::net::TcpStream>>(rx);
-    let rid = op_state.resource_table.add(tcp_stream_resource);
-    Ok((rid, local_addr, remote_addr))
+    op_state.put::<mpsc::UnboundedReceiver<tokio::net::UnixStream>>(rx);
+    let rid = op_state.resource_table.add(resource);
+    Ok((
+        rid,
+        IpAddr {
+            hostname: "0.0.0.0".to_string(),
+            port: 9999,
+        },
+        IpAddr {
+            hostname: "0.0.0.0".to_string(),
+            port: 8888,
+        },
+    ))
+}
+
+#[op]
+fn op_net_unsupported(_state: &mut OpState) -> Result<(), AnyError> {
+    Err(deno_core::error::not_supported())
 }
 
 pub fn init() -> Extension {
@@ -121,6 +133,14 @@ pub fn init() -> Extension {
         .middleware(|op| match op.name {
             "op_net_listen_tcp" => op_net_listen::decl(),
             "op_net_accept_tcp" => op_net_accept::decl(),
+
+            // disable listening on TLS, UDP and Unix sockets
+            "op_net_listen_tls" => op_net_unsupported::decl(),
+            "op_net_listen_udp" => op_net_unsupported::decl(),
+            "op_node_unstable_net_listen_udp" => op_net_unsupported::decl(),
+            "op_net_listen_unix" => op_net_unsupported::decl(),
+            "op_net_listen_unixpacket" => op_net_unsupported::decl(),
+            "op_node_unstable_net_listen_unixpacket" => op_net_unsupported::decl(),
             _ => op,
         })
         .build()

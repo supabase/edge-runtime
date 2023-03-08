@@ -1,5 +1,5 @@
 use crate::js_worker;
-use anyhow::{bail, Error};
+use anyhow::{bail, Context, Error};
 use http::Request;
 use hyper::{server::conn::Http, service::service_fn, Body};
 use log::{debug, error, info};
@@ -49,7 +49,7 @@ impl Server {
         })
     }
 
-    async fn process_stream(stream: TcpStream) -> Result<(), hyper::Error> {
+    async fn process_stream(stream: TcpStream) -> Result<(), Error> {
         // create a new hyper service that takes a request, checks the path, setup a worker, setup a
         // unix stream and sends the request.
 
@@ -121,13 +121,17 @@ impl Server {
                 }
             });
 
-            println!("{}", req.uri().path());
             let response = request_sender.send_request(req).await?;
 
             Ok::<_, Error>(response)
         });
 
-        Http::new().serve_connection(stream, service).await
+        Http::new()
+            .serve_connection(stream, service)
+            .await
+            .context("failed to process request")?;
+
+        Ok(())
     }
 
     pub async fn listen(&self) -> Result<(), Error> {

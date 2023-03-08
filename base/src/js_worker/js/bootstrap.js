@@ -558,15 +558,16 @@
     isTty: false,
     target: window.__build_target,
   });
+  delete window.__build_target;
 
   // set these overrides after runtimeStart
   ObjectDefineProperties(Deno, {
     build: readOnly(build),
     env: readOnly(env),
     pid: readOnly(window.__pid),
-    ppid: readOnly(window.__ppid),
     args: readOnly([]), // args are set to be empty
     mainModule: getterOnly(opMainModule)
   });
+  delete Deno.core;
 })(this);
 

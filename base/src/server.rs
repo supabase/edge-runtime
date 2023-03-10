@@ -10,8 +10,10 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::str;
 use std::str::FromStr;
+use std::thread;
 use tokio::net::UnixStream;
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::oneshot;
 use url::Url;
 
 pub struct Server {
@@ -49,11 +51,17 @@ impl Server {
         })
     }
 
-    async fn process_stream(stream: TcpStream) -> Result<(), Error> {
-        // create a new hyper service that takes a request, checks the path, setup a worker, setup a
-        // unix stream and sends the request.
-
+    async fn handle_conn(conn: TcpStream) -> Result<(), Error> {
         let service = service_fn(|req: Request<Body>| async move {
+            // create a base worker and send the request
+            // get the response from the worker
+            // check if it contains header 'x-invoke-worker': 'deno'
+            // if so, parse the response body and start a worker with provided config
+            // pass the modified request to it
+
+            // start_base_worker()
+            // call_base_worker(req);
+
             let host = req
                 .headers()
                 .get("host")
@@ -97,17 +105,33 @@ impl Server {
             // create a unix socket pair
             let (sender_stream, recv_stream) = UnixStream::pair()?;
 
-            tokio::spawn(async move {
-                let _ = js_worker::serve(
+            // TODO: move worker threads to a separate manager
+            let worker_thread: thread::JoinHandle<Result<(), Error>> = thread::spawn(move || {
+                let worker = js_worker::JsWorker::new(
                     service_path.to_path_buf(),
                     memory_limit_mb,
                     worker_timeout_ms,
                     no_module_cache,
                     import_map_path,
                     env_vars,
-                    recv_stream,
-                )
-                .await;
+                )?;
+
+                // check for worker error
+
+                worker.accept(recv_stream);
+
+                // start the worker
+                let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+                worker.run(shutdown_tx)?;
+
+                debug!("js worker for {:?} started", service_path);
+
+                // wait for shutdown signal
+                let _ = shutdown_rx.blocking_recv();
+
+                debug!("js worker for {:?} stopped", service_path);
+
+                Ok(())
             });
 
             // send the HTTP request to the worker over Unix stream
@@ -127,9 +151,9 @@ impl Server {
         });
 
         Http::new()
-            .serve_connection(stream, service)
+            .serve_connection(conn, service)
             .await
-            .context("failed to process request")?;
+            .context("Failed to process the incoming request")?;
 
         Ok(())
     }
@@ -143,9 +167,9 @@ impl Server {
             tokio::select! {
                 msg = listener.accept() => {
                     match msg {
-                       Ok((stream, _)) => {
+                       Ok((conn, _)) => {
                            tokio::task::spawn(async move {
-                             let res = Self::process_stream(stream).await;
+                             let res = Self::handle_conn(conn).await;
                              if res.is_err() {
                                  error!("{:?}", res.err().unwrap());
                              }

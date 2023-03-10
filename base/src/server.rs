@@ -94,7 +94,7 @@ impl Server {
             info!("serving function {}", service_name);
 
             //let memory_limit_mb = u64::from(mem_limit);
-            let memory_limit_mb = (150 * 1024) as u64;
+            let memory_limit_mb = 150 as u64;
             //let worker_timeout_ms = u64::from(service_timeout * 1000);
             let worker_timeout_ms = (60 * 1000) as u64;
 
@@ -116,15 +116,11 @@ impl Server {
                     env_vars,
                 )?;
 
-                // check for worker error
-
-                worker.accept(recv_stream);
+                worker.accept(recv_stream)?;
 
                 // start the worker
                 let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
                 worker.run(shutdown_tx)?;
-
-                debug!("js worker for {:?} started", service_path);
 
                 // wait for shutdown signal
                 let _ = shutdown_rx.blocking_recv();

@@ -1,7 +1,6 @@
 use crate::server::Server;
 use anyhow::Error;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 #[tokio::main]
 pub async fn start_server(
@@ -14,7 +13,7 @@ pub async fn start_server(
     import_map_path: Option<String>,
     env_vars: HashMap<String, String>,
 ) -> Result<(), Error> {
-    let server = Server::new(
+    let mut server = Server::new(
         ip,
         port,
         services_dir,
@@ -24,5 +23,5 @@ pub async fn start_server(
         import_map_path,
         env_vars,
     )?;
-    Arc::new(server).listen().await
+    server.listen().await
 }

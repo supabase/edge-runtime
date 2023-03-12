@@ -1,7 +1,6 @@
-use crate::js_worker;
-use anyhow::{bail, Context, Error};
-use http::Request;
-use hyper::{server::conn::Http, service::service_fn, Body};
+use crate::worker_ctx::{CreateWorkerOptions, WorkerRec};
+use anyhow::{Context, Error};
+use hyper::{server::conn::Http, service::service_fn, Body, Request};
 use log::{debug, error, info};
 use std::collections::HashMap;
 use std::net::IpAddr;
@@ -10,10 +9,7 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::str;
 use std::str::FromStr;
-use std::thread;
-use tokio::net::UnixStream;
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::oneshot;
 use url::Url;
 
 pub struct Server {
@@ -38,6 +34,8 @@ impl Server {
         import_map_path: Option<String>,
         env_vars: HashMap<String, String>,
     ) -> Result<Self, Error> {
+        // create the main worker
+
         let ip = Ipv4Addr::from_str(ip)?;
         Ok(Self {
             ip,
@@ -58,9 +56,6 @@ impl Server {
             // check if it contains header 'x-invoke-worker': 'deno'
             // if so, parse the response body and start a worker with provided config
             // pass the modified request to it
-
-            // start_base_worker()
-            // call_base_worker(req);
 
             let host = req
                 .headers()
@@ -102,46 +97,23 @@ impl Server {
             let env_vars: HashMap<String, String> = HashMap::new();
             let no_module_cache = false;
 
-            // create a unix socket pair
-            let (sender_stream, recv_stream) = UnixStream::pair()?;
+            let worker_id = service_path.display().to_string();
 
-            // TODO: move worker threads to a separate manager
-            let worker_thread: thread::JoinHandle<Result<(), Error>> = thread::spawn(move || {
-                let worker = js_worker::JsWorker::new(
-                    service_path.to_path_buf(),
-                    memory_limit_mb,
-                    worker_timeout_ms,
-                    no_module_cache,
-                    import_map_path,
-                    env_vars,
-                )?;
+            // check if the worker already available
 
-                worker.accept(recv_stream)?;
+            let mut worker_rec = WorkerRec::new(CreateWorkerOptions {
+                service_path: service_path.to_path_buf(),
+                memory_limit_mb,
+                worker_timeout_ms,
+                import_map_path,
+                env_vars,
+                no_module_cache,
+            })
+            .await?;
 
-                // start the worker
-                let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
-                worker.run(shutdown_tx)?;
+            let response = worker_rec.send_request(req).await?;
 
-                // wait for shutdown signal
-                let _ = shutdown_rx.blocking_recv();
-
-                debug!("js worker for {:?} stopped", service_path);
-
-                Ok(())
-            });
-
-            // send the HTTP request to the worker over Unix stream
-            let (mut request_sender, connection) =
-                hyper::client::conn::handshake(sender_stream).await?;
-
-            // spawn a task to poll the connection and drive the HTTP state
-            tokio::spawn(async move {
-                if let Err(e) = connection.await {
-                    error!("Error in connection: {}", e);
-                }
-            });
-
-            let response = request_sender.send_request(req).await?;
+            // add the worker to the pool, to resue later
 
             Ok::<_, Error>(response)
         });
@@ -154,7 +126,7 @@ impl Server {
         Ok(())
     }
 
-    pub async fn listen(&self) -> Result<(), Error> {
+    pub async fn listen(&mut self) -> Result<(), Error> {
         let addr = SocketAddr::new(IpAddr::V4(self.ip), self.port);
         let listener = TcpListener::bind(&addr).await?;
         debug!("edge-runtime is listening on {:?}", listener.local_addr()?);

@@ -159,7 +159,7 @@ describe('params reached to function', () => {
     fclient.setAuth(apiKey)
 
     log('invoke mirror')
-    var form = new new JSDOM('').window.FormData()
+    const form = new FormData()
     const formData = [
       [nanoid(5), nanoid(10)],
       [nanoid(7), nanoid(5)],

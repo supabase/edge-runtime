@@ -43,6 +43,7 @@ jobs:
         with:
           file: ./Dockerfile
           push: false
+          load: true
           platforms: linux/amd64
           tags: edge-runtime:test
           cache-from: type=gha

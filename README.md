@@ -45,7 +45,7 @@ docker run -it --rm -p 9000:9000 -v /path/to/supabase/functions:/usr/services su
 make sure the docker daemon is running and create a docker image:
 
 ```bash
-docker build -t edge-runtime .
+docker build -t edge-runtime:test .
 ```
 
 install tests dependencies:

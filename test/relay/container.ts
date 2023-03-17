@@ -54,7 +54,7 @@ export async function runRelay({
 
   // create relay container
   log(`create relay ${slug + '-' + id}`)
-  const relay = await new GenericContainer('edge-runtime')
+  const relay = await new GenericContainer('edge-runtime:test')
     .withName(slug + '-' + id)
     .withBindMount(absPath, '/usr/services', 'ro')
     .withNetworkMode(network.getName())

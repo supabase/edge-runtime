@@ -1,5 +1,5 @@
-use crate::worker_ctx::{CreateWorkerOptions, WorkerRec};
-use anyhow::{Context, Error};
+use crate::worker_ctx::{CreateWorkerOptions, WorkerContext};
+use anyhow::Error;
 use hyper::{server::conn::Http, service::Service, Body, Request, Response};
 use log::{debug, error, info};
 use std::collections::HashMap;
@@ -11,15 +11,19 @@ use std::path::Path;
 use std::pin::Pin;
 use std::str;
 use std::str::FromStr;
+use std::sync::Arc;
 use std::task::Poll;
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::TcpListener;
+use tokio::sync::RwLock;
 use url::Url;
 
-struct WorkerService {}
+struct WorkerService {
+    worker_ctx: Arc<RwLock<WorkerContext>>,
+}
 
 impl WorkerService {
-    fn new() -> Self {
-        Self {}
+    fn new(worker_ctx: Arc<RwLock<WorkerContext>>) -> Self {
+        Self { worker_ctx }
     }
 }
 
@@ -28,7 +32,7 @@ impl Service<Request<Body>> for WorkerService {
     type Error = anyhow::Error;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
-    fn poll_ready(&mut self, cx: &mut std::task::Context<'_>) -> Poll<Result<(), Self::Error>> {
+    fn poll_ready(&mut self, _cx: &mut std::task::Context<'_>) -> Poll<Result<(), Self::Error>> {
         Poll::Ready(Ok(()))
     }
 
@@ -36,6 +40,7 @@ impl Service<Request<Body>> for WorkerService {
         // check if the worker already available
 
         // create a response in a future.
+        let worker_ctx = self.worker_ctx.clone();
         let fut = async move {
             let host = req
                 .headers()
@@ -67,27 +72,11 @@ impl Service<Request<Body>> for WorkerService {
             }
 
             info!("serving function {}", service_name);
-            //let memory_limit_mb = u64::from(mem_limit);
-            let memory_limit_mb = 150 as u64;
-            //let worker_timeout_ms = u64::from(service_timeout * 1000);
-            let worker_timeout_ms = (60 * 1000) as u64;
 
-            let import_map_path = None;
-            let env_vars: HashMap<String, String> = HashMap::new();
-            let no_module_cache = false;
+            //let worker_id = service_path.display().to_string();
 
-            let worker_id = service_path.display().to_string();
-            let mut worker_rec = WorkerRec::new(CreateWorkerOptions {
-                service_path: service_path.to_path_buf(),
-                memory_limit_mb,
-                worker_timeout_ms,
-                import_map_path,
-                env_vars,
-                no_module_cache,
-            })
-            .await?;
-
-            let response = worker_rec.send_request(req).await?;
+            let mut worker_ctx_writer = worker_ctx.write().await;
+            let response = worker_ctx_writer.send_request(req).await?;
             Ok(response)
         };
 
@@ -138,13 +127,30 @@ impl Server {
         let listener = TcpListener::bind(&addr).await?;
         debug!("edge-runtime is listening on {:?}", listener.local_addr()?);
 
+        let memory_limit_mb = 150 as u64;
+        let worker_timeout_ms = (60 * 1000) as u64;
+        let service_path_str = "./examples/foo".to_string();
+        let service_path = Path::new(&service_path_str);
+
+        let worker_ctx = WorkerContext::new(CreateWorkerOptions {
+            service_path: service_path.to_path_buf(),
+            memory_limit_mb: memory_limit_mb,
+            worker_timeout_ms: worker_timeout_ms,
+            import_map_path: self.import_map_path.clone(),
+            env_vars: self.env_vars.clone(),
+            no_module_cache: self.no_module_cache,
+        })
+        .await?;
+        let worker_ctx = Arc::new(RwLock::new(worker_ctx));
+
         loop {
             tokio::select! {
                 msg = listener.accept() => {
                     match msg {
                        Ok((conn, _)) => {
+                           let worker_ctx_clone = worker_ctx.clone();
                            tokio::task::spawn(async move {
-                             let service = WorkerService::new();
+                             let service = WorkerService::new(worker_ctx_clone);
 
                              let conn_fut = Http::new()
                                 .serve_connection(conn, service);

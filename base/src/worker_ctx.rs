@@ -9,7 +9,7 @@ use std::thread;
 use tokio::net::UnixStream;
 use tokio::sync::oneshot;
 
-pub struct WorkerRec {
+pub struct WorkerContext {
     handle: thread::JoinHandle<Result<(), Error>>,
     request_sender: hyper::client::conn::SendRequest<Body>,
 }
@@ -23,7 +23,7 @@ pub struct CreateWorkerOptions {
     pub env_vars: HashMap<String, String>,
 }
 
-impl WorkerRec {
+impl WorkerContext {
     pub async fn new(options: CreateWorkerOptions) -> Result<Self, Error> {
         let service_path = options.service_path;
         let memory_limit_mb = options.memory_limit_mb;
@@ -69,7 +69,7 @@ impl WorkerRec {
             }
         });
 
-        Ok(WorkerRec {
+        Ok(Self {
             handle,
             request_sender,
         })

@@ -8,11 +8,12 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::str;
 use std::str::FromStr;
+use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpStream};
 use url::Url;
 
 async fn process_stream(
-    stream: TcpStream,
+    mut stream: TcpStream,
     services_dir: String,
     mem_limit: u16,
     service_timeout: u16,
@@ -48,6 +49,15 @@ async fn process_stream(
         .unwrap_or_default();
     let host = str::from_utf8(host).unwrap_or("example.com"); // TODO: configure the default host
     let req_path = req.path.unwrap_or_default();
+
+    // if the request is for the health endpoint return a 200 OK response
+    if req_path == "/_internal/health" {
+        stream
+            .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\n\r\n")
+            .await?;
+        stream.flush().await?;
+        return Ok(());
+    }
 
     let url = Url::parse(&format!("http://{}{}", &host, &req_path).as_str())?;
     let path_segments = url.path_segments();

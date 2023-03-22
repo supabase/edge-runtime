@@ -532,9 +532,12 @@
 
   ObjectDefineProperties(window, globalScope);
 
-  ObjectDefineProperties(globalThis, {
+  const globalProperties = {
     Window: globalInterfaces.windowConstructorDescriptor,
-  });
+    window: getterOnly(() => globalThis),
+    self: getterOnly(() => globalThis),
+  };
+  ObjectDefineProperties(globalThis, globalProperties);
   ObjectSetPrototypeOf(globalThis, Window.prototype);
 
   // TODO: figure out if this is needed

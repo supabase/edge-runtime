@@ -4,10 +4,13 @@ use anyhow::Error;
 use hyper::{Body, Request, Response};
 use log::{debug, error};
 use std::collections::HashMap;
+use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::thread;
 use tokio::net::UnixStream;
 use tokio::sync::oneshot;
+use tokio::sync::RwLock;
 
 pub struct WorkerContext {
     handle: thread::JoinHandle<Result<(), Error>>,
@@ -15,6 +18,7 @@ pub struct WorkerContext {
 }
 
 pub struct CreateWorkerOptions {
+    pub main_worker: bool,
     pub service_path: PathBuf,
     pub memory_limit_mb: u64,
     pub worker_timeout_ms: u64,
@@ -81,4 +85,43 @@ impl WorkerContext {
     ) -> Result<Response<Body>, hyper::Error> {
         self.request_sender.send_request(req).await
     }
+}
+
+pub struct WorkerPool {
+    pub main_worker: Arc<RwLock<WorkerContext>>,
+    user_workers: HashMap<String, Arc<RwLock<WorkerContext>>>,
+}
+
+impl WorkerPool {
+    pub async fn new(
+        main_path: String,
+        import_map_path: Option<String>,
+        no_module_cache: bool,
+    ) -> Result<Self, Error> {
+        let main_path = Path::new(&main_path);
+        let main_worker_ctx = WorkerContext::new(CreateWorkerOptions {
+            main_worker: true,
+            service_path: main_path.to_path_buf(),
+            memory_limit_mb: 150,
+            worker_timeout_ms: 60 * 60 * 1000,
+            import_map_path,
+            env_vars: HashMap::new(),
+            no_module_cache,
+        })
+        .await?;
+        let main_worker = Arc::new(RwLock::new(main_worker_ctx));
+
+        let user_workers: HashMap<String, Arc<RwLock<WorkerContext>>> = HashMap::new();
+
+        Ok(Self {
+            main_worker,
+            user_workers,
+        })
+    }
+
+    pub fn add_user_worker() {}
+
+    pub fn get_user_worker() {}
+
+    pub fn stats() {}
 }

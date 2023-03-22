@@ -75,6 +75,12 @@ impl JsWorker {
         import_map_path: Option<String>,
         env_vars: HashMap<String, String>,
     ) -> Result<Self, Error> {
+        // Note: MainWorker
+        // - does not have memory or worker timeout
+        // - has access to OS env vars
+        // - has access to local file system
+        // - has access to WorkerPool resource (to create / launch workers)
+
         let user_agent = "supabase-edge-runtime".to_string();
 
         let base_url =

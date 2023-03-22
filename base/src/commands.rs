@@ -22,6 +22,7 @@ pub async fn start_server(
         no_module_cache,
         import_map_path,
         env_vars,
-    )?;
+    )
+    .await?;
     server.listen().await
 }

@@ -1,4 +1,4 @@
-use crate::worker_ctx::{CreateWorkerOptions, WorkerContext};
+use crate::worker_ctx::{CreateWorkerOptions, WorkerContext, WorkerPool};
 use anyhow::Error;
 use hyper::{server::conn::Http, service::Service, Body, Request, Response};
 use log::{debug, error, info};
@@ -88,6 +88,7 @@ impl Service<Request<Body>> for WorkerService {
 pub struct Server {
     ip: Ipv4Addr,
     port: u16,
+    worker_pool: WorkerPool,
     services_dir: String,
     mem_limit: u16,
     service_timeout: u16,
@@ -97,7 +98,7 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn new(
+    pub async fn new(
         ip: &str,
         port: u16,
         services_dir: String,
@@ -107,12 +108,14 @@ impl Server {
         import_map_path: Option<String>,
         env_vars: HashMap<String, String>,
     ) -> Result<Self, Error> {
-        // create the main worker
+        // create a worker pool
+        let worker_pool = WorkerPool::new("./examples/foo".to_string(), None, false).await?;
 
         let ip = Ipv4Addr::from_str(ip)?;
         Ok(Self {
             ip,
             port,
+            worker_pool,
             services_dir,
             mem_limit,
             service_timeout,
@@ -127,30 +130,16 @@ impl Server {
         let listener = TcpListener::bind(&addr).await?;
         debug!("edge-runtime is listening on {:?}", listener.local_addr()?);
 
-        let memory_limit_mb = 150 as u64;
-        let worker_timeout_ms = (60 * 1000) as u64;
-        let service_path_str = "./examples/foo".to_string();
-        let service_path = Path::new(&service_path_str);
-
-        let worker_ctx = WorkerContext::new(CreateWorkerOptions {
-            service_path: service_path.to_path_buf(),
-            memory_limit_mb: memory_limit_mb,
-            worker_timeout_ms: worker_timeout_ms,
-            import_map_path: self.import_map_path.clone(),
-            env_vars: self.env_vars.clone(),
-            no_module_cache: self.no_module_cache,
-        })
-        .await?;
-        let worker_ctx = Arc::new(RwLock::new(worker_ctx));
+        let main_worker = &self.worker_pool.main_worker;
 
         loop {
             tokio::select! {
                 msg = listener.accept() => {
                     match msg {
                        Ok((conn, _)) => {
-                           let worker_ctx_clone = worker_ctx.clone();
+                           let main_worker = main_worker.clone();
                            tokio::task::spawn(async move {
-                             let service = WorkerService::new(worker_ctx_clone);
+                             let service = WorkerService::new(main_worker);
 
                              let conn_fut = Http::new()
                                 .serve_connection(conn, service);

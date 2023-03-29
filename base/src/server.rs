@@ -1,8 +1,7 @@
-use crate::worker_ctx::{CreateWorkerOptions, WorkerContext, WorkerPool};
+use crate::worker_ctx::{WorkerContext, WorkerPool};
 use anyhow::Error;
 use hyper::{server::conn::Http, service::Service, Body, Request, Response};
 use log::{debug, error, info};
-use std::collections::HashMap;
 use std::future::Future;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
@@ -73,8 +72,6 @@ impl Service<Request<Body>> for WorkerService {
 
             info!("serving function {}", service_name);
 
-            //let worker_id = service_path.display().to_string();
-
             let mut worker_ctx_writer = worker_ctx.write().await;
             let response = worker_ctx_writer.send_request(req).await?;
             Ok(response)
@@ -89,25 +86,10 @@ pub struct Server {
     ip: Ipv4Addr,
     port: u16,
     worker_pool: WorkerPool,
-    services_dir: String,
-    mem_limit: u16,
-    service_timeout: u16,
-    no_module_cache: bool,
-    import_map_path: Option<String>,
-    env_vars: HashMap<String, String>,
 }
 
 impl Server {
-    pub async fn new(
-        ip: &str,
-        port: u16,
-        services_dir: String,
-        mem_limit: u16,
-        service_timeout: u16,
-        no_module_cache: bool,
-        import_map_path: Option<String>,
-        env_vars: HashMap<String, String>,
-    ) -> Result<Self, Error> {
+    pub async fn new(ip: &str, port: u16) -> Result<Self, Error> {
         // create a worker pool
         let worker_pool = WorkerPool::new("./examples/foo".to_string(), None, false).await?;
 
@@ -116,12 +98,6 @@ impl Server {
             ip,
             port,
             worker_pool,
-            services_dir,
-            mem_limit,
-            service_timeout,
-            no_module_cache,
-            import_map_path,
-            env_vars,
         })
     }
 

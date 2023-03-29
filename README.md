@@ -29,8 +29,10 @@ Server -> Base Worker -> User Function
 ## TODO
 
 * Check verify-jwt
-* Workers should only have access to env variables assigned to it
 * handle 404 errors
+* Expose Deno.errors
+* Performance.now() precision tuning
+* Disable SharedArrayBuffers
 * better error messages for incorrect module loading paths
 * better error messages for invalid import map paths
 * Support snapshotting the runtime

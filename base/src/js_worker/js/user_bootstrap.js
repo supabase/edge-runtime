@@ -46,6 +46,7 @@
   const urlPattern = window.__bootstrap.urlPattern;
   const webidl = window.__bootstrap.webidl;
   const webSocket = window.__bootstrap.webSocket;
+  const userWorkers = window.__bootstrap.userWorkers;
   const net = window.__bootstrap.net_custom;
   const { HttpConn } = window.__bootstrap.http;
 

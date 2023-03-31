@@ -72,7 +72,7 @@ impl WorkerContext {
         // spawn a task to poll the connection and drive the HTTP state
         tokio::spawn(async move {
             if let Err(e) = connection.await {
-                error!("Error in connection: {}", e);
+                error!("Error in worker connection: {}", e);
             }
         });
 
@@ -147,7 +147,7 @@ pub struct CreateUserWorkerResult {
 #[derive(Debug)]
 pub enum WorkerPoolMsg {
     CreateUserWorker(UserWorkerOptions, oneshot::Sender<CreateUserWorkerResult>),
-    SendRequestToWorker(Request<Body>),
+    SendRequestToWorker(String, Request<Body>, oneshot::Sender<Response<Body>>),
 }
 
 pub struct WorkerPool {
@@ -187,16 +187,19 @@ impl WorkerPool {
                                 .unwrap();
                             user_workers
                                 .insert(key.clone(), Arc::new(RwLock::new(user_worker_ctx)));
-                            tx.send(CreateUserWorkerResult { key });
                         }
-                        println!("no of workers: {:?}", user_workers.len());
+
+                        tx.send(CreateUserWorkerResult { key });
                     }
-                    Some(WorkerPoolMsg::SendRequestToWorker(_)) => {
-                        // unimplemented
+                    Some(WorkerPoolMsg::SendRequestToWorker(key, req, tx)) => {
+                        // TODO: handle errors
+                        let mut worker = user_workers.get(&key).unwrap();
+                        let mut worker = worker.write().await;
+                        let res = worker.send_request(req).await.unwrap();
+
+                        tx.send(res);
                     }
                 }
-                // create a worker
-                // add to the user_workers
             }
         });
 

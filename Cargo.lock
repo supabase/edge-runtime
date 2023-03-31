@@ -182,6 +182,7 @@ dependencies = [
  "log",
  "module_fetcher",
  "reqwest",
+ "serde",
  "tokio",
  "url",
  "v8",

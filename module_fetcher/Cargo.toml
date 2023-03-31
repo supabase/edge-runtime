@@ -25,6 +25,6 @@ import_map = { version = "=0.13.0" }
 log = { workspace = true }
 libc = { version = "0.2.126" }
 ring = { version = "=0.16.20" }
-serde = { version = "1.0" }
+serde = { workspace = true }
 tokio = { version = "1.24", features = ["full"] }
 twox-hash = { version = "=1.6.3" }

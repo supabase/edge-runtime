@@ -25,6 +25,7 @@ deno_webidl = { version = "0.89.0" }
 deno_web = { version = "0.120.0" }
 deno_websocket = { version = "0.94.0" }
 deno_webstorage = { version = "0.84.0" }
+serde = { version = "1.0.149", features = ["derive"] }
 
 [profile.release]
 strip="debuginfo"

@@ -15,7 +15,7 @@ serve(async (req) => {
   // }
 
   return new Response(
-    JSON.stringify({}),
+    JSON.stringify({"helo": "world"}),
     { headers: { "Content-Type": "application/json", "x-custom": "bar" }, status },
   )
 })

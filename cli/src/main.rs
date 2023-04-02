@@ -32,7 +32,7 @@ fn cli() -> Command {
                         .default_value("9000")
                         .value_parser(value_parser!(u16)),
                 )
-                .arg(arg!(--dir <DIR> "Path to services directory").default_value("services"))
+                .arg(arg!(--"main-service" <DIR> "Path to main service directory").default_value("examples/main"))
                 .arg(arg!(--"disable-module-cache" "Disable using module cache").default_value("false").value_parser(FalseyValueParser::new()))
                 .arg(arg!(--"import-map" <Path> "Path to import map file"))
         )
@@ -63,14 +63,17 @@ fn main() {
             let ip = sub_matches.get_one::<String>("ip").cloned().unwrap();
             let port = sub_matches.get_one::<u16>("port").copied().unwrap();
 
-            let services_dir = sub_matches.get_one::<String>("dir").cloned().unwrap();
+            let main_service_path = sub_matches
+                .get_one::<String>("main-service")
+                .cloned()
+                .unwrap();
             let no_module_cache = sub_matches
                 .get_one::<bool>("disable-module-cache")
                 .cloned()
                 .unwrap();
             let import_map_path = sub_matches.get_one::<String>("import-map").cloned();
 
-            exit_with_code(start_server(&ip.as_str(), port))
+            exit_with_code(start_server(&ip.as_str(), port, main_service_path))
         }
         _ => {
             // unrecognized command

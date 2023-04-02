@@ -72,7 +72,7 @@ impl WorkerContext {
         // spawn a task to poll the connection and drive the HTTP state
         tokio::spawn(async move {
             if let Err(e) = connection.await {
-                error!("Error in worker connection: {}", e);
+                error!("Error in main worker connection: {}", e);
             }
         });
 
@@ -121,7 +121,7 @@ impl WorkerContext {
         // spawn a task to poll the connection and drive the HTTP state
         tokio::spawn(async move {
             if let Err(e) = connection.await {
-                error!("Error in connection: {}", e);
+                error!("Error in user worker connection: {}", e);
             }
         });
 
@@ -193,7 +193,7 @@ impl WorkerPool {
                     }
                     Some(WorkerPoolMsg::SendRequestToWorker(key, req, tx)) => {
                         // TODO: handle errors
-                        let mut worker = user_workers.get(&key).unwrap();
+                        let worker = user_workers.get(&key).unwrap();
                         let mut worker = worker.write().await;
                         let res = worker.send_request(req).await.unwrap();
 

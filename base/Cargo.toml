@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = { workspace = true }
+bytes = { version = "1.2.1" }
 deno_ast = { workspace = true }
 deno_core = { workspace = true }
 deno_console = { workspace = true }
@@ -21,7 +22,7 @@ deno_webidl = { workspace = true }
 deno_web = { workspace = true }
 deno_websocket = { workspace = true }
 httparse = { version = "1.8.0" }
-hyper = { version = "0.14", features = ["full"] }
+hyper = { version = "0.14.25", features = ["full"] }
 http = { version = "0.2" }
 import_map = { version = "0.15.0" }
 log = { workspace = true }

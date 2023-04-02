@@ -89,9 +89,9 @@ pub struct Server {
 }
 
 impl Server {
-    pub async fn new(ip: &str, port: u16) -> Result<Self, Error> {
+    pub async fn new(ip: &str, port: u16, main_service_path: String) -> Result<Self, Error> {
         // create a worker pool
-        let worker_pool = WorkerPool::new("./examples/foo".to_string(), None, false).await?;
+        let worker_pool = WorkerPool::new(main_service_path, None, false).await?;
 
         let ip = Ipv4Addr::from_str(ip)?;
         Ok(Self {

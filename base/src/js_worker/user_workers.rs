@@ -1,17 +1,27 @@
 use crate::worker_ctx::{CreateUserWorkerResult, UserWorkerOptions, WorkerPoolMsg};
 
-use deno_core::error::{custom_error, AnyError};
+use deno_core::error::{custom_error, type_error, AnyError};
+use deno_core::futures::stream::Peekable;
+use deno_core::futures::Stream;
+use deno_core::futures::StreamExt;
 use deno_core::include_js_files;
 use deno_core::op;
+use deno_core::AsyncRefCell;
+use deno_core::CancelTryFuture;
 use deno_core::Extension;
 use deno_core::OpState;
-use deno_core::{ByteString, ZeroCopyBuf};
+use deno_core::Resource;
+use deno_core::ResourceId;
+use deno_core::{AsyncResult, BufView, ByteString, CancelHandle, RcRef};
+use hyper::body::HttpBody;
 use hyper::header::{HeaderName, HeaderValue};
 use hyper::{Body, Request, Response};
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::rc::Rc;
 use tokio::sync::{mpsc, oneshot};
 
@@ -78,6 +88,7 @@ pub struct UserWorkerRequest {
     method: String,
     url: String,
     headers: Vec<(String, String)>,
+    has_body: bool,
 }
 
 #[derive(Serialize)]
@@ -86,6 +97,68 @@ pub struct UserWorkerResponse {
     status: u16,
     status_text: String,
     headers: Vec<(ByteString, ByteString)>,
+    body_rid: ResourceId,
+}
+
+type BytesStream = Pin<Box<dyn Stream<Item = Result<bytes::Bytes, std::io::Error>> + Unpin>>;
+
+struct UserWorkerRquestBodyResource {
+    writer: AsyncRefCell<Peekable<BytesStream>>,
+    cancel: CancelHandle,
+    size: Option<u64>,
+}
+
+struct UserWorkerResponseBodyResource {
+    reader: AsyncRefCell<Peekable<BytesStream>>,
+    cancel: CancelHandle,
+    size: Option<u64>,
+}
+
+impl Resource for UserWorkerResponseBodyResource {
+    fn name(&self) -> Cow<str> {
+        "userWorkerResponseBody".into()
+    }
+
+    fn read(self: Rc<Self>, limit: usize) -> AsyncResult<BufView> {
+        Box::pin(async move {
+            let reader = RcRef::map(&self, |r| &r.reader).borrow_mut().await;
+
+            let fut = async move {
+                let mut reader = Pin::new(reader);
+                loop {
+                    match reader.as_mut().peek_mut().await {
+                        Some(Ok(chunk)) if !chunk.is_empty() => {
+                            let len = std::cmp::min(limit, chunk.len());
+                            let chunk = chunk.split_to(len);
+                            break Ok(chunk.into());
+                        }
+                        // This unwrap is safe because `peek_mut()` returned `Some`, and thus
+                        // currently has a peeked value that can be synchronously returned
+                        // from `next()`.
+                        //
+                        // The future returned from `next()` is always ready, so we can
+                        // safely call `await` on it without creating a race condition.
+                        Some(_) => match reader.as_mut().next().await.unwrap() {
+                            Ok(chunk) => assert!(chunk.is_empty()),
+                            Err(err) => break Err(type_error(err.to_string())),
+                        },
+                        None => break Ok(BufView::empty()),
+                    }
+                }
+            };
+
+            let cancel_handle = RcRef::map(self, |r| &r.cancel);
+            fut.try_or_cancel(cancel_handle).await
+        })
+    }
+
+    fn close(self: Rc<Self>) {
+        self.cancel.cancel()
+    }
+
+    fn size_hint(&self) -> (u64, Option<u64>) {
+        (self.size.unwrap_or(0), self.size)
+    }
 }
 
 #[op]
@@ -94,14 +167,19 @@ pub async fn op_user_worker_fetch(
     key: String,
     req: UserWorkerRequest,
 ) -> Result<UserWorkerResponse, AnyError> {
-    let op_state = state.borrow();
+    let mut op_state = state.borrow_mut();
     let tx = op_state.borrow::<mpsc::UnboundedSender<WorkerPoolMsg>>();
     let (result_tx, result_rx) = oneshot::channel::<Response<Body>>();
+
+    let mut body = Body::empty();
+    if req.has_body {
+        //body = Body::wrap_stream(stream);
+    }
 
     let mut request = Request::builder()
         .uri(req.url)
         .method(req.method.as_str())
-        .body(hyper::Body::empty())
+        .body(body)
         .unwrap();
 
     // set the request headers
@@ -139,14 +217,30 @@ pub async fn op_user_worker_fetch(
         ));
     }
 
+    let status = result.status().as_u16();
+    let status_text = result
+        .status()
+        .canonical_reason()
+        .unwrap_or(&"<unknown status code>")
+        .to_string();
+
+    let size = HttpBody::size_hint(result.body()).exact();
+    let stream: BytesStream = Box::pin(
+        result
+            .into_body()
+            .map(|r| r.map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))),
+    );
+    let body_rid = op_state.resource_table.add(UserWorkerResponseBodyResource {
+        reader: AsyncRefCell::new(stream.peekable()),
+        cancel: CancelHandle::default(),
+        size,
+    });
+
     let response = UserWorkerResponse {
-        status: result.status().as_u16(),
-        status_text: result
-            .status()
-            .canonical_reason()
-            .unwrap_or(&"<unknown status code>")
-            .to_string(),
+        status,
+        status_text,
         headers,
+        body_rid,
     };
     Ok(response)
 }

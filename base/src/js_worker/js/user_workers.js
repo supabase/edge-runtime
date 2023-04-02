@@ -2,6 +2,7 @@
 
 ((window) => {
   const { TypeError } = window.__bootstrap.primordials;
+  const { readableStreamForRid } = window.__bootstrap.streams;
   const core = window.Deno.core;
   const ops = core.ops;
 
@@ -14,21 +15,18 @@
       const { method, url, headers, body, bodyUsed } = req;
 
       const headersArray = Array.from(headers.entries());
-      let bodyBuffer = null;
-      if (method !== "GET" || method !== "HEAD") {
-        if (!bodyUsed) {
-
-        }
-      }
+      const hasBody = !(method === "GET" || method === "HEAD" || bodyUsed);
 
       const userWorkerReq = {
         method,
         url,
-        headers: headersArray
+        headers: headersArray,
+        hasBody,
       };
 
       const res = await core.opAsync("op_user_worker_fetch", this.key, userWorkerReq);
-      return new Response(JSON.stringify({}), {
+      const bodyStream = readableStreamForRid(res.bodyRid);
+      return new Response(bodyStream, {
         headers: res.headers,
         status: res.status,
         statusText: res.statusText

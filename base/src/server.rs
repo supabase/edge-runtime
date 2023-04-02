@@ -36,41 +36,15 @@ impl Service<Request<Body>> for WorkerService {
     }
 
     fn call(&mut self, req: Request<Body>) -> Self::Future {
-        // check if the worker already available
-
         // create a response in a future.
         let worker_ctx = self.worker_ctx.clone();
         let fut = async move {
-            let host = req
-                .headers()
-                .get("host")
-                .map(|v| v.to_str().unwrap())
-                .unwrap_or("example.com");
             let req_path = req.uri().path();
 
-            let url = Url::parse(&format!("http://{}{}", host, req_path).as_str())?;
-            let path_segments = url.path_segments();
-            if path_segments.is_none() {
-                error!("need to provide a path");
-                // send a 400 response
-                //Ok(Response::new(Body::from("need to provide a path")))
+            // if the request is for the health endpoint return a 200 OK response
+            if req_path == "/_internal/health" {
+                return Ok(Response::new(Body::empty()));
             }
-
-            let service_name = path_segments.unwrap().next().unwrap_or_default(); // get the first path segement
-            if service_name == "" {
-                error!("service name cannot be empty");
-                //Ok(Response::new(Body::from("service name cannot be empty")))
-            }
-
-            //let service_path = Path::new(&services_dir_clone).join(service_name);
-            let service_path = Path::new(&"./examples".to_string()).join(service_name);
-            if !service_path.exists() {
-                error!("service does not exist");
-                // send a 404 response
-                //Ok(Response::new(Body::from("service does not exist")))
-            }
-
-            info!("serving function {}", service_name);
 
             let mut worker_ctx_writer = worker_ctx.write().await;
             let response = worker_ctx_writer.send_request(req).await?;

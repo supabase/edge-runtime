@@ -4,8 +4,6 @@ use anyhow::Error;
 use base::commands::start_server;
 use clap::builder::FalseyValueParser;
 use clap::{arg, value_parser, ArgAction, Command};
-use std::env;
-
 fn cli() -> Command {
     Command::new("edge-runtime")
         .about("A server based on Deno runtime, capable of running JavaScript, TypeScript, and WASM services")
@@ -67,13 +65,19 @@ fn main() {
                 .get_one::<String>("main-service")
                 .cloned()
                 .unwrap();
+            let import_map_path = sub_matches.get_one::<String>("import-map").cloned();
             let no_module_cache = sub_matches
                 .get_one::<bool>("disable-module-cache")
                 .cloned()
                 .unwrap();
-            let import_map_path = sub_matches.get_one::<String>("import-map").cloned();
 
-            exit_with_code(start_server(&ip.as_str(), port, main_service_path))
+            exit_with_code(start_server(
+                &ip.as_str(),
+                port,
+                main_service_path,
+                import_map_path,
+                no_module_cache,
+            ))
         }
         _ => {
             // unrecognized command

@@ -6,7 +6,6 @@ use std::future::Future;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
-use std::path::Path;
 use std::pin::Pin;
 use std::str;
 use std::str::FromStr;
@@ -14,7 +13,6 @@ use std::sync::Arc;
 use std::task::Poll;
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
-use url::Url;
 
 struct WorkerService {
     worker_ctx: Arc<RwLock<WorkerContext>>,
@@ -63,9 +61,16 @@ pub struct Server {
 }
 
 impl Server {
-    pub async fn new(ip: &str, port: u16, main_service_path: String) -> Result<Self, Error> {
+    pub async fn new(
+        ip: &str,
+        port: u16,
+        main_service_path: String,
+        import_map_path: Option<String>,
+        no_module_cache: bool,
+    ) -> Result<Self, Error> {
         // create a worker pool
-        let worker_pool = WorkerPool::new(main_service_path, None, false).await?;
+        let worker_pool =
+            WorkerPool::new(main_service_path, import_map_path, no_module_cache).await?;
 
         let ip = Ipv4Addr::from_str(ip)?;
         Ok(Self {

@@ -1,5 +1,5 @@
 use crate::utils::units::{bytes_to_display, human_elapsed, mib_to_bytes};
-use crate::worker_ctx::WorkerPoolMsg;
+use crate::worker_ctx::UserWorkerMsgs;
 
 use anyhow::{bail, Error};
 use deno_core::located_script_name;
@@ -66,7 +66,7 @@ fn print_import_map_diagnostics(diagnostics: &[ImportMapDiagnostic]) {
 pub struct MainWorker {
     js_runtime: JsRuntime,
     main_module_url: ModuleSpecifier,
-    worker_pool_tx: mpsc::UnboundedSender<WorkerPoolMsg>,
+    worker_pool_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
 }
 
 impl MainWorker {
@@ -74,7 +74,7 @@ impl MainWorker {
         service_path: PathBuf,
         no_module_cache: bool,
         import_map_path: Option<String>,
-        worker_pool_tx: mpsc::UnboundedSender<WorkerPoolMsg>,
+        worker_pool_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
     ) -> Result<Self, Error> {
         // Note: MainWorker
         // - does not have memory or worker timeout [x]
@@ -179,7 +179,7 @@ impl MainWorker {
             let op_state_rc = self.js_runtime.op_state();
             let mut op_state = op_state_rc.borrow_mut();
             op_state.put::<mpsc::UnboundedReceiver<UnixStream>>(unix_stream_rx);
-            op_state.put::<mpsc::UnboundedSender<WorkerPoolMsg>>(worker_pool_tx);
+            op_state.put::<mpsc::UnboundedSender<UserWorkerMsgs>>(worker_pool_tx);
             op_state.put::<types::EnvVars>(env_vars);
         }
 

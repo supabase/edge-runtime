@@ -1,4 +1,4 @@
-use crate::worker_ctx::{CreateUserWorkerResult, UserWorkerOptions, WorkerPoolMsg};
+use crate::worker_ctx::{CreateUserWorkerResult, UserWorkerMsgs, UserWorkerOptions};
 
 use deno_core::error::{custom_error, type_error, AnyError};
 use deno_core::futures::stream::Peekable;
@@ -49,7 +49,7 @@ pub async fn op_user_worker_create(
     env_vars_vec: Vec<(String, String)>,
 ) -> Result<String, AnyError> {
     let op_state = state.borrow();
-    let tx = op_state.borrow::<mpsc::UnboundedSender<WorkerPoolMsg>>();
+    let tx = op_state.borrow::<mpsc::UnboundedSender<UserWorkerMsgs>>();
     let (result_tx, result_rx) = oneshot::channel::<CreateUserWorkerResult>();
 
     let mut env_vars = HashMap::new();
@@ -65,10 +65,7 @@ pub async fn op_user_worker_create(
         import_map_path,
         env_vars,
     };
-    tx.send(WorkerPoolMsg::CreateUserWorker(
-        user_worker_options,
-        result_tx,
-    ));
+    tx.send(UserWorkerMsgs::Create(user_worker_options, result_tx));
 
     let result = result_rx.await;
     if result.is_err() {
@@ -168,7 +165,7 @@ pub async fn op_user_worker_fetch(
     req: UserWorkerRequest,
 ) -> Result<UserWorkerResponse, AnyError> {
     let mut op_state = state.borrow_mut();
-    let tx = op_state.borrow::<mpsc::UnboundedSender<WorkerPoolMsg>>();
+    let tx = op_state.borrow::<mpsc::UnboundedSender<UserWorkerMsgs>>();
     let (result_tx, result_rx) = oneshot::channel::<Response<Body>>();
 
     let mut body = Body::empty();
@@ -197,7 +194,7 @@ pub async fn op_user_worker_fetch(
         }
     }
 
-    tx.send(WorkerPoolMsg::SendRequestToWorker(key, request, result_tx));
+    tx.send(UserWorkerMsgs::SendRequest(key, request, result_tx));
 
     let result = result_rx.await;
     if result.is_err() {

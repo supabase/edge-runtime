@@ -29,7 +29,7 @@ pub struct UserWorkerOptions {
 
 pub struct MainWorkerOptions {
     pub service_path: PathBuf,
-    pub worker_pool_tx: mpsc::UnboundedSender<WorkerPoolMsg>,
+    pub user_worker_msgs_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
     pub no_module_cache: bool,
     pub import_map_path: Option<String>,
 }
@@ -39,7 +39,7 @@ impl WorkerContext {
         let service_path = options.service_path;
         let no_module_cache = options.no_module_cache;
         let import_map_path = options.import_map_path;
-        let worker_pool_tx = options.worker_pool_tx;
+        let user_worker_msgs_tx = options.user_worker_msgs_tx;
 
         // create a unix socket pair
         let (sender_stream, recv_stream) = UnixStream::pair()?;
@@ -49,7 +49,7 @@ impl WorkerContext {
                 service_path.clone(),
                 no_module_cache,
                 import_map_path,
-                worker_pool_tx.clone(),
+                user_worker_msgs_tx.clone(),
             )?;
 
             // start the worker
@@ -145,9 +145,9 @@ pub struct CreateUserWorkerResult {
 }
 
 #[derive(Debug)]
-pub enum WorkerPoolMsg {
-    CreateUserWorker(UserWorkerOptions, oneshot::Sender<CreateUserWorkerResult>),
-    SendRequestToWorker(String, Request<Body>, oneshot::Sender<Response<Body>>),
+pub enum UserWorkerMsgs {
+    Create(UserWorkerOptions, oneshot::Sender<CreateUserWorkerResult>),
+    SendRequest(String, Request<Body>, oneshot::Sender<Response<Body>>),
 }
 
 pub struct WorkerPool {
@@ -160,14 +160,15 @@ impl WorkerPool {
         import_map_path: Option<String>,
         no_module_cache: bool,
     ) -> Result<Self, Error> {
-        let (worker_pool_tx, mut worker_pool_rx) = mpsc::unbounded_channel::<WorkerPoolMsg>();
+        let (user_worker_msgs_tx, mut user_worker_msgs_rx) =
+            mpsc::unbounded_channel::<UserWorkerMsgs>();
 
         let main_path = Path::new(&main_path);
         let main_worker_ctx = WorkerContext::new_main_worker(MainWorkerOptions {
             service_path: main_path.to_path_buf(),
             import_map_path,
             no_module_cache,
-            worker_pool_tx,
+            user_worker_msgs_tx,
         })
         .await?;
         let main_worker = Arc::new(RwLock::new(main_worker_ctx));
@@ -176,9 +177,9 @@ impl WorkerPool {
             let mut user_workers: HashMap<String, Arc<RwLock<WorkerContext>>> = HashMap::new();
 
             loop {
-                match worker_pool_rx.recv().await {
+                match user_worker_msgs_rx.recv().await {
                     None => break,
-                    Some(WorkerPoolMsg::CreateUserWorker(worker_options, tx)) => {
+                    Some(UserWorkerMsgs::Create(worker_options, tx)) => {
                         let key = worker_options.service_path.display().to_string();
                         if !user_workers.contains_key(&key) {
                             // TODO: handle errors
@@ -191,7 +192,7 @@ impl WorkerPool {
 
                         tx.send(CreateUserWorkerResult { key });
                     }
-                    Some(WorkerPoolMsg::SendRequestToWorker(key, req, tx)) => {
+                    Some(UserWorkerMsgs::SendRequest(key, req, tx)) => {
                         // TODO: handle errors
                         let worker = user_workers.get(&key).unwrap();
                         let mut worker = worker.write().await;

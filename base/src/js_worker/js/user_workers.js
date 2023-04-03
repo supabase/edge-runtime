@@ -2,7 +2,7 @@
 
 ((window) => {
   const { TypeError } = window.__bootstrap.primordials;
-  const { readableStreamForRid } = window.__bootstrap.streams;
+  const { readableStreamForRid, writableStreamForRid } = window.__bootstrap.streams;
   const core = window.Deno.core;
   const ops = core.ops;
 
@@ -24,7 +24,16 @@
         hasBody,
       };
 
-      const res = await core.opAsync("op_user_worker_fetch", this.key, userWorkerReq);
+      const { requestRid, requestBodyRid } = await ops.op_user_worker_fetch_build(userWorkerReq);
+
+      // stream the request body
+      if (hasBody) {
+        let writableStream = writableStreamForRid(requestBodyRid);
+        body.pipeTo(writableStream);
+      }
+
+      const res = await core.opAsync("op_user_worker_fetch_send", this.key, requestRid);
+
       const bodyStream = readableStreamForRid(res.bodyRid);
       return new Response(bodyStream, {
         headers: res.headers,

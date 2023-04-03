@@ -1,6 +1,6 @@
 # Edge Runtime
 
-A server based on [Deno](https://deno.land) runtime, capable of running JavaScript, TypeScript, and WASM services.
+A web server based on [Deno](https://deno.land) runtime, capable of running JavaScript, TypeScript, and WASM services.
 
 ### Why are we building this?
 

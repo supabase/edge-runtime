@@ -12,24 +12,18 @@ Also, this enables portability of edge functions to those users who want to self
 ## How to run locally
 
 ```
-./run.sh start --dir /path/to/supabase/functions -p 9000
+./run.sh start --main-service /path/to/supabase/functions -p 9000
 ```
 
 using Docker:
 
 ```
 docker build -t edge-runtime .
-docker run -it --rm -p 9000:9000 -v /path/to/supabase/functions:/usr/services supabase/edge-runtime start --dir /usr/services
+docker run -it --rm -p 9000:9000 -v /path/to/supabase/functions:/usr/services supabase/edge-runtime start --main-service /usr/services
 ```
-
-## Architecture
-
-Server -> Base Worker -> User Function
 
 ## TODO
 
-* Check verify-jwt
-* handle 404 errors
 * Expose Deno.errors
 * Performance.now() precision tuning
 * Disable SharedArrayBuffers
@@ -44,4 +38,4 @@ Server -> Base Worker -> User Function
 ## How to update to a Deno version
 
 * Select the Deno version to upgrade and visit its tag on GitHub (eg: https://github.com/denoland/deno/blob/v1.30.3/Cargo.toml)
-* Open the `Cargo.toml` at the root of of the repo and modify all `deno_*` modules to match to the Deno's repo.
+* Open the `Cargo.toml` at the root of of this repo and modify all `deno_*` modules to match to the selected tag of Deno.

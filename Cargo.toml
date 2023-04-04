@@ -5,7 +5,8 @@ members = [
   "./crates/module_fetcher",
   "./crates/supa_workers",
   "./crates/supa_worker_context",
-  "./crates/supa_env"
+  "./crates/supa_env",
+  "./crates/supacore"
 ]
 resolver = "2"
 

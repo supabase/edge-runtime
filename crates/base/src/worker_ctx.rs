@@ -16,7 +16,7 @@ use tokio::sync::RwLock;
 use tokio::sync::{mpsc, oneshot};
 
 pub struct WorkerContext {
-    handle: thread::JoinHandle<Result<(), Error>>,
+    handle: tokio::task::JoinHandle<Result<(), Error>>,
     request_sender: hyper::client::conn::SendRequest<Body>,
 }
 
@@ -37,7 +37,7 @@ impl WorkerContext {
         // create a unix socket pair
         let (sender_stream, recv_stream) = UnixStream::pair()?;
 
-        let handle: thread::JoinHandle<Result<(), Error>> = thread::spawn(move || {
+        let handle: tokio::task::JoinHandle<Result<(), Error>> = tokio::task::spawn(async move {
             let worker = MainWorker::new(
                 service_path.clone(),
                 no_module_cache,
@@ -86,7 +86,7 @@ impl WorkerContext {
         // create a unix socket pair
         let (sender_stream, recv_stream) = UnixStream::pair()?;
 
-        let handle: thread::JoinHandle<Result<(), Error>> = thread::spawn(move || {
+        let handle: tokio::task::JoinHandle<Result<(), Error>> =  tokio::task::spawn(async move {
             let worker = UserWorker::new(
                 service_path.clone(),
                 memory_limit_mb,

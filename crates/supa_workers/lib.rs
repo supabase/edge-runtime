@@ -30,7 +30,7 @@ deno_core::extension!(
         op_user_worker_fetch_build,
         op_user_worker_fetch_send
     ],
-    esm = ["user_workers.ts"]
+    esm = ["user_workers.js"]
 );
 
 #[derive(Deserialize, Default, Debug)]

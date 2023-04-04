@@ -36,6 +36,7 @@ v8 = { version = "0.60.1", default-features = false }
 supabase_edge_worker_context = { version = "0.1.0", path = "../supa_worker_context" }
 supabase_edge_workers = { version = "0.1.0", path = "../supa_workers" }
 supabase_edge_env = { version = "0.1.0", path = "../supa_env" }
+supabase_edge_core = { version = "0.1.0", path = "../supacore" }
 
 [build-dependencies]
 anyhow = { workspace = true }
@@ -67,3 +68,4 @@ v8 = { version = "0.60.1", default-features = false }
 supabase_edge_worker_context = { version = "0.1.0", path = "../supa_worker_context" }
 supabase_edge_workers = { version = "0.1.0", path = "../supa_workers" }
 supabase_edge_env = { version = "0.1.0", path = "../supa_env" }
+supabase_edge_core = { version = "0.1.0", path = "../supacore" }

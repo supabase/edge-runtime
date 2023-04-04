@@ -2,15 +2,15 @@ const core = globalThis.Deno.core;
 const ops = core.ops;
 
 class SupaEnv {
-  setEnv(key: string, value: string) {
+  setEnv(key, value) {
     ops.op_set_env(key, value);
   }
 
-  getEnv(key: string) {
+  getEnv(key) {
     return ops.op_get_env(key) ?? undefined;
   }
 
-  deleteEnv(key: string) {
+  deleteEnv(key) {
     ops.op_delete_env(key);
   }
 }

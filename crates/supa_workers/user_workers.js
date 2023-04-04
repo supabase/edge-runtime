@@ -9,20 +9,21 @@ import {
 const core = globalThis.Deno.core;
 const ops = core.ops;
 
-interface WorkerOptions {
-    servicePath: string;
-    memoryLimitMb?: number;
-    workerTimeoutMs?: number;
-    noModuleCache?: boolean;
-    importMapPath?: string;
-    envVars?: Array<any>
-}
+// interface WorkerOptions {
+//     servicePath: string;
+//     memoryLimitMb?: number;
+//     workerTimeoutMs?: number;
+//     noModuleCache?: boolean;
+//     importMapPath?: string;
+//     envVars?: Array<any>
+// }
 
 class UserWorker {
-    constructor(private key: string) {
+    constructor(key) {
+        this.key = key;
     }
 
-    async fetch(req: Request) {
+    async fetch(req) {
         const { method, url, headers, body, bodyUsed } = req;
 
         const headersArray = Array.from(headers.entries());
@@ -53,7 +54,7 @@ class UserWorker {
         });
     }
 
-    static async create(opts: WorkerOptions) {
+    static async create(opts) {
         const readyOptions = {
             memory_limit_mb: 150,
             worker_timeout_ms: 60 * 1000,

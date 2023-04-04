@@ -24,7 +24,7 @@
 
   const abortSignal = window.__bootstrap.abortSignal;
   const base64 = window.__bootstrap.base64;
-  const Console = window.__bootstrap.console.Console;
+  //const Console = window.__bootstrap.console.Console;
   const colors = window.__bootstrap.colors;
   const crypto = window.__bootstrap.crypto;
   const domException = window.__bootstrap.domException;
@@ -95,9 +95,9 @@
   }
 
   const globalScope = {
-    console: nonEnumerable(
-      new Console((msg, level) => core.print(msg, level > 1)),
-    ),
+    // console: nonEnumerable(
+    //     new Console((msg, level) => core.print(msg, level > 1)),
+    // ),
 
     // timers
     clearInterval: writable(timers.clearInterval),
@@ -134,37 +134,37 @@
 
     // streams
     ByteLengthQueuingStrategy: nonEnumerable(
-      streams.ByteLengthQueuingStrategy,
+        streams.ByteLengthQueuingStrategy,
     ),
     CountQueuingStrategy: nonEnumerable(
-      streams.CountQueuingStrategy,
+        streams.CountQueuingStrategy,
     ),
     ReadableStream: nonEnumerable(streams.ReadableStream),
     ReadableStreamDefaultReader: nonEnumerable(
-      streams.ReadableStreamDefaultReader,
+        streams.ReadableStreamDefaultReader,
     ),
     ReadableByteStreamController: nonEnumerable(
-      streams.ReadableByteStreamController,
+        streams.ReadableByteStreamController,
     ),
     ReadableStreamBYOBReader: nonEnumerable(
-      streams.ReadableStreamBYOBReader,
+        streams.ReadableStreamBYOBReader,
     ),
     ReadableStreamBYOBRequest: nonEnumerable(
-      streams.ReadableStreamBYOBRequest,
+        streams.ReadableStreamBYOBRequest,
     ),
     ReadableStreamDefaultController: nonEnumerable(
-      streams.ReadableStreamDefaultController,
+        streams.ReadableStreamDefaultController,
     ),
     TransformStream: nonEnumerable(streams.TransformStream),
     TransformStreamDefaultController: nonEnumerable(
-      streams.TransformStreamDefaultController,
+        streams.TransformStreamDefaultController,
     ),
     WritableStream: nonEnumerable(streams.WritableStream),
     WritableStreamDefaultWriter: nonEnumerable(
-      streams.WritableStreamDefaultWriter,
+        streams.WritableStreamDefaultWriter,
     ),
     WritableStreamDefaultController: nonEnumerable(
-      streams.WritableStreamDefaultController,
+        streams.WritableStreamDefaultController,
     ),
 
     // event
@@ -219,14 +219,14 @@
     }
 
     return !!globalThis.onunhandledrejection ||
-      event.listenerCount(globalThis, "unhandledrejection") > 0;
+        event.listenerCount(globalThis, "unhandledrejection") > 0;
   }
 
   function promiseRejectMacrotaskCallback() {
     while (pendingRejections.length > 0) {
       const promise = ArrayPrototypeShift(pendingRejections);
       const hasPendingException = ops.op_has_pending_promise_rejection(
-        promise,
+          promise,
       );
       const reason = WeakMapPrototypeGet(pendingRejectionsReasons, promise);
       WeakMapPrototypeDelete(pendingRejectionsReasons, promise);
@@ -236,12 +236,12 @@
       }
 
       const rejectionEvent = new event.PromiseRejectionEvent(
-        "unhandledrejection",
-        {
-          cancelable: true,
-          promise,
-          reason,
-        },
+          "unhandledrejection",
+          {
+            cancelable: true,
+            promise,
+            reason,
+          },
       );
 
       const errorEventCb = (event) => {
@@ -412,46 +412,46 @@
     core.registerErrorClass("Busy", Busy);
     core.registerErrorClass("NotSupported", NotSupported);
     core.registerErrorBuilder(
-      "DOMExceptionOperationError",
-      function DOMExceptionOperationError(msg) {
-        return new domException.DOMException(msg, "OperationError");
-      },
+        "DOMExceptionOperationError",
+        function DOMExceptionOperationError(msg) {
+          return new domException.DOMException(msg, "OperationError");
+        },
     );
     core.registerErrorBuilder(
-      "DOMExceptionQuotaExceededError",
-      function DOMExceptionQuotaExceededError(msg) {
-        return new domException.DOMException(msg, "QuotaExceededError");
-      },
+        "DOMExceptionQuotaExceededError",
+        function DOMExceptionQuotaExceededError(msg) {
+          return new domException.DOMException(msg, "QuotaExceededError");
+        },
     );
     core.registerErrorBuilder(
-      "DOMExceptionNotSupportedError",
-      function DOMExceptionNotSupportedError(msg) {
-        return new domException.DOMException(msg, "NotSupported");
-      },
+        "DOMExceptionNotSupportedError",
+        function DOMExceptionNotSupportedError(msg) {
+          return new domException.DOMException(msg, "NotSupported");
+        },
     );
     core.registerErrorBuilder(
-      "DOMExceptionNetworkError",
-      function DOMExceptionNetworkError(msg) {
-        return new domException.DOMException(msg, "NetworkError");
-      },
+        "DOMExceptionNetworkError",
+        function DOMExceptionNetworkError(msg) {
+          return new domException.DOMException(msg, "NetworkError");
+        },
     );
     core.registerErrorBuilder(
-      "DOMExceptionAbortError",
-      function DOMExceptionAbortError(msg) {
-        return new domException.DOMException(msg, "AbortError");
-      },
+        "DOMExceptionAbortError",
+        function DOMExceptionAbortError(msg) {
+          return new domException.DOMException(msg, "AbortError");
+        },
     );
     core.registerErrorBuilder(
-      "DOMExceptionInvalidCharacterError",
-      function DOMExceptionInvalidCharacterError(msg) {
-        return new domException.DOMException(msg, "InvalidCharacterError");
-      },
+        "DOMExceptionInvalidCharacterError",
+        function DOMExceptionInvalidCharacterError(msg) {
+          return new domException.DOMException(msg, "InvalidCharacterError");
+        },
     );
     core.registerErrorBuilder(
-      "DOMExceptionDataError",
-      function DOMExceptionDataError(msg) {
-        return new domException.DOMException(msg, "DataError");
-      },
+        "DOMExceptionDataError",
+        function DOMExceptionDataError(msg) {
+          return new domException.DOMException(msg, "DataError");
+        },
     );
   }
 
@@ -461,20 +461,20 @@
       return null;
     } else if (typeof error == "string") {
       return `Uncaught ${
-        inspectArgs([quoteString(error)], {
-          colors: false,
-        })
+          inspectArgs([quoteString(error)], {
+            colors: false,
+          })
       }`;
     } else {
       return `Uncaught ${
-        inspectArgs([error], { colors: false })
+          inspectArgs([error], { colors: false })
       }`;
     }
   }
 
   // set build info
   const build = {
-   target: "unknown",
+    target: "unknown",
     arch: "unknown",
     os: "unknown",
     vendor: "unknown",
@@ -483,9 +483,9 @@
 
   function setBuildInfo(target) {
     const { 0: arch, 1: vendor, 2: os, 3: env } = StringPrototypeSplit(
-      target,
-      "-",
-      4,
+        target,
+        "-",
+        4,
     );
     build.target = target;
     build.arch = arch;
@@ -580,4 +580,3 @@
   });
   delete Deno.core;
 })(this);
-

@@ -32,6 +32,7 @@ use permissions::Permissions;
 use supabase_edge_env::supabase_env;
 use supabase_edge_worker_context::essentials::UserWorkerMsgs;
 use supabase_edge_workers::supabase_user_workers;
+use supabase_edge_core::supabase_core;
 
 fn load_import_map(maybe_path: Option<String>) -> Result<Option<ImportMap>, Error> {
     if let Some(path_str) = maybe_path {
@@ -127,6 +128,7 @@ impl MainWorker {
             http_start::init(),
             permissions::init(),
             runtime::init(main_module_url.clone()),
+            supabase_core::init_js_only()
         ];
 
         let import_map = load_import_map(import_map_path)?;
@@ -158,16 +160,16 @@ impl MainWorker {
         shutdown_tx: oneshot::Sender<()>,
     ) -> Result<(), Error> {
         // set bootstrap options
-        let script = format!(r#"globalThis.__build_target = "{}"#, env!("TARGET"));
+        let script = format!(r#"globalThis.__build_target = "{}""#, env!("TARGET"));
         self.js_runtime
             .execute_script::<String>(located_script_name!(), script.into())
             .expect("Failed to execute bootstrap script");
 
-        // bootstrap the JS runtime
-        let bootstrap_js = include_str!("./js_worker/js/main_bootstrap.js");
-        self.js_runtime
-            .execute_script("[main_worker]: main_bootstrap.js", &bootstrap_js[..])
-            .expect("Failed to execute bootstrap script");
+        // // bootstrap the JS runtime
+        // let bootstrap_js = include_str!("./js_worker/js/main_bootstrap.js");
+        // self.js_runtime
+        //     .execute_script("[main_worker]: main_bootstrap.js", &bootstrap_js[..])
+        //     .expect("Failed to execute bootstrap script");
 
         debug!("bootstrapped function");
 
@@ -283,6 +285,7 @@ impl UserWorker {
             http_start::init(),
             permissions::init(),
             runtime::init(main_module_url.clone()),
+            supabase_core::init_js_only()
         ];
 
         let import_map = load_import_map(import_map_path)?;
@@ -343,12 +346,12 @@ impl UserWorker {
 
         // bootstrap the JS runtime
         //let bootstrap_js = include_str!("./js_worker/js/user_bootstrap.js");
-        self.js_runtime
-            .execute_script(
-                "[user_worker]: user_bootstrap.js",
-                include_str!("./js_worker/js/user_bootstrap.js"),
-            )
-            .expect("Failed to execute bootstrap script");
+        // self.js_runtime
+        //     .execute_script(
+        //         "[user_worker]: user_bootstrap.js",
+        //         include_str!("./js_worker/js/user_bootstrap.js"),
+        //     )
+        //     .expect("Failed to execute bootstrap script");
 
         debug!("bootstrapped function");
 

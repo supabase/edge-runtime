@@ -37,7 +37,7 @@ pub type EnvVars = HashMap<String, String>;
 deno_core::extension!(
     supabase_env,
     ops = [op_set_env, op_env, op_get_env, op_delete_env],
-    esm = ["env.ts"]
+    esm = ["env.js"]
 );
 
 #[op]

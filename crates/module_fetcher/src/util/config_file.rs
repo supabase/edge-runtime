@@ -1,6 +1,6 @@
-use std::path::PathBuf;
-use deno_core::ModuleSpecifier;
 use crate::util::path::specifier_to_file_path;
+use deno_core::ModuleSpecifier;
+use std::path::PathBuf;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct FilesConfig {
@@ -22,7 +22,6 @@ impl FilesConfig {
         }
 
         // Ignore files not in the include list if it's not empty.
-        self.include.is_empty()
-            || self.include.iter().any(|i| file_path.starts_with(i))
+        self.include.is_empty() || self.include.iter().any(|i| file_path.starts_with(i))
     }
 }

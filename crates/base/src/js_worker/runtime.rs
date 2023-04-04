@@ -1,5 +1,5 @@
-use std::path::Path;
 use crate::js_worker::permissions::Permissions;
+use std::path::Path;
 
 use anyhow::Context;
 use deno_core::error::AnyError;

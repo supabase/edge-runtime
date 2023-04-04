@@ -29,7 +29,9 @@ pub mod types;
 
 use module_loader::DefaultModuleLoader;
 use permissions::Permissions;
+use supabase_edge_env::supabase_env;
 use supabase_edge_worker_context::essentials::UserWorkerMsgs;
+use supabase_edge_workers::supabase_user_workers;
 
 fn load_import_map(maybe_path: Option<String>) -> Result<Option<ImportMap>, Error> {
     if let Some(path_str) = maybe_path {
@@ -74,73 +76,76 @@ impl MainWorker {
         import_map_path: Option<String>,
         worker_pool_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
     ) -> Result<Self, Error> {
-        Err(anyhow::anyhow!("Oh no"))
-        // // Note: MainWorker
-        // // - does not have memory or worker timeout [x]
-        // // - has access to OS env vars [x]
-        // // - has access to local file system
-        // // - has access to WorkerPool resource (to create / launch workers)
-        //
-        // let user_agent = "supabase-edge-runtime".to_string();
-        //
-        // let base_url =
-        //     Url::from_directory_path(std::env::current_dir().map(|p| p.join(&service_path))?)
-        //         .unwrap();
-        //
-        // // TODO: check for other potential main paths (eg: index.js, index.tsx)
-        // let main_module_url = base_url.join("index.ts")?;
-        //
-        // // Note: this will load Mozilla's CAs (we may also need to support system certs)
-        // let root_cert_store = deno_tls::create_default_root_cert_store();
-        //
-        // let extensions_with_js = vec![
-        //     deno_webidl::init(),
-        //     deno_console::init(),
-        //     deno_url::init(),
-        //     deno_web::init::<Permissions>(deno_web::BlobStore::default(), None),
-        //     deno_fetch::init::<Permissions>(deno_fetch::Options {
-        //         user_agent: user_agent.clone(),
-        //         root_cert_store: Some(root_cert_store.clone()),
-        //         ..Default::default()
-        //     }),
-        //     // TODO: support providing a custom seed for crypto
-        //     deno_crypto::init(None),
-        //     deno_net::init::<Permissions>(Some(root_cert_store.clone()), false, None),
-        //     deno_websocket::init::<Permissions>(
-        //         user_agent.clone(),
-        //         Some(root_cert_store.clone()),
-        //         None,
-        //     ),
-        //     deno_http::init(),
-        //     deno_tls::init(),
-        //     env::init(),
-        //     user_workers::init(),
-        // ];
-        // let extensions = vec![
-        //     net_override::init(),
-        //     http_start::init(),
-        //     permissions::init(),
-        //     runtime::init(main_module_url.clone()),
-        // ];
-        //
-        // let import_map = load_import_map(import_map_path)?;
-        // let module_loader = DefaultModuleLoader::new(import_map, no_module_cache)?;
-        //
-        // let js_runtime = JsRuntime::new(RuntimeOptions {
-        //     extensions,
-        //     extensions_with_js,
-        //     module_loader: Some(Rc::new(module_loader)),
-        //     is_main: true,
-        //     shared_array_buffer_store: None,
-        //     compiled_wasm_module_store: None,
-        //     ..Default::default()
-        // });
-        //
-        // Ok(Self {
-        //     js_runtime,
-        //     main_module_url,
-        //     worker_pool_tx,
-        // })
+        // Note: MainWorker
+        // - does not have memory or worker timeout [x]
+        // - has access to OS env vars [x]
+        // - has access to local file system
+        // - has access to WorkerPool resource (to create / launch workers)
+
+        let user_agent = "supabase-edge-runtime".to_string();
+
+        let base_url =
+            Url::from_directory_path(std::env::current_dir().map(|p| p.join(&service_path))?)
+                .unwrap();
+
+        // TODO: check for other potential main paths (eg: index.js, index.tsx)
+        let main_module_url = base_url.join("index.ts")?;
+
+        // Note: this will load Mozilla's CAs (we may also need to support system certs)
+        let root_cert_store = deno_tls::create_default_root_cert_store();
+
+        let extensions = vec![
+            deno_webidl::deno_webidl::init_ops_and_esm(),
+            deno_console::deno_console::init_ops_and_esm(),
+            deno_url::deno_url::init_ops_and_esm(),
+            deno_web::deno_web::init_ops_and_esm::<Permissions>(
+                deno_web::BlobStore::default(),
+                None,
+            ),
+            deno_fetch::deno_fetch::init_ops_and_esm::<Permissions>(deno_fetch::Options {
+                user_agent: user_agent.clone(),
+                root_cert_store: Some(root_cert_store.clone()),
+                ..Default::default()
+            }),
+            // TODO: support providing a custom seed for crypto
+            deno_crypto::deno_crypto::init_ops_and_esm(None),
+            deno_net::deno_net::init_ops_and_esm::<Permissions>(
+                Some(root_cert_store.clone()),
+                false,
+                None,
+            ),
+            deno_websocket::deno_websocket::init_ops_and_esm::<Permissions>(
+                user_agent.clone(),
+                Some(root_cert_store.clone()),
+                None,
+            ),
+            deno_http::deno_http::init_ops_and_esm(),
+            deno_tls::deno_tls::init_ops_and_esm(),
+            supabase_env::init_ops_and_esm(),
+            supabase_user_workers::init_ops_and_esm(),
+            net_override::init(),
+            http_start::init(),
+            permissions::init(),
+            runtime::init(main_module_url.clone()),
+        ];
+
+        let import_map = load_import_map(import_map_path)?;
+        let module_loader = DefaultModuleLoader::new(import_map, no_module_cache)?;
+
+        let js_runtime = JsRuntime::new(RuntimeOptions {
+            extensions,
+            module_loader: Some(Rc::new(module_loader)),
+            is_main: true,
+            shared_array_buffer_store: None,
+            compiled_wasm_module_store: None,
+            ..Default::default()
+        });
+
+        Ok(Self {
+            js_runtime,
+            main_module_url,
+            worker_pool_tx,
+        })
     }
 
     pub fn snapshot() {
@@ -152,69 +157,68 @@ impl MainWorker {
         stream: UnixStream,
         shutdown_tx: oneshot::Sender<()>,
     ) -> Result<(), Error> {
-        // // set bootstrap options
-        // let script = format!("globalThis.__build_target = \"{}\"", env!("TARGET"));
-        // self.js_runtime
-        //     .execute_script(&located_script_name!(), &script)
-        //     .expect("Failed to execute bootstrap script");
-        //
-        // // bootstrap the JS runtime
-        // let bootstrap_js = include_str!("./js_worker/js/main_bootstrap.js");
-        // self.js_runtime
-        //     .execute_script("[main_worker]: main_bootstrap.js", bootstrap_js)
-        //     .expect("Failed to execute bootstrap script");
-        //
-        // debug!("bootstrapped function");
-        //
-        // let (unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
-        // if let Err(e) = unix_stream_tx.send(stream) {
-        //     bail!(e)
-        // }
-        //
-        // //run inside a closure, so op_state_rc is released
-        // let env_vars = std::env::vars().collect();
-        // let worker_pool_tx = self.worker_pool_tx.clone();
-        // {
-        //     let op_state_rc = self.js_runtime.op_state();
-        //     let mut op_state = op_state_rc.borrow_mut();
-        //     op_state.put::<mpsc::UnboundedReceiver<UnixStream>>(unix_stream_rx);
-        //     op_state.put::<mpsc::UnboundedSender<UserWorkerMsgs>>(worker_pool_tx);
-        //     op_state.put::<types::EnvVars>(env_vars);
-        // }
-        //
-        // let mut js_runtime = self.js_runtime;
-        //
-        // let runtime = tokio::runtime::Builder::new_current_thread()
-        //     .enable_all()
-        //     .build()
-        //     .unwrap();
-        //
-        // let future = async move {
-        //     let mod_id = js_runtime
-        //         .load_main_module(&self.main_module_url, None)
-        //         .await?;
-        //     let mod_result = js_runtime.mod_evaluate(mod_id);
-        //
-        //     let result = tokio::select! {
-        //         _ = js_runtime.run_event_loop(false) => {
-        //             debug!("event loop completed");
-        //             mod_result.await?
-        //         }
-        //     };
-        //
-        //     drop(js_runtime);
-        //     result
-        // };
-        //
-        // let local = tokio::task::LocalSet::new();
-        // let res = local.block_on(&runtime, future);
-        //
-        // if res.is_err() {
-        //     error!("worker thread panicked {:?}", res.as_ref().err().unwrap());
-        // }
-        //
-        // Ok(shutdown_tx.send(()).unwrap())
-        Err(anyhow::anyhow!("Oh no"))
+        // set bootstrap options
+        let script = format!(r#"globalThis.__build_target = "{}"#, env!("TARGET"));
+        self.js_runtime
+            .execute_script::<String>(located_script_name!(), script.into())
+            .expect("Failed to execute bootstrap script");
+
+        // bootstrap the JS runtime
+        let bootstrap_js = include_str!("./js_worker/js/main_bootstrap.js");
+        self.js_runtime
+            .execute_script("[main_worker]: main_bootstrap.js", &bootstrap_js[..])
+            .expect("Failed to execute bootstrap script");
+
+        debug!("bootstrapped function");
+
+        let (unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
+        if let Err(e) = unix_stream_tx.send(stream) {
+            bail!(e)
+        }
+
+        //run inside a closure, so op_state_rc is released
+        let env_vars = std::env::vars().collect();
+        let worker_pool_tx = self.worker_pool_tx.clone();
+        {
+            let op_state_rc = self.js_runtime.op_state();
+            let mut op_state = op_state_rc.borrow_mut();
+            op_state.put::<mpsc::UnboundedReceiver<UnixStream>>(unix_stream_rx);
+            op_state.put::<mpsc::UnboundedSender<UserWorkerMsgs>>(worker_pool_tx);
+            op_state.put::<types::EnvVars>(env_vars);
+        }
+
+        let mut js_runtime = self.js_runtime;
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        let future = async move {
+            let mod_id = js_runtime
+                .load_main_module(&self.main_module_url, None)
+                .await?;
+            let mod_result = js_runtime.mod_evaluate(mod_id);
+
+            let result = tokio::select! {
+                _ = js_runtime.run_event_loop(false) => {
+                    debug!("event loop completed");
+                    mod_result.await?
+                }
+            };
+
+            drop(js_runtime);
+            result
+        };
+
+        let local = tokio::task::LocalSet::new();
+        let res = local.block_on(&runtime, future);
+
+        if res.is_err() {
+            error!("worker thread panicked {:?}", res.as_ref().err().unwrap());
+        }
+
+        Ok(shutdown_tx.send(()).unwrap())
     }
 }
 
@@ -235,72 +239,75 @@ impl UserWorker {
         import_map_path: Option<String>,
         env_vars: HashMap<String, String>,
     ) -> Result<Self, Error> {
-        // let user_agent = "supabase-edge-runtime".to_string();
-        //
-        // let base_url =
-        //     Url::from_directory_path(std::env::current_dir().map(|p| p.join(&service_path))?)
-        //         .unwrap();
-        //
-        // // TODO: check for other potential main paths (eg: index.js, index.tsx)
-        // let main_module_url = base_url.join("index.ts")?;
-        //
-        // // Note: this will load Mozilla's CAs (we may also need to support system certs)
-        // let root_cert_store = deno_tls::create_default_root_cert_store();
-        //
-        // let extensions_with_js = vec![
-        //     deno_webidl::init(),
-        //     deno_console::init(),
-        //     deno_url::init(),
-        //     deno_web::init::<Permissions>(deno_web::BlobStore::default(), None),
-        //     deno_fetch::init::<Permissions>(deno_fetch::Options {
-        //         user_agent: user_agent.clone(),
-        //         root_cert_store: Some(root_cert_store.clone()),
-        //         ..Default::default()
-        //     }),
-        //     // TODO: support providing a custom seed for crypto
-        //     deno_crypto::init(None),
-        //     deno_net::init::<Permissions>(Some(root_cert_store.clone()), false, None),
-        //     deno_websocket::init::<Permissions>(
-        //         user_agent.clone(),
-        //         Some(root_cert_store.clone()),
-        //         None,
-        //     ),
-        //     deno_http::init(),
-        //     deno_tls::init(),
-        //     env::init(),
-        // ];
-        // let extensions = vec![
-        //     net_override::init(),
-        //     http_start::init(),
-        //     permissions::init(),
-        //     runtime::init(main_module_url.clone()),
-        // ];
-        //
-        // let import_map = load_import_map(import_map_path)?;
-        // let module_loader = DefaultModuleLoader::new(import_map, no_module_cache)?;
-        //
-        // let js_runtime = JsRuntime::new(RuntimeOptions {
-        //     extensions,
-        //     extensions_with_js,
-        //     module_loader: Some(Rc::new(module_loader)),
-        //     is_main: true,
-        //     create_params: Some(v8::CreateParams::default().heap_limits(
-        //         mib_to_bytes(1) as usize,
-        //         mib_to_bytes(memory_limit_mb) as usize,
-        //     )),
-        //     shared_array_buffer_store: None,
-        //     compiled_wasm_module_store: None,
-        //     ..Default::default()
-        // });
-        //
-        // Ok(Self {
-        //     js_runtime,
-        //     main_module_url,
-        //     memory_limit_mb,
-        //     worker_timeout_ms,
-        //     env_vars,
-        // })
-        Err(anyhow::anyhow!("Oh no"))
+        let user_agent = "supabase-edge-runtime".to_string();
+
+        let base_url =
+            Url::from_directory_path(std::env::current_dir().map(|p| p.join(&service_path))?)
+                .unwrap();
+
+        // TODO: check for other potential main paths (eg: index.js, index.tsx)
+        let main_module_url = base_url.join("index.ts")?;
+
+        // Note: this will load Mozilla's CAs (we may also need to support system certs)
+        let root_cert_store = deno_tls::create_default_root_cert_store();
+
+        let extensions = vec![
+            deno_webidl::deno_webidl::init_ops_and_esm(),
+            deno_console::deno_console::init_ops_and_esm(),
+            deno_url::deno_url::init_ops_and_esm(),
+            deno_web::deno_web::init_ops_and_esm::<Permissions>(
+                deno_web::BlobStore::default(),
+                None,
+            ),
+            deno_fetch::deno_fetch::init_ops_and_esm::<Permissions>(deno_fetch::Options {
+                user_agent: user_agent.clone(),
+                root_cert_store: Some(root_cert_store.clone()),
+                ..Default::default()
+            }),
+            // TODO: support providing a custom seed for crypto
+            deno_crypto::deno_crypto::init_ops_and_esm(None),
+            deno_net::deno_net::init_ops_and_esm::<Permissions>(
+                Some(root_cert_store.clone()),
+                false,
+                None,
+            ),
+            deno_websocket::deno_websocket::init_ops_and_esm::<Permissions>(
+                user_agent.clone(),
+                Some(root_cert_store.clone()),
+                None,
+            ),
+            deno_http::deno_http::init_ops_and_esm(),
+            deno_tls::deno_tls::init_ops_and_esm(),
+            supabase_env::init_ops_and_esm(),
+            net_override::init(),
+            http_start::init(),
+            permissions::init(),
+            runtime::init(main_module_url.clone()),
+        ];
+
+        let import_map = load_import_map(import_map_path)?;
+        let module_loader = DefaultModuleLoader::new(import_map, no_module_cache)?;
+
+        let js_runtime = JsRuntime::new(RuntimeOptions {
+            extensions,
+            module_loader: Some(Rc::new(module_loader)),
+            is_main: true,
+            create_params: Some(deno_core::v8::CreateParams::default().heap_limits(
+                mib_to_bytes(1) as usize,
+                mib_to_bytes(memory_limit_mb) as usize,
+            )),
+            shared_array_buffer_store: None,
+            compiled_wasm_module_store: None,
+            ..Default::default()
+        });
+
+        Ok(Self {
+            js_runtime,
+            main_module_url,
+            memory_limit_mb,
+            worker_timeout_ms,
+            env_vars,
+        })
     }
 
     pub fn snapshot() {
@@ -312,90 +319,92 @@ impl UserWorker {
         stream: UnixStream,
         shutdown_tx: oneshot::Sender<()>,
     ) -> Result<(), Error> {
-        Err(anyhow::anyhow!("Oh no"))
-        // let (memory_limit_tx, memory_limit_rx) = mpsc::unbounded_channel::<u64>();
-        //
-        // // add a callback when a worker reaches its memory limit
-        // let memory_limit_mb = self.memory_limit_mb;
-        // self.js_runtime
-        //     .add_near_heap_limit_callback(move |cur, _init| {
-        //         debug!(
-        //             "low memory alert triggered {}",
-        //             bytes_to_display(cur as u64)
-        //         );
-        //         let _ = memory_limit_tx.send(mib_to_bytes(memory_limit_mb));
-        //         // add a 25% allowance to memory limit
-        //         let cur = mib_to_bytes(memory_limit_mb + memory_limit_mb.div_euclid(4)) as usize;
-        //         cur
-        //     });
-        //
-        // // set bootstrap options
-        // let script = format!("globalThis.__build_target = \"{}\"", env!("TARGET"));
-        // self.js_runtime
-        //     .execute_script(&located_script_name!(), &script)
-        //     .expect("Failed to execute bootstrap script");
-        //
-        // // bootstrap the JS runtime
-        // let bootstrap_js = include_str!("./js_worker/js/user_bootstrap.js");
-        // self.js_runtime
-        //     .execute_script("[user_worker]: user_bootstrap.js", bootstrap_js)
-        //     .expect("Failed to execute bootstrap script");
-        //
-        // debug!("bootstrapped function");
-        //
-        // let (unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
-        // if let Err(e) = unix_stream_tx.send(stream) {
-        //     bail!(e)
-        // }
-        //
-        // //run inside a closure, so op_state_rc is released
-        // let env_vars = self.env_vars.clone();
-        // {
-        //     let op_state_rc = self.js_runtime.op_state();
-        //     let mut op_state = op_state_rc.borrow_mut();
-        //     op_state.put::<mpsc::UnboundedReceiver<UnixStream>>(unix_stream_rx);
-        //     op_state.put::<types::EnvVars>(env_vars);
-        // }
-        //
-        // let (halt_isolate_tx, mut halt_isolate_rx) = oneshot::channel::<()>();
-        // self.start_controller_thread(self.worker_timeout_ms, memory_limit_rx, halt_isolate_tx);
-        //
-        // let mut js_runtime = self.js_runtime;
-        //
-        // let runtime = tokio::runtime::Builder::new_current_thread()
-        //     .enable_all()
-        //     .build()
-        //     .unwrap();
-        //
-        // let future = async move {
-        //     let mod_id = js_runtime
-        //         .load_main_module(&self.main_module_url, None)
-        //         .await?;
-        //     let mod_result = js_runtime.mod_evaluate(mod_id);
-        //
-        //     let result = tokio::select! {
-        //         _ = js_runtime.run_event_loop(false) => {
-        //             debug!("event loop completed");
-        //             mod_result.await?
-        //         }
-        //         _ = &mut halt_isolate_rx => {
-        //             debug!("worker exectution halted");
-        //             Ok(())
-        //         }
-        //     };
-        //
-        //     drop(js_runtime);
-        //     result
-        // };
-        //
-        // let local = tokio::task::LocalSet::new();
-        // let res = local.block_on(&runtime, future);
-        //
-        // if res.is_err() {
-        //     error!("worker thread panicked {:?}", res.as_ref().err().unwrap());
-        // }
-        //
-        // Ok(shutdown_tx.send(()).unwrap())
+        let (memory_limit_tx, memory_limit_rx) = mpsc::unbounded_channel::<u64>();
+
+        // add a callback when a worker reaches its memory limit
+        let memory_limit_mb = self.memory_limit_mb;
+        self.js_runtime
+            .add_near_heap_limit_callback(move |cur, _init| {
+                debug!(
+                    "low memory alert triggered {}",
+                    bytes_to_display(cur as u64)
+                );
+                let _ = memory_limit_tx.send(mib_to_bytes(memory_limit_mb));
+                // add a 25% allowance to memory limit
+                let cur = mib_to_bytes(memory_limit_mb + memory_limit_mb.div_euclid(4)) as usize;
+                cur
+            });
+
+        // set bootstrap options
+        let script = format!("globalThis.__build_target = \"{}\"", env!("TARGET"));
+        self.js_runtime
+            .execute_script::<String>(&located_script_name!(), script.into())
+            .expect("Failed to execute bootstrap script");
+
+        // bootstrap the JS runtime
+        //let bootstrap_js = include_str!("./js_worker/js/user_bootstrap.js");
+        self.js_runtime
+            .execute_script(
+                "[user_worker]: user_bootstrap.js",
+                include_str!("./js_worker/js/user_bootstrap.js"),
+            )
+            .expect("Failed to execute bootstrap script");
+
+        debug!("bootstrapped function");
+
+        let (unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
+        if let Err(e) = unix_stream_tx.send(stream) {
+            bail!(e)
+        }
+
+        //run inside a closure, so op_state_rc is released
+        let env_vars = self.env_vars.clone();
+        {
+            let op_state_rc = self.js_runtime.op_state();
+            let mut op_state = op_state_rc.borrow_mut();
+            op_state.put::<mpsc::UnboundedReceiver<UnixStream>>(unix_stream_rx);
+            op_state.put::<types::EnvVars>(env_vars);
+        }
+
+        let (halt_isolate_tx, mut halt_isolate_rx) = oneshot::channel::<()>();
+        self.start_controller_thread(self.worker_timeout_ms, memory_limit_rx, halt_isolate_tx);
+
+        let mut js_runtime = self.js_runtime;
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        let future = async move {
+            let mod_id = js_runtime
+                .load_main_module(&self.main_module_url, None)
+                .await?;
+            let mod_result = js_runtime.mod_evaluate(mod_id);
+
+            let result = tokio::select! {
+                _ = js_runtime.run_event_loop(false) => {
+                    debug!("event loop completed");
+                    mod_result.await?
+                }
+                _ = &mut halt_isolate_rx => {
+                    debug!("worker exectution halted");
+                    Ok(())
+                }
+            };
+
+            drop(js_runtime);
+            result
+        };
+
+        let local = tokio::task::LocalSet::new();
+        let res = local.block_on(&runtime, future);
+
+        if res.is_err() {
+            error!("worker thread panicked {:?}", res.as_ref().err().unwrap());
+        }
+
+        Ok(shutdown_tx.send(()).unwrap())
     }
 
     fn start_controller_thread(

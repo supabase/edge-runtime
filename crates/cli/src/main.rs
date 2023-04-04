@@ -3,7 +3,7 @@ mod logger;
 use anyhow::Error;
 use base::commands::start_server;
 use clap::builder::FalseyValueParser;
-use clap::{arg, value_parser, ArgAction, Command};
+use clap::{arg, value_parser, ArgAction, ArgMatches, Command};
 fn cli() -> Command {
     Command::new("edge-runtime")
         .about("A server based on Deno runtime, capable of running JavaScript, TypeScript, and WASM services")
@@ -36,7 +36,7 @@ fn cli() -> Command {
         )
 }
 
-fn exit_with_code(result: Result<(), Error>) {
+async fn exit_with_code(result: Result<(), Error>) {
     match result {
         Ok(()) => std::process::exit(0),
         Err(error) => {
@@ -46,41 +46,72 @@ fn exit_with_code(result: Result<(), Error>) {
     }
 }
 
-fn main() {
+#[tokio::main]
+async fn main() -> Result<(), anyhow::Error> {
+    let rt = tokio::runtime::Runtime::new()?;
+
+    let ip = String::from("127.0.0.1");
+    let port: u16 = 9000;
+
+    let main_service_path =
+        String::from("/Users/andrespirela/Documents/workspace/supabase/edge-runtime/examples/main");
+    let import_map_path: Option<String> = None;
+    let no_module_cache: bool = false;
+
+    // rt.block_on(start_server(
+    //     &ip.as_str(),
+    //     port,
+    //     main_service_path,
+    //     import_map_path,
+    //     no_module_cache))?;
+
+    start_server(
+        &ip.as_str(),
+        port,
+        main_service_path,
+        import_map_path,
+        no_module_cache,
+    )
+    .await
+    .expect("TODO: panic message");
+
+    Ok(())
+
     // TODO: set panic hook
 
-    let matches = cli().get_matches();
-
-    if !matches.get_flag("quiet") {
-        let verbose = matches.get_flag("verbose");
-        logger::init(verbose);
-    }
-
-    match matches.subcommand() {
-        Some(("start", sub_matches)) => {
-            let ip = sub_matches.get_one::<String>("ip").cloned().unwrap();
-            let port = sub_matches.get_one::<u16>("port").copied().unwrap();
-
-            let main_service_path = sub_matches
-                .get_one::<String>("main-service")
-                .cloned()
-                .unwrap();
-            let import_map_path = sub_matches.get_one::<String>("import-map").cloned();
-            let no_module_cache = sub_matches
-                .get_one::<bool>("disable-module-cache")
-                .cloned()
-                .unwrap();
-
-            exit_with_code(start_server(
-                &ip.as_str(),
-                port,
-                main_service_path,
-                import_map_path,
-                no_module_cache,
-            ))
-        }
-        _ => {
-            // unrecognized command
-        }
-    }
+    // let matches = cli().get_matches();
+    //
+    // if !matches.get_flag("quiet") {
+    //     let verbose = matches.get_flag("verbose");
+    //     logger::init(verbose);
+    // }
+    //
+    //
+    // match matches.subcommand() {
+    //     Some(("start", sub_matches)) => {
+    //         let ip = sub_matches.get_one::<String>("ip").cloned().unwrap();
+    //         let port = sub_matches.get_one::<u16>("port").copied().unwrap();
+    //
+    //         let main_service_path = sub_matches
+    //             .get_one::<String>("main-service")
+    //             .cloned()
+    //             .unwrap();
+    //         let import_map_path = sub_matches.get_one::<String>("import-map").cloned();
+    //         let no_module_cache = sub_matches
+    //             .get_one::<bool>("disable-module-cache")
+    //             .cloned()
+    //             .unwrap();
+    //
+    //         exit_with_code(start_server(
+    //             &ip.as_str(),
+    //             port,
+    //             main_service_path,
+    //             import_map_path,
+    //             no_module_cache,
+    //         ))
+    //     }
+    //     _ => {
+    //         // unrecognized command
+    //     }
+    // }
 }

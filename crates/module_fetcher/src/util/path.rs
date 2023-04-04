@@ -13,9 +13,9 @@ use deno_core::error::AnyError;
 pub fn is_supported_ext(path: &Path) -> bool {
     if let Some(ext) = get_extension(path) {
         matches!(
-      ext.as_str(),
-      "ts" | "tsx" | "js" | "jsx" | "mjs" | "mts" | "cjs" | "cts"
-    )
+            ext.as_str(),
+            "ts" | "tsx" | "js" | "jsx" | "mjs" | "mts" | "cjs" | "cts"
+        )
     } else {
         false
     }
@@ -43,11 +43,11 @@ pub fn mapped_specifier_for_tsc(
         if media_type != MediaType::Dts
             && media_type == MediaType::TypeScript
             && specifier
-            .path()
-            .split('/')
-            .last()
-            .map(|last| last.contains(".d."))
-            .unwrap_or(false)
+                .path()
+                .split('/')
+                .last()
+                .map(|last| last.contains(".d."))
+                .unwrap_or(false)
         {
             let mut path_parts = specifier
                 .path()
@@ -70,9 +70,7 @@ pub fn mapped_specifier_for_tsc(
 /// Attempts to convert a specifier to a file path. By default, uses the Url
 /// crate's `to_file_path()` method, but falls back to try and resolve unix-style
 /// paths on Windows.
-pub fn specifier_to_file_path(
-    specifier: &ModuleSpecifier,
-) -> Result<PathBuf, AnyError> {
+pub fn specifier_to_file_path(specifier: &ModuleSpecifier) -> Result<PathBuf, AnyError> {
     let result = if cfg!(windows) {
         match specifier.to_file_path() {
             Ok(path) => Ok(path),
@@ -128,10 +126,7 @@ pub fn specifier_parent(specifier: &ModuleSpecifier) -> ModuleSpecifier {
 }
 
 /// `from.make_relative(to)` but with fixes.
-pub fn relative_specifier(
-    from: &ModuleSpecifier,
-    to: &ModuleSpecifier,
-) -> Option<String> {
+pub fn relative_specifier(from: &ModuleSpecifier, to: &ModuleSpecifier) -> Option<String> {
     let is_dir = to.path().ends_with('/');
 
     if is_dir && from == to {
@@ -219,8 +214,7 @@ pub fn is_banned_path_char(c: char) -> bool {
 /// https://deno.land:8080/path -> deno.land_8080/path
 pub fn root_url_to_safe_local_dirname(root: &ModuleSpecifier) -> PathBuf {
     fn sanitize_segment(text: &str) -> String {
-        text
-            .chars()
+        text.chars()
             .map(|c| if is_banned_segment_char(c) { '_' } else { c })
             .collect()
     }
@@ -285,8 +279,7 @@ mod test {
 
         fn run_success_test(specifier: &str, expected_path: &str) {
             let result =
-                specifier_to_file_path(&ModuleSpecifier::parse(specifier).unwrap())
-                    .unwrap();
+                specifier_to_file_path(&ModuleSpecifier::parse(specifier).unwrap()).unwrap();
             assert_eq!(result, PathBuf::from(expected_path));
         }
     }
@@ -301,8 +294,7 @@ mod test {
         run_test("file:///test/other/", "file:///test/");
 
         fn run_test(specifier: &str, expected: &str) {
-            let result =
-                specifier_parent(&ModuleSpecifier::parse(specifier).unwrap());
+            let result = specifier_parent(&ModuleSpecifier::parse(specifier).unwrap());
             assert_eq!(result.to_string(), expected);
         }
     }

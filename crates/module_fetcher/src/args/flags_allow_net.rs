@@ -11,30 +11,30 @@ pub struct ParsePortError(String);
 pub struct BarePort(u16);
 
 impl FromStr for BarePort {
-  type Err = ParsePortError;
-  fn from_str(s: &str) -> Result<BarePort, ParsePortError> {
-    if s.starts_with(':') {
-      match s.split_at(1).1.parse::<u16>() {
-        Ok(port) => Ok(BarePort(port)),
-        Err(e) => Err(ParsePortError(e.to_string())),
-      }
-    } else {
-      Err(ParsePortError(
-        "Bare Port doesn't start with ':'".to_string(),
-      ))
+    type Err = ParsePortError;
+    fn from_str(s: &str) -> Result<BarePort, ParsePortError> {
+        if s.starts_with(':') {
+            match s.split_at(1).1.parse::<u16>() {
+                Ok(port) => Ok(BarePort(port)),
+                Err(e) => Err(ParsePortError(e.to_string())),
+            }
+        } else {
+            Err(ParsePortError(
+                "Bare Port doesn't start with ':'".to_string(),
+            ))
+        }
     }
-  }
 }
 
 pub fn validator(host_and_port: &str) -> Result<String, String> {
-  if Url::parse(&format!("internal://{host_and_port}")).is_ok()
-    || host_and_port.parse::<IpAddr>().is_ok()
-    || host_and_port.parse::<BarePort>().is_ok()
-  {
-    Ok(host_and_port.to_string())
-  } else {
-    Err(format!("Bad host:port pair: {host_and_port}"))
-  }
+    if Url::parse(&format!("internal://{host_and_port}")).is_ok()
+        || host_and_port.parse::<IpAddr>().is_ok()
+        || host_and_port.parse::<BarePort>().is_ok()
+    {
+        Ok(host_and_port.to_string())
+    } else {
+        Err(format!("Bad host:port pair: {host_and_port}"))
+    }
 }
 
 // /// Expands "bare port" paths (eg. ":8080") into full paths with hosts. It
@@ -64,47 +64,46 @@ pub fn validator(host_and_port: &str) -> Result<String, String> {
 
 #[cfg(test)]
 mod bare_port_tests {
-  use super::BarePort;
-  use super::ParsePortError;
+    use super::BarePort;
+    use super::ParsePortError;
 
-  #[test]
-  fn bare_port_parsed() {
-    let expected = BarePort(8080);
-    let actual = ":8080".parse::<BarePort>();
-    assert_eq!(actual, Ok(expected));
-  }
+    #[test]
+    fn bare_port_parsed() {
+        let expected = BarePort(8080);
+        let actual = ":8080".parse::<BarePort>();
+        assert_eq!(actual, Ok(expected));
+    }
 
-  #[test]
-  fn bare_port_parse_error1() {
-    let expected =
-      ParsePortError("Bare Port doesn't start with ':'".to_string());
-    let actual = "8080".parse::<BarePort>();
-    assert_eq!(actual, Err(expected));
-  }
+    #[test]
+    fn bare_port_parse_error1() {
+        let expected = ParsePortError("Bare Port doesn't start with ':'".to_string());
+        let actual = "8080".parse::<BarePort>();
+        assert_eq!(actual, Err(expected));
+    }
 
-  #[test]
-  fn bare_port_parse_error2() {
-    let actual = ":65536".parse::<BarePort>();
-    assert!(actual.is_err());
-  }
+    #[test]
+    fn bare_port_parse_error2() {
+        let actual = ":65536".parse::<BarePort>();
+        assert!(actual.is_err());
+    }
 
-  #[test]
-  fn bare_port_parse_error3() {
-    let actual = ":14u16".parse::<BarePort>();
-    assert!(actual.is_err());
-  }
+    #[test]
+    fn bare_port_parse_error3() {
+        let actual = ":14u16".parse::<BarePort>();
+        assert!(actual.is_err());
+    }
 
-  #[test]
-  fn bare_port_parse_error4() {
-    let actual = "Deno".parse::<BarePort>();
-    assert!(actual.is_err());
-  }
+    #[test]
+    fn bare_port_parse_error4() {
+        let actual = "Deno".parse::<BarePort>();
+        assert!(actual.is_err());
+    }
 
-  #[test]
-  fn bare_port_parse_error5() {
-    let actual = "deno.land:8080".parse::<BarePort>();
-    assert!(actual.is_err());
-  }
+    #[test]
+    fn bare_port_parse_error5() {
+        let actual = "deno.land:8080".parse::<BarePort>();
+        assert!(actual.is_err());
+    }
 }
 
 // #[cfg(test)]

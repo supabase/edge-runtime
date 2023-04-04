@@ -14,35 +14,32 @@ use std::sync::Arc;
 /// hash then generates a string hash which can be stored to
 /// determine if the cached emit is valid or not.
 pub fn get_source_hash(source_text: &str, emit_options_hash: u64) -> u64 {
-  FastInsecureHasher::new()
-    .write_str(source_text)
-    .write_u64(emit_options_hash)
-    .finish()
+    FastInsecureHasher::new()
+        .write_str(source_text)
+        .write_u64(emit_options_hash)
+        .finish()
 }
 
 pub fn emit_parsed_source(
-  emit_cache: &EmitCache,
-  parsed_source_cache: &ParsedSourceCache,
-  specifier: &ModuleSpecifier,
-  media_type: MediaType,
-  source: &Arc<str>,
-  emit_options: &deno_ast::EmitOptions,
-  emit_config_hash: u64,
+    emit_cache: &EmitCache,
+    parsed_source_cache: &ParsedSourceCache,
+    specifier: &ModuleSpecifier,
+    media_type: MediaType,
+    source: &Arc<str>,
+    emit_options: &deno_ast::EmitOptions,
+    emit_config_hash: u64,
 ) -> Result<ModuleCode, AnyError> {
-  let source_hash = get_source_hash(source, emit_config_hash);
+    let source_hash = get_source_hash(source, emit_config_hash);
 
-  if let Some(emit_code) = emit_cache.get_emit_code(specifier, source_hash) {
-    Ok(emit_code.into())
-  } else {
-    // this will use a cached version if it exists
-    let parsed_source = parsed_source_cache.get_or_parse_module(
-      specifier,
-      source.clone(),
-      media_type,
-    )?;
-    let transpiled_source = parsed_source.transpile(emit_options)?;
-    debug_assert!(transpiled_source.source_map.is_none());
-    emit_cache.set_emit_code(specifier, source_hash, &transpiled_source.text);
-    Ok(transpiled_source.text.into())
-  }
+    if let Some(emit_code) = emit_cache.get_emit_code(specifier, source_hash) {
+        Ok(emit_code.into())
+    } else {
+        // this will use a cached version if it exists
+        let parsed_source =
+            parsed_source_cache.get_or_parse_module(specifier, source.clone(), media_type)?;
+        let transpiled_source = parsed_source.transpile(emit_options)?;
+        debug_assert!(transpiled_source.source_map.is_none());
+        emit_cache.set_emit_code(specifier, source_hash, &transpiled_source.text);
+        Ok(transpiled_source.text.into())
+    }
 }

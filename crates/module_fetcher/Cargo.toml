@@ -37,7 +37,7 @@ log = { workspace = true }
 libc = { version = "0.2.126" }
 ring = { version = "=0.16.20" }
 serde = { workspace = true }
-tokio = { version = "1.24", features = ["full"] }
+tokio.workspace = true
 twox-hash = { version = "=1.6.3" }
 flate2.workspace = true
 tar.workspace = true

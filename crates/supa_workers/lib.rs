@@ -1,3 +1,16 @@
+use deno_core::error::{custom_error, type_error, AnyError};
+use deno_core::futures::stream::Peekable;
+use deno_core::futures::task::Spawn;
+use deno_core::futures::{Stream, StreamExt, TryStreamExt};
+use deno_core::op;
+use deno_core::{
+    AsyncRefCell, AsyncResult, BufView, ByteString, CancelFuture, CancelHandle, CancelTryFuture,
+    OpState, RcRef, Resource, ResourceId, WriteOutcome,
+};
+use hyper::body::HttpBody;
+use hyper::header::{HeaderName, HeaderValue};
+use hyper::{Body, Request, Response};
+use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -5,28 +18,19 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::rc::Rc;
 use std::task::{Context, Poll};
-use deno_core::error::{AnyError, custom_error, type_error};
+use supabase_edge_worker_context::essentials::{
+    CreateUserWorkerResult, UserWorkerMsgs, UserWorkerOptions,
+};
 use tokio::sync::{mpsc, oneshot};
-use deno_core::{AsyncRefCell, AsyncResult, BufView, ByteString, CancelFuture, CancelHandle, CancelTryFuture, OpState, RcRef, Resource, ResourceId, WriteOutcome};
-use deno_core::futures::{Stream, StreamExt, TryStreamExt};
-use deno_core::futures::stream::Peekable;
-use deno_core::futures::task::Spawn;
-use hyper::{Body, Request, Response};
-use hyper::body::HttpBody;
-use hyper::header::{HeaderName, HeaderValue};
-use supabase_edge_worker_context::essentials::{CreateUserWorkerResult, UserWorkerMsgs, UserWorkerOptions};
-use deno_core::op;
-use serde::{Deserialize, Serialize};
 
-deno_core::extension!(supabase_user_workers,
+deno_core::extension!(
+    supabase_user_workers,
     ops = [
         op_user_worker_create,
         op_user_worker_fetch_build,
         op_user_worker_fetch_send
     ],
-    esm = [
-        "user_workers.ts"
-    ]
+    esm = ["user_workers.ts"]
 );
 
 #[derive(Deserialize, Default, Debug)]
@@ -37,7 +41,7 @@ pub struct UserWorkerCreateOptions {
     worker_timeout_ms: u64,
     no_module_cache: bool,
     import_map_path: Option<String>,
-    env_vars_vec: Vec<(String, String)>
+    env_vars_vec: Vec<(String, String)>,
 }
 
 #[op]
@@ -49,7 +53,14 @@ pub async fn op_user_worker_create(
     let tx = op_state.borrow::<mpsc::UnboundedSender<UserWorkerMsgs>>();
     let (result_tx, result_rx) = oneshot::channel::<CreateUserWorkerResult>();
 
-    let UserWorkerCreateOptions { service_path, memory_limit_mb, worker_timeout_ms, no_module_cache, import_map_path, env_vars_vec } = opts;
+    let UserWorkerCreateOptions {
+        service_path,
+        memory_limit_mb,
+        worker_timeout_ms,
+        no_module_cache,
+        import_map_path,
+        env_vars_vec,
+    } = opts;
 
     let mut env_vars = HashMap::new();
     for (key, value) in env_vars_vec {

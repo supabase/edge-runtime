@@ -1,7 +1,7 @@
 use deno_ast::Diagnostic;
 use deno_core::error::AnyError;
-use deno_graph::{ModuleError, ModuleGraphError};
 use deno_graph::ResolutionError;
+use deno_graph::{ModuleError, ModuleGraphError};
 use import_map::ImportMapError;
 
 fn get_import_map_error_class(_: &ImportMapError) -> &'static str {
@@ -15,15 +15,14 @@ fn get_diagnostic_class(_: &Diagnostic) -> &'static str {
 fn get_module_graph_error_class(err: &ModuleGraphError) -> &'static str {
     match err {
         ModuleGraphError::ModuleError(err) => match err {
-            ModuleError::LoadingErr(_, _, error) =>{
-                "Loading Err"
-            },
+            ModuleError::LoadingErr(_, _, error) => "Loading Err",
             ModuleError::Missing(_, _) => "NotFound",
             ModuleError::MissingDynamic(_, _) => "Unknown",
             ModuleError::ParseErr(_, diag) => get_diagnostic_class(&diag),
             ModuleError::InvalidTypeAssertion { .. } => "SyntaxError",
-            ModuleError::UnsupportedMediaType(_, _, _) | ModuleError::UnsupportedImportAssertionType { .. } => "TypeError"
-        }
+            ModuleError::UnsupportedMediaType(_, _, _)
+            | ModuleError::UnsupportedImportAssertionType { .. } => "TypeError",
+        },
         ModuleGraphError::ResolutionError(err) => get_resolution_error_class(err),
     }
 }

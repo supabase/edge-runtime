@@ -1,7 +1,7 @@
 use deno_core::error::AnyError;
 use deno_core::error::{not_supported, type_error};
 use deno_core::include_js_files;
-use deno_core::{op};
+use deno_core::op;
 use deno_core::Extension;
 use deno_core::OpState;
 use deno_node::NODE_ENV_VAR_ALLOWLIST;
@@ -34,16 +34,10 @@ impl Permissions {
 
 pub type EnvVars = HashMap<String, String>;
 
-deno_core::extension!(supabase_env,
-    ops = [
-        op_set_env,
-        op_env,
-        op_get_env,
-        op_delete_env
-    ],
-    esm = [
-        "env.ts"
-    ]
+deno_core::extension!(
+    supabase_env,
+    ops = [op_set_env, op_env, op_get_env, op_delete_env],
+    esm = ["env.ts"]
 );
 
 #[op]

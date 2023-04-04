@@ -1,7 +1,6 @@
 use crate::server::Server;
 use anyhow::Error;
 
-#[tokio::main]
 pub async fn start_server(
     ip: &str,
     port: u16,

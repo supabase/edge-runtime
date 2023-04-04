@@ -10,11 +10,14 @@ use deno_core::ModuleSpecifier;
 use deno_core::ModuleType;
 use deno_core::ResolutionKind;
 use import_map::ImportMap;
-use module_fetcher::cache::{DenoDir, EmitCache, FastInsecureHasher, HttpCache, ParsedSourceCache};
+use module_fetcher::cache;
+use module_fetcher::cache::cache_db::CacheDB;
+use module_fetcher::cache::{
+    caches, DenoDir, EmitCache, FastInsecureHasher, HttpCache, ParsedSourceCache,
+};
 use module_fetcher::emit::emit_parsed_source;
 use module_fetcher::file_fetcher::{CacheSetting, FileFetcher};
 use module_fetcher::http_util::HttpClient;
-use module_fetcher::cache;
 use std::path::Path;
 use std::pin::Pin;
 use url::Url;
@@ -53,39 +56,38 @@ pub struct DefaultModuleLoader {
 
 impl DefaultModuleLoader {
     pub fn new(maybe_import_map: Option<ImportMap>, no_cache: bool) -> Result<Self, AnyError> {
-        // // Note: we are reusing Deno dependency cache path
-        // let deno_dir = DenoDir::new(None)?;
-        // let deps_cache_location = deno_dir.deps_folder_path();
-        //
-        // let http_cache = HttpCache::new(&deps_cache_location);
-        // let cache_setting = if no_cache {
-        //     CacheSetting::ReloadAll
-        // } else {
-        //     CacheSetting::Use
-        // };
-        // let allow_remote = true;
-        // let http_client = make_http_client()?;
-        // let blob_store = deno_web::BlobStore::default();
-        // let file_fetcher = FileFetcher::new(
-        //     http_cache,
-        //     cache_setting,
-        //     allow_remote,
-        //     http_client,
-        //     blob_store,
-        // );
-        // let permissions = module_fetcher::permissions::Permissions::default();
-        // let emit_cache = EmitCache::new(deno_dir.gen_cache.clone());
-        // let parsed_source_cache =
-        //     ParsedSourceCache::new(CacheDB::);
-        //
-        // Ok(Self {
-        //     file_fetcher,
-        //     permissions,
-        //     emit_cache,
-        //     parsed_source_cache,
-        //     maybe_import_map,
-        // })
-        Err(anyhow!("Ups"))
+        // Note: we are reusing Deno dependency cache path
+        let deno_dir = DenoDir::new(None)?;
+        let deps_cache_location = deno_dir.deps_folder_path();
+
+        let http_cache = HttpCache::new(&deps_cache_location);
+        let cache_setting = if no_cache {
+            CacheSetting::ReloadAll
+        } else {
+            CacheSetting::Use
+        };
+        let allow_remote = true;
+        let http_client = make_http_client()?;
+        let blob_store = deno_web::BlobStore::default();
+        let file_fetcher = FileFetcher::new(
+            http_cache,
+            cache_setting,
+            allow_remote,
+            http_client,
+            blob_store,
+        );
+        let permissions = module_fetcher::permissions::Permissions::default();
+        let emit_cache = EmitCache::new(deno_dir.gen_cache.clone());
+        let caches_def = caches::Caches::default();
+        let parsed_source_cache = ParsedSourceCache::new(caches_def.dep_analysis_db(&deno_dir));
+
+        Ok(Self {
+            file_fetcher,
+            permissions,
+            emit_cache,
+            parsed_source_cache,
+            maybe_import_map,
+        })
     }
 }
 

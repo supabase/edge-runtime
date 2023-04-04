@@ -1,5 +1,6 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
+use crate::args::config_file::FilesConfig;
 use deno_core::anyhow::Context;
 use deno_core::error::AnyError;
 pub use deno_core::normalize_path;
@@ -17,7 +18,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use walkdir::WalkDir;
-use crate::args::config_file::FilesConfig;
 
 use super::path::specifier_to_file_path;
 
@@ -36,11 +36,7 @@ pub fn atomic_write_file<T: AsRef<[u8]>>(
     Ok(())
 }
 
-pub fn write_file<T: AsRef<[u8]>>(
-    filename: &Path,
-    data: T,
-    mode: u32,
-) -> std::io::Result<()> {
+pub fn write_file<T: AsRef<[u8]>>(filename: &Path, data: T, mode: u32) -> std::io::Result<()> {
     write_file_2(filename, data, true, mode, true, false)
 }
 
@@ -69,7 +65,7 @@ pub fn write_file_2<T: AsRef<[u8]>>(
             file.set_permissions(permissions)?;
         }
         #[cfg(not(unix))]
-            let _ = mode;
+        let _ = mode;
     }
 
     file.write_all(data.as_ref())
@@ -90,9 +86,7 @@ pub fn canonicalize_path(path: &Path) -> Result<PathBuf, Error> {
 ///
 /// Note: When using this, you should be aware that a symlink may
 /// subsequently be created along this path by some other code.
-pub fn canonicalize_path_maybe_not_exists(
-    path: &Path,
-) -> Result<PathBuf, Error> {
+pub fn canonicalize_path_maybe_not_exists(path: &Path) -> Result<PathBuf, Error> {
     let path = path.to_path_buf().clean();
     let mut path = path.as_path();
     let mut names_stack = Vec::new();
@@ -158,8 +152,7 @@ pub fn resolve_from_cwd(path: &Path) -> Result<PathBuf, AnyError> {
     let resolved_path = if path.is_absolute() {
         path.to_owned()
     } else {
-        let cwd =
-            current_dir().context("Failed to get current working directory")?;
+        let cwd = current_dir().context("Failed to get current working directory")?;
         cwd.join(path)
     };
 
@@ -187,8 +180,7 @@ impl<TFilter: Fn(&Path) -> bool> FileCollector<TFilter> {
 
     pub fn add_ignore_paths(mut self, paths: &[PathBuf]) -> Self {
         // retain only the paths which exist and ignore the rest
-        self
-            .canonicalized_ignore
+        self.canonicalized_ignore
             .extend(paths.iter().filter_map(|i| canonicalize_path(i).ok()));
         self
     }
@@ -203,10 +195,7 @@ impl<TFilter: Fn(&Path) -> bool> FileCollector<TFilter> {
         self
     }
 
-    pub fn collect_files(
-        &self,
-        files: &[PathBuf],
-    ) -> Result<Vec<PathBuf>, AnyError> {
+    pub fn collect_files(&self, files: &[PathBuf]) -> Result<Vec<PathBuf>, AnyError> {
         let mut target_files = Vec::new();
         let files = if files.is_empty() {
             // collect files in the current directory when empty
@@ -283,9 +272,7 @@ pub fn collect_specifiers(
     for path in include_files.iter() {
         let path = path.to_string_lossy();
         let lowercase_path = path.to_lowercase();
-        if lowercase_path.starts_with("http://")
-            || lowercase_path.starts_with("https://")
-        {
+        if lowercase_path.starts_with("http://") || lowercase_path.starts_with("https://") {
             let url = ModuleSpecifier::parse(&path)?;
             prepared.push(url);
             continue;
@@ -329,10 +316,9 @@ pub async fn remove_dir_all_if_exists(path: &Path) -> std::io::Result<()> {
 ///
 /// Note: Does not handle symlinks.
 pub fn copy_dir_recursive(from: &Path, to: &Path) -> Result<(), AnyError> {
-    std::fs::create_dir_all(to)
-        .with_context(|| format!("Creating {}", to.display()))?;
-    let read_dir = std::fs::read_dir(from)
-        .with_context(|| format!("Reading {}", from.display()))?;
+    std::fs::create_dir_all(to).with_context(|| format!("Creating {}", to.display()))?;
+    let read_dir =
+        std::fs::read_dir(from).with_context(|| format!("Reading {}", from.display()))?;
 
     for entry in read_dir {
         let entry = entry?;
@@ -341,9 +327,8 @@ pub fn copy_dir_recursive(from: &Path, to: &Path) -> Result<(), AnyError> {
         let new_to = to.join(entry.file_name());
 
         if file_type.is_dir() {
-            copy_dir_recursive(&new_from, &new_to).with_context(|| {
-                format!("Dir {} to {}", new_from.display(), new_to.display())
-            })?;
+            copy_dir_recursive(&new_from, &new_to)
+                .with_context(|| format!("Dir {} to {}", new_from.display(), new_to.display()))?;
         } else if file_type.is_file() {
             std::fs::copy(&new_from, &new_to).with_context(|| {
                 format!("Copying {} to {}", new_from.display(), new_to.display())
@@ -358,10 +343,9 @@ pub fn copy_dir_recursive(from: &Path, to: &Path) -> Result<(), AnyError> {
 ///
 /// Note: Does not handle symlinks.
 pub fn hard_link_dir_recursive(from: &Path, to: &Path) -> Result<(), AnyError> {
-    std::fs::create_dir_all(to)
-        .with_context(|| format!("Creating {}", to.display()))?;
-    let read_dir = std::fs::read_dir(from)
-        .with_context(|| format!("Reading {}", from.display()))?;
+    std::fs::create_dir_all(to).with_context(|| format!("Creating {}", to.display()))?;
+    let read_dir =
+        std::fs::read_dir(from).with_context(|| format!("Reading {}", from.display()))?;
 
     for entry in read_dir {
         let entry = entry?;
@@ -370,9 +354,8 @@ pub fn hard_link_dir_recursive(from: &Path, to: &Path) -> Result<(), AnyError> {
         let new_to = to.join(entry.file_name());
 
         if file_type.is_dir() {
-            hard_link_dir_recursive(&new_from, &new_to).with_context(|| {
-                format!("Dir {} to {}", new_from.display(), new_to.display())
-            })?;
+            hard_link_dir_recursive(&new_from, &new_to)
+                .with_context(|| format!("Dir {} to {}", new_from.display(), new_to.display()))?;
         } else if file_type.is_file() {
             // note: chance for race conditions here between attempting to create,
             // then removing, then attempting to create. There doesn't seem to be
@@ -485,10 +468,10 @@ impl Drop for LaxSingleProcessFsFlagInner {
         // release the file lock
         if let Err(err) = self.fs_file.unlock() {
             log::debug!(
-        "Failed releasing lock for {}. {:#}",
-        self.file_path.display(),
-        err
-      );
+                "Failed releasing lock for {}. {:#}",
+                self.file_path.display(),
+                err
+            );
         }
     }
 }
@@ -565,9 +548,7 @@ impl LaxSingleProcessFsFlag {
                             // Poll the last updated path to check if it's stopped updating,
                             // which is an indication that the file lock is claimed, but
                             // was never properly released.
-                            match std::fs::metadata(&last_updated_path)
-                                .and_then(|p| p.modified())
-                            {
+                            match std::fs::metadata(&last_updated_path).and_then(|p| p.modified()) {
                                 Ok(last_updated_time) => {
                                     let current_time = std::time::SystemTime::now();
                                     match current_time.duration_since(last_updated_time) {
@@ -600,10 +581,10 @@ impl LaxSingleProcessFsFlag {
             }
             Err(err) => {
                 log::debug!(
-          "Failed to open file lock at {}. {:#}",
-          file_path.display(),
-          err
-        );
+                    "Failed to open file lock at {}. {:#}",
+                    file_path.display(),
+                    err
+                );
                 Self(None) // let the process through
             }
         }
@@ -711,13 +692,12 @@ mod tests {
 
         let file_collector = FileCollector::new(|path| {
             // exclude dotfiles
-            path
-                .file_name()
+            path.file_name()
                 .and_then(|f| f.to_str())
                 .map(|f| !f.starts_with('.'))
                 .unwrap_or(false)
         })
-            .add_ignore_paths(&[ignore_dir_path]);
+        .add_ignore_paths(&[ignore_dir_path]);
 
         let result = file_collector
             .collect_files(&[root_dir_path.clone()])
@@ -741,8 +721,7 @@ mod tests {
         assert_eq!(file_names, expected);
 
         // test ignoring the .git and node_modules folder
-        let file_collector =
-            file_collector.ignore_git_folder().ignore_node_modules();
+        let file_collector = file_collector.ignore_git_folder().ignore_node_modules();
         let result = file_collector
             .collect_files(&[root_dir_path.clone()])
             .unwrap();
@@ -827,8 +806,7 @@ mod tests {
 
         let predicate = |path: &Path| {
             // exclude dotfiles
-            path
-                .file_name()
+            path.file_name()
                 .and_then(|f| f.to_str())
                 .map(|f| !f.starts_with('.'))
                 .unwrap_or(false)
@@ -845,13 +823,12 @@ mod tests {
             },
             predicate,
         )
-            .unwrap();
+        .unwrap();
 
-        let root_dir_url = ModuleSpecifier::from_file_path(
-            canonicalize_path(&root_dir_path).unwrap(),
-        )
-            .unwrap()
-            .to_string();
+        let root_dir_url =
+            ModuleSpecifier::from_file_path(canonicalize_path(&root_dir_path).unwrap())
+                .unwrap()
+                .to_string();
         let expected: Vec<ModuleSpecifier> = [
             "http://localhost:8080",
             &format!("{root_dir_url}/a.ts"),
@@ -863,9 +840,9 @@ mod tests {
             &format!("{root_dir_url}/d.jsx"),
             "https://localhost:8080",
         ]
-            .iter()
-            .map(|f| ModuleSpecifier::parse(f).unwrap())
-            .collect::<Vec<_>>();
+        .iter()
+        .map(|f| ModuleSpecifier::parse(f).unwrap())
+        .collect::<Vec<_>>();
 
         assert_eq!(result, expected);
 
@@ -889,16 +866,16 @@ mod tests {
             },
             predicate,
         )
-            .unwrap();
+        .unwrap();
 
         let expected: Vec<ModuleSpecifier> = [
             &format!("{root_dir_url}/child/README.md"),
             &format!("{root_dir_url}/child/e.mjs"),
             &format!("{root_dir_url}/child/f.mjsx"),
         ]
-            .iter()
-            .map(|f| ModuleSpecifier::parse(f).unwrap())
-            .collect::<Vec<_>>();
+        .iter()
+        .map(|f| ModuleSpecifier::parse(f).unwrap())
+        .collect::<Vec<_>>();
 
         assert_eq!(result, expected);
     }
@@ -954,8 +931,7 @@ mod tests {
             let signal4 = signal4.clone();
             let temp_dir = temp_dir.clone();
             async move {
-                let flag =
-                    LaxSingleProcessFsFlag::lock(lock_path.clone(), "waiting").await;
+                let flag = LaxSingleProcessFsFlag::lock(lock_path.clone(), "waiting").await;
                 signal1.notify_one();
                 signal2.notified().await;
                 tokio::time::sleep(Duration::from_millis(10)).await; // give the other thread time to acquire the lock
@@ -1002,8 +978,7 @@ mod tests {
             let output_path = output_path.clone();
             let expected_order = expected_order.clone();
             tasks.push(tokio::spawn(async move {
-                let flag =
-                    LaxSingleProcessFsFlag::lock(lock_path.clone(), "waiting").await;
+                let flag = LaxSingleProcessFsFlag::lock(lock_path.clone(), "waiting").await;
                 expected_order.lock().push(i.to_string());
                 // be extremely racy
                 let mut output = std::fs::read_to_string(&output_path).unwrap();

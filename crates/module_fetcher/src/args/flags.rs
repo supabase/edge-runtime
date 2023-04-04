@@ -1,3 +1,3 @@
 pub enum Flags {
-    FlagsTodo
+    FlagsTodo,
 }

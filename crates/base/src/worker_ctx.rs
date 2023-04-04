@@ -8,10 +8,12 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
+use supabase_edge_worker_context::essentials::{
+    CreateUserWorkerResult, UserWorkerMsgs, UserWorkerOptions,
+};
 use tokio::net::UnixStream;
 use tokio::sync::RwLock;
 use tokio::sync::{mpsc, oneshot};
-use supabase_edge_worker_context::essentials::{CreateUserWorkerResult, UserWorkerMsgs, UserWorkerOptions};
 
 pub struct WorkerContext {
     handle: thread::JoinHandle<Result<(), Error>>,
@@ -152,8 +154,8 @@ impl WorkerPool {
         })
         .await?;
         let main_worker = Arc::new(RwLock::new(main_worker_ctx));
-
-        tokio::spawn(async move {
+        //tokio::spawn(async move {
+        {
             let mut user_workers: HashMap<String, Arc<RwLock<WorkerContext>>> = HashMap::new();
 
             loop {
@@ -182,8 +184,8 @@ impl WorkerPool {
                     }
                 }
             }
-        });
-
-        Ok(Self { main_worker })
+            //});
+            Ok(Self { main_worker })
+        }
     }
 }

@@ -25,28 +25,28 @@ use super::CACHE_PERM;
 /// ":" cannot be used in filename on some platforms).
 /// Ex: $DENO_DIR/deps/https/deno.land/
 fn base_url_to_filename(url: &Url) -> Option<PathBuf> {
-  let mut out = PathBuf::new();
+    let mut out = PathBuf::new();
 
-  let scheme = url.scheme();
-  out.push(scheme);
+    let scheme = url.scheme();
+    out.push(scheme);
 
-  match scheme {
-    "http" | "https" => {
-      let host = url.host_str().unwrap();
-      let host_port = match url.port() {
-        Some(port) => format!("{host}_PORT{port}"),
-        None => host.to_string(),
-      };
-      out.push(host_port);
-    }
-    "data" | "blob" => (),
-    scheme => {
-      log::debug!("Don't know how to create cache name for scheme: {}", scheme);
-      return None;
-    }
-  };
+    match scheme {
+        "http" | "https" => {
+            let host = url.host_str().unwrap();
+            let host_port = match url.port() {
+                Some(port) => format!("{host}_PORT{port}"),
+                None => host.to_string(),
+            };
+            out.push(host_port);
+        }
+        "data" | "blob" => (),
+        scheme => {
+            log::debug!("Don't know how to create cache name for scheme: {}", scheme);
+            return None;
+        }
+    };
 
-  Some(out)
+    Some(out)
 }
 
 /// Turn provided `url` into a hashed filename.
@@ -57,73 +57,73 @@ fn base_url_to_filename(url: &Url) -> Option<PathBuf> {
 ///
 /// NOTE: this method is `pub` because it's used in integration_tests
 pub fn url_to_filename(url: &Url) -> Option<PathBuf> {
-  let mut cache_filename = base_url_to_filename(url)?;
+    let mut cache_filename = base_url_to_filename(url)?;
 
-  let mut rest_str = url.path().to_string();
-  if let Some(query) = url.query() {
-    rest_str.push('?');
-    rest_str.push_str(query);
-  }
-  // NOTE: fragment is omitted on purpose - it's not taken into
-  // account when caching - it denotes parts of webpage, which
-  // in case of static resources doesn't make much sense
-  let hashed_filename = util::checksum::gen(&[rest_str.as_bytes()]);
-  cache_filename.push(hashed_filename);
-  Some(cache_filename)
+    let mut rest_str = url.path().to_string();
+    if let Some(query) = url.query() {
+        rest_str.push('?');
+        rest_str.push_str(query);
+    }
+    // NOTE: fragment is omitted on purpose - it's not taken into
+    // account when caching - it denotes parts of webpage, which
+    // in case of static resources doesn't make much sense
+    let hashed_filename = util::checksum::gen(&[rest_str.as_bytes()]);
+    cache_filename.push(hashed_filename);
+    Some(cache_filename)
 }
 
 /// Cached metadata about a url.
 #[derive(Serialize, Deserialize)]
 pub struct CachedUrlMetadata {
-  pub headers: HeadersMap,
-  pub url: String,
-  #[serde(default = "SystemTime::now")]
-  pub now: SystemTime,
+    pub headers: HeadersMap,
+    pub url: String,
+    #[serde(default = "SystemTime::now")]
+    pub now: SystemTime,
 }
 
 impl CachedUrlMetadata {
-  pub fn write(&self, cache_filename: &Path) -> Result<(), AnyError> {
-    let metadata_filename = Self::filename(cache_filename);
-    let json = serde_json::to_string_pretty(self)?;
-    util::fs::atomic_write_file(&metadata_filename, json, CACHE_PERM)?;
-    Ok(())
-  }
+    pub fn write(&self, cache_filename: &Path) -> Result<(), AnyError> {
+        let metadata_filename = Self::filename(cache_filename);
+        let json = serde_json::to_string_pretty(self)?;
+        util::fs::atomic_write_file(&metadata_filename, json, CACHE_PERM)?;
+        Ok(())
+    }
 
-  pub fn read(cache_filename: &Path) -> Result<Self, AnyError> {
-    let metadata_filename = Self::filename(cache_filename);
-    let metadata = fs::read_to_string(metadata_filename)?;
-    let metadata: Self = serde_json::from_str(&metadata)?;
-    Ok(metadata)
-  }
+    pub fn read(cache_filename: &Path) -> Result<Self, AnyError> {
+        let metadata_filename = Self::filename(cache_filename);
+        let metadata = fs::read_to_string(metadata_filename)?;
+        let metadata: Self = serde_json::from_str(&metadata)?;
+        Ok(metadata)
+    }
 
-  /// Ex: $DENO_DIR/deps/https/deno.land/c885b7dcf1d6936e33a9cc3a2d74ec79bab5d733d3701c85a029b7f7ec9fbed4.metadata.json
-  pub fn filename(cache_filename: &Path) -> PathBuf {
-    cache_filename.with_extension("metadata.json")
-  }
+    /// Ex: $DENO_DIR/deps/https/deno.land/c885b7dcf1d6936e33a9cc3a2d74ec79bab5d733d3701c85a029b7f7ec9fbed4.metadata.json
+    pub fn filename(cache_filename: &Path) -> PathBuf {
+        cache_filename.with_extension("metadata.json")
+    }
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct HttpCache {
-  pub location: PathBuf,
+    pub location: PathBuf,
 }
 
 impl HttpCache {
-  /// Returns a new instance.
-  ///
-  /// `location` must be an absolute path.
-  pub fn new(location: &Path) -> Self {
-    assert!(location.is_absolute());
-    Self {
-      location: location.to_owned(),
+    /// Returns a new instance.
+    ///
+    /// `location` must be an absolute path.
+    pub fn new(location: &Path) -> Self {
+        assert!(location.is_absolute());
+        Self {
+            location: location.to_owned(),
+        }
     }
-  }
 
-  /// Ensures the location of the cache.
-  fn ensure_dir_exists(&self, path: &Path) -> io::Result<()> {
-    if path.is_dir() {
-      return Ok(());
-    }
-    fs::create_dir_all(path).map_err(|e| {
+    /// Ensures the location of the cache.
+    fn ensure_dir_exists(&self, path: &Path) -> io::Result<()> {
+        if path.is_dir() {
+            return Ok(());
+        }
+        fs::create_dir_all(path).map_err(|e| {
       io::Error::new(
         e.kind(),
         format!(
@@ -131,123 +131,113 @@ impl HttpCache {
         ),
       )
     })
-  }
+    }
 
-  pub fn get_cache_filename(&self, url: &Url) -> Option<PathBuf> {
-    Some(self.location.join(url_to_filename(url)?))
-  }
+    pub fn get_cache_filename(&self, url: &Url) -> Option<PathBuf> {
+        Some(self.location.join(url_to_filename(url)?))
+    }
 
-  // TODO(bartlomieju): this method should check headers file
-  // and validate against ETAG/Last-modified-as headers.
-  // ETAG check is currently done in `cli/file_fetcher.rs`.
-  pub fn get(
-    &self,
-    url: &Url,
-  ) -> Result<(File, HeadersMap, SystemTime), AnyError> {
-    let cache_filename = self.location.join(
-      url_to_filename(url)
-        .ok_or_else(|| generic_error("Can't convert url to filename."))?,
-    );
-    let metadata_filename = CachedUrlMetadata::filename(&cache_filename);
-    let file = File::open(cache_filename)?;
-    let metadata = fs::read_to_string(metadata_filename)?;
-    let metadata: CachedUrlMetadata = serde_json::from_str(&metadata)?;
-    Ok((file, metadata.headers, metadata.now))
-  }
+    // TODO(bartlomieju): this method should check headers file
+    // and validate against ETAG/Last-modified-as headers.
+    // ETAG check is currently done in `cli/file_fetcher.rs`.
+    pub fn get(&self, url: &Url) -> Result<(File, HeadersMap, SystemTime), AnyError> {
+        let cache_filename = self.location.join(
+            url_to_filename(url).ok_or_else(|| generic_error("Can't convert url to filename."))?,
+        );
+        let metadata_filename = CachedUrlMetadata::filename(&cache_filename);
+        let file = File::open(cache_filename)?;
+        let metadata = fs::read_to_string(metadata_filename)?;
+        let metadata: CachedUrlMetadata = serde_json::from_str(&metadata)?;
+        Ok((file, metadata.headers, metadata.now))
+    }
 
-  pub fn set(
-    &self,
-    url: &Url,
-    headers_map: HeadersMap,
-    content: &[u8],
-  ) -> Result<(), AnyError> {
-    let cache_filename = self.location.join(
-      url_to_filename(url)
-        .ok_or_else(|| generic_error("Can't convert url to filename."))?,
-    );
-    // Create parent directory
-    let parent_filename = cache_filename
-      .parent()
-      .expect("Cache filename should have a parent dir");
-    self.ensure_dir_exists(parent_filename)?;
-    // Cache content
-    util::fs::atomic_write_file(&cache_filename, content, CACHE_PERM)?;
+    pub fn set(&self, url: &Url, headers_map: HeadersMap, content: &[u8]) -> Result<(), AnyError> {
+        let cache_filename = self.location.join(
+            url_to_filename(url).ok_or_else(|| generic_error("Can't convert url to filename."))?,
+        );
+        // Create parent directory
+        let parent_filename = cache_filename
+            .parent()
+            .expect("Cache filename should have a parent dir");
+        self.ensure_dir_exists(parent_filename)?;
+        // Cache content
+        util::fs::atomic_write_file(&cache_filename, content, CACHE_PERM)?;
 
-    let metadata = CachedUrlMetadata {
-      now: SystemTime::now(),
-      url: url.to_string(),
-      headers: headers_map,
-    };
-    metadata.write(&cache_filename)
-  }
+        let metadata = CachedUrlMetadata {
+            now: SystemTime::now(),
+            url: url.to_string(),
+            headers: headers_map,
+        };
+        metadata.write(&cache_filename)
+    }
 }
 
 #[cfg(test)]
 mod tests {
-  use super::*;
-  use std::collections::HashMap;
-  use std::io::Read;
-  use test_util::TempDir;
+    use super::*;
+    use std::collections::HashMap;
+    use std::io::Read;
+    use test_util::TempDir;
 
-  #[test]
-  fn test_create_cache() {
-    let dir = TempDir::new();
-    let mut cache_path = dir.path().to_owned();
-    cache_path.push("foobar");
-    // HttpCache should be created lazily on first use:
-    // when zipping up a local project with no external dependencies
-    // "$DENO_DIR/deps" is empty. When unzipping such project
-    // "$DENO_DIR/deps" might not get restored and in situation
-    // when directory is owned by root we might not be able
-    // to create that directory. However if it's not needed it
-    // doesn't make sense to return error in such specific scenarios.
-    // For more details check issue:
-    // https://github.com/denoland/deno/issues/5688
-    let cache = HttpCache::new(&cache_path);
-    assert!(!cache.location.exists());
-    cache
-      .set(
-        &Url::parse("http://example.com/foo/bar.js").unwrap(),
-        HeadersMap::new(),
-        b"hello world",
-      )
-      .expect("Failed to add to cache");
-    assert!(cache.ensure_dir_exists(&cache.location).is_ok());
-    assert!(cache_path.is_dir());
-  }
+    #[test]
+    fn test_create_cache() {
+        let dir = TempDir::new();
+        let mut cache_path = dir.path().to_owned();
+        cache_path.push("foobar");
+        // HttpCache should be created lazily on first use:
+        // when zipping up a local project with no external dependencies
+        // "$DENO_DIR/deps" is empty. When unzipping such project
+        // "$DENO_DIR/deps" might not get restored and in situation
+        // when directory is owned by root we might not be able
+        // to create that directory. However if it's not needed it
+        // doesn't make sense to return error in such specific scenarios.
+        // For more details check issue:
+        // https://github.com/denoland/deno/issues/5688
+        let cache = HttpCache::new(&cache_path);
+        assert!(!cache.location.exists());
+        cache
+            .set(
+                &Url::parse("http://example.com/foo/bar.js").unwrap(),
+                HeadersMap::new(),
+                b"hello world",
+            )
+            .expect("Failed to add to cache");
+        assert!(cache.ensure_dir_exists(&cache.location).is_ok());
+        assert!(cache_path.is_dir());
+    }
 
-  #[test]
-  fn test_get_set() {
-    let dir = TempDir::new();
-    let cache = HttpCache::new(dir.path());
-    let url = Url::parse("https://deno.land/x/welcome.ts").unwrap();
-    let mut headers = HashMap::new();
-    headers.insert(
-      "content-type".to_string(),
-      "application/javascript".to_string(),
-    );
-    headers.insert("etag".to_string(), "as5625rqdsfb".to_string());
-    let content = b"Hello world";
-    let r = cache.set(&url, headers, content);
-    eprintln!("result {r:?}");
-    assert!(r.is_ok());
-    let r = cache.get(&url);
-    assert!(r.is_ok());
-    let (mut file, headers, _) = r.unwrap();
-    let mut content = String::new();
-    file.read_to_string(&mut content).unwrap();
-    assert_eq!(content, "Hello world");
-    assert_eq!(
-      headers.get("content-type").unwrap(),
-      "application/javascript"
-    );
-    assert_eq!(headers.get("etag").unwrap(), "as5625rqdsfb");
-    assert_eq!(headers.get("foobar"), None);
-  }
+    #[test]
+    fn test_get_set() {
+        let dir = TempDir::new();
+        let cache = HttpCache::new(dir.path());
+        let url = Url::parse("https://deno.land/x/welcome.ts").unwrap();
+        let mut headers = HashMap::new();
+        headers.insert(
+            "content-type".to_string(),
+            "application/javascript".to_string(),
+        );
+        headers.insert("etag".to_string(), "as5625rqdsfb".to_string());
+        let content = b"Hello world";
+        let r = cache.set(&url, headers, content);
+        eprintln!("result {r:?}");
+        assert!(r.is_ok());
+        let r = cache.get(&url);
+        assert!(r.is_ok());
+        let (mut file, headers, _) = r.unwrap();
+        let mut content = String::new();
+        file.read_to_string(&mut content).unwrap();
+        assert_eq!(content, "Hello world");
+        assert_eq!(
+            headers.get("content-type").unwrap(),
+            "application/javascript"
+        );
+        assert_eq!(headers.get("etag").unwrap(), "as5625rqdsfb");
+        assert_eq!(headers.get("foobar"), None);
+    }
 
-  #[test]
-  fn test_url_to_filename() {
-    let test_cases = [
+    #[test]
+    fn test_url_to_filename() {
+        let test_cases = [
       ("https://deno.land/x/foo.ts", "https/deno.land/2c0a064891b9e3fbe386f5d4a833bce5076543f5404613656042107213a7bbc8"),
       (
         "https://deno.land:8080/x/foo.ts",
@@ -274,10 +264,10 @@ mod tests {
       )
     ];
 
-    for (url, expected) in test_cases.iter() {
-      let u = Url::parse(url).unwrap();
-      let p = url_to_filename(&u).unwrap();
-      assert_eq!(p, PathBuf::from(expected));
+        for (url, expected) in test_cases.iter() {
+            let u = Url::parse(url).unwrap();
+            let p = url_to_filename(&u).unwrap();
+            assert_eq!(p, PathBuf::from(expected));
+        }
     }
-  }
 }

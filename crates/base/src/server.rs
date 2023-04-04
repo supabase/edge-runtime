@@ -83,7 +83,7 @@ impl Server {
     pub async fn listen(&mut self) -> Result<(), Error> {
         let addr = SocketAddr::new(IpAddr::V4(self.ip), self.port);
         let listener = TcpListener::bind(&addr).await?;
-        debug!("edge-runtime is listening on {:?}", listener.local_addr()?);
+        println!("edge-runtime is listening on {:?}", listener.local_addr()?);
 
         let main_worker = &self.worker_pool.main_worker;
 

@@ -1,8 +1,9 @@
 import { serve } from "https://deno.land/std@0.131.0/http/server.ts"
 
 console.log('main function started');
-
-serve(async (req: Request) => {
+console.log('X');
+await serve(async (req: Request) => {
+  console.log('Request received');
   const url = new URL(req.url);
   const {pathname} = url;
   const path_parts = pathname.split("/");
@@ -33,4 +34,5 @@ serve(async (req: Request) => {
     env_vars
   });
   return worker.fetch(req);
-})
+}, { port: 9000 })
+console.log('x');

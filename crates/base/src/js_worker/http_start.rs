@@ -29,6 +29,8 @@ fn op_http_start(state: &mut OpState, stream_rid: ResourceId) -> Result<Resource
         // set a hardcoded address
         let addr: std::net::SocketAddr = "0.0.0.0:9999".parse().unwrap();
 
+        println!("{}", addr.to_string());
+
         return http_create_conn_resource(state, unix_stream, addr, "http");
     }
 

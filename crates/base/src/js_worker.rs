@@ -29,10 +29,10 @@ pub mod types;
 
 use module_loader::DefaultModuleLoader;
 use permissions::Permissions;
+use supabase_edge_core::supabase_core;
 use supabase_edge_env::supabase_env;
 use supabase_edge_worker_context::essentials::UserWorkerMsgs;
 use supabase_edge_workers::supabase_user_workers;
-use supabase_edge_core::supabase_core;
 
 fn load_import_map(maybe_path: Option<String>) -> Result<Option<ImportMap>, Error> {
     if let Some(path_str) = maybe_path {
@@ -128,7 +128,7 @@ impl MainWorker {
             http_start::init(),
             permissions::init(),
             runtime::init(main_module_url.clone()),
-            supabase_core::init_js_only()
+            supabase_core::init_js_only(),
         ];
 
         let import_map = load_import_map(import_map_path)?;
@@ -154,7 +154,7 @@ impl MainWorker {
         unimplemented!();
     }
 
-    pub fn run(
+    pub async fn run(
         mut self,
         stream: UnixStream,
         shutdown_tx: oneshot::Sender<()>,
@@ -164,14 +164,6 @@ impl MainWorker {
         self.js_runtime
             .execute_script::<String>(located_script_name!(), script.into())
             .expect("Failed to execute bootstrap script");
-
-        // // bootstrap the JS runtime
-        // let bootstrap_js = include_str!("./js_worker/js/main_bootstrap.js");
-        // self.js_runtime
-        //     .execute_script("[main_worker]: main_bootstrap.js", &bootstrap_js[..])
-        //     .expect("Failed to execute bootstrap script");
-
-        debug!("bootstrapped function");
 
         let (unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
         if let Err(e) = unix_stream_tx.send(stream) {
@@ -191,11 +183,6 @@ impl MainWorker {
 
         let mut js_runtime = self.js_runtime;
 
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-
         let future = async move {
             let mod_id = js_runtime
                 .load_main_module(&self.main_module_url, None)
@@ -213,8 +200,8 @@ impl MainWorker {
             result
         };
 
-        let local = tokio::task::LocalSet::new();
-        let res = local.block_on(&runtime, future);
+        // let local = tokio::task::LocalSet::new();
+        let res = future.await;
 
         if res.is_err() {
             error!("worker thread panicked {:?}", res.as_ref().err().unwrap());
@@ -285,7 +272,7 @@ impl UserWorker {
             http_start::init(),
             permissions::init(),
             runtime::init(main_module_url.clone()),
-            supabase_core::init_js_only()
+            supabase_core::init_js_only(),
         ];
 
         let import_map = load_import_map(import_map_path)?;
@@ -317,7 +304,7 @@ impl UserWorker {
         unimplemented!();
     }
 
-    pub fn run(
+    pub async fn run(
         mut self,
         stream: UnixStream,
         shutdown_tx: oneshot::Sender<()>,

@@ -46,9 +46,11 @@ async fn exit_with_code(result: Result<(), Error>) {
     }
 }
 
-#[tokio::main]
-async fn main() -> Result<(), anyhow::Error> {
-    let rt = tokio::runtime::Runtime::new()?;
+fn main() -> Result<(), anyhow::Error> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
 
     let ip = String::from("127.0.0.1");
     let port: u16 = 9000;
@@ -65,16 +67,17 @@ async fn main() -> Result<(), anyhow::Error> {
     //     import_map_path,
     //     no_module_cache))?;
 
-    start_server(
-        &ip.as_str(),
-        port,
-        main_service_path,
-        import_map_path,
-        no_module_cache,
-    )
-    .await
-    .expect("TODO: panic message");
-
+    let local = tokio::task::LocalSet::new();
+    let res = local.block_on(
+        &runtime,
+        start_server(
+            &ip.as_str(),
+            port,
+            main_service_path,
+            import_map_path,
+            no_module_cache,
+        ),
+    );
     Ok(())
 
     // TODO: set panic hook

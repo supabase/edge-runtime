@@ -16,7 +16,6 @@ use tokio::sync::RwLock;
 use tokio::sync::{mpsc, oneshot};
 
 pub struct WorkerContext {
-    handle: tokio::task::JoinHandle<Result<(), Error>>,
     request_sender: hyper::client::conn::SendRequest<Body>,
 }
 
@@ -37,27 +36,19 @@ impl WorkerContext {
         // create a unix socket pair
         let (sender_stream, recv_stream) = UnixStream::pair()?;
 
-        let handle: tokio::task::JoinHandle<Result<(), Error>> = tokio::task::spawn(async move {
-            let worker = MainWorker::new(
-                service_path.clone(),
-                no_module_cache,
-                import_map_path,
-                user_worker_msgs_tx.clone(),
-            )?;
+        let worker = MainWorker::new(
+            service_path.clone(),
+            no_module_cache,
+            import_map_path,
+            user_worker_msgs_tx.clone(),
+        )?;
 
-            // start the worker
-            let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
-            worker.run(recv_stream, shutdown_tx)?;
+        // start the worker
+        let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+        worker.run(recv_stream, shutdown_tx).await?;
 
-            debug!("main worker is serving {:?}", service_path);
-
-            // wait for shutdown signal
-            let _ = shutdown_rx.blocking_recv();
-
-            debug!("main worker stopped {:?}", service_path);
-
-            Ok(())
-        });
+        // wait for shutdown signal
+        let _ = shutdown_rx.blocking_recv();
 
         // send the HTTP request to the worker over Unix stream
         let (request_sender, connection) = hyper::client::conn::handshake(sender_stream).await?;
@@ -69,10 +60,7 @@ impl WorkerContext {
             }
         });
 
-        Ok(Self {
-            handle,
-            request_sender,
-        })
+        Ok(Self { request_sender })
     }
 
     pub async fn new_user_worker(options: UserWorkerOptions) -> Result<Self, Error> {
@@ -86,27 +74,21 @@ impl WorkerContext {
         // create a unix socket pair
         let (sender_stream, recv_stream) = UnixStream::pair()?;
 
-        let handle: tokio::task::JoinHandle<Result<(), Error>> =  tokio::task::spawn(async move {
-            let worker = UserWorker::new(
-                service_path.clone(),
-                memory_limit_mb,
-                worker_timeout_ms,
-                no_module_cache,
-                import_map_path,
-                env_vars,
-            )?;
+        let worker = UserWorker::new(
+            service_path.clone(),
+            memory_limit_mb,
+            worker_timeout_ms,
+            no_module_cache,
+            import_map_path,
+            env_vars,
+        )?;
 
-            // start the worker
-            let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
-            worker.run(recv_stream, shutdown_tx)?;
+        // start the worker
+        let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+        worker.run(recv_stream, shutdown_tx).await?;
 
-            // wait for shutdown signal
-            let _ = shutdown_rx.blocking_recv();
-
-            debug!("js worker for {:?} stopped", service_path);
-
-            Ok(())
-        });
+        // wait for shutdown signal
+        let _ = shutdown_rx.blocking_recv();
 
         // send the HTTP request to the worker over Unix stream
         let (request_sender, connection) = hyper::client::conn::handshake(sender_stream).await?;
@@ -118,10 +100,7 @@ impl WorkerContext {
             }
         });
 
-        Ok(Self {
-            handle,
-            request_sender,
-        })
+        Ok(Self { request_sender })
     }
 
     pub async fn send_request(

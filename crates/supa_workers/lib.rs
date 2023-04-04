@@ -41,7 +41,7 @@ pub struct UserWorkerCreateOptions {
     worker_timeout_ms: u64,
     no_module_cache: bool,
     import_map_path: Option<String>,
-    env_vars_vec: Vec<(String, String)>,
+    env_vars: Vec<(String, String)>,
 }
 
 #[op]
@@ -59,12 +59,12 @@ pub async fn op_user_worker_create(
         worker_timeout_ms,
         no_module_cache,
         import_map_path,
-        env_vars_vec,
+        env_vars,
     } = opts;
 
-    let mut env_vars = HashMap::new();
-    for (key, value) in env_vars_vec {
-        env_vars.insert(key, value);
+    let mut env_vars_map = HashMap::new();
+    for (key, value) in env_vars {
+        env_vars_map.insert(key, value);
     }
 
     let user_worker_options = UserWorkerOptions {
@@ -73,7 +73,7 @@ pub async fn op_user_worker_create(
         worker_timeout_ms,
         no_module_cache,
         import_map_path,
-        env_vars,
+        env_vars: env_vars_map,
     };
     tx.send(UserWorkerMsgs::Create(user_worker_options, result_tx));
 

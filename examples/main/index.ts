@@ -2,7 +2,7 @@ import { serve } from "https://deno.land/std@0.131.0/http/server.ts"
 
 console.log('main function started');
 console.log('X');
-await serve(async (req: Request) => {
+serve(async (req: Request) => {
   console.log('Request received');
   const url = new URL(req.url);
   const {pathname} = url;
@@ -17,22 +17,21 @@ await serve(async (req: Request) => {
     )
   }
 
-  const service_path = `./examples/${service_name}`;
-  console.error(`serving the request with ${service_path}`);
+  const servicePath = `./examples/${service_name}`;
+  console.error(`serving the request with ${servicePath}`);
 
-  const memory_limit_mb = 150;
-  const worker_timeout_ms = 5 * 60 * 1000;
-  const no_module_cache = false;
-  const import_map_path = null;
-  const env_vars = [];
+  const memoryLimitMb = 150;
+  const workerTimeoutMs = 5 * 60 * 1000;
+  const noModuleCache = false;
+  const importMapPath = null;
+  const envVars = [];
   const worker = await EdgeRuntime.userWorkers.create({
-    service_path,
-    memory_limit_mb,
-    worker_timeout_ms,
-    no_module_cache,
-    import_map_path,
-    env_vars
+    servicePath,
+    memoryLimitMb,
+    workerTimeoutMs,
+    noModuleCache,
+    importMapPath,
+    envVars
   });
   return worker.fetch(req);
-}, { port: 9000 })
-console.log('x');
+})

@@ -8,6 +8,7 @@ pub async fn start_server(
     import_map_path: Option<String>,
     no_module_cache: bool,
 ) -> Result<(), Error> {
+    println!("start_server");
     let mut server = Server::new(
         ip,
         port,
@@ -16,5 +17,6 @@ pub async fn start_server(
         no_module_cache,
     )
     .await?;
+    println!("start_server");
     server.listen().await
 }

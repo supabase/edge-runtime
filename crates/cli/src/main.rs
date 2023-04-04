@@ -52,20 +52,13 @@ fn main() -> Result<(), anyhow::Error> {
         .build()
         .unwrap();
 
-    let ip = String::from("127.0.0.1");
+    let ip = String::from("0.0.0.0");
     let port: u16 = 9000;
 
     let main_service_path =
         String::from("/Users/andrespirela/Documents/workspace/supabase/edge-runtime/examples/main");
     let import_map_path: Option<String> = None;
     let no_module_cache: bool = false;
-
-    // rt.block_on(start_server(
-    //     &ip.as_str(),
-    //     port,
-    //     main_service_path,
-    //     import_map_path,
-    //     no_module_cache))?;
 
     let local = tokio::task::LocalSet::new();
     let res = local.block_on(

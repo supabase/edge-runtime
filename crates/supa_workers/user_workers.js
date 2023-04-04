@@ -56,11 +56,11 @@ class UserWorker {
 
     static async create(opts) {
         const readyOptions = {
-            memory_limit_mb: 150,
-            worker_timeout_ms: 60 * 1000,
-            no_module_cache: false,
-            import_map_path: null,
-            env_vars: [],
+            memoryLimitMb: 150,
+            workerTimeoutMs: 60 * 1000,
+            noModuleCache: false,
+            importMapPath: null,
+            envVars: [],
             ...opts
         }
 
@@ -70,7 +70,7 @@ class UserWorker {
             throw new TypeError("service path must be defined");
         }
 
-        const key = await core.opAsync("op_user_worker_create", ops);
+        const key = await core.opAsync("op_user_worker_create", readyOptions);
 
         return new UserWorker(key);
     }

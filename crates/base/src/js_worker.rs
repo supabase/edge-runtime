@@ -268,6 +268,7 @@ impl UserWorker {
             deno_http::deno_http::init_ops_and_esm(),
             deno_tls::deno_tls::init_ops_and_esm(),
             supabase_env::init_ops_and_esm(),
+            supabase_user_workers::init_ops_and_esm(),
             net_override::init(),
             http_start::init(),
             permissions::init(),
@@ -361,10 +362,10 @@ impl UserWorker {
 
         let mut js_runtime = self.js_runtime;
 
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
+        // let runtime = tokio::runtime::Builder::new_current_thread()
+        //     .enable_all()
+        //     .build()
+        //     .unwrap();
 
         let future = async move {
             let mod_id = js_runtime
@@ -387,8 +388,8 @@ impl UserWorker {
             result
         };
 
-        let local = tokio::task::LocalSet::new();
-        let res = local.block_on(&runtime, future);
+        //let local = tokio::task::LocalSet::new();
+        let res = future.await;
 
         if res.is_err() {
             error!("worker thread panicked {:?}", res.as_ref().err().unwrap());

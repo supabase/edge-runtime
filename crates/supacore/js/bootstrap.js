@@ -20,6 +20,8 @@ import * as webSocket from "ext:deno_websocket/01_websocket.js";
 import { HttpConn } from "ext:deno_http/01_http.js";
 import * as tls from "ext:deno_net/02_tls.js";
 import * as net from "ext:deno_net/01_net.js";
+import * as response from "ext:deno_fetch/23_response.js";
+import * as request from "ext:deno_fetch/23_request.js";
 import { SUPABASE_USER_WORKERS } from "ext:supabase_user_workers/user_workers.js";
 import { SUPABASE_ENV } from "ext:supabase_env/env.js";
 
@@ -49,6 +51,7 @@ const {
 const defineEventHandler = event.defineEventHandler;
 
 function serveHttp(conn) {
+  globalThis.console.log(conn);
   const rid = ops.op_http_start(conn.rid);
   return new HttpConn(rid, conn.remoteAddr, conn.localAddr);
 }
@@ -101,8 +104,8 @@ const globalScope = {
   setTimeout: writable(timers.setTimeout),
 
   // fetch
-  Request: nonEnumerable(fetch.Request),
-  Response: nonEnumerable(fetch.Response),
+  Request: nonEnumerable(request.Request),
+  Response: nonEnumerable(response.Response),
   Headers: nonEnumerable(headers.Headers),
   fetch: writable(fetch.fetch),
 

@@ -1,6 +1,7 @@
 use crate::js_worker::{MainWorker, UserWorker};
 
 use anyhow::Error;
+use deno_core::error::AnyError;
 use hyper::{Body, Request, Response};
 use log::{debug, error};
 use std::collections::HashMap;
@@ -36,19 +37,33 @@ impl WorkerContext {
         // create a unix socket pair
         let (sender_stream, recv_stream) = UnixStream::pair()?;
 
-        let worker = MainWorker::new(
-            service_path.clone(),
-            no_module_cache,
-            import_map_path,
-            user_worker_msgs_tx.clone(),
-        )?;
+        let handle: thread::JoinHandle<Result<(), Error>> = thread::spawn(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let local = tokio::task::LocalSet::new();
 
-        // start the worker
-        let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
-        worker.run(recv_stream, shutdown_tx).await?;
+            let handle: Result<(), Error> = local.block_on(&runtime, async {
+                let worker = MainWorker::new(
+                    service_path.clone(),
+                    no_module_cache,
+                    import_map_path,
+                    user_worker_msgs_tx.clone(),
+                )?;
 
-        // wait for shutdown signal
-        let _ = shutdown_rx.blocking_recv();
+                // start the worker
+                let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+                worker.run(recv_stream, shutdown_tx).await?;
+
+                // wait for shutdown signal
+                let _ = shutdown_rx.blocking_recv();
+
+                Ok(())
+            });
+
+            Ok(())
+        });
 
         // send the HTTP request to the worker over Unix stream
         let (request_sender, connection) = hyper::client::conn::handshake(sender_stream).await?;
@@ -74,21 +89,35 @@ impl WorkerContext {
         // create a unix socket pair
         let (sender_stream, recv_stream) = UnixStream::pair()?;
 
-        let worker = UserWorker::new(
-            service_path.clone(),
-            memory_limit_mb,
-            worker_timeout_ms,
-            no_module_cache,
-            import_map_path,
-            env_vars,
-        )?;
+        let handle: thread::JoinHandle<Result<(), Error>> = thread::spawn(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let local = tokio::task::LocalSet::new();
 
-        // start the worker
-        let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
-        worker.run(recv_stream, shutdown_tx).await?;
+            let handle: Result<(), Error> = local.block_on(&runtime, async {
+                let worker = UserWorker::new(
+                    service_path.clone(),
+                    memory_limit_mb,
+                    worker_timeout_ms,
+                    no_module_cache,
+                    import_map_path,
+                    env_vars,
+                )?;
 
-        // wait for shutdown signal
-        let _ = shutdown_rx.blocking_recv();
+                // start the worker
+                let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+                worker.run(recv_stream, shutdown_tx).await?;
+
+                // wait for shutdown signal
+                let _ = shutdown_rx.blocking_recv();
+
+                Ok(())
+            });
+
+            Ok(())
+        });
 
         // send the HTTP request to the worker over Unix stream
         let (request_sender, connection) = hyper::client::conn::handshake(sender_stream).await?;
@@ -133,8 +162,7 @@ impl WorkerPool {
         })
         .await?;
         let main_worker = Arc::new(RwLock::new(main_worker_ctx));
-        //tokio::spawn(async move {
-        {
+        tokio::spawn(async move {
             let mut user_workers: HashMap<String, Arc<RwLock<WorkerContext>>> = HashMap::new();
 
             loop {
@@ -163,8 +191,8 @@ impl WorkerPool {
                     }
                 }
             }
-            //});
-            Ok(Self { main_worker })
-        }
+        });
+
+        Ok(Self { main_worker })
     }
 }

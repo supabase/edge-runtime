@@ -123,11 +123,13 @@ async fn op_net_accept(
     ))
 }
 
+// TODO: This should be a global ext
 #[op]
 fn op_net_unsupported(_state: &mut OpState) -> Result<(), AnyError> {
     Err(deno_core::error::not_supported())
 }
 
+// TODO: Refactor into optimized
 pub fn init() -> Extension {
     Extension::builder("net_override")
         .middleware(|op| match op.name {

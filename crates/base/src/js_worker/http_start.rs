@@ -10,12 +10,14 @@ use deno_core::ResourceId;
 use deno_http::http_create_conn_resource;
 use deno_net::io::UnixStreamResource;
 
+// TODO: Refactor into optimized exts
 pub fn init() -> Extension {
     Extension::builder("http_custom")
         .ops(vec![op_http_start::decl()])
         .build()
 }
 
+// TODO: Should use optimized v8
 #[op]
 fn op_http_start(state: &mut OpState, stream_rid: ResourceId) -> Result<ResourceId, AnyError> {
     if let Ok(resource_rc) = state.resource_table.take::<UnixStreamResource>(stream_rid) {

@@ -160,6 +160,7 @@ impl MainWorker {
         shutdown_tx: oneshot::Sender<()>,
     ) -> Result<(), Error> {
         // set bootstrap options
+        // TODO: Migrate this to `supacore`
         let script = format!(r#"globalThis.__build_target = "{}""#, env!("TARGET"));
         self.js_runtime
             .execute_script::<String>(located_script_name!(), script.into())
@@ -200,7 +201,6 @@ impl MainWorker {
             result
         };
 
-        // let local = tokio::task::LocalSet::new();
         let res = future.await;
 
         if res.is_err() {
@@ -220,6 +220,8 @@ pub struct UserWorker {
 }
 
 impl UserWorker {
+    // TODO: Refactor UserWorker module and MainWorker into a single module
+    // TODO: Add Bootstrapping limitations based on whether it's user or MAIN
     pub fn new(
         service_path: PathBuf,
         memory_limit_mb: u64,
@@ -301,6 +303,7 @@ impl UserWorker {
         })
     }
 
+    // TODO: Do snapshot
     pub fn snapshot() {
         unimplemented!();
     }
@@ -327,21 +330,11 @@ impl UserWorker {
             });
 
         // set bootstrap options
+        // TODO: Move to `supacore`
         let script = format!("globalThis.__build_target = \"{}\"", env!("TARGET"));
         self.js_runtime
             .execute_script::<String>(&located_script_name!(), script.into())
             .expect("Failed to execute bootstrap script");
-
-        // bootstrap the JS runtime
-        //let bootstrap_js = include_str!("./js_worker/js/user_bootstrap.js");
-        // self.js_runtime
-        //     .execute_script(
-        //         "[user_worker]: user_bootstrap.js",
-        //         include_str!("./js_worker/js/user_bootstrap.js"),
-        //     )
-        //     .expect("Failed to execute bootstrap script");
-
-        debug!("bootstrapped function");
 
         let (unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
         if let Err(e) = unix_stream_tx.send(stream) {
@@ -361,11 +354,6 @@ impl UserWorker {
         self.start_controller_thread(self.worker_timeout_ms, memory_limit_rx, halt_isolate_tx);
 
         let mut js_runtime = self.js_runtime;
-
-        // let runtime = tokio::runtime::Builder::new_current_thread()
-        //     .enable_all()
-        //     .build()
-        //     .unwrap();
 
         let future = async move {
             let mod_id = js_runtime
@@ -388,7 +376,6 @@ impl UserWorker {
             result
         };
 
-        //let local = tokio::task::LocalSet::new();
         let res = future.await;
 
         if res.is_err() {

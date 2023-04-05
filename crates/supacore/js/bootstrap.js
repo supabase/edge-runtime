@@ -570,3 +570,4 @@ ObjectDefineProperties(Deno, {
   mainModule: getterOnly(opMainModule)
 });
 
+// TODO: Abstract this file into multiple files. There's too much boilerplate

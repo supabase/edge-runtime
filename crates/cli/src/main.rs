@@ -52,62 +52,45 @@ fn main() -> Result<(), anyhow::Error> {
         .build()
         .unwrap();
 
-    let ip = String::from("0.0.0.0");
-    let port: u16 = 9000;
-
-    let main_service_path =
-        String::from("/Users/andrespirela/Documents/workspace/supabase/edge-runtime/examples/main");
-    let import_map_path: Option<String> = None;
-    let no_module_cache: bool = false;
-
+    // TODO: Tokio runtime shouldn't be needed here (Address later)
     let local = tokio::task::LocalSet::new();
-    let res = local.block_on(
-        &runtime,
-        start_server(
-            &ip.as_str(),
-            port,
-            main_service_path,
-            import_map_path,
-            no_module_cache,
-        ),
-    );
-    Ok(())
+    let res: Result<(), Error> = local.block_on(&runtime, async {
+        let matches = cli().get_matches();
 
-    // TODO: set panic hook
+        if !matches.get_flag("quiet") {
+            let verbose = matches.get_flag("verbose");
+            logger::init(verbose);
+        }
 
-    // let matches = cli().get_matches();
-    //
-    // if !matches.get_flag("quiet") {
-    //     let verbose = matches.get_flag("verbose");
-    //     logger::init(verbose);
-    // }
-    //
-    //
-    // match matches.subcommand() {
-    //     Some(("start", sub_matches)) => {
-    //         let ip = sub_matches.get_one::<String>("ip").cloned().unwrap();
-    //         let port = sub_matches.get_one::<u16>("port").copied().unwrap();
-    //
-    //         let main_service_path = sub_matches
-    //             .get_one::<String>("main-service")
-    //             .cloned()
-    //             .unwrap();
-    //         let import_map_path = sub_matches.get_one::<String>("import-map").cloned();
-    //         let no_module_cache = sub_matches
-    //             .get_one::<bool>("disable-module-cache")
-    //             .cloned()
-    //             .unwrap();
-    //
-    //         exit_with_code(start_server(
-    //             &ip.as_str(),
-    //             port,
-    //             main_service_path,
-    //             import_map_path,
-    //             no_module_cache,
-    //         ))
-    //     }
-    //     _ => {
-    //         // unrecognized command
-    //     }
-    // }
+        match matches.subcommand() {
+            Some(("start", sub_matches)) => {
+                let ip = sub_matches.get_one::<String>("ip").cloned().unwrap();
+                let port = sub_matches.get_one::<u16>("port").copied().unwrap();
+
+                let main_service_path = sub_matches
+                    .get_one::<String>("main-service")
+                    .cloned()
+                    .unwrap();
+                let import_map_path = sub_matches.get_one::<String>("import-map").cloned();
+                let no_module_cache = sub_matches
+                    .get_one::<bool>("disable-module-cache")
+                    .cloned()
+                    .unwrap();
+
+                exit_with_code(start_server(
+                    &ip.as_str(),
+                    port,
+                    main_service_path,
+                    import_map_path,
+                    no_module_cache,
+                ))
+            }
+            _ => {
+                // unrecognized command
+            }
+        }
+        Ok(())
+    });
+
+    res
 }

@@ -3,6 +3,7 @@
 debug/
 target/
 temp/
-
+.idea/
+.idea
 
 .DS_Store

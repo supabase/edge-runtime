@@ -8,6 +8,7 @@ use deno_core::Extension;
 use deno_core::ModuleSpecifier;
 use deno_core::OpState;
 
+// TODO: Refactor into optimized
 pub fn init(main_module: ModuleSpecifier) -> Extension {
     Extension::builder("custom:runtime")
         .ops(vec![op_main_module::decl()])

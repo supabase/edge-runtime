@@ -28,14 +28,12 @@ impl Permissions {
     }
 }
 
-pub fn init() -> Extension {
-    Extension::builder("permissions")
-        .state(move |state| {
-            state.put::<Permissions>(Permissions::new());
-            ()
-        })
-        .build()
-}
+deno_core::extension!(
+    sb_core_permissions,
+    state = |state| {
+        state.put::<Permissions>(Permissions::new());
+    }
+);
 
 impl deno_web::TimersPermission for Permissions {
     fn allow_hrtime(&mut self) -> bool {

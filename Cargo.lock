@@ -235,8 +235,8 @@ dependencies = [
  "log",
  "module_fetcher",
  "reqwest",
+ "sb_core",
  "serde",
- "supabase_edge_core",
  "supabase_edge_env",
  "supabase_edge_worker_context",
  "supabase_edge_workers",
@@ -2962,6 +2962,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "sb_core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "deno_core",
+ "deno_fetch",
+ "deno_http",
+ "deno_net",
+ "deno_web",
+ "deno_websocket",
+ "hyper",
+ "serde",
+ "supabase_edge_worker_context",
+ "tokio",
+]
+
+[[package]]
 name = "schannel"
 version = "0.1.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3358,19 +3376,6 @@ name = "subtle"
 version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6bdef32e8150c2a081110b42772ffe7d7c9032b606bc226c8260fd97e0976601"
-
-[[package]]
-name = "supabase_edge_core"
-version = "0.1.0"
-dependencies = [
- "bytes",
- "deno_core",
- "deno_http",
- "hyper",
- "serde",
- "supabase_edge_worker_context",
- "tokio",
-]
 
 [[package]]
 name = "supabase_edge_env"

@@ -129,21 +129,19 @@ fn op_net_unsupported(_state: &mut OpState) -> Result<(), AnyError> {
     Err(deno_core::error::not_supported())
 }
 
-// TODO: Refactor into optimized
-pub fn init() -> Extension {
-    Extension::builder("net_override")
-        .middleware(|op| match op.name {
-            "op_net_listen_tcp" => op_net_listen::decl(),
-            "op_net_accept_tcp" => op_net_accept::decl(),
+deno_core::extension!(
+    sb_core_net,
+    middleware = |op| match op.name {
+        "op_net_listen_tcp" => op_net_listen::decl(),
+        "op_net_accept_tcp" => op_net_accept::decl(),
 
-            // disable listening on TLS, UDP and Unix sockets
-            "op_net_listen_tls" => op_net_unsupported::decl(),
-            "op_net_listen_udp" => op_net_unsupported::decl(),
-            "op_node_unstable_net_listen_udp" => op_net_unsupported::decl(),
-            "op_net_listen_unix" => op_net_unsupported::decl(),
-            "op_net_listen_unixpacket" => op_net_unsupported::decl(),
-            "op_node_unstable_net_listen_unixpacket" => op_net_unsupported::decl(),
-            _ => op,
-        })
-        .build()
-}
+        // disable listening on TLS, UDP and Unix sockets
+        "op_net_listen_tls" => op_net_unsupported::decl(),
+        "op_net_listen_udp" => op_net_unsupported::decl(),
+        "op_node_unstable_net_listen_udp" => op_net_unsupported::decl(),
+        "op_net_listen_unix" => op_net_unsupported::decl(),
+        "op_net_listen_unixpacket" => op_net_unsupported::decl(),
+        "op_node_unstable_net_listen_unixpacket" => op_net_unsupported::decl(),
+        _ => op,
+    }
+);

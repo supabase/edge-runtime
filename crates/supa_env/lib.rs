@@ -5,32 +5,9 @@ use deno_core::op;
 use deno_core::Extension;
 use deno_core::OpState;
 use deno_node::NODE_ENV_VAR_ALLOWLIST;
+use sb_core::permissions::Permissions;
 use std::collections::HashMap;
 use std::path::Path;
-
-pub struct Permissions;
-impl Permissions {
-    pub fn new() -> Self {
-        Self
-    }
-
-    pub fn check_env(&mut self, _var: &str) -> Result<(), AnyError> {
-        Ok(())
-    }
-
-    pub fn check_env_all(&mut self) -> Result<(), AnyError> {
-        Ok(())
-    }
-
-    pub fn check_read_blind(
-        &mut self,
-        _path: &Path,
-        _display: &str,
-        _api_name: &str,
-    ) -> Result<(), AnyError> {
-        Ok(())
-    }
-}
 
 pub type EnvVars = HashMap<String, String>;
 

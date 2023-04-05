@@ -77,13 +77,13 @@ fn main() -> Result<(), anyhow::Error> {
                     .cloned()
                     .unwrap();
 
-                exit_with_code(start_server(
+                start_server(
                     &ip.as_str(),
                     port,
                     main_service_path,
                     import_map_path,
                     no_module_cache,
-                ))
+                ).await?;
             }
             _ => {
                 // unrecognized command

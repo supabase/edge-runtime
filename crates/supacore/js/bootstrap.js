@@ -51,7 +51,6 @@ const {
 const defineEventHandler = event.defineEventHandler;
 
 function serveHttp(conn) {
-  globalThis.console.log(conn);
   const rid = ops.op_http_start(conn.rid);
   return new HttpConn(rid, conn.remoteAddr, conn.localAddr);
 }

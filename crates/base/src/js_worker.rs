@@ -23,7 +23,6 @@ use tokio::sync::oneshot;
 pub mod module_loader;
 pub mod types;
 
-use crate::snapshot;
 use module_loader::DefaultModuleLoader;
 use sb_core::http_start::sb_core_http;
 use sb_core::net::sb_core_net;
@@ -96,6 +95,7 @@ impl MainWorker {
         let root_cert_store = deno_tls::create_default_root_cert_store();
 
         let extensions = vec![
+            sb_core_permissions::init_ops_and_esm(),
             deno_webidl::deno_webidl::init_ops_and_esm(),
             deno_console::deno_console::init_ops_and_esm(),
             deno_url::deno_url::init_ops_and_esm(),
@@ -127,7 +127,6 @@ impl MainWorker {
             sb_core_main::init_ops_and_esm(),
             sb_core_net::init_ops_and_esm(),
             sb_core_http::init_ops_and_esm(),
-            sb_core_permissions::init_ops_and_esm(),
             sb_core_runtime::init_ops_and_esm(Some(main_module_url.clone())),
         ];
 
@@ -140,7 +139,6 @@ impl MainWorker {
             is_main: true,
             shared_array_buffer_store: None,
             compiled_wasm_module_store: None,
-            startup_snapshot: Some(snapshot::snapshot()),
             ..Default::default()
         });
 
@@ -244,6 +242,7 @@ impl UserWorker {
         let root_cert_store = deno_tls::create_default_root_cert_store();
 
         let extensions = vec![
+            sb_core_permissions::init_ops_and_esm(),
             deno_webidl::deno_webidl::init_ops_and_esm(),
             deno_console::deno_console::init_ops_and_esm(),
             deno_url::deno_url::init_ops_and_esm(),
@@ -275,7 +274,6 @@ impl UserWorker {
             sb_core_main::init_ops_and_esm(),
             sb_core_net::init_ops_and_esm(),
             sb_core_http::init_ops_and_esm(),
-            sb_core_permissions::init_ops_and_esm(),
             sb_core_runtime::init_ops_and_esm(Some(main_module_url.clone())),
         ];
 
@@ -292,7 +290,6 @@ impl UserWorker {
             )),
             shared_array_buffer_store: None,
             compiled_wasm_module_store: None,
-            startup_snapshot: Some(snapshot::snapshot()),
             ..Default::default()
         });
 

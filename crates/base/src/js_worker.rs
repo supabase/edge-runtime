@@ -20,16 +20,15 @@ use tokio::net::UnixStream;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 
-pub mod http_start;
 pub mod module_loader;
-pub mod net_override;
-pub mod permissions;
-pub mod runtime;
 pub mod types;
 
 use module_loader::DefaultModuleLoader;
-use permissions::Permissions;
-use supabase_edge_core::supabase_core;
+use sb_core::http_start::sb_core_http;
+use sb_core::net::sb_core_net;
+use sb_core::permissions::{sb_core_permissions, Permissions};
+use sb_core::runtime::sb_core_runtime;
+use sb_core::sb_core_main;
 use supabase_edge_env::supabase_env;
 use supabase_edge_worker_context::essentials::UserWorkerMsgs;
 use supabase_edge_workers::supabase_user_workers;
@@ -96,6 +95,7 @@ impl MainWorker {
         let root_cert_store = deno_tls::create_default_root_cert_store();
 
         let extensions = vec![
+            sb_core_permissions::init_ops_and_esm(),
             deno_webidl::deno_webidl::init_ops_and_esm(),
             deno_console::deno_console::init_ops_and_esm(),
             deno_url::deno_url::init_ops_and_esm(),
@@ -124,11 +124,10 @@ impl MainWorker {
             deno_tls::deno_tls::init_ops_and_esm(),
             supabase_env::init_ops_and_esm(),
             supabase_user_workers::init_ops_and_esm(),
-            net_override::init(),
-            http_start::init(),
-            permissions::init(),
-            runtime::init(main_module_url.clone()),
-            supabase_core::init_js_only(),
+            sb_core_main::init_ops_and_esm(),
+            sb_core_net::init_ops_and_esm(),
+            sb_core_http::init_ops_and_esm(),
+            sb_core_runtime::init_ops_and_esm(Some(main_module_url.clone())),
         ];
 
         let import_map = load_import_map(import_map_path)?;
@@ -243,6 +242,7 @@ impl UserWorker {
         let root_cert_store = deno_tls::create_default_root_cert_store();
 
         let extensions = vec![
+            sb_core_permissions::init_ops_and_esm(),
             deno_webidl::deno_webidl::init_ops_and_esm(),
             deno_console::deno_console::init_ops_and_esm(),
             deno_url::deno_url::init_ops_and_esm(),
@@ -271,11 +271,10 @@ impl UserWorker {
             deno_tls::deno_tls::init_ops_and_esm(),
             supabase_env::init_ops_and_esm(),
             supabase_user_workers::init_ops_and_esm(),
-            net_override::init(),
-            http_start::init(),
-            permissions::init(),
-            runtime::init(main_module_url.clone()),
-            supabase_core::init_js_only(),
+            sb_core_main::init_ops_and_esm(),
+            sb_core_net::init_ops_and_esm(),
+            sb_core_http::init_ops_and_esm(),
+            sb_core_runtime::init_ops_and_esm(Some(main_module_url.clone())),
         ];
 
         let import_map = load_import_map(import_map_path)?;

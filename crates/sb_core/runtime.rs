@@ -1,23 +1,11 @@
-use crate::js_worker::permissions::Permissions;
-use std::path::Path;
-
+use crate::permissions::Permissions;
 use anyhow::Context;
 use deno_core::error::AnyError;
 use deno_core::op;
 use deno_core::Extension;
 use deno_core::ModuleSpecifier;
 use deno_core::OpState;
-
-// TODO: Refactor into optimized
-pub fn init(main_module: ModuleSpecifier) -> Extension {
-    Extension::builder("custom:runtime")
-        .ops(vec![op_main_module::decl()])
-        .state(move |state| {
-            state.put::<ModuleSpecifier>(main_module.clone());
-            ()
-        })
-        .build()
-}
+use std::path::Path;
 
 #[op]
 fn op_main_module(state: &mut OpState) -> Result<String, AnyError> {
@@ -35,3 +23,15 @@ fn op_main_module(state: &mut OpState) -> Result<String, AnyError> {
     }
     Ok(main)
 }
+
+deno_core::extension!(sb_core_runtime,
+    ops = [op_main_module],
+    options = {
+        main_module: Option<ModuleSpecifier>
+    },
+    state = |state, options| {
+        if let Some(module_init) = options.main_module {
+            state.put::<ModuleSpecifier>(module_init.clone());
+        }
+    },
+);

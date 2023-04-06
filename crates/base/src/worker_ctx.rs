@@ -12,6 +12,7 @@ use supabase_edge_worker_context::essentials::{
     CreateUserWorkerResult, UserWorkerMsgs, UserWorkerOptions,
 };
 use tokio::net::UnixStream;
+use tokio::sync::oneshot::Receiver;
 use tokio::sync::RwLock;
 use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
@@ -105,6 +106,8 @@ impl WorkerContext {
                 .unwrap();
             let local = tokio::task::LocalSet::new();
 
+            let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+
             let handle: Result<(), Error> = local.block_on(&runtime, async {
                 let worker = UserWorker::new(
                     service_path.clone(),
@@ -116,14 +119,13 @@ impl WorkerContext {
                 )?;
 
                 // start the worker
-                let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
                 worker.run(recv_stream, shutdown_tx).await?;
-
-                // wait for shutdown signal
-                let _ = shutdown_rx.blocking_recv();
 
                 Ok(())
             });
+
+            // wait for shutdown signal
+            let _ = shutdown_rx.blocking_recv();
 
             Ok(())
         });
@@ -195,7 +197,11 @@ impl WorkerPool {
                         // TODO: handle errors
                         let worker = user_workers.get(&key).unwrap();
                         let mut worker = worker.write().await;
-                        let res = worker.send_request(req).await.unwrap();
+                        // TODO: Json format
+                        // TODO: Ability to attach hook
+                        let res = worker.send_request(req).await.unwrap_or_else(|e| Response::builder().status(408).body(Body::from(deno_core::serde_json::json!({
+                            "msg": "Request could not be processed by the server because it timed out or an error was thrown."
+                        }).to_string())).unwrap());
 
                         tx.send(res);
                     }

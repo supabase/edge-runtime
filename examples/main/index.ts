@@ -24,13 +24,21 @@ serve(async (req: Request) => {
   const no_module_cache = false;
   const import_map_path = null;
   const env_vars = [];
-  const worker = await EdgeRuntime.userWorkers.create({
-    service_path,
-    memory_limit_mb,
-    worker_timeout_ms,
-    no_module_cache,
-    import_map_path,
-    env_vars
-  });
-  return worker.fetch(req);
+  try {
+    const worker = await EdgeRuntime.userWorkers.create({
+      service_path,
+      memory_limit_mb,
+      worker_timeout_ms,
+      no_module_cache,
+      import_map_path,
+      env_vars
+    });
+    return worker.fetch(req);
+  } catch (e) {
+    const error = { msg: e.toString() }
+    return new Response(
+      JSON.stringify(error),
+      { status: 500, headers: { "Content-Type": "application/json" } },
+    )
+  }
 })

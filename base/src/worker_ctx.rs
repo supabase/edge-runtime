@@ -1,6 +1,6 @@
 use crate::js_worker::{MainWorker, UserWorker};
 
-use anyhow::Error;
+use anyhow::{bail, Error};
 use hyper::{Body, Request, Response};
 use log::{debug, error};
 use std::collections::HashMap;
@@ -11,7 +11,9 @@ use std::thread;
 use tokio::net::UnixStream;
 use tokio::sync::RwLock;
 use tokio::sync::{mpsc, oneshot};
+use uuid::Uuid;
 
+#[derive(Debug)]
 pub struct WorkerContext {
     handle: thread::JoinHandle<Result<(), Error>>,
     request_sender: hyper::client::conn::SendRequest<Body>,
@@ -40,6 +42,10 @@ impl WorkerContext {
         let no_module_cache = options.no_module_cache;
         let import_map_path = options.import_map_path;
         let user_worker_msgs_tx = options.user_worker_msgs_tx;
+
+        if (!service_path.exists()) {
+            return bail!("main function does not exist {:?}", &service_path);
+        }
 
         // create a unix socket pair
         let (sender_stream, recv_stream) = UnixStream::pair()?;
@@ -89,6 +95,10 @@ impl WorkerContext {
         let no_module_cache = options.no_module_cache;
         let import_map_path = options.import_map_path;
         let env_vars = options.env_vars;
+
+        if (!service_path.exists()) {
+            return bail!("user function does not exist {:?}", &service_path);
+        }
 
         // create a unix socket pair
         let (sender_stream, recv_stream) = UnixStream::pair()?;
@@ -141,13 +151,16 @@ impl WorkerContext {
 
 #[derive(Debug)]
 pub struct CreateUserWorkerResult {
-    pub key: String,
+    pub key: Uuid,
 }
 
 #[derive(Debug)]
 pub enum UserWorkerMsgs {
-    Create(UserWorkerOptions, oneshot::Sender<CreateUserWorkerResult>),
-    SendRequest(String, Request<Body>, oneshot::Sender<Response<Body>>),
+    Create(
+        UserWorkerOptions,
+        oneshot::Sender<Result<CreateUserWorkerResult, Error>>,
+    ),
+    SendRequest(Uuid, Request<Body>, oneshot::Sender<Response<Body>>),
 }
 
 pub struct WorkerPool {
@@ -174,23 +187,24 @@ impl WorkerPool {
         let main_worker = Arc::new(RwLock::new(main_worker_ctx));
 
         tokio::spawn(async move {
-            let mut user_workers: HashMap<String, Arc<RwLock<WorkerContext>>> = HashMap::new();
+            let mut user_workers: HashMap<Uuid, Arc<RwLock<WorkerContext>>> = HashMap::new();
 
             loop {
                 match user_worker_msgs_rx.recv().await {
                     None => break,
                     Some(UserWorkerMsgs::Create(worker_options, tx)) => {
-                        let key = worker_options.service_path.display().to_string();
-                        if !user_workers.contains_key(&key) {
-                            // TODO: handle errors
-                            let user_worker_ctx = WorkerContext::new_user_worker(worker_options)
-                                .await
-                                .unwrap();
-                            user_workers
-                                .insert(key.clone(), Arc::new(RwLock::new(user_worker_ctx)));
-                        }
+                        let key = Uuid::new_v4();
+                        let user_worker_ctx = WorkerContext::new_user_worker(worker_options).await;
+                        if !user_worker_ctx.is_err() {
+                            user_workers.insert(
+                                key.clone(),
+                                Arc::new(RwLock::new(user_worker_ctx.unwrap())),
+                            );
 
-                        tx.send(CreateUserWorkerResult { key });
+                            tx.send(Ok(CreateUserWorkerResult { key }));
+                        } else {
+                            tx.send(Err(user_worker_ctx.unwrap_err()));
+                        }
                     }
                     Some(UserWorkerMsgs::SendRequest(key, req, tx)) => {
                         // TODO: handle errors

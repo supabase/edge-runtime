@@ -186,6 +186,7 @@ dependencies = [
  "serde",
  "tokio",
  "url",
+ "uuid",
  "v8",
 ]
 

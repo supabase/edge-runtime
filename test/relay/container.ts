@@ -62,7 +62,7 @@ export async function runRelay({
     // .withWaitStrategy(Wait.forLogMessage('Listening on http://0.0.0.0:port'))
     .withStartupTimeout(15000)
     .withReuse()
-    .withCmd(['start', '--dir', '/usr/services', '--import-map', importMap])
+    .withCmd(['start', '--main-service', '/usr/services/main', '--import-map', importMap])
 
   // add envs
   env && env.forEach((value, key) => relay.withEnv(key, value))

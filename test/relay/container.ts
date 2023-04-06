@@ -59,10 +59,10 @@ export async function runRelay({
     .withBindMount(absPath, '/usr/services', 'ro')
     .withNetworkMode(network.getName())
     .withExposedPorts(port)
-    // .withWaitStrategy(Wait.forLogMessage('Listening on http://0.0.0.0:port'))
+    .withWaitStrategy(Wait.forLogMessage('edge-runtime is listening on http://0.0.0.0:port'))
     .withStartupTimeout(15000)
     .withReuse()
-    .withCmd(['start', '--main-service', '/usr/services/main', '--import-map', importMap])
+    .withCmd(['start', '--main-service', '/usr/services/main', '--import-map', importMap, '-v'])
 
   // add envs
   env && env.forEach((value, key) => relay.withEnv(key, value))
@@ -76,9 +76,9 @@ export async function runRelay({
   for (let ctr = 0; ctr < 30; ctr++) {
     try {
       const healthCheck = await crossFetch(
-        `http://localhost:${startedRelay.getMappedPort(port)}/hello`,
+        `http://localhost:${startedRelay.getMappedPort(port)}/_internal/health`,
         {
-          method: 'POST',
+          method: 'GET',
         }
       )
       if (healthCheck.ok || healthCheck.status === 101) {

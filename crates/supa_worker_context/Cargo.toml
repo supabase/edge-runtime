@@ -1,0 +1,17 @@
+[package]
+name = "supabase_edge_worker_context"
+version = "0.1.0"
+authors = ["Supabase <team@supabase.com>"]
+edition = "2021"
+resolver = "2"
+description = "We'll take care of this later"
+license = "MIT"
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+hyper.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+anyhow = { workspace = true }

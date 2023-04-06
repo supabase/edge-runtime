@@ -11,34 +11,34 @@ serve(async (req: Request) => {
   if (!service_name || service_name === "") {
     const error = { msg: "missing function name in request" }
     return new Response(
-      JSON.stringify(error),
-      { status: 400, headers: { "Content-Type": "application/json" } },
+        JSON.stringify(error),
+        { status: 400, headers: { "Content-Type": "application/json" } },
     )
   }
 
-  const service_path = `./examples/${service_name}`;
-  console.error(`serving the request with ${service_path}`);
+  const servicePath = `./examples/${service_name}`;
+  console.error(`serving the request with ${servicePath}`);
 
-  const memory_limit_mb = 150;
-  const worker_timeout_ms = 5 * 60 * 1000;
-  const no_module_cache = false;
-  const import_map_path = null;
-  const env_vars = [];
+  const memoryLimitMb = 150;
+  const workerTimeoutMs = 5 * 60 * 1000;
+  const noModuleCache = false;
+  const importMapPath = null;
+  const envVars = [];
   try {
     const worker = await EdgeRuntime.userWorkers.create({
-      service_path,
-      memory_limit_mb,
-      worker_timeout_ms,
-      no_module_cache,
-      import_map_path,
-      env_vars
+      servicePath,
+      memoryLimitMb,
+      workerTimeoutMs,
+      noModuleCache,
+      importMapPath,
+      envVars
     });
     return worker.fetch(req);
   } catch (e) {
     const error = { msg: e.toString() }
     return new Response(
-      JSON.stringify(error),
-      { status: 500, headers: { "Content-Type": "application/json" } },
+        JSON.stringify(error),
+        { status: 500, headers: { "Content-Type": "application/json" } },
     )
   }
 })

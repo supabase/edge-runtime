@@ -1,0 +1,16 @@
+[package]
+name = "supabase_edge_env"
+version = "0.1.0"
+authors = ["Supabase <team@supabase.com>"]
+edition = "2021"
+resolver = "2"
+description = "We'll take care of this later"
+license = "MIT"
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+deno_core.workspace = true
+deno_node.workspace = true
+sb_core = { version = "0.1.0", path = "../sb_core" }

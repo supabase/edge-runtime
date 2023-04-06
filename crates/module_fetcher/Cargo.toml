@@ -1,0 +1,45 @@
+[package]
+name = "module_fetcher"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+jsonc-parser = { version="0.21.0", features = ["serde"] }
+base32 = "=0.4.0"
+monch = "=0.4.1"
+walkdir = "=2.3.2"
+fs3.workspace = true
+regex.workspace = true
+once_cell.workspace = true
+thiserror.workspace = true
+deno_lockfile.workspace = true
+indexmap.workspace = true
+async-trait = "0.1.68"
+base64 = { version = "=0.13.1" }
+cache_control = { version = "=0.2.0" }
+chrono = { version = "=0.4.22", default-features = false, features = ["clock"] }
+data-url = { version= "=0.2.0" }
+deno_ast = { workspace = true, features = ["bundler", "cjs", "codegen", "dep_graph", "module_specifier", "proposal", "react", "sourcemap", "transforms", "typescript", "view", "visit"] }
+deno_core = { workspace = true }
+deno_console = { workspace = true }
+deno_crypto =  { workspace = true }
+deno_fetch = { workspace = true }
+deno_graph = { workspace = true }
+deno_node = { workspace = true }
+deno_tls = { workspace = true }
+deno_web = { workspace = true }
+deno_webstorage = { workspace = true }
+encoding_rs = { version = "=0.8.31" }
+import_map = { version = "=0.15.0" }
+log = { workspace = true }
+libc = { version = "0.2.126" }
+ring = { version = "=0.16.20" }
+serde = { workspace = true }
+tokio.workspace = true
+twox-hash = { version = "=1.6.3" }
+flate2.workspace = true
+tar.workspace = true
+tokio-util.workspace = true
+percent-encoding = "2.2.0"

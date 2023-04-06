@@ -1,6 +1,8 @@
 import { serve } from "https://deno.land/std@0.131.0/http/server.ts"
+// import { helloWorld } from "npm:hello-world-npm@1.1.1";
 
 serve(async (req) => {
+  // helloWorld();
   let status = 200;
   if (req.method == "PUT") {
     status = 405;

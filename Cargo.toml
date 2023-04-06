@@ -1,35 +1,52 @@
 [workspace]
-
 members = [
-  "base",
-  "cli",
-  "module_fetcher"
+  "./crates/base",
+  "./crates/cli",
+  "./crates/module_fetcher",
+  "./crates/supa_workers",
+  "./crates/supa_worker_context",
+  "./crates/supa_env",
+  "./crates/sb_core"
 ]
+resolver = "2"
 
 [workspace.dependencies]
 log = "0.4.17"
-anyhow = { version = "1.0" }
+anyhow = { version = "1.0.57" }
 
-deno_ast = { version = "0.23.2", features = [ "cjs", "transpiling" ] }
-deno_core = { version = "0.171.0" }
-deno_console = { version = "0.89.0" }
-deno_crypto =  { version = "0.103.0" }
-deno_fetch = { version = "0.113.0" }
-deno_graph = { version = "0.42.0" }
-deno_http =  { version = "0.84.0" }
-deno_net = { version = "0.81.0" }
-deno_node = { version = "0.26.0" }
-deno_url = { version = "0.89.0" }
-deno_tls = { version = "0.76.0"}
-deno_webidl = { version = "0.89.0" }
-deno_web = { version = "0.120.0" }
-deno_websocket = { version = "0.94.0" }
-deno_webstorage = { version = "0.84.0" }
+deno_ast = { version = "0.25.0", features = [ "cjs", "transpiling" ] }
+deno_core = { version = "0.179.0" }
+deno_console = { version = "0.97.0" }
+deno_crypto =  { version = "0.111.0" }
+deno_fetch = { version = "0.121.0" }
+deno_graph = "=0.45.0"
+deno_http =  { version = "0.92.0" }
+deno_net = { version = "0.89.0" }
+deno_node = { version = "0.34.0" }
+deno_url = { version = "0.97.0" }
+deno_tls = { version = "0.84.0"}
+deno_webidl = { version = "0.97.0" }
+deno_web = { version = "0.128.0" }
+deno_websocket = { version = "0.102.0" }
+deno_webstorage = { version = "0.92.0" }
 serde = { version = "1.0.149", features = ["derive"] }
+hyper = "0.14.18"
+tokio = { version = "=1.25.0", features = ["full"] }
+bytes = { version = "1.4.0" }
+once_cell = "1.17.1"
+thiserror = "=1.0.38"
+deno_lockfile = "0.13.0"
+indexmap = { version = "1.9.2", features = ["serde"] }
+flate2 = "=1.0.24"
+tar = "=0.4.38"
+regex = "^1.7.0"
+fs3 = "0.5.0"
+tokio-util = "0.7.4"
+uuid = { version = "1.1.2", features = ["v4"] }
 
 [profile.release]
-strip="debuginfo"
-codegen-units = 1
-incremental = true
 lto = true
-opt-level = 'z' # Optimize for size
+
+[profile.release.package.bench]
+opt-level = 3
+codegen-units = 1

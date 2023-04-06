@@ -1,3 +1,4 @@
+use anyhow::Error;
 use deno_core::error::{custom_error, type_error, AnyError};
 use deno_core::futures::stream::Peekable;
 use deno_core::futures::task::Spawn;
@@ -22,6 +23,7 @@ use supabase_edge_worker_context::essentials::{
     CreateUserWorkerResult, UserWorkerMsgs, UserWorkerOptions,
 };
 use tokio::sync::{mpsc, oneshot};
+use uuid::Uuid;
 
 deno_core::extension!(
     supabase_user_workers,
@@ -51,7 +53,7 @@ pub async fn op_user_worker_create(
 ) -> Result<String, AnyError> {
     let op_state = state.borrow();
     let tx = op_state.borrow::<mpsc::UnboundedSender<UserWorkerMsgs>>();
-    let (result_tx, result_rx) = oneshot::channel::<CreateUserWorkerResult>();
+    let (result_tx, result_rx) = oneshot::channel::<Result<CreateUserWorkerResult, Error>>();
 
     let UserWorkerCreateOptions {
         service_path,
@@ -85,8 +87,15 @@ pub async fn op_user_worker_create(
         ));
     }
 
+    // channel returns a Result<T, E>, we need to unwrap it first;
     let result = result.unwrap();
-    Ok(result.key)
+    if result.is_err() {
+        return Err(custom_error(
+            "create_user_worker_error",
+            result.unwrap_err().to_string(),
+        ));
+    }
+    Ok(result.unwrap().key.to_string())
 }
 
 #[derive(Deserialize, Debug)]
@@ -291,7 +300,8 @@ pub async fn op_user_worker_fetch_send(
         .ok()
         .expect("multiple op_user_worker_fetch_send ongoing");
     let (result_tx, result_rx) = oneshot::channel::<Response<Body>>();
-    tx.send(UserWorkerMsgs::SendRequest(key, request.0, result_tx));
+    let uuid = Uuid::parse_str(key.as_str())?;
+    tx.send(UserWorkerMsgs::SendRequest(uuid, request.0, result_tx));
 
     let result = result_rx.await;
     if result.is_err() {

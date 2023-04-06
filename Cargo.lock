@@ -242,6 +242,7 @@ dependencies = [
  "supabase_edge_workers",
  "tokio",
  "url",
+ "uuid",
  "v8 0.60.1",
 ]
 
@@ -3390,14 +3391,17 @@ dependencies = [
 name = "supabase_edge_worker_context"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "hyper",
  "tokio",
+ "uuid",
 ]
 
 [[package]]
 name = "supabase_edge_workers"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "bytes",
  "deno_core",
  "deno_http",
@@ -3405,6 +3409,7 @@ dependencies = [
  "serde",
  "supabase_edge_worker_context",
  "tokio",
+ "uuid",
 ]
 
 [[package]]

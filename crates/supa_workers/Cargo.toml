@@ -11,6 +11,8 @@ license = "MIT"
 path = "lib.rs"
 
 [dependencies]
+anyhow.workspace = true
+uuid.workspace = true
 deno_core.workspace = true
 tokio.workspace = true
 deno_http.workspace = true

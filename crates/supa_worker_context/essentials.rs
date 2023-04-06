@@ -1,7 +1,9 @@
 use hyper::{Body, Request, Response};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use anyhow::Error;
 use tokio::sync::oneshot;
+use uuid::Uuid;
 
 #[derive(Debug)]
 pub struct UserWorkerOptions {
@@ -15,11 +17,14 @@ pub struct UserWorkerOptions {
 
 #[derive(Debug)]
 pub enum UserWorkerMsgs {
-    Create(UserWorkerOptions, oneshot::Sender<CreateUserWorkerResult>),
-    SendRequest(String, Request<Body>, oneshot::Sender<Response<Body>>),
+    Create(
+        UserWorkerOptions,
+        oneshot::Sender<Result<CreateUserWorkerResult, Error>>,
+    ),
+    SendRequest(Uuid, Request<Body>, oneshot::Sender<Response<Body>>),
 }
 
 #[derive(Debug)]
 pub struct CreateUserWorkerResult {
-    pub key: String,
+    pub key: Uuid,
 }

@@ -1,9 +1,8 @@
 import { serve } from "https://deno.land/std@0.131.0/http/server.ts"
 
 console.log('main function started');
-console.log('X');
+
 serve(async (req: Request) => {
-  console.log('Request received');
   const url = new URL(req.url);
   const {pathname} = url;
   const path_parts = pathname.split("/");
@@ -12,8 +11,8 @@ serve(async (req: Request) => {
   if (!service_name || service_name === "") {
     const error = { msg: "missing function name in request" }
     return new Response(
-      JSON.stringify(error),
-      { status: 400, headers: { "Content-Type": "application/json" } },
+        JSON.stringify(error),
+        { status: 400, headers: { "Content-Type": "application/json" } },
     )
   }
 
@@ -25,13 +24,21 @@ serve(async (req: Request) => {
   const noModuleCache = false;
   const importMapPath = null;
   const envVars = [];
-  const worker = await EdgeRuntime.userWorkers.create({
-    servicePath,
-    memoryLimitMb,
-    workerTimeoutMs,
-    noModuleCache,
-    importMapPath,
-    envVars
-  });
-  return worker.fetch(req);
+  try {
+    const worker = await EdgeRuntime.userWorkers.create({
+      servicePath,
+      memoryLimitMb,
+      workerTimeoutMs,
+      noModuleCache,
+      importMapPath,
+      envVars
+    });
+    return worker.fetch(req);
+  } catch (e) {
+    const error = { msg: e.toString() }
+    return new Response(
+        JSON.stringify(error),
+        { status: 500, headers: { "Content-Type": "application/json" } },
+    )
+  }
 })

@@ -1,3 +1,3 @@
 #!/usr/bin/env bash
 
-cargo build && ./target/debug/edge-runtime "$@"
+ cargo build && RUST_BACKTRACE=full ./target/debug/edge-runtime "$@" start --main-service ./examples/main

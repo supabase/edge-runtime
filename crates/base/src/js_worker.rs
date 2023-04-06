@@ -23,6 +23,8 @@ use tokio::sync::oneshot;
 pub mod module_loader;
 pub mod types;
 
+use crate::snapshot;
+use crate::snapshot::snapshot;
 use module_loader::DefaultModuleLoader;
 use sb_core::http_start::sb_core_http;
 use sb_core::net::sb_core_net;
@@ -95,39 +97,32 @@ impl MainWorker {
         let root_cert_store = deno_tls::create_default_root_cert_store();
 
         let extensions = vec![
-            sb_core_permissions::init_ops_and_esm(),
-            deno_webidl::deno_webidl::init_ops_and_esm(),
-            deno_console::deno_console::init_ops_and_esm(),
-            deno_url::deno_url::init_ops_and_esm(),
-            deno_web::deno_web::init_ops_and_esm::<Permissions>(
-                deno_web::BlobStore::default(),
-                None,
-            ),
-            deno_fetch::deno_fetch::init_ops_and_esm::<Permissions>(deno_fetch::Options {
+            sb_core_permissions::init_ops(),
+            deno_webidl::deno_webidl::init_ops(),
+            deno_console::deno_console::init_ops(),
+            deno_url::deno_url::init_ops(),
+            deno_web::deno_web::init_ops::<Permissions>(deno_web::BlobStore::default(), None),
+            deno_fetch::deno_fetch::init_ops::<Permissions>(deno_fetch::Options {
                 user_agent: user_agent.clone(),
                 root_cert_store: Some(root_cert_store.clone()),
                 ..Default::default()
             }),
-            // TODO: support providing a custom seed for crypto
-            deno_crypto::deno_crypto::init_ops_and_esm(None),
-            deno_net::deno_net::init_ops_and_esm::<Permissions>(
-                Some(root_cert_store.clone()),
-                false,
-                None,
-            ),
-            deno_websocket::deno_websocket::init_ops_and_esm::<Permissions>(
+            deno_websocket::deno_websocket::init_ops::<Permissions>(
                 user_agent.clone(),
                 Some(root_cert_store.clone()),
                 None,
             ),
-            deno_http::deno_http::init_ops_and_esm(),
-            deno_tls::deno_tls::init_ops_and_esm(),
-            supabase_env::init_ops_and_esm(),
-            supabase_user_workers::init_ops_and_esm(),
-            sb_core_main::init_ops_and_esm(),
-            sb_core_net::init_ops_and_esm(),
-            sb_core_http::init_ops_and_esm(),
-            sb_core_runtime::init_ops_and_esm(Some(main_module_url.clone())),
+            // TODO: support providing a custom seed for crypto
+            deno_crypto::deno_crypto::init_ops(None),
+            deno_net::deno_net::init_ops::<Permissions>(Some(root_cert_store.clone()), false, None),
+            deno_tls::deno_tls::init_ops(),
+            deno_http::deno_http::init_ops(),
+            supabase_env::init_ops(),
+            supabase_user_workers::init_ops(),
+            sb_core_main::init_ops(),
+            sb_core_net::init_ops(),
+            sb_core_http::init_ops(),
+            sb_core_runtime::init_ops(Some(main_module_url.clone())),
         ];
 
         let import_map = load_import_map(import_map_path)?;
@@ -139,6 +134,7 @@ impl MainWorker {
             is_main: true,
             shared_array_buffer_store: None,
             compiled_wasm_module_store: None,
+            startup_snapshot: Some(snapshot::snapshot()),
             ..Default::default()
         });
 
@@ -147,10 +143,6 @@ impl MainWorker {
             main_module_url,
             worker_pool_tx,
         })
-    }
-
-    pub fn snapshot() {
-        unimplemented!();
     }
 
     pub async fn run(
@@ -242,39 +234,32 @@ impl UserWorker {
         let root_cert_store = deno_tls::create_default_root_cert_store();
 
         let extensions = vec![
-            sb_core_permissions::init_ops_and_esm(),
-            deno_webidl::deno_webidl::init_ops_and_esm(),
-            deno_console::deno_console::init_ops_and_esm(),
-            deno_url::deno_url::init_ops_and_esm(),
-            deno_web::deno_web::init_ops_and_esm::<Permissions>(
-                deno_web::BlobStore::default(),
-                None,
-            ),
-            deno_fetch::deno_fetch::init_ops_and_esm::<Permissions>(deno_fetch::Options {
+            sb_core_permissions::init_ops(),
+            deno_webidl::deno_webidl::init_ops(),
+            deno_console::deno_console::init_ops(),
+            deno_url::deno_url::init_ops(),
+            deno_web::deno_web::init_ops::<Permissions>(deno_web::BlobStore::default(), None),
+            deno_fetch::deno_fetch::init_ops::<Permissions>(deno_fetch::Options {
                 user_agent: user_agent.clone(),
                 root_cert_store: Some(root_cert_store.clone()),
                 ..Default::default()
             }),
-            // TODO: support providing a custom seed for crypto
-            deno_crypto::deno_crypto::init_ops_and_esm(None),
-            deno_net::deno_net::init_ops_and_esm::<Permissions>(
-                Some(root_cert_store.clone()),
-                false,
-                None,
-            ),
-            deno_websocket::deno_websocket::init_ops_and_esm::<Permissions>(
+            deno_websocket::deno_websocket::init_ops::<Permissions>(
                 user_agent.clone(),
                 Some(root_cert_store.clone()),
                 None,
             ),
-            deno_http::deno_http::init_ops_and_esm(),
-            deno_tls::deno_tls::init_ops_and_esm(),
-            supabase_env::init_ops_and_esm(),
-            supabase_user_workers::init_ops_and_esm(),
-            sb_core_main::init_ops_and_esm(),
-            sb_core_net::init_ops_and_esm(),
-            sb_core_http::init_ops_and_esm(),
-            sb_core_runtime::init_ops_and_esm(Some(main_module_url.clone())),
+            // TODO: support providing a custom seed for crypto
+            deno_crypto::deno_crypto::init_ops(None),
+            deno_net::deno_net::init_ops::<Permissions>(Some(root_cert_store.clone()), false, None),
+            deno_tls::deno_tls::init_ops(),
+            deno_http::deno_http::init_ops(),
+            supabase_env::init_ops(),
+            supabase_user_workers::init_ops(),
+            sb_core_main::init_ops(),
+            sb_core_net::init_ops(),
+            sb_core_http::init_ops(),
+            sb_core_runtime::init_ops(Some(main_module_url.clone())),
         ];
 
         let import_map = load_import_map(import_map_path)?;
@@ -290,6 +275,7 @@ impl UserWorker {
             )),
             shared_array_buffer_store: None,
             compiled_wasm_module_store: None,
+            startup_snapshot: Some(snapshot::snapshot()),
             ..Default::default()
         });
 
@@ -300,11 +286,6 @@ impl UserWorker {
             worker_timeout_ms,
             env_vars,
         })
-    }
-
-    // TODO: Do snapshot
-    pub fn snapshot() {
-        unimplemented!();
     }
 
     pub async fn run(

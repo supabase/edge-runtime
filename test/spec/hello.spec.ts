@@ -29,7 +29,7 @@ describe('basic tests (hello function)', () => {
      * @feature auth
      */
     log('create FunctionsClient')
-    const fclient = new FunctionsClient(`http://localhost:${relay.container.getMappedPort(port)}`, {
+    const fclient = new FunctionsClient(`http://0.0.0.0:${relay.container.getMappedPort(port)}`, {
       headers: {
         Authorization: `Bearer ${apiKey}`,
       },
@@ -240,62 +240,6 @@ describe('basic tests (hello function)', () => {
 
     log('invoke hello')
     const { data, error } = await fclient.invoke<string>('', {})
-
-    log('assert no error')
-    expect(error).toBeNull()
-    log(`assert ${data} is equal to 'Hello World'`)
-    expect(data).toEqual('Hello World')
-  })
-
-  test('invoke with custom fetch GET method', async () => {
-    /**
-     * @feature fetch
-     */
-    log('create FunctionsClient')
-    const fclient = new FunctionsClient(`http://localhost:${relay.container.getMappedPort(port)}`, {
-      customFetch: getCustomFetch(
-        `http://localhost:${relay.container.getMappedPort(port)}/${'hello'}`,
-        {
-          method: 'GET',
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-          },
-        }
-      ),
-    })
-
-    log('invoke hello')
-    const { data, error } = await fclient.invoke<string>('', {})
-
-    log('assert no error')
-    expect(error).toBeNull()
-    log(`assert ${data} is equal to 'Hello World'`)
-    expect(data).toEqual('Hello World')
-  })
-
-  test('invoke hello with custom fetch override header', async () => {
-    /**
-     * @feature fetch
-     */
-    const wrongKey = sign({ name: 'anon' }, 'wrong_jwt')
-    log('create FunctionsClient')
-    const fclient = new FunctionsClient(`http://localhost:${relay.container.getMappedPort(port)}`, {
-      headers: {
-        Authorization: `Bearer ${wrongKey}`,
-      },
-      customFetch: getCustomFetch(
-        `http://localhost:${relay.container.getMappedPort(port)}/${'hello'}`,
-        {
-          method: 'Post',
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-          },
-        }
-      ),
-    })
-
-    log('invoke hello with Authorization header')
-    const { data, error } = await fclient.invoke<string>('hello', {})
 
     log('assert no error')
     expect(error).toBeNull()

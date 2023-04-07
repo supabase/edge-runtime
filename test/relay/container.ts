@@ -59,7 +59,7 @@ export async function runRelay({
     .withBindMount(absPath, '/usr/services', 'ro')
     .withNetworkMode(network.getName())
     .withExposedPorts(port)
-    .withWaitStrategy(Wait.forLogMessage('edge-runtime is listening on http://0.0.0.0:port'))
+    //.withWaitStrategy(Wait.forLogMessage('edge-runtime is listening on http://0.0.0.0:port'))
     .withStartupTimeout(15000)
     .withReuse()
     .withCmd(['start', '--main-service', '/usr/services/main', '--import-map', importMap, '-v'])

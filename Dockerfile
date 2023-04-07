@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.4
-FROM rust:1.67.0-bullseye as builder
+FROM rust:1.68.2-bullseye as builder
 ARG TARGETPLATFORM
 WORKDIR /usr/src/edge-runtime
 RUN --mount=type=cache,target=/usr/local/cargo/registry,id=${TARGETPLATFORM} \

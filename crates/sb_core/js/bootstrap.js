@@ -2,7 +2,6 @@ import * as abortSignal from "ext:deno_web/03_abort_signal.js";
 import * as base64 from "ext:deno_web/05_base64.js";
 import * as console from "ext:deno_console/02_console.js";
 import * as crypto from "ext:deno_crypto/00_crypto.js";
-import * as errors from "ext:runtime/01_errors.js";
 import DOMException from "ext:deno_web/01_dom_exception.js";
 import * as encoding from "ext:deno_web/08_text_encoding.js";
 import * as event from "ext:deno_web/02_event.js";
@@ -24,7 +23,6 @@ import * as net from "ext:deno_net/01_net.js";
 import * as response from "ext:deno_fetch/23_response.js";
 import * as request from "ext:deno_fetch/23_request.js";
 import * as globalInterfaces from "ext:deno_web/04_global_interfaces.js";
-import { SUPABASE_USER_WORKERS } from "ext:sb_user_workers/user_workers.js";
 import { SUPABASE_ENV } from "ext:sb_env/env.js";
 
 
@@ -391,6 +389,28 @@ class NotSupported extends Error {
   }
 }
 
+const errors = {
+  NotFound,
+  PermissionDenied,
+  ConnectionRefused,
+  ConnectionReset,
+  ConnectionAborted,
+  NotConnected,
+  AddrInUse,
+  AddrNotAvailable,
+  BrokenPipe,
+  AlreadyExists,
+  InvalidData,
+  TimedOut,
+  Interrupted: core.Interrupted,
+  WriteZero,
+  UnexpectedEof,
+  BadResource: core.BadResource,
+  Http,
+  Busy,
+  NotSupported,
+}
+
 function registerErrors() {
   core.registerErrorClass("NotFound", NotFound);
   core.registerErrorClass("PermissionDenied", PermissionDenied);
@@ -527,12 +547,6 @@ Deno.startTls = tls.startTls;
 Deno.resolveDns = net.resolveDns;
 Deno.serveHttp = serveHttp;
 
-// EdgeRuntime namespace
-// FIXME: Make the object read-only
-globalThis.EdgeRuntime = {
-  userWorkers: SUPABASE_USER_WORKERS
-};
-
 const __bootstrap = globalThis.__bootstrap;
 delete globalThis.__bootstrap;
 delete globalThis.bootstrap;
@@ -577,7 +591,7 @@ ObjectDefineProperties(Deno, {
   pid: readOnly(globalThis.__pid),
   args: readOnly([]), // args are set to be empty
   mainModule: getterOnly(opMainModule),
-  errors: errors.errors,
+  errors,
 
 });
 

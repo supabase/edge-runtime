@@ -29,9 +29,9 @@ use sb_core::net::sb_core_net;
 use sb_core::permissions::{sb_core_permissions, Permissions};
 use sb_core::runtime::sb_core_runtime;
 use sb_core::sb_core_main;
-use supabase_edge_env::supabase_env;
-use supabase_edge_worker_context::essentials::UserWorkerMsgs;
-use supabase_edge_workers::supabase_user_workers;
+use sb_env::sb_env;
+use sb_worker_context::essentials::UserWorkerMsgs;
+use sb_workers::sb_user_workers;
 
 fn load_import_map(maybe_path: Option<String>) -> Result<Option<ImportMap>, Error> {
     if let Some(path_str) = maybe_path {
@@ -66,7 +66,7 @@ fn print_import_map_diagnostics(diagnostics: &[ImportMapDiagnostic]) {
 pub struct MainWorker {
     js_runtime: JsRuntime,
     main_module_url: ModuleSpecifier,
-    worker_pool_tx: mpsc::UnboundedSender<supabase_edge_worker_context::essentials::UserWorkerMsgs>,
+    worker_pool_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
 }
 
 impl MainWorker {
@@ -122,8 +122,8 @@ impl MainWorker {
             ),
             deno_http::deno_http::init_ops_and_esm(),
             deno_tls::deno_tls::init_ops_and_esm(),
-            supabase_env::init_ops_and_esm(),
-            supabase_user_workers::init_ops_and_esm(),
+            sb_env::init_ops_and_esm(),
+            sb_user_workers::init_ops_and_esm(),
             sb_core_main::init_ops_and_esm(),
             sb_core_net::init_ops_and_esm(),
             sb_core_http::init_ops_and_esm(),
@@ -269,8 +269,8 @@ impl UserWorker {
             ),
             deno_http::deno_http::init_ops_and_esm(),
             deno_tls::deno_tls::init_ops_and_esm(),
-            supabase_env::init_ops_and_esm(),
-            supabase_user_workers::init_ops_and_esm(),
+            sb_env::init_ops_and_esm(),
+            sb_user_workers::init_ops_and_esm(),
             sb_core_main::init_ops_and_esm(),
             sb_core_net::init_ops_and_esm(),
             sb_core_http::init_ops_and_esm(),

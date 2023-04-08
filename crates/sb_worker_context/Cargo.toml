@@ -1,5 +1,5 @@
 [package]
-name = "supabase_edge_worker_context"
+name = "sb_worker_context"
 version = "0.1.0"
 authors = ["Supabase <team@supabase.com>"]
 edition = "2021"

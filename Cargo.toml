@@ -3,9 +3,9 @@ members = [
   "./crates/base",
   "./crates/cli",
   "./crates/module_fetcher",
-  "./crates/supa_workers",
-  "./crates/supa_worker_context",
-  "./crates/supa_env",
+  "./crates/sb_workers",
+  "./crates/sb_worker_context",
+  "./crates/sb_env",
   "./crates/sb_core"
 ]
 resolver = "2"

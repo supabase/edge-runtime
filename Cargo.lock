@@ -236,10 +236,10 @@ dependencies = [
  "module_fetcher",
  "reqwest",
  "sb_core",
+ "sb_env",
+ "sb_worker_context",
+ "sb_workers",
  "serde",
- "supabase_edge_env",
- "supabase_edge_worker_context",
- "supabase_edge_workers",
  "tokio",
  "url",
  "uuid",
@@ -2975,9 +2975,43 @@ dependencies = [
  "deno_web",
  "deno_websocket",
  "hyper",
+ "sb_worker_context",
  "serde",
- "supabase_edge_worker_context",
  "tokio",
+]
+
+[[package]]
+name = "sb_env"
+version = "0.1.0"
+dependencies = [
+ "deno_core",
+ "deno_node",
+ "sb_core",
+]
+
+[[package]]
+name = "sb_worker_context"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "hyper",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "sb_workers"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "deno_core",
+ "deno_http",
+ "hyper",
+ "sb_worker_context",
+ "serde",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -3377,40 +3411,6 @@ name = "subtle"
 version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6bdef32e8150c2a081110b42772ffe7d7c9032b606bc226c8260fd97e0976601"
-
-[[package]]
-name = "supabase_edge_env"
-version = "0.1.0"
-dependencies = [
- "deno_core",
- "deno_node",
- "sb_core",
-]
-
-[[package]]
-name = "supabase_edge_worker_context"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "hyper",
- "tokio",
- "uuid",
-]
-
-[[package]]
-name = "supabase_edge_workers"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bytes",
- "deno_core",
- "deno_http",
- "hyper",
- "serde",
- "supabase_edge_worker_context",
- "tokio",
- "uuid",
-]
 
 [[package]]
 name = "swc_atoms"

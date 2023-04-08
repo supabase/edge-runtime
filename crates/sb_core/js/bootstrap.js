@@ -2,6 +2,7 @@ import * as abortSignal from "ext:deno_web/03_abort_signal.js";
 import * as base64 from "ext:deno_web/05_base64.js";
 import * as console from "ext:deno_console/02_console.js";
 import * as crypto from "ext:deno_crypto/00_crypto.js";
+import * as errors from "ext:runtime/01_errors.js";
 import DOMException from "ext:deno_web/01_dom_exception.js";
 import * as encoding from "ext:deno_web/08_text_encoding.js";
 import * as event from "ext:deno_web/02_event.js";
@@ -575,7 +576,9 @@ ObjectDefineProperties(Deno, {
   env: readOnly(SUPABASE_ENV),
   pid: readOnly(globalThis.__pid),
   args: readOnly([]), // args are set to be empty
-  mainModule: getterOnly(opMainModule)
+  mainModule: getterOnly(opMainModule),
+  errors: errors.errors,
+
 });
 
 // TODO: Abstract this file into multiple files. There's too much boilerplate

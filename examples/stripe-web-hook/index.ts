@@ -4,7 +4,8 @@
 
 import { serve } from "https://deno.land/std@0.131.0/http/server.ts";
 // esm.sh is used to compile stripe-node to be compatible with ES modules.
-import Stripe from "https://esm.sh/stripe@9.6.0?target=deno&no-check";
+import Stripe from "https://esm.sh/stripe@12.0.0?target=deno&no-check";
+
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

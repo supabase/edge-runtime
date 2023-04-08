@@ -158,13 +158,6 @@ impl MainWorker {
         stream: UnixStream,
         shutdown_tx: oneshot::Sender<()>,
     ) -> Result<(), Error> {
-        // set bootstrap options
-        // TODO: Migrate this to `supacore`
-        let script = format!(r#"globalThis.__build_target = "{}""#, env!("TARGET"));
-        self.js_runtime
-            .execute_script::<String>(located_script_name!(), script.into())
-            .expect("Failed to execute bootstrap script");
-
         let (unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
         if let Err(e) = unix_stream_tx.send(stream) {
             bail!(e)
@@ -329,12 +322,6 @@ impl UserWorker {
             });
 
         // set bootstrap options
-        // TODO: Move to `supacore`
-        let script = format!("globalThis.__build_target = \"{}\"", env!("TARGET"));
-        self.js_runtime
-            .execute_script::<String>(&located_script_name!(), script.into())
-            .expect("Failed to execute bootstrap script");
-
         let (unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
         if let Err(e) = unix_stream_tx.send(stream) {
             bail!(e)

@@ -22,6 +22,7 @@ import * as tls from "ext:deno_net/02_tls.js";
 import * as net from "ext:deno_net/01_net.js";
 import * as response from "ext:deno_fetch/23_response.js";
 import * as request from "ext:deno_fetch/23_request.js";
+import * as globalInterfaces from "ext:deno_web/04_global_interfaces.js";
 import { SUPABASE_USER_WORKERS } from "ext:sb_user_workers/user_workers.js";
 import { SUPABASE_ENV } from "ext:sb_env/env.js";
 
@@ -537,6 +538,15 @@ delete globalThis.bootstrap;
 
 ObjectDefineProperties(globalThis, globalScope);
 
+const globalProperties = {
+    Window: globalInterfaces.windowConstructorDescriptor,
+    window: getterOnly(() => globalThis),
+    self: getterOnly(() => globalThis),
+};
+
+ObjectDefineProperties(globalThis, globalProperties);
+ObjectSetPrototypeOf(globalThis, Window.prototype);
+
 // TODO: figure out if this is needed
 globalThis[webidl.brand] = webidl.brand;
 
@@ -556,9 +566,8 @@ runtimeStart({
   tsVersion: "NA",
   noColor: true,
   isTty: false,
-  target: "supabase",
+  target: ops.op_build_target(),
 });
-delete globalThis.__build_target;
 
 // set these overrides after runtimeStart
 ObjectDefineProperties(Deno, {

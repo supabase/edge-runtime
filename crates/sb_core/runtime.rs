@@ -10,7 +10,7 @@ use std::path::Path;
 #[op]
 fn op_main_module(state: &mut OpState) -> Result<String, AnyError> {
     let main = state.borrow::<ModuleSpecifier>().to_string();
-    let main_url = deno_core::resolve_url_or_path(&main, Path::new("./steve-jobs"))?;
+    let main_url = deno_core::resolve_url_or_path(&main, std::env::current_dir()?.as_path())?;
     if main_url.scheme() == "file" {
         let main_path = std::env::current_dir()
             .context("Failed to get current working directory")?
@@ -24,8 +24,14 @@ fn op_main_module(state: &mut OpState) -> Result<String, AnyError> {
     Ok(main)
 }
 
+#[op]
+fn op_build_target(_state: &mut OpState) -> String {
+    let target = env!("TARGET").to_string();
+    target
+}
+
 deno_core::extension!(sb_core_runtime,
-    ops = [op_main_module],
+    ops = [op_main_module, op_build_target],
     options = {
         main_module: Option<ModuleSpecifier>
     },

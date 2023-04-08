@@ -33,9 +33,9 @@ serde = { version = "1.0.149", features = ["derive"] }
 tokio.workspace = true
 url = { version = "2.3.1" }
 v8 = { version = "0.60.1", default-features = false }
-supabase_edge_worker_context = { version = "0.1.0", path = "../supa_worker_context" }
-supabase_edge_workers = { version = "0.1.0", path = "../supa_workers" }
-supabase_edge_env = { version = "0.1.0", path = "../supa_env" }
+sb_worker_context = { version = "0.1.0", path = "../sb_worker_context" }
+sb_workers = { version = "0.1.0", path = "../sb_workers" }
+sb_env = { version = "0.1.0", path = "../sb_env" }
 sb_core = { version = "0.1.0", path = "../sb_core" }
 uuid.workspace = true
 
@@ -66,7 +66,7 @@ serde = { version = "1.0.149", features = ["derive"] }
 tokio.workspace = true
 url = { version = "2.3.1" }
 v8 = { version = "0.60.1", default-features = false }
-supabase_edge_worker_context = { version = "0.1.0", path = "../supa_worker_context" }
-supabase_edge_workers = { version = "0.1.0", path = "../supa_workers" }
-supabase_edge_env = { version = "0.1.0", path = "../supa_env" }
+sb_worker_context = { version = "0.1.0", path = "../sb_worker_context" }
+sb_workers = { version = "0.1.0", path = "../sb_workers" }
+sb_env = { version = "0.1.0", path = "../sb_env" }
 sb_core = { version = "0.1.0", path = "../sb_core" }

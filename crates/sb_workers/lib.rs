@@ -11,6 +11,7 @@ use deno_core::{
 use hyper::body::HttpBody;
 use hyper::header::{HeaderName, HeaderValue};
 use hyper::{Body, Request, Response};
+use sb_worker_context::essentials::{CreateUserWorkerResult, UserWorkerMsgs, UserWorkerOptions};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::cell::RefCell;
@@ -19,14 +20,11 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::rc::Rc;
 use std::task::{Context, Poll};
-use supabase_edge_worker_context::essentials::{
-    CreateUserWorkerResult, UserWorkerMsgs, UserWorkerOptions,
-};
 use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 
 deno_core::extension!(
-    supabase_user_workers,
+    sb_user_workers,
     ops = [
         op_user_worker_create,
         op_user_worker_fetch_build,

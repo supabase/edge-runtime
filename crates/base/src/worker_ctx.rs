@@ -3,14 +3,12 @@ use crate::js_worker::{MainWorker, UserWorker};
 use anyhow::{bail, Error};
 use hyper::{Body, Request, Response};
 use log::{debug, error};
+use sb_worker_context::essentials::{CreateUserWorkerResult, UserWorkerMsgs, UserWorkerOptions};
 use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
-use supabase_edge_worker_context::essentials::{
-    CreateUserWorkerResult, UserWorkerMsgs, UserWorkerOptions,
-};
 use tokio::net::UnixStream;
 use tokio::sync::oneshot::Receiver;
 use tokio::sync::RwLock;

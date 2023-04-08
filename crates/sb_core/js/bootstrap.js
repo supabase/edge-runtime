@@ -22,8 +22,8 @@ import * as tls from "ext:deno_net/02_tls.js";
 import * as net from "ext:deno_net/01_net.js";
 import * as response from "ext:deno_fetch/23_response.js";
 import * as request from "ext:deno_fetch/23_request.js";
-import { SUPABASE_USER_WORKERS } from "ext:supabase_user_workers/user_workers.js";
-import { SUPABASE_ENV } from "ext:supabase_env/env.js";
+import { SUPABASE_USER_WORKERS } from "ext:sb_user_workers/user_workers.js";
+import { SUPABASE_ENV } from "ext:sb_env/env.js";
 
 
 const core = globalThis.Deno.core;

@@ -23,7 +23,6 @@ import * as net from "ext:deno_net/01_net.js";
 import * as response from "ext:deno_fetch/23_response.js";
 import * as request from "ext:deno_fetch/23_request.js";
 import * as globalInterfaces from "ext:deno_web/04_global_interfaces.js";
-import { SUPABASE_USER_WORKERS } from "ext:sb_user_workers/user_workers.js";
 import { SUPABASE_ENV } from "ext:sb_env/env.js";
 
 
@@ -390,6 +389,28 @@ class NotSupported extends Error {
   }
 }
 
+const errors = {
+  NotFound,
+  PermissionDenied,
+  ConnectionRefused,
+  ConnectionReset,
+  ConnectionAborted,
+  NotConnected,
+  AddrInUse,
+  AddrNotAvailable,
+  BrokenPipe,
+  AlreadyExists,
+  InvalidData,
+  TimedOut,
+  Interrupted: core.Interrupted,
+  WriteZero,
+  UnexpectedEof,
+  BadResource: core.BadResource,
+  Http,
+  Busy,
+  NotSupported,
+}
+
 function registerErrors() {
   core.registerErrorClass("NotFound", NotFound);
   core.registerErrorClass("PermissionDenied", PermissionDenied);
@@ -526,12 +547,6 @@ Deno.startTls = tls.startTls;
 Deno.resolveDns = net.resolveDns;
 Deno.serveHttp = serveHttp;
 
-// EdgeRuntime namespace
-// FIXME: Make the object read-only
-globalThis.EdgeRuntime = {
-  userWorkers: SUPABASE_USER_WORKERS
-};
-
 const __bootstrap = globalThis.__bootstrap;
 delete globalThis.__bootstrap;
 delete globalThis.bootstrap;
@@ -575,7 +590,9 @@ ObjectDefineProperties(Deno, {
   env: readOnly(SUPABASE_ENV),
   pid: readOnly(globalThis.__pid),
   args: readOnly([]), // args are set to be empty
-  mainModule: getterOnly(opMainModule)
+  mainModule: getterOnly(opMainModule),
+  errors,
+
 });
 
 // TODO: Abstract this file into multiple files. There's too much boilerplate

@@ -23,7 +23,10 @@ serve(async (req: Request) => {
   const workerTimeoutMs = 5 * 60 * 1000;
   const noModuleCache = false;
   const importMapPath = null;
-  const envVars = [];
+  const envVars = [
+    ["STRIPE_API_KEY", Deno.env.get("STRIPE_API_KEY")]
+  ];
+
   try {
     const worker = await EdgeRuntime.userWorkers.create({
       servicePath,

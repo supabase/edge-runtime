@@ -28,7 +28,7 @@ use sb_core::http_start::sb_core_http;
 use sb_core::net::sb_core_net;
 use sb_core::permissions::{sb_core_permissions, Permissions};
 use sb_core::runtime::sb_core_runtime;
-use sb_core::sb_core_main;
+use sb_core::{sb_core_main_js, sb_core_user_js};
 use sb_env::sb_env;
 use sb_worker_context::essentials::UserWorkerMsgs;
 use sb_workers::sb_user_workers;
@@ -124,7 +124,7 @@ impl MainWorker {
             deno_tls::deno_tls::init_ops_and_esm(),
             sb_env::init_ops_and_esm(),
             sb_user_workers::init_ops_and_esm(),
-            sb_core_main::init_ops_and_esm(),
+            sb_core_main_js::init_ops_and_esm(),
             sb_core_net::init_ops_and_esm(),
             sb_core_http::init_ops_and_esm(),
             sb_core_runtime::init_ops_and_esm(Some(main_module_url.clone())),
@@ -264,7 +264,7 @@ impl UserWorker {
             deno_tls::deno_tls::init_ops_and_esm(),
             sb_env::init_ops_and_esm(),
             sb_user_workers::init_ops_and_esm(),
-            sb_core_main::init_ops_and_esm(),
+            sb_core_user_js::init_ops_and_esm(),
             sb_core_net::init_ops_and_esm(),
             sb_core_http::init_ops_and_esm(),
             sb_core_runtime::init_ops_and_esm(Some(main_module_url.clone())),

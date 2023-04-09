@@ -4,7 +4,6 @@ use deno_core::error::bad_resource;
 use deno_core::error::bad_resource_id;
 use deno_core::error::AnyError;
 use deno_core::op;
-use deno_core::Extension;
 use deno_core::OpState;
 use deno_core::ResourceId;
 use deno_http::http_create_conn_resource;

@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail, Error};
+use anyhow::{bail, Error};
 use deno_ast::EmitOptions;
 use deno_ast::MediaType;
 use deno_core::error::AnyError;
@@ -10,8 +10,6 @@ use deno_core::ModuleSpecifier;
 use deno_core::ModuleType;
 use deno_core::ResolutionKind;
 use import_map::ImportMap;
-use module_fetcher::cache;
-use module_fetcher::cache::cache_db::CacheDB;
 use module_fetcher::cache::{
     caches, DenoDir, EmitCache, FastInsecureHasher, HttpCache, ParsedSourceCache,
 };

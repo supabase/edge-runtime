@@ -3,7 +3,7 @@ mod logger;
 use anyhow::Error;
 use base::commands::start_server;
 use clap::builder::FalseyValueParser;
-use clap::{arg, value_parser, ArgAction, ArgMatches, Command};
+use clap::{arg, value_parser, ArgAction, Command};
 fn cli() -> Command {
     Command::new("edge-runtime")
         .about("A server based on Deno runtime, capable of running JavaScript, TypeScript, and WASM services")
@@ -36,15 +36,15 @@ fn cli() -> Command {
         )
 }
 
-async fn exit_with_code(result: Result<(), Error>) {
-    match result {
-        Ok(()) => std::process::exit(0),
-        Err(error) => {
-            eprintln!("{:?}", error);
-            std::process::exit(1)
-        }
-    }
-}
+//async fn exit_with_code(result: Result<(), Error>) {
+//    match result {
+//        Ok(()) => std::process::exit(0),
+//        Err(error) => {
+//            eprintln!("{:?}", error);
+//            std::process::exit(1)
+//        }
+//    }
+//}
 
 fn main() -> Result<(), anyhow::Error> {
     let runtime = tokio::runtime::Builder::new_current_thread()

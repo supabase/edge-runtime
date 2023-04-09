@@ -1,13 +1,10 @@
 use deno_core::error::AnyError;
 use deno_core::error::{not_supported, type_error};
-use deno_core::include_js_files;
 use deno_core::op;
-use deno_core::Extension;
 use deno_core::OpState;
 use deno_node::NODE_ENV_VAR_ALLOWLIST;
 use sb_core::permissions::Permissions;
 use std::collections::HashMap;
-use std::path::Path;
 
 pub type EnvVars = HashMap<String, String>;
 

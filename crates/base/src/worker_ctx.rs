@@ -2,7 +2,7 @@ use crate::js_worker::{MainWorker, UserWorker};
 
 use anyhow::{bail, Error};
 use hyper::{Body, Request, Response};
-use log::{debug, error};
+use log::error;
 use sb_worker_context::essentials::{CreateUserWorkerResult, UserWorkerMsgs, UserWorkerOptions};
 use std::collections::HashMap;
 use std::path::Path;
@@ -10,7 +10,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
 use tokio::net::UnixStream;
-use tokio::sync::oneshot::Receiver;
 use tokio::sync::RwLock;
 use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
@@ -34,8 +33,8 @@ impl WorkerContext {
         let import_map_path = options.import_map_path;
         let user_worker_msgs_tx = options.user_worker_msgs_tx;
 
-        if (!service_path.exists()) {
-            return bail!("main function does not exist {:?}", &service_path);
+        if !service_path.exists() {
+            bail!("main function does not exist {:?}", &service_path)
         }
 
         // create a unix socket pair
@@ -90,8 +89,8 @@ impl WorkerContext {
         let import_map_path = options.import_map_path;
         let env_vars = options.env_vars;
 
-        if (!service_path.exists()) {
-            return bail!("user function does not exist {:?}", &service_path);
+        if !service_path.exists() {
+            bail!("user function does not exist {:?}", &service_path)
         }
 
         // create a unix socket pair
@@ -197,7 +196,7 @@ impl WorkerPool {
                         let mut worker = worker.write().await;
                         // TODO: Json format
                         // TODO: Ability to attach hook
-                        let res = worker.send_request(req).await.unwrap_or_else(|e| Response::builder().status(408).body(Body::from(deno_core::serde_json::json!({
+                        let res = worker.send_request(req).await.unwrap_or_else(|_e| Response::builder().status(408).body(Body::from(deno_core::serde_json::json!({
                             "msg": "Request could not be processed by the server because it timed out or an error was thrown."
                         }).to_string())).unwrap());
 

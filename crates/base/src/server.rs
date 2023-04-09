@@ -1,7 +1,7 @@
 use crate::worker_ctx::{WorkerContext, WorkerPool};
 use anyhow::Error;
 use hyper::{server::conn::Http, service::Service, Body, Request, Response};
-use log::{debug, error, info};
+use log::{error, info};
 use std::future::Future;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;

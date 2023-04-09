@@ -2,10 +2,8 @@ use crate::permissions::Permissions;
 use anyhow::Context;
 use deno_core::error::AnyError;
 use deno_core::op;
-use deno_core::Extension;
 use deno_core::ModuleSpecifier;
 use deno_core::OpState;
-use std::path::Path;
 
 #[op]
 fn op_main_module(state: &mut OpState) -> Result<String, AnyError> {

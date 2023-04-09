@@ -17,7 +17,6 @@ use deno_core::serde_json::json;
 use deno_core::serde_json::Value;
 use deno_core::ModuleSpecifier;
 use indexmap::IndexMap;
-use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -488,13 +487,13 @@ pub struct ConfigFile {
 }
 
 impl ConfigFile {
-    pub fn discover(flags: &Flags, cwd: &Path) -> Result<Option<ConfigFile>, AnyError> {
+    pub fn discover(_flags: &Flags, _cwd: &Path) -> Result<Option<ConfigFile>, AnyError> {
         Ok(None)
     }
 
     pub fn discover_from(
-        start: &Path,
-        checked: &mut HashSet<PathBuf>,
+        _start: &Path,
+        _checked: &mut HashSet<PathBuf>,
     ) -> Result<Option<ConfigFile>, AnyError> {
         // No config file found.
         Ok(None)

@@ -1,8 +1,7 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 use deno_core::error::AnyError;
-use std::path::PathBuf;
 
-use crate::args::config_file::{ConfigFile, LockConfig};
+use crate::args::config_file::ConfigFile;
 use crate::npm::NpmResolutionPackage;
 
 use crate::args::flags::Flags;
@@ -12,8 +11,8 @@ use deno_lockfile::NpmPackageDependencyLockfileInfo;
 use deno_lockfile::NpmPackageLockfileInfo;
 
 pub fn discover(
-    flags: &Flags,
-    maybe_config_file: Option<&ConfigFile>,
+    _flags: &Flags,
+    _maybe_config_file: Option<&ConfigFile>,
 ) -> Result<Option<Lockfile>, AnyError> {
     // if flags.no_lock
     //   || matches!(

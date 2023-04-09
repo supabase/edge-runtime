@@ -15,7 +15,7 @@ fn get_diagnostic_class(_: &Diagnostic) -> &'static str {
 fn get_module_graph_error_class(err: &ModuleGraphError) -> &'static str {
     match err {
         ModuleGraphError::ModuleError(err) => match err {
-            ModuleError::LoadingErr(_, _, error) => "Loading Err",
+            ModuleError::LoadingErr(_, _, _error) => "Loading Err",
             ModuleError::Missing(_, _) => "NotFound",
             ModuleError::MissingDynamic(_, _) => "Unknown",
             ModuleError::ParseErr(_, diag) => get_diagnostic_class(&diag),

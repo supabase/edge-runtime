@@ -1,7 +1,6 @@
 use crate::utils::units::{bytes_to_display, human_elapsed, mib_to_bytes};
 
-use anyhow::{anyhow, bail, Error};
-use deno_core::located_script_name;
+use anyhow::{bail, Error};
 use deno_core::url::Url;
 use deno_core::JsRuntime;
 use deno_core::ModuleSpecifier;

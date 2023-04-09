@@ -1,8 +1,7 @@
 use anyhow::Error;
 use deno_core::error::{custom_error, type_error, AnyError};
 use deno_core::futures::stream::Peekable;
-use deno_core::futures::task::Spawn;
-use deno_core::futures::{Stream, StreamExt, TryStreamExt};
+use deno_core::futures::{Stream, StreamExt};
 use deno_core::op;
 use deno_core::{
     AsyncRefCell, AsyncResult, BufView, ByteString, CancelFuture, CancelHandle, CancelTryFuture,

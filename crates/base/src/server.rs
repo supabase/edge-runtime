@@ -1,7 +1,7 @@
 use crate::worker_ctx::{WorkerContext, WorkerPool};
 use anyhow::Error;
 use hyper::{server::conn::Http, service::Service, Body, Request, Response};
-use log::{error, info};
+use log::{debug, error, info};
 use std::future::Future;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
@@ -83,7 +83,7 @@ impl Server {
     pub async fn listen(&mut self) -> Result<(), Error> {
         let addr = SocketAddr::new(IpAddr::V4(self.ip), self.port);
         let listener = TcpListener::bind(&addr).await?;
-        println!("edge-runtime is listening on {:?}", listener.local_addr()?);
+        debug!("edge-runtime is listening on {:?}", listener.local_addr()?);
 
         let main_worker = &self.worker_pool.main_worker;
 

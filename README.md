@@ -7,7 +7,7 @@ You can use it to:
 * Locally test and self-host Supabase's Edge Functions (or any Deno Edge Function)
 * As a programmable HTTP Proxy: You can intercept / route HTTP requests
 
-** WARNING: Beta Software. There will be breaking changes to APIs / Configuration Options **
+**WARNING: Beta Software. There will be breaking changes to APIs / Configuration Options**
 
 ## How to run locally
 

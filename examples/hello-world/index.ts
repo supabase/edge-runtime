@@ -4,6 +4,7 @@ interface reqPayload {
   name: string;
 }
 
+console.log("Deno.build.arch", Deno.build.arch);
 console.log('server started modified');
 
 serve(async (req: Request) => {

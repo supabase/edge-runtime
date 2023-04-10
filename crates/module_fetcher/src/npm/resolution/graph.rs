@@ -907,7 +907,7 @@ impl<'a> GraphDependencyResolver<'a> {
 
             // cache all the dependencies' registry infos in parallel if should
             self.api
-                .cache_in_parallel({ child_deps.iter().map(|dep| dep.name.clone()).collect() })
+                .cache_in_parallel(child_deps.iter().map(|dep| dep.name.clone()).collect())
                 .await?;
 
             // resolve the dependencies

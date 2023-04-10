@@ -14,7 +14,7 @@ serve(async (_req) => {
 
     try {
       // Run a query
-      const result = await connection.queryObject`SELECT * FROM employees`
+      const result = await connection.queryObject`SELECT * FROM animals`
       const animals = result.rows // [{ id: 1, name: "Lion" }, ...]
       console.log(animals)
 

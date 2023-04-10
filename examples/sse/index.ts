@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.140.0/http/server.ts";
 
-const msg = new TextEncoder().encode("data: hello\r\n\r\n");
+const msg = new TextEncoder().encode("data: hellao\r\n\r\n");
 
 serve(async (_) => {
   let timerId: number | undefined;
@@ -11,6 +11,7 @@ serve(async (_) => {
       }, 1000);
     },
     cancel() {
+      console.log('x');
       if (typeof timerId === "number") {
         clearInterval(timerId);
       }

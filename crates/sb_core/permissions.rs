@@ -1,6 +1,5 @@
 use deno_core::error::AnyError;
 use deno_core::url::Url;
-use deno_core::Extension;
 use std::path::Path;
 
 pub struct Permissions;

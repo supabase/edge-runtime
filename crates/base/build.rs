@@ -17,10 +17,10 @@ mod supabase_startup_snapshot {
     use sb_core::net::sb_core_net;
     use sb_core::permissions::sb_core_permissions;
     use sb_core::runtime::sb_core_runtime;
-    use sb_core::sb_core_main;
+    use sb_core::sb_core_main_js;
+    use sb_env::sb_env;
+    use sb_workers::sb_user_workers;
     use std::path::Path;
-    use supabase_edge_env::supabase_env;
-    use supabase_edge_workers::supabase_user_workers;
 
     fn transpile_ts_for_snapshotting(
         file_source: &ExtensionFileSource,
@@ -152,9 +152,9 @@ mod supabase_startup_snapshot {
             deno_net::deno_net::init_ops_and_esm::<Permissions>(None, false, None),
             deno_tls::deno_tls::init_ops_and_esm(),
             deno_http::deno_http::init_ops_and_esm(),
-            supabase_env::init_ops_and_esm(),
-            supabase_user_workers::init_ops_and_esm(),
-            sb_core_main::init_ops_and_esm(),
+            sb_env::init_ops_and_esm(),
+            sb_user_workers::init_ops_and_esm(),
+            sb_core_main_js::init_ops_and_esm(),
             sb_core_net::init_ops_and_esm(),
             sb_core_http::init_ops_and_esm(),
             sb_core_runtime::init_ops_and_esm(None),

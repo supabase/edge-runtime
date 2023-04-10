@@ -1,0 +1,22 @@
+[package]
+name = "sb_workers"
+version = "0.1.0"
+authors = ["Supabase <team@supabase.com>"]
+edition = "2021"
+resolver = "2"
+description = "We'll take care of this later"
+license = "MIT"
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+anyhow.workspace = true
+uuid.workspace = true
+deno_core.workspace = true
+tokio.workspace = true
+deno_http.workspace = true
+hyper.workspace = true
+serde.workspace = true
+bytes.workspace = true
+sb_worker_context = { version = "0.1.0", path = "../sb_worker_context" }

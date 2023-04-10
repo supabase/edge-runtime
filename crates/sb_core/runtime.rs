@@ -2,15 +2,13 @@ use crate::permissions::Permissions;
 use anyhow::Context;
 use deno_core::error::AnyError;
 use deno_core::op;
-use deno_core::Extension;
 use deno_core::ModuleSpecifier;
 use deno_core::OpState;
-use std::path::Path;
 
 #[op]
 fn op_main_module(state: &mut OpState) -> Result<String, AnyError> {
     let main = state.borrow::<ModuleSpecifier>().to_string();
-    let main_url = deno_core::resolve_url_or_path(&main, Path::new("./steve-jobs"))?;
+    let main_url = deno_core::resolve_url_or_path(&main, std::env::current_dir()?.as_path())?;
     if main_url.scheme() == "file" {
         let main_path = std::env::current_dir()
             .context("Failed to get current working directory")?

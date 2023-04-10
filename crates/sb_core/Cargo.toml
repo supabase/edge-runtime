@@ -22,4 +22,4 @@ deno_http.workspace = true
 hyper.workspace = true
 serde.workspace = true
 bytes.workspace = true
-supabase_edge_worker_context = { version = "0.1.0", path = "../supa_worker_context" }
+sb_worker_context = { version = "0.1.0", path = "../sb_worker_context" }

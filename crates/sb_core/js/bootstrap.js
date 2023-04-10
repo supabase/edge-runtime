@@ -22,8 +22,9 @@ import * as tls from "ext:deno_net/02_tls.js";
 import * as net from "ext:deno_net/01_net.js";
 import * as response from "ext:deno_fetch/23_response.js";
 import * as request from "ext:deno_fetch/23_request.js";
-import { SUPABASE_USER_WORKERS } from "ext:supabase_user_workers/user_workers.js";
-import { SUPABASE_ENV } from "ext:supabase_env/env.js";
+import * as globalInterfaces from "ext:deno_web/04_global_interfaces.js";
+import { SUPABASE_ENV } from "ext:sb_env/env.js";
+import { loadUserRuntime } from "ext:sb_core_main_js/js/user_runtime_loader.js"
 
 
 const core = globalThis.Deno.core;
@@ -389,6 +390,28 @@ class NotSupported extends Error {
   }
 }
 
+const errors = {
+  NotFound,
+  PermissionDenied,
+  ConnectionRefused,
+  ConnectionReset,
+  ConnectionAborted,
+  NotConnected,
+  AddrInUse,
+  AddrNotAvailable,
+  BrokenPipe,
+  AlreadyExists,
+  InvalidData,
+  TimedOut,
+  Interrupted: core.Interrupted,
+  WriteZero,
+  UnexpectedEof,
+  BadResource: core.BadResource,
+  Http,
+  Busy,
+  NotSupported,
+}
+
 function registerErrors() {
   core.registerErrorClass("NotFound", NotFound);
   core.registerErrorClass("PermissionDenied", PermissionDenied);
@@ -525,17 +548,20 @@ Deno.startTls = tls.startTls;
 Deno.resolveDns = net.resolveDns;
 Deno.serveHttp = serveHttp;
 
-// EdgeRuntime namespace
-// FIXME: Make the object read-only
-globalThis.EdgeRuntime = {
-  userWorkers: SUPABASE_USER_WORKERS
-};
-
 const __bootstrap = globalThis.__bootstrap;
 delete globalThis.__bootstrap;
 delete globalThis.bootstrap;
 
 ObjectDefineProperties(globalThis, globalScope);
+
+const globalProperties = {
+    Window: globalInterfaces.windowConstructorDescriptor,
+    window: getterOnly(() => globalThis),
+    self: getterOnly(() => globalThis),
+};
+
+ObjectDefineProperties(globalThis, globalProperties);
+ObjectSetPrototypeOf(globalThis, Window.prototype);
 
 // TODO: figure out if this is needed
 globalThis[webidl.brand] = webidl.brand;
@@ -550,23 +576,31 @@ defineEventHandler(globalThis, "unhandledrejection");
 
 core.setPromiseRejectCallback(promiseRejectCallback);
 
-runtimeStart({
-  denoVersion: "NA",
-  v8Version: "NA",
-  tsVersion: "NA",
-  noColor: true,
-  isTty: false,
-  target: "supabase",
-});
-delete globalThis.__build_target;
-
 // set these overrides after runtimeStart
 ObjectDefineProperties(Deno, {
   build: readOnly(build),
   env: readOnly(SUPABASE_ENV),
   pid: readOnly(globalThis.__pid),
   args: readOnly([]), // args are set to be empty
-  mainModule: getterOnly(opMainModule)
+  mainModule: getterOnly(opMainModule),
+  errors,
 });
+
+globalThis.bootstrapSBEdge = (opts, isUserRuntime) => {
+  runtimeStart({
+    denoVersion: "NA",
+    v8Version: "NA",
+    tsVersion: "NA",
+    noColor: true,
+    isTty: false,
+    ...opts
+  });
+
+  if(isUserRuntime) {
+    loadUserRuntime();
+  }
+
+  delete globalThis.bootstrapSBEdge;
+}
 
 // TODO: Abstract this file into multiple files. There's too much boilerplate

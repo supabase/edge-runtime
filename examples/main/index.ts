@@ -20,10 +20,11 @@ serve(async (req: Request) => {
   console.error(`serving the request with ${servicePath}`);
 
   const memoryLimitMb = 150;
-  const workerTimeoutMs = 5 * 60 * 1000;
+  const workerTimeoutMs = 1 * 60 * 1000;
   const noModuleCache = false;
   const importMapPath = null;
-  const envVars = [];
+  const envVarsObj = Deno.env.toObject();
+  const envVars = Object.keys(envVarsObj).map(k => [k, envVarsObj[k]]);
   try {
     const worker = await EdgeRuntime.userWorkers.create({
       servicePath,
@@ -35,6 +36,7 @@ serve(async (req: Request) => {
     });
     return worker.fetch(req);
   } catch (e) {
+    console.error(e);
     const error = { msg: e.toString() }
     return new Response(
         JSON.stringify(error),

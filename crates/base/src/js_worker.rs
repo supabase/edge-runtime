@@ -30,10 +30,10 @@ use sb_core::http_start::sb_core_http;
 use sb_core::net::sb_core_net;
 use sb_core::permissions::{sb_core_permissions, Permissions};
 use sb_core::runtime::sb_core_runtime;
-use sb_core::sb_core_main;
-use supabase_edge_env::supabase_env;
-use supabase_edge_worker_context::essentials::UserWorkerMsgs;
-use supabase_edge_workers::supabase_user_workers;
+use sb_core::sb_core_main_js;
+use sb_env::sb_env;
+use sb_worker_context::essentials::UserWorkerMsgs;
+use sb_workers::sb_user_workers;
 
 fn load_import_map(maybe_path: Option<String>) -> Result<Option<ImportMap>, Error> {
     if let Some(path_str) = maybe_path {
@@ -68,7 +68,7 @@ fn print_import_map_diagnostics(diagnostics: &[ImportMapDiagnostic]) {
 pub struct MainWorker {
     js_runtime: JsRuntime,
     main_module_url: ModuleSpecifier,
-    worker_pool_tx: mpsc::UnboundedSender<supabase_edge_worker_context::essentials::UserWorkerMsgs>,
+    worker_pool_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
 }
 
 impl MainWorker {
@@ -117,9 +117,9 @@ impl MainWorker {
             deno_net::deno_net::init_ops::<Permissions>(Some(root_cert_store.clone()), false, None),
             deno_tls::deno_tls::init_ops(),
             deno_http::deno_http::init_ops(),
-            supabase_env::init_ops(),
-            supabase_user_workers::init_ops(),
-            sb_core_main::init_ops(),
+            sb_env::init_ops(),
+            sb_user_workers::init_ops(),
+            sb_core_main_js::init_ops(),
             sb_core_net::init_ops(),
             sb_core_http::init_ops(),
             sb_core_runtime::init_ops(Some(main_module_url.clone())),
@@ -152,9 +152,12 @@ impl MainWorker {
     ) -> Result<(), Error> {
         // set bootstrap options
         // TODO: Migrate this to `supacore`
-        let script = format!(r#"globalThis.__build_target = "{}""#, env!("TARGET"));
+        let script = format!(
+            "globalThis.bootstrapSBEdge({})",
+            deno_core::serde_json::json!({ "target": env!("TARGET") })
+        );
         self.js_runtime
-            .execute_script::<String>(located_script_name!(), script.into())
+            .execute_script::<String>(&located_script_name!(), script.into())
             .expect("Failed to execute bootstrap script");
 
         let (unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
@@ -254,9 +257,9 @@ impl UserWorker {
             deno_net::deno_net::init_ops::<Permissions>(Some(root_cert_store.clone()), false, None),
             deno_tls::deno_tls::init_ops(),
             deno_http::deno_http::init_ops(),
-            supabase_env::init_ops(),
-            supabase_user_workers::init_ops(),
-            sb_core_main::init_ops(),
+            sb_env::init_ops(),
+            sb_user_workers::init_ops(),
+            sb_core_main_js::init_ops(),
             sb_core_net::init_ops(),
             sb_core_http::init_ops(),
             sb_core_runtime::init_ops(Some(main_module_url.clone())),
@@ -311,7 +314,10 @@ impl UserWorker {
 
         // set bootstrap options
         // TODO: Move to `supacore`
-        let script = format!("globalThis.__build_target = \"{}\"", env!("TARGET"));
+        let script = format!(
+            "globalThis.bootstrapSBEdge({}, true)",
+            deno_core::serde_json::json!({ "target": env!("TARGET") })
+        );
         self.js_runtime
             .execute_script::<String>(&located_script_name!(), script.into())
             .expect("Failed to execute bootstrap script");

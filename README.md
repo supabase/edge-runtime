@@ -10,9 +10,23 @@ You can use it to:
 **WARNING: Beta Software. There will be breaking changes to APIs / Configuration Options**
 
 ## How to run locally
-
+To serve all functions in the examples folder, you can do this with the [example main service](./examples/main/index.ts) provided with this repo
+```sh
+./run.sh start --main-service ./examples/main -p 9000
 ```
-./run.sh start --main-service /path/to/supabase/functions -p 9000
+
+Test by calling the [hello world function](./examples/hello-world/index.ts)
+```sh
+curl --request POST 'http://localhost:9000/hello-world' \
+--header 'Content-Type: application/json' \
+--data-raw '{
+    "name": "John Doe"
+}'
+```
+
+To run with a different entry point, you can pass a different main service like below
+```
+./run.sh start --main-service /path/to/main-service-directory -p 9000
 ```
 
 using Docker:

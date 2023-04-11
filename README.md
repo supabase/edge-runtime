@@ -4,15 +4,42 @@ A web server based on [Deno](https://deno.land) runtime, capable of running Java
 
 You can use it to:
 
-* Locally test and self-host Supabase's Edge Functions (or any Deno Edge Function)
+* Locally test and self-host Supabase's Edge Functions (or any Deno Function)
 * As a programmable HTTP Proxy: You can intercept / route HTTP requests
 
 **WARNING: Beta Software. There will be breaking changes to APIs / Configuration Options**
 
-## How to run locally
+## Architecture
 
+The edge runtime can be divided into two runtimes with different purposes.
+- Main runtime:
+  - An instance for the _main runtime_ is responsible for proxying the transactions to the _user runtime_.
+  - The main runtime is meant to be an entry point before running user functions, where you can authentication, etc. before calling the user function.
+  - Has no user-facing limits
+  - Has access to all environment variables.
+- User runtime:
+  - An instance for the _user runtime_ is responsible for executing users' code.
+  - Limits are required to be set such as: Memory and Timeouts.
+  - Has access to environment variables explictly allowed by the main runtime.
+
+## How to run locally
+To serve all functions in the examples folder on port 9000, you can do this with the [example main service](./examples/main/index.ts) provided with this repo
+```sh
+./run.sh start --main-service ./examples/main -p 9000
 ```
-./run.sh start --main-service /path/to/supabase/functions -p 9000
+
+Test by calling the [hello world function](./examples/hello-world/index.ts)
+```sh
+curl --request POST 'http://localhost:9000/hello-world' \
+--header 'Content-Type: application/json' \
+--data-raw '{
+    "name": "John Doe"
+}'
+```
+
+To run with a different entry point, you can pass a different main service like below
+```sh
+./run.sh start --main-service /path/to/main-service-directory -p 9000
 ```
 
 using Docker:
@@ -24,24 +51,7 @@ docker run -it --rm -p 9000:9000 -v /path/to/supabase/functions:/usr/services su
 
 ## How to run tests
 
-make sure the docker daemon is running and create a docker image:
-
-```bash
-docker build -t edge-runtime:test .
-```
-
-install tests dependencies:
-
-```bash
-cd test
-npm install
-```
-
-run tests:
-
-```bash
-npm run test
-```
+Read about running tests [here](https://github.com/supabase/edge-runtime/blob/main/testing.md)
 
 ## How to update to a newer Deno version
 

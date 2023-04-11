@@ -1,6 +1,6 @@
 # Supabase Edge Runtime
 
-A Javascript runtime based on [Deno](https://deno.land), capable of running JavaScript, TypeScript, and WASM services.
+A web server based on [Deno](https://deno.land) runtime, capable of running JavaScript, TypeScript, and WASM services.
 
 You can use it to:
 
@@ -16,10 +16,11 @@ The edge runtime can be divided into two runtimes with different purposes.
   - An instance for the _main runtime_ is responsible for proxying the transactions to the _user runtime_.
   - The main runtime is meant to be an entry point before running user functions, where you can authentication, etc. before calling the user function.
   - Has no user-facing limits
+  - Has access to all environment variables.
 - User runtime:
   - An instance for the _user runtime_ is responsible for executing users' code.
-  - Limits are required to be set such as: Memory and Timeouts
-  - Environmental Variables are readonly.
+  - Limits are required to be set such as: Memory and Timeouts.
+  - Has access to environment variables explictly allowed by the main runtime.
 
 ## How to run locally
 To serve all functions in the examples folder on port 9000, you can do this with the [example main service](./examples/main/index.ts) provided with this repo

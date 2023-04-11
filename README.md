@@ -1,6 +1,6 @@
 # Supabase Edge Runtime
 
-A web server based on [Deno](https://deno.land) runtime, capable of running JavaScript, TypeScript, and WASM services.
+A Javascript runtime based on [Deno](https://deno.land), capable of running JavaScript, TypeScript, and WASM services.
 
 You can use it to:
 
@@ -8,6 +8,36 @@ You can use it to:
 * As a programmable HTTP Proxy: You can intercept / route HTTP requests
 
 **WARNING: Beta Software. There will be breaking changes to APIs / Configuration Options**
+
+## Architecture
+
+The edge runtime is divided into two runtimes, similar in code with different purposes.
+- Main runtime:
+  - An instance for the _main runtime_ is responsible for proxying the transactions to the _user runtime_. 
+  - The main runtime can constantly change in its behavior, and it is not meant to run users' code.
+  - Has no user-facing limits
+- User runtime:
+  - An instance for the _user runtime_ is responsible for executing users' code.
+  - Limits are required to be set such as: Memory & Timeouts
+  - Environmental Variables are readonly.
+
+## Current Work
+
+- HTTP proxy
+  - Requests are proxied and a new isolate of the User Runtime is spun to handle the request
+
+- Snapshots
+  - Internal code is snapshotted with V8 in order to optimize the boot time & have previous control on the behavior of internal runtime functionality
+
+- Cross Compatability
+  - Deno Edge Functions are cross-compatible with Supabase's Edge runtime
+
+## Benchmarks
+
+Build benchmarks can be tracked by 
+```sh
+cargo build --timings
+```
 
 ## How to run locally
 To serve all functions in the examples folder, you can do this with the [example main service](./examples/main/index.ts) provided with this repo
@@ -38,24 +68,7 @@ docker run -it --rm -p 9000:9000 -v /path/to/supabase/functions:/usr/services su
 
 ## How to run tests
 
-make sure the docker daemon is running and create a docker image:
-
-```bash
-docker build -t edge-runtime:test .
-```
-
-install tests dependencies:
-
-```bash
-cd test
-npm install
-```
-
-run tests:
-
-```bash
-npm run test
-```
+Read about running tests [here](https://github.com/supabase/edge-runtime/blob/main/testing.md)
 
 ## How to update to a newer Deno version
 

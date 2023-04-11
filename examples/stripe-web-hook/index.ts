@@ -12,7 +12,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey",
 };
 
-const stripe = Stripe("sk_test_51MvPu4GSZvHvcAcEo1Y1LjC1Aj7Mjn3KijSXjMoOlEcijeFAWOsXiy1bum4u4NY5jCSBTcc63KsAREXTJSsKNAOE00vlpRnwiO", {
+const stripe = Stripe("STRIPE_API_KEY", {
   // This is needed to use the Fetch API rather than relying on the Node http
   // package.
   httpClient: Stripe.createFetchHttpClient(),

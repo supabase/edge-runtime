@@ -31,7 +31,7 @@ use sb_core::net::sb_core_net;
 use sb_core::permissions::{sb_core_permissions, Permissions};
 use sb_core::runtime::sb_core_runtime;
 use sb_core::sb_core_main_js;
-use sb_env::sb_env;
+use sb_env::sb_env as sb_env_op;
 use sb_worker_context::essentials::UserWorkerMsgs;
 use sb_workers::sb_user_workers;
 
@@ -117,7 +117,7 @@ impl MainWorker {
             deno_net::deno_net::init_ops::<Permissions>(Some(root_cert_store.clone()), false, None),
             deno_tls::deno_tls::init_ops(),
             deno_http::deno_http::init_ops(),
-            sb_env::init_ops(),
+            sb_env_op::init_ops(),
             sb_user_workers::init_ops(),
             sb_core_main_js::init_ops(),
             sb_core_net::init_ops(),
@@ -173,7 +173,7 @@ impl MainWorker {
             let mut op_state = op_state_rc.borrow_mut();
             op_state.put::<mpsc::UnboundedReceiver<UnixStream>>(unix_stream_rx);
             op_state.put::<mpsc::UnboundedSender<UserWorkerMsgs>>(worker_pool_tx);
-            op_state.put::<types::EnvVars>(env_vars);
+            op_state.put::<sb_env::EnvVars>(env_vars);
         }
 
         let mut js_runtime = self.js_runtime;
@@ -257,7 +257,7 @@ impl UserWorker {
             deno_net::deno_net::init_ops::<Permissions>(Some(root_cert_store.clone()), false, None),
             deno_tls::deno_tls::init_ops(),
             deno_http::deno_http::init_ops(),
-            sb_env::init_ops(),
+            sb_env_op::init_ops(),
             sb_user_workers::init_ops(),
             sb_core_main_js::init_ops(),
             sb_core_net::init_ops(),
@@ -333,7 +333,7 @@ impl UserWorker {
             let op_state_rc = self.js_runtime.op_state();
             let mut op_state = op_state_rc.borrow_mut();
             op_state.put::<mpsc::UnboundedReceiver<UnixStream>>(unix_stream_rx);
-            op_state.put::<types::EnvVars>(env_vars);
+            op_state.put::<sb_env::EnvVars>(env_vars);
         }
 
         let (halt_isolate_tx, mut halt_isolate_rx) = oneshot::channel::<()>();

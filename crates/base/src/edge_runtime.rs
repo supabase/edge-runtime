@@ -1,5 +1,7 @@
 use crate::utils::units::{bytes_to_display, human_elapsed, mib_to_bytes};
 
+use crate::js_worker::module_loader;
+use crate::js_worker::types;
 use anyhow::{anyhow, bail, Error};
 use deno_core::located_script_name;
 use deno_core::url::Url;
@@ -18,10 +20,8 @@ use std::thread;
 use std::time::Duration;
 use tokio::net::UnixStream;
 use tokio::sync::mpsc;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot;
-
-pub mod module_loader;
-pub mod types;
 
 use crate::snapshot;
 use crate::snapshot::snapshot;
@@ -63,173 +63,70 @@ fn print_import_map_diagnostics(diagnostics: &[ImportMapDiagnostic]) {
     }
 }
 
-// FIXME: Extend a common worker for MainWorker and UserWorker
-
-pub struct MainWorker {
-    js_runtime: JsRuntime,
-    main_module_url: ModuleSpecifier,
-    worker_pool_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
+pub struct EdgeRuntime {
+    pub js_runtime: JsRuntime,
+    pub main_module_url: ModuleSpecifier,
+    pub is_user_runtime: bool,
+    pub env_vars: HashMap<String, String>,
+    pub conf: EdgeRuntimeTypes,
+    pub curr_user_opts: EdgeUserRuntimeOpts,
 }
 
-impl MainWorker {
-    pub fn new(
-        service_path: PathBuf,
-        no_module_cache: bool,
-        import_map_path: Option<String>,
-        worker_pool_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
-    ) -> Result<Self, Error> {
-        // Note: MainWorker
-        // - does not have memory or worker timeout [x]
-        // - has access to OS env vars [x]
-        // - has access to local file system
-        // - has access to WorkerPool resource (to create / launch workers)
+pub struct EdgeRuntimeOpts {
+    pub service_path: PathBuf,
+    pub no_module_cache: bool,
+    pub import_map_path: Option<String>,
+    pub env_vars: HashMap<String, String>,
+    pub conf: EdgeRuntimeTypes,
+}
 
-        let user_agent = "supabase-edge-runtime".to_string();
+#[derive(Debug, Clone)]
+pub struct EdgeUserRuntimeOpts {
+    pub memory_limit_mb: u64,
+    pub worker_timeout_ms: u64,
+    pub id: String,
+}
 
-        let base_url =
-            Url::from_directory_path(std::env::current_dir().map(|p| p.join(&service_path))?)
-                .unwrap();
+#[derive(Clone)]
+pub struct EdgeMainRuntimeOpts {
+    pub worker_pool_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
+}
 
-        // TODO: check for other potential main paths (eg: index.js, index.tsx)
-        let main_module_url = base_url.join("index.ts")?;
+#[derive(Clone)]
+pub enum EdgeRuntimeTypes {
+    User(EdgeUserRuntimeOpts),
+    Main(EdgeMainRuntimeOpts),
+}
 
-        // Note: this will load Mozilla's CAs (we may also need to support system certs)
-        let root_cert_store = deno_tls::create_default_root_cert_store();
-
-        let extensions = vec![
-            sb_core_permissions::init_ops(),
-            deno_webidl::deno_webidl::init_ops(),
-            deno_console::deno_console::init_ops(),
-            deno_url::deno_url::init_ops(),
-            deno_web::deno_web::init_ops::<Permissions>(deno_web::BlobStore::default(), None),
-            deno_fetch::deno_fetch::init_ops::<Permissions>(deno_fetch::Options {
-                user_agent: user_agent.clone(),
-                root_cert_store: Some(root_cert_store.clone()),
-                ..Default::default()
-            }),
-            deno_websocket::deno_websocket::init_ops::<Permissions>(
-                user_agent.clone(),
-                Some(root_cert_store.clone()),
-                None,
-            ),
-            // TODO: support providing a custom seed for crypto
-            deno_crypto::deno_crypto::init_ops(None),
-            deno_net::deno_net::init_ops::<Permissions>(Some(root_cert_store.clone()), false, None),
-            deno_tls::deno_tls::init_ops(),
-            deno_http::deno_http::init_ops(),
-            sb_env_op::init_ops(),
-            sb_user_workers::init_ops(),
-            sb_core_main_js::init_ops(),
-            sb_core_net::init_ops(),
-            sb_core_http::init_ops(),
-            sb_core_runtime::init_ops(Some(main_module_url.clone())),
-        ];
-
-        let import_map = load_import_map(import_map_path)?;
-        let module_loader = DefaultModuleLoader::new(import_map, no_module_cache)?;
-
-        let js_runtime = JsRuntime::new(RuntimeOptions {
-            extensions,
-            module_loader: Some(Rc::new(module_loader)),
-            is_main: true,
-            shared_array_buffer_store: None,
-            compiled_wasm_module_store: None,
-            startup_snapshot: Some(snapshot::snapshot()),
-            ..Default::default()
-        });
-
-        Ok(Self {
-            js_runtime,
-            main_module_url,
-            worker_pool_tx,
-        })
+impl Default for EdgeUserRuntimeOpts {
+    fn default() -> EdgeUserRuntimeOpts {
+        EdgeUserRuntimeOpts {
+            memory_limit_mb: 150,
+            worker_timeout_ms: 60000,
+            id: String::from("Unknown"),
+        }
     }
+}
 
-    pub async fn run(
-        mut self,
-        stream: UnixStream,
-        shutdown_tx: oneshot::Sender<()>,
-    ) -> Result<(), Error> {
-        // set bootstrap options
-        // TODO: Migrate this to `supacore`
-        let script = format!(
-            "globalThis.bootstrapSBEdge({})",
-            deno_core::serde_json::json!({ "target": env!("TARGET") })
-        );
-        self.js_runtime
-            .execute_script::<String>(&located_script_name!(), script.into())
-            .expect("Failed to execute bootstrap script");
+impl EdgeRuntime {
+    pub fn new(opts: EdgeRuntimeOpts) -> Result<Self, Error> {
+        let EdgeRuntimeOpts {
+            service_path,
+            no_module_cache,
+            import_map_path,
+            env_vars,
+            conf,
+        } = opts;
 
-        let (unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
-        if let Err(e) = unix_stream_tx.send(stream) {
-            bail!(e)
-        }
-
-        //run inside a closure, so op_state_rc is released
-        let env_vars = std::env::vars().collect();
-        let worker_pool_tx = self.worker_pool_tx.clone();
-        {
-            let op_state_rc = self.js_runtime.op_state();
-            let mut op_state = op_state_rc.borrow_mut();
-            op_state.put::<mpsc::UnboundedReceiver<UnixStream>>(unix_stream_rx);
-            op_state.put::<mpsc::UnboundedSender<UserWorkerMsgs>>(worker_pool_tx);
-            op_state.put::<sb_env::EnvVars>(env_vars);
-        }
-
-        let mut js_runtime = self.js_runtime;
-
-        let future = async move {
-            let mod_id = js_runtime
-                .load_main_module(&self.main_module_url, None)
-                .await?;
-            let mod_result = js_runtime.mod_evaluate(mod_id);
-
-            let result = tokio::select! {
-                _ = js_runtime.run_event_loop(false) => {
-                    debug!("event loop completed");
-                    mod_result.await?
-                }
-            };
-
-            drop(js_runtime);
-            result
+        let (is_user_runtime, user_rt_opts) = match conf.clone() {
+            EdgeRuntimeTypes::User(conf) => (true, conf.clone()),
+            EdgeRuntimeTypes::Main(conf) => (false, EdgeUserRuntimeOpts::default()),
         };
 
-        let res = future.await;
-
-        if res.is_err() {
-            error!("worker thread panicked {:?}", res.as_ref().err().unwrap());
-        }
-
-        Ok(shutdown_tx.send(()).unwrap())
-    }
-}
-
-pub struct UserWorker {
-    js_runtime: JsRuntime,
-    main_module_url: ModuleSpecifier,
-    memory_limit_mb: u64,
-    worker_timeout_ms: u64,
-    env_vars: HashMap<String, String>,
-}
-
-impl UserWorker {
-    // TODO: Refactor UserWorker module and MainWorker into a single module
-    // TODO: Add Bootstrapping limitations based on whether it's user or MAIN
-    pub fn new(
-        service_path: PathBuf,
-        memory_limit_mb: u64,
-        worker_timeout_ms: u64,
-        no_module_cache: bool,
-        import_map_path: Option<String>,
-        env_vars: HashMap<String, String>,
-    ) -> Result<Self, Error> {
         let user_agent = "supabase-edge-runtime".to_string();
-
         let base_url =
             Url::from_directory_path(std::env::current_dir().map(|p| p.join(&service_path))?)
                 .unwrap();
-
         // TODO: check for other potential main paths (eg: index.js, index.tsx)
         let main_module_url = base_url.join("index.ts")?;
 
@@ -272,10 +169,16 @@ impl UserWorker {
             extensions,
             module_loader: Some(Rc::new(module_loader)),
             is_main: true,
-            create_params: Some(deno_core::v8::CreateParams::default().heap_limits(
-                mib_to_bytes(1) as usize,
-                mib_to_bytes(memory_limit_mb) as usize,
-            )),
+            create_params: {
+                if is_user_runtime {
+                    Some(deno_core::v8::CreateParams::default().heap_limits(
+                        mib_to_bytes(1) as usize,
+                        mib_to_bytes(user_rt_opts.memory_limit_mb) as usize,
+                    ))
+                } else {
+                    None
+                }
+            },
             shared_array_buffer_store: None,
             compiled_wasm_module_store: None,
             startup_snapshot: Some(snapshot::snapshot()),
@@ -285,9 +188,10 @@ impl UserWorker {
         Ok(Self {
             js_runtime,
             main_module_url,
-            memory_limit_mb,
-            worker_timeout_ms,
+            is_user_runtime,
             env_vars,
+            conf,
+            curr_user_opts: user_rt_opts,
         })
     }
 
@@ -296,35 +200,22 @@ impl UserWorker {
         stream: UnixStream,
         shutdown_tx: oneshot::Sender<()>,
     ) -> Result<(), Error> {
-        let (memory_limit_tx, memory_limit_rx) = mpsc::unbounded_channel::<u64>();
+        let is_user_rt = self.is_user_runtime;
 
-        // add a callback when a worker reaches its memory limit
-        let memory_limit_mb = self.memory_limit_mb;
-        self.js_runtime
-            .add_near_heap_limit_callback(move |cur, _init| {
-                debug!(
-                    "low memory alert triggered {}",
-                    bytes_to_display(cur as u64)
-                );
-                let _ = memory_limit_tx.send(mib_to_bytes(memory_limit_mb));
-                // add a 25% allowance to memory limit
-                let cur = mib_to_bytes(memory_limit_mb + memory_limit_mb.div_euclid(4)) as usize;
-                cur
-            });
-
-        // set bootstrap options
-        // TODO: Move to `supacore`
+        // Bootstrapping stage
         let script = format!(
-            "globalThis.bootstrapSBEdge({}, true)",
-            deno_core::serde_json::json!({ "target": env!("TARGET") })
+            "globalThis.bootstrapSBEdge({}, {})",
+            deno_core::serde_json::json!({ "target": env!("TARGET") }),
+            is_user_rt
         );
+
         self.js_runtime
             .execute_script::<String>(&located_script_name!(), script.into())
             .expect("Failed to execute bootstrap script");
 
         let (unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
         if let Err(e) = unix_stream_tx.send(stream) {
-            bail!(e)
+            return bail!(e);
         }
 
         //run inside a closure, so op_state_rc is released
@@ -334,10 +225,42 @@ impl UserWorker {
             let mut op_state = op_state_rc.borrow_mut();
             op_state.put::<mpsc::UnboundedReceiver<UnixStream>>(unix_stream_rx);
             op_state.put::<sb_env::EnvVars>(env_vars);
+
+            if !is_user_rt {
+                if let EdgeRuntimeTypes::Main(conf) = self.conf.clone() {
+                    op_state
+                        .put::<mpsc::UnboundedSender<UserWorkerMsgs>>(conf.worker_pool_tx.clone());
+                }
+            }
         }
 
         let (halt_isolate_tx, mut halt_isolate_rx) = oneshot::channel::<()>();
-        self.start_controller_thread(self.worker_timeout_ms, memory_limit_rx, halt_isolate_tx);
+
+        if is_user_rt {
+            let (memory_limit_tx, memory_limit_rx) = mpsc::unbounded_channel::<u64>();
+
+            // add a callback when a worker reaches its memory limit
+            let memory_limit_mb = self.curr_user_opts.memory_limit_mb;
+            self.js_runtime
+                .add_near_heap_limit_callback(move |cur, _init| {
+                    debug!(
+                        "[{}] Low memory alert triggered: {}",
+                        "x",
+                        bytes_to_display(cur as u64),
+                    );
+                    let _ = memory_limit_tx.send(mib_to_bytes(memory_limit_mb));
+                    // add a 25% allowance to memory limit
+                    let cur =
+                        mib_to_bytes(memory_limit_mb + memory_limit_mb.div_euclid(4)) as usize;
+                    cur
+                });
+
+            self.start_controller_thread(
+                self.curr_user_opts.worker_timeout_ms,
+                memory_limit_rx,
+                halt_isolate_tx,
+            );
+        }
 
         let mut js_runtime = self.js_runtime;
 
@@ -349,11 +272,11 @@ impl UserWorker {
 
             let result = tokio::select! {
                 _ = js_runtime.run_event_loop(false) => {
-                    debug!("event loop completed");
+                    debug!("Event loop has completed");
                     mod_result.await?
-                }
+                },
                 _ = &mut halt_isolate_rx => {
-                    debug!("worker exectution halted");
+                    debug!("User Worker execution halted");
                     Ok(())
                 }
             };

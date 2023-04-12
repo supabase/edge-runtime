@@ -1,5 +1,6 @@
-use crate::js_worker::{MainWorker, UserWorker};
-
+use crate::edge_runtime::{
+    EdgeMainRuntimeOpts, EdgeRuntime, EdgeRuntimeOpts, EdgeRuntimeTypes, EdgeUserRuntimeOpts,
+};
 use anyhow::{bail, Error};
 use hyper::{Body, Request, Response};
 use log::error;
@@ -19,19 +20,32 @@ pub struct WorkerContext {
     request_sender: hyper::client::conn::SendRequest<Body>,
 }
 
-pub struct MainWorkerOptions {
-    pub service_path: PathBuf,
+pub struct MainWorkerOpts {
     pub user_worker_msgs_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
+}
+
+pub struct UserWorkerOpts {
+    pub memory_limit_mb: u64,
+    pub worker_timeout_ms: u64,
+    pub id: String,
+}
+
+pub enum WorkerContextOpts {
+    UserWorker(UserWorkerOpts),
+    MainWorker(MainWorkerOpts),
+}
+
+pub struct WorkerContextInitOpts {
+    pub service_path: PathBuf,
     pub no_module_cache: bool,
     pub import_map_path: Option<String>,
+    pub env_vars: HashMap<String, String>,
+    pub conf: WorkerContextOpts,
 }
 
 impl WorkerContext {
-    pub async fn new_main_worker(options: MainWorkerOptions) -> Result<Self, Error> {
-        let service_path = options.service_path;
-        let no_module_cache = options.no_module_cache;
-        let import_map_path = options.import_map_path;
-        let user_worker_msgs_tx = options.user_worker_msgs_tx;
+    pub async fn new(conf: WorkerContextInitOpts) -> Result<Self, Error> {
+        let service_path = conf.service_path;
 
         if !service_path.exists() {
             bail!("main function does not exist {:?}", &service_path)
@@ -48,12 +62,26 @@ impl WorkerContext {
             let local = tokio::task::LocalSet::new();
 
             let handle: Result<(), Error> = local.block_on(&runtime, async {
-                let worker = MainWorker::new(
-                    service_path.clone(),
-                    no_module_cache,
-                    import_map_path,
-                    user_worker_msgs_tx.clone(),
-                )?;
+                let worker = EdgeRuntime::new(EdgeRuntimeOpts {
+                    service_path: service_path.clone(),
+                    no_module_cache: conf.no_module_cache,
+                    import_map_path: conf.import_map_path,
+                    env_vars: conf.env_vars,
+                    conf: match &conf.conf {
+                        WorkerContextOpts::UserWorker(user_conf) => {
+                            EdgeRuntimeTypes::User(EdgeUserRuntimeOpts {
+                                memory_limit_mb: user_conf.memory_limit_mb,
+                                worker_timeout_ms: user_conf.worker_timeout_ms,
+                                id: String::from(&user_conf.id),
+                            })
+                        }
+                        WorkerContextOpts::MainWorker(main_conf) => {
+                            EdgeRuntimeTypes::Main(EdgeMainRuntimeOpts {
+                                worker_pool_tx: main_conf.user_worker_msgs_tx.clone(),
+                            })
+                        }
+                    },
+                })?;
 
                 // start the worker
                 let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
@@ -75,65 +103,6 @@ impl WorkerContext {
         tokio::spawn(async move {
             if let Err(e) = connection.await {
                 error!("Error in main worker connection: {}", e);
-            }
-        });
-
-        Ok(Self { request_sender })
-    }
-
-    pub async fn new_user_worker(options: UserWorkerOptions) -> Result<Self, Error> {
-        let service_path = options.service_path;
-        let memory_limit_mb = options.memory_limit_mb;
-        let worker_timeout_ms = options.worker_timeout_ms;
-        let no_module_cache = options.no_module_cache;
-        let import_map_path = options.import_map_path;
-        let env_vars = options.env_vars;
-
-        if !service_path.exists() {
-            bail!("user function does not exist {:?}", &service_path)
-        }
-
-        // create a unix socket pair
-        let (sender_stream, recv_stream) = UnixStream::pair()?;
-
-        let handle: thread::JoinHandle<Result<(), Error>> = thread::spawn(move || {
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap();
-            let local = tokio::task::LocalSet::new();
-
-            let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
-
-            let handle: Result<(), Error> = local.block_on(&runtime, async {
-                let worker = UserWorker::new(
-                    service_path.clone(),
-                    memory_limit_mb,
-                    worker_timeout_ms,
-                    no_module_cache,
-                    import_map_path,
-                    env_vars,
-                )?;
-
-                // start the worker
-                worker.run(recv_stream, shutdown_tx).await?;
-
-                Ok(())
-            });
-
-            // wait for shutdown signal
-            let _ = shutdown_rx.blocking_recv();
-
-            Ok(())
-        });
-
-        // send the HTTP request to the worker over Unix stream
-        let (request_sender, connection) = hyper::client::conn::handshake(sender_stream).await?;
-
-        // spawn a task to poll the connection and drive the HTTP state
-        tokio::spawn(async move {
-            if let Err(e) = connection.await {
-                error!("Error in user worker connection: {}", e);
             }
         });
 
@@ -162,13 +131,18 @@ impl WorkerPool {
             mpsc::unbounded_channel::<UserWorkerMsgs>();
 
         let main_path = Path::new(&main_path);
-        let main_worker_ctx = WorkerContext::new_main_worker(MainWorkerOptions {
+
+        let main_worker_ctx = WorkerContext::new(WorkerContextInitOpts {
             service_path: main_path.to_path_buf(),
             import_map_path,
             no_module_cache,
-            user_worker_msgs_tx,
+            conf: WorkerContextOpts::MainWorker(MainWorkerOpts {
+                user_worker_msgs_tx,
+            }),
+            env_vars: std::env::vars().collect(),
         })
         .await?;
+
         let main_worker = Arc::new(RwLock::new(main_worker_ctx));
         tokio::spawn(async move {
             let mut user_workers: HashMap<Uuid, Arc<RwLock<WorkerContext>>> = HashMap::new();
@@ -178,7 +152,18 @@ impl WorkerPool {
                     None => break,
                     Some(UserWorkerMsgs::Create(worker_options, tx)) => {
                         let key = Uuid::new_v4();
-                        let user_worker_ctx = WorkerContext::new_user_worker(worker_options).await;
+                        let user_worker_ctx = WorkerContext::new(WorkerContextInitOpts {
+                            service_path: worker_options.service_path,
+                            no_module_cache: worker_options.no_module_cache,
+                            import_map_path: worker_options.import_map_path,
+                            env_vars: worker_options.env_vars,
+                            conf: WorkerContextOpts::UserWorker(UserWorkerOpts {
+                                memory_limit_mb: worker_options.memory_limit_mb,
+                                worker_timeout_ms: worker_options.worker_timeout_ms,
+                                id: "".to_string(),
+                            }),
+                        })
+                        .await;
                         if !user_worker_ctx.is_err() {
                             user_workers.insert(
                                 key.clone(),

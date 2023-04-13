@@ -74,7 +74,7 @@ pub async fn op_user_worker_create(
         import_map_path,
         env_vars: env_vars_map,
     };
-    tx.send(UserWorkerMsgs::Create(user_worker_options, result_tx));
+    tx.send(UserWorkerMsgs::Create(user_worker_options, result_tx))?;
 
     let result = result_rx.await;
     if result.is_err() {
@@ -298,7 +298,7 @@ pub async fn op_user_worker_fetch_send(
         .expect("multiple op_user_worker_fetch_send ongoing");
     let (result_tx, result_rx) = oneshot::channel::<Response<Body>>();
     let uuid = Uuid::parse_str(key.as_str())?;
-    tx.send(UserWorkerMsgs::SendRequest(uuid, request.0, result_tx));
+    tx.send(UserWorkerMsgs::SendRequest(uuid, request.0, result_tx))?;
 
     let result = result_rx.await;
     if result.is_err() {

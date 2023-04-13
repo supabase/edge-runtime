@@ -40,14 +40,14 @@ impl WorkerContext {
         // create a unix socket pair
         let (sender_stream, recv_stream) = UnixStream::pair()?;
 
-        let handle: thread::JoinHandle<Result<(), Error>> = thread::spawn(move || {
+        let _handle: thread::JoinHandle<Result<(), Error>> = thread::spawn(move || {
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
                 .unwrap();
             let local = tokio::task::LocalSet::new();
 
-            let handle: Result<(), Error> = local.block_on(&runtime, async {
+            let _handle: Result<(), Error> = local.block_on(&runtime, async {
                 let worker = MainWorker::new(
                     service_path.clone(),
                     no_module_cache,
@@ -96,7 +96,7 @@ impl WorkerContext {
         // create a unix socket pair
         let (sender_stream, recv_stream) = UnixStream::pair()?;
 
-        let handle: thread::JoinHandle<Result<(), Error>> = thread::spawn(move || {
+        let _handle: thread::JoinHandle<Result<(), Error>> = thread::spawn(move || {
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
@@ -105,7 +105,7 @@ impl WorkerContext {
 
             let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
 
-            let handle: Result<(), Error> = local.block_on(&runtime, async {
+            let _handle: Result<(), Error> = local.block_on(&runtime, async {
                 let worker = UserWorker::new(
                     service_path.clone(),
                     memory_limit_mb,
@@ -185,9 +185,9 @@ impl WorkerPool {
                                 Arc::new(RwLock::new(user_worker_ctx.unwrap())),
                             );
 
-                            tx.send(Ok(CreateUserWorkerResult { key }));
+                            let _ = tx.send(Ok(CreateUserWorkerResult { key }));
                         } else {
-                            tx.send(Err(user_worker_ctx.unwrap_err()));
+                            let _ = tx.send(Err(user_worker_ctx.unwrap_err()));
                         }
                     }
                     Some(UserWorkerMsgs::SendRequest(key, req, tx)) => {
@@ -200,7 +200,7 @@ impl WorkerPool {
                             "msg": "Request could not be processed by the server because it timed out or an error was thrown."
                         }).to_string())).unwrap());
 
-                        tx.send(res);
+                        let _ = tx.send(res);
                     }
                 }
             }

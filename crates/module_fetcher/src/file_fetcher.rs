@@ -676,7 +676,6 @@ mod tests {
     use deno_fetch::create_http_client;
     use deno_web::Blob;
     use deno_web::InMemoryBlobPart;
-    use deno_web::InMemoryBlobPart;
     use std::fs::read;
     use test_util::TempDir;
 

@@ -387,7 +387,8 @@ impl UserWorker {
             let future = async move {
                 tokio::select! {
                     _ = tokio::time::sleep(Duration::from_millis(worker_timeout_ms)) => {
-                        debug!("max duration reached for the worker. terminating the worker. (duration {})", human_elapsed(worker_timeout_ms))
+                        error!("max duration reached for the worker. terminating the worker. (duration {})", human_elapsed(worker_timeout_ms));
+                        thread_safe_handle.terminate_execution();
                     }
                     Some(val) = memory_limit_rx.recv() => {
                         error!("memory limit reached for the worker. terminating the worker. (used: {})", bytes_to_display(val));

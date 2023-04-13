@@ -62,6 +62,7 @@ fn main() -> Result<(), anyhow::Error> {
             logger::init(verbose);
         }
 
+        #[allow(clippy::single_match)]
         match matches.subcommand() {
             Some(("start", sub_matches)) => {
                 let ip = sub_matches.get_one::<String>("ip").cloned().unwrap();
@@ -78,7 +79,7 @@ fn main() -> Result<(), anyhow::Error> {
                     .unwrap();
 
                 start_server(
-                    &ip.as_str(),
+                    ip.as_str(),
                     port,
                     main_service_path,
                     import_map_path,

@@ -46,7 +46,3 @@ uuid = { version = "1.1.2", features = ["v4"] }
 
 [profile.release]
 lto = true
-
-[profile.release.package.bench]
-opt-level = 3
-codegen-units = 1

@@ -1,7 +1,7 @@
 # Supabase Edge Runtime
 
 A web server based on [Deno](https://deno.land) runtime, capable of running JavaScript, TypeScript, and WASM services.
-Edge Runtime is built and maintained by the [Supabase team](https://supabase.io).
+Edge Runtime is built and maintained by the [Supabase team](https://supabase.io). For more details, read the [intro blog post](https://supabase.com/blog/edge-runtime-self-hosted-deno-functions).
 
 You can use it to:
 

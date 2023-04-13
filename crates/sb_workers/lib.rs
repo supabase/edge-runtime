@@ -10,7 +10,10 @@ use deno_core::{
 use hyper::body::HttpBody;
 use hyper::header::{HeaderName, HeaderValue};
 use hyper::{Body, Request, Response};
-use sb_worker_context::essentials::{CreateUserWorkerResult, UserWorkerMsgs, UserWorkerOptions};
+use sb_worker_context::essentials::{
+    CreateUserWorkerResult, EdgeContextInitOpts, EdgeContextOpts, EdgeUserRuntimeOpts,
+    UserWorkerMsgs, UserWorkerOptions,
+};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::cell::RefCell;
@@ -66,14 +69,18 @@ pub async fn op_user_worker_create(
         env_vars_map.insert(key, value);
     }
 
-    let user_worker_options = UserWorkerOptions {
+    let user_worker_options = EdgeContextInitOpts {
         service_path: PathBuf::from(service_path),
-        memory_limit_mb,
-        worker_timeout_ms,
         no_module_cache,
         import_map_path,
         env_vars: env_vars_map,
+        conf: EdgeContextOpts::UserWorker(EdgeUserRuntimeOpts {
+            memory_limit_mb,
+            worker_timeout_ms,
+            id: "".to_string(),
+        }),
     };
+
     tx.send(UserWorkerMsgs::Create(user_worker_options, result_tx));
 
     let result = result_rx.await;

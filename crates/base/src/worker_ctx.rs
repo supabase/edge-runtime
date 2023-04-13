@@ -1,10 +1,11 @@
-use crate::edge_runtime::{
-    EdgeMainRuntimeOpts, EdgeRuntime, EdgeRuntimeOpts, EdgeRuntimeTypes, EdgeUserRuntimeOpts,
-};
+use crate::edge_runtime::EdgeRuntime;
 use anyhow::{bail, Error};
 use hyper::{Body, Request, Response};
 use log::error;
-use sb_worker_context::essentials::{CreateUserWorkerResult, UserWorkerMsgs, UserWorkerOptions};
+use sb_worker_context::essentials::{
+    CreateUserWorkerResult, EdgeContextInitOpts, EdgeContextOpts, EdgeMainRuntimeOpts,
+    UserWorkerMsgs, UserWorkerOptions,
+};
 use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
@@ -20,32 +21,9 @@ pub struct WorkerContext {
     request_sender: hyper::client::conn::SendRequest<Body>,
 }
 
-pub struct MainWorkerOpts {
-    pub user_worker_msgs_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
-}
-
-pub struct UserWorkerOpts {
-    pub memory_limit_mb: u64,
-    pub worker_timeout_ms: u64,
-    pub id: String,
-}
-
-pub enum WorkerContextOpts {
-    UserWorker(UserWorkerOpts),
-    MainWorker(MainWorkerOpts),
-}
-
-pub struct WorkerContextInitOpts {
-    pub service_path: PathBuf,
-    pub no_module_cache: bool,
-    pub import_map_path: Option<String>,
-    pub env_vars: HashMap<String, String>,
-    pub conf: WorkerContextOpts,
-}
-
 impl WorkerContext {
-    pub async fn new(conf: WorkerContextInitOpts) -> Result<Self, Error> {
-        let service_path = conf.service_path;
+    pub async fn new(conf: EdgeContextInitOpts) -> Result<Self, Error> {
+        let service_path = conf.service_path.clone();
 
         if !service_path.exists() {
             bail!("main function does not exist {:?}", &service_path)
@@ -62,26 +40,7 @@ impl WorkerContext {
             let local = tokio::task::LocalSet::new();
 
             let handle: Result<(), Error> = local.block_on(&runtime, async {
-                let worker = EdgeRuntime::new(EdgeRuntimeOpts {
-                    service_path: service_path.clone(),
-                    no_module_cache: conf.no_module_cache,
-                    import_map_path: conf.import_map_path,
-                    env_vars: conf.env_vars,
-                    conf: match &conf.conf {
-                        WorkerContextOpts::UserWorker(user_conf) => {
-                            EdgeRuntimeTypes::User(EdgeUserRuntimeOpts {
-                                memory_limit_mb: user_conf.memory_limit_mb,
-                                worker_timeout_ms: user_conf.worker_timeout_ms,
-                                id: String::from(&user_conf.id),
-                            })
-                        }
-                        WorkerContextOpts::MainWorker(main_conf) => {
-                            EdgeRuntimeTypes::Main(EdgeMainRuntimeOpts {
-                                worker_pool_tx: main_conf.user_worker_msgs_tx.clone(),
-                            })
-                        }
-                    },
-                })?;
+                let worker = EdgeRuntime::new(conf)?;
 
                 // start the worker
                 let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
@@ -132,12 +91,12 @@ impl WorkerPool {
 
         let main_path = Path::new(&main_path);
 
-        let main_worker_ctx = WorkerContext::new(WorkerContextInitOpts {
+        let main_worker_ctx = WorkerContext::new(EdgeContextInitOpts {
             service_path: main_path.to_path_buf(),
             import_map_path,
             no_module_cache,
-            conf: WorkerContextOpts::MainWorker(MainWorkerOpts {
-                user_worker_msgs_tx,
+            conf: EdgeContextOpts::MainWorker(EdgeMainRuntimeOpts {
+                worker_pool_tx: user_worker_msgs_tx,
             }),
             env_vars: std::env::vars().collect(),
         })
@@ -152,18 +111,7 @@ impl WorkerPool {
                     None => break,
                     Some(UserWorkerMsgs::Create(worker_options, tx)) => {
                         let key = Uuid::new_v4();
-                        let user_worker_ctx = WorkerContext::new(WorkerContextInitOpts {
-                            service_path: worker_options.service_path,
-                            no_module_cache: worker_options.no_module_cache,
-                            import_map_path: worker_options.import_map_path,
-                            env_vars: worker_options.env_vars,
-                            conf: WorkerContextOpts::UserWorker(UserWorkerOpts {
-                                memory_limit_mb: worker_options.memory_limit_mb,
-                                worker_timeout_ms: worker_options.worker_timeout_ms,
-                                id: "".to_string(),
-                            }),
-                        })
-                        .await;
+                        let user_worker_ctx = WorkerContext::new(worker_options).await;
                         if !user_worker_ctx.is_err() {
                             user_workers.insert(
                                 key.clone(),

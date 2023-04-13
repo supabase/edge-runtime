@@ -32,7 +32,9 @@ use sb_core::permissions::{sb_core_permissions, Permissions};
 use sb_core::runtime::sb_core_runtime;
 use sb_core::sb_core_main_js;
 use sb_env::sb_env as sb_env_op;
-use sb_worker_context::essentials::UserWorkerMsgs;
+use sb_worker_context::essentials::{
+    EdgeContextInitOpts, EdgeContextOpts, EdgeUserRuntimeOpts, UserWorkerMsgs,
+};
 use sb_workers::sb_user_workers;
 
 fn load_import_map(maybe_path: Option<String>) -> Result<Option<ImportMap>, Error> {
@@ -68,49 +70,13 @@ pub struct EdgeRuntime {
     pub main_module_url: ModuleSpecifier,
     pub is_user_runtime: bool,
     pub env_vars: HashMap<String, String>,
-    pub conf: EdgeRuntimeTypes,
+    pub conf: EdgeContextOpts,
     pub curr_user_opts: EdgeUserRuntimeOpts,
 }
 
-pub struct EdgeRuntimeOpts {
-    pub service_path: PathBuf,
-    pub no_module_cache: bool,
-    pub import_map_path: Option<String>,
-    pub env_vars: HashMap<String, String>,
-    pub conf: EdgeRuntimeTypes,
-}
-
-#[derive(Debug, Clone)]
-pub struct EdgeUserRuntimeOpts {
-    pub memory_limit_mb: u64,
-    pub worker_timeout_ms: u64,
-    pub id: String,
-}
-
-#[derive(Clone)]
-pub struct EdgeMainRuntimeOpts {
-    pub worker_pool_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
-}
-
-#[derive(Clone)]
-pub enum EdgeRuntimeTypes {
-    User(EdgeUserRuntimeOpts),
-    Main(EdgeMainRuntimeOpts),
-}
-
-impl Default for EdgeUserRuntimeOpts {
-    fn default() -> EdgeUserRuntimeOpts {
-        EdgeUserRuntimeOpts {
-            memory_limit_mb: 150,
-            worker_timeout_ms: 60000,
-            id: String::from("Unknown"),
-        }
-    }
-}
-
 impl EdgeRuntime {
-    pub fn new(opts: EdgeRuntimeOpts) -> Result<Self, Error> {
-        let EdgeRuntimeOpts {
+    pub fn new(opts: EdgeContextInitOpts) -> Result<Self, Error> {
+        let EdgeContextInitOpts {
             service_path,
             no_module_cache,
             import_map_path,
@@ -119,8 +85,8 @@ impl EdgeRuntime {
         } = opts;
 
         let (is_user_runtime, user_rt_opts) = match conf.clone() {
-            EdgeRuntimeTypes::User(conf) => (true, conf.clone()),
-            EdgeRuntimeTypes::Main(conf) => (false, EdgeUserRuntimeOpts::default()),
+            EdgeContextOpts::UserWorker(conf) => (true, conf.clone()),
+            EdgeContextOpts::MainWorker(conf) => (false, EdgeUserRuntimeOpts::default()),
         };
 
         let user_agent = "supabase-edge-runtime".to_string();
@@ -227,7 +193,7 @@ impl EdgeRuntime {
             op_state.put::<sb_env::EnvVars>(env_vars);
 
             if !is_user_rt {
-                if let EdgeRuntimeTypes::Main(conf) = self.conf.clone() {
+                if let EdgeContextOpts::MainWorker(conf) = self.conf.clone() {
                     op_state
                         .put::<mpsc::UnboundedSender<UserWorkerMsgs>>(conf.worker_pool_tx.clone());
                 }

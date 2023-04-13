@@ -12,7 +12,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey",
 };
 
-const stripe = Stripe(Deno.env.get("STRIPE_API_KEY"), {
+const stripe = Stripe("STRIPE_API_KEY", {
   // This is needed to use the Fetch API rather than relying on the Node http
   // package.
   httpClient: Stripe.createFetchHttpClient(),

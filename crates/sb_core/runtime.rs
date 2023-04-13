@@ -22,14 +22,8 @@ fn op_main_module(state: &mut OpState) -> Result<String, AnyError> {
     Ok(main)
 }
 
-#[op]
-fn op_build_target(_state: &mut OpState) -> String {
-    let target = env!("TARGET").to_string();
-    target
-}
-
 deno_core::extension!(sb_core_runtime,
-    ops = [op_main_module, op_build_target],
+    ops = [op_main_module],
     options = {
         main_module: Option<ModuleSpecifier>
     },

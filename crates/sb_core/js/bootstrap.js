@@ -24,6 +24,7 @@ import * as response from "ext:deno_fetch/23_response.js";
 import * as request from "ext:deno_fetch/23_request.js";
 import * as globalInterfaces from "ext:deno_web/04_global_interfaces.js";
 import { SUPABASE_ENV } from "ext:sb_env/env.js";
+import { loadUserRuntime } from "ext:sb_core_main_js/js/user_runtime_loader.js"
 
 
 const core = globalThis.Deno.core;
@@ -575,15 +576,6 @@ defineEventHandler(globalThis, "unhandledrejection");
 
 core.setPromiseRejectCallback(promiseRejectCallback);
 
-runtimeStart({
-  denoVersion: "NA",
-  v8Version: "NA",
-  tsVersion: "NA",
-  noColor: true,
-  isTty: false,
-  target: ops.op_build_target(),
-});
-
 // set these overrides after runtimeStart
 ObjectDefineProperties(Deno, {
   build: readOnly(build),
@@ -592,7 +584,23 @@ ObjectDefineProperties(Deno, {
   args: readOnly([]), // args are set to be empty
   mainModule: getterOnly(opMainModule),
   errors,
-
 });
+
+globalThis.bootstrapSBEdge = (opts, isUserRuntime) => {
+  runtimeStart({
+    denoVersion: "NA",
+    v8Version: "NA",
+    tsVersion: "NA",
+    noColor: true,
+    isTty: false,
+    ...opts
+  });
+
+  if(isUserRuntime) {
+    loadUserRuntime();
+  }
+
+  delete globalThis.bootstrapSBEdge;
+}
 
 // TODO: Abstract this file into multiple files. There's too much boilerplate

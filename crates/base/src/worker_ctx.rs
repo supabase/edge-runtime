@@ -179,16 +179,13 @@ impl WorkerPool {
                     Some(UserWorkerMsgs::Create(worker_options, tx)) => {
                         let key = Uuid::new_v4();
                         let user_worker_ctx = WorkerContext::new_user_worker(worker_options).await;
-                        if !user_worker_ctx.is_err() {
-                            user_workers.insert(
-                                key.clone(),
-                                Arc::new(RwLock::new(user_worker_ctx.unwrap())),
-                            );
-
-                            let _ = tx.send(Ok(CreateUserWorkerResult { key }));
-                        } else {
-                            let _ = tx.send(Err(user_worker_ctx.unwrap_err()));
-                        }
+                        let _ = match user_worker_ctx {
+                            Ok(ctx) => {
+                                user_workers.insert(key, Arc::new(RwLock::new(ctx)));
+                                tx.send(Ok(CreateUserWorkerResult { key }))
+                            }
+                            Err(e) => tx.send(Err(e)),
+                        };
                     }
                     Some(UserWorkerMsgs::SendRequest(key, req, tx)) => {
                         // TODO: handle errors

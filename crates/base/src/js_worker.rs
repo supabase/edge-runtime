@@ -1,6 +1,6 @@
 use crate::utils::units::{bytes_to_display, human_elapsed, mib_to_bytes};
 
-use anyhow::{anyhow, bail, Error};
+use anyhow::{bail, Error};
 use deno_core::located_script_name;
 use deno_core::url::Url;
 use deno_core::JsRuntime;
@@ -24,7 +24,6 @@ pub mod module_loader;
 pub mod types;
 
 use crate::snapshot;
-use crate::snapshot::snapshot;
 use module_loader::DefaultModuleLoader;
 use sb_core::http_start::sb_core_http;
 use sb_core::net::sb_core_net;
@@ -40,7 +39,7 @@ fn load_import_map(maybe_path: Option<String>) -> Result<Option<ImportMap>, Erro
         let path = Path::new(&path_str);
         let json_str = fs::read_to_string(path)?;
 
-        let abs_path = std::env::current_dir().map(|p| p.join(&path))?;
+        let abs_path = std::env::current_dir().map(|p| p.join(path))?;
         let base_url = Url::from_directory_path(abs_path.parent().unwrap()).unwrap();
         let result = parse_from_json(&base_url, json_str.as_str())?;
         print_import_map_diagnostics(&result.diagnostics);
@@ -108,13 +107,13 @@ impl MainWorker {
                 ..Default::default()
             }),
             deno_websocket::deno_websocket::init_ops::<Permissions>(
-                user_agent.clone(),
+                user_agent,
                 Some(root_cert_store.clone()),
                 None,
             ),
             // TODO: support providing a custom seed for crypto
             deno_crypto::deno_crypto::init_ops(None),
-            deno_net::deno_net::init_ops::<Permissions>(Some(root_cert_store.clone()), false, None),
+            deno_net::deno_net::init_ops::<Permissions>(Some(root_cert_store), false, None),
             deno_tls::deno_tls::init_ops(),
             deno_http::deno_http::init_ops(),
             sb_env_op::init_ops(),
@@ -157,7 +156,7 @@ impl MainWorker {
             deno_core::serde_json::json!({ "target": env!("TARGET") })
         );
         self.js_runtime
-            .execute_script::<String>(&located_script_name!(), script.into())
+            .execute_script::<String>(located_script_name!(), script)
             .expect("Failed to execute bootstrap script");
 
         let (unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
@@ -201,7 +200,8 @@ impl MainWorker {
             error!("worker thread panicked {:?}", res.as_ref().err().unwrap());
         }
 
-        Ok(shutdown_tx.send(()).unwrap())
+        shutdown_tx.send(()).unwrap();
+        Ok(())
     }
 }
 
@@ -248,13 +248,13 @@ impl UserWorker {
                 ..Default::default()
             }),
             deno_websocket::deno_websocket::init_ops::<Permissions>(
-                user_agent.clone(),
+                user_agent,
                 Some(root_cert_store.clone()),
                 None,
             ),
             // TODO: support providing a custom seed for crypto
             deno_crypto::deno_crypto::init_ops(None),
-            deno_net::deno_net::init_ops::<Permissions>(Some(root_cert_store.clone()), false, None),
+            deno_net::deno_net::init_ops::<Permissions>(Some(root_cert_store), false, None),
             deno_tls::deno_tls::init_ops(),
             deno_http::deno_http::init_ops(),
             sb_env_op::init_ops(),
@@ -308,8 +308,7 @@ impl UserWorker {
                 );
                 let _ = memory_limit_tx.send(mib_to_bytes(memory_limit_mb));
                 // add a 25% allowance to memory limit
-                let cur = mib_to_bytes(memory_limit_mb + memory_limit_mb.div_euclid(4)) as usize;
-                cur
+                mib_to_bytes(memory_limit_mb + memory_limit_mb.div_euclid(4)) as usize
             });
 
         // set bootstrap options
@@ -319,7 +318,7 @@ impl UserWorker {
             deno_core::serde_json::json!({ "target": env!("TARGET") })
         );
         self.js_runtime
-            .execute_script::<String>(&located_script_name!(), script.into())
+            .execute_script::<String>(located_script_name!(), script)
             .expect("Failed to execute bootstrap script");
 
         let (unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
@@ -368,7 +367,8 @@ impl UserWorker {
             error!("worker thread panicked {:?}", res.as_ref().err().unwrap());
         }
 
-        Ok(shutdown_tx.send(()).unwrap())
+        shutdown_tx.send(()).unwrap();
+        Ok(())
     }
 
     fn start_controller_thread(
@@ -398,7 +398,7 @@ impl UserWorker {
             };
             rt.block_on(future);
 
-            if let Err(_) = halt_execution_tx.send(()) {
+            if halt_execution_tx.send(()).is_err() {
                 error!("failed to send the halt execution signal");
             }
         });

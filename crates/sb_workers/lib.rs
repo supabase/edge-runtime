@@ -48,33 +48,37 @@ pub async fn op_user_worker_create(
     state: Rc<RefCell<OpState>>,
     opts: UserWorkerCreateOptions,
 ) -> Result<String, AnyError> {
-    let op_state = state.borrow();
-    let tx = op_state.borrow::<mpsc::UnboundedSender<UserWorkerMsgs>>();
-    let (result_tx, result_rx) = oneshot::channel::<Result<CreateUserWorkerResult, Error>>();
+    let result_rx = {
+        let op_state = state.borrow();
+        let tx = op_state.borrow::<mpsc::UnboundedSender<UserWorkerMsgs>>();
+        let (result_tx, result_rx) = oneshot::channel::<Result<CreateUserWorkerResult, Error>>();
 
-    let UserWorkerCreateOptions {
-        service_path,
-        memory_limit_mb,
-        worker_timeout_ms,
-        no_module_cache,
-        import_map_path,
-        env_vars,
-    } = opts;
+        let UserWorkerCreateOptions {
+            service_path,
+            memory_limit_mb,
+            worker_timeout_ms,
+            no_module_cache,
+            import_map_path,
+            env_vars,
+        } = opts;
 
-    let mut env_vars_map = HashMap::new();
-    for (key, value) in env_vars {
-        env_vars_map.insert(key, value);
-    }
+        let mut env_vars_map = HashMap::new();
+        for (key, value) in env_vars {
+            env_vars_map.insert(key, value);
+        }
 
-    let user_worker_options = UserWorkerOptions {
-        service_path: PathBuf::from(service_path),
-        memory_limit_mb,
-        worker_timeout_ms,
-        no_module_cache,
-        import_map_path,
-        env_vars: env_vars_map,
+        let user_worker_options = UserWorkerOptions {
+            service_path: PathBuf::from(service_path),
+            memory_limit_mb,
+            worker_timeout_ms,
+            no_module_cache,
+            import_map_path,
+            env_vars: env_vars_map,
+        };
+        tx.send(UserWorkerMsgs::Create(user_worker_options, result_tx))?;
+
+        result_rx
     };
-    tx.send(UserWorkerMsgs::Create(user_worker_options, result_tx))?;
 
     let result = result_rx.await;
     if result.is_err() {
@@ -283,15 +287,18 @@ pub async fn op_user_worker_fetch_send(
     key: String,
     rid: ResourceId,
 ) -> Result<UserWorkerResponse, AnyError> {
-    let mut op_state = state.borrow_mut();
-    let tx = op_state
-        .borrow::<mpsc::UnboundedSender<UserWorkerMsgs>>()
-        .clone();
+    let (tx, request) = {
+        let mut op_state = state.borrow_mut();
+        let tx = op_state
+            .borrow::<mpsc::UnboundedSender<UserWorkerMsgs>>()
+            .clone();
 
-    let request = op_state
-        .resource_table
-        .take::<UserWorkerRequestResource>(rid)?;
-    drop(op_state);
+        let request = op_state
+            .resource_table
+            .take::<UserWorkerRequestResource>(rid)?;
+
+        (tx, request)
+    };
 
     let request = Rc::try_unwrap(request)
         .ok()
@@ -314,7 +321,7 @@ pub async fn op_user_worker_fetch_send(
     for (key, value) in result.headers().iter() {
         headers.push((
             ByteString::from(key.as_str()),
-            ByteString::from(value.to_str().unwrap_or(&"")),
+            ByteString::from(value.to_str().unwrap_or("")),
         ));
     }
 
@@ -322,7 +329,7 @@ pub async fn op_user_worker_fetch_send(
     let status_text = result
         .status()
         .canonical_reason()
-        .unwrap_or(&"<unknown status code>")
+        .unwrap_or("<unknown status code>")
         .to_string();
 
     let size = HttpBody::size_hint(result.body()).exact();

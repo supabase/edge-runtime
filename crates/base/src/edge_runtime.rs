@@ -72,6 +72,14 @@ pub struct EdgeRuntime {
     pub curr_user_opts: EdgeUserRuntimeOpts,
 }
 
+#[derive(Debug, PartialEq)]
+pub enum EdgeCallResult {
+    Unknown,
+    TimeOut,
+    HeapLimitReached,
+    Completed,
+}
+
 impl EdgeRuntime {
     pub fn new(opts: EdgeContextInitOpts) -> Result<Self, Error> {
         let EdgeContextInitOpts {
@@ -182,7 +190,7 @@ impl EdgeRuntime {
         mut self,
         stream: UnixStream,
         shutdown_tx: oneshot::Sender<()>,
-    ) -> Result<(), Error> {
+    ) -> Result<EdgeCallResult, Error> {
         let is_user_rt = self.is_user_runtime;
 
         let (unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
@@ -203,7 +211,7 @@ impl EdgeRuntime {
             }
         }
 
-        let (halt_isolate_tx, mut halt_isolate_rx) = oneshot::channel::<()>();
+        let (halt_isolate_tx, mut halt_isolate_rx) = oneshot::channel::<EdgeCallResult>();
 
         if is_user_rt {
             let (memory_limit_tx, memory_limit_rx) = mpsc::unbounded_channel::<u64>();
@@ -239,14 +247,17 @@ impl EdgeRuntime {
                 .await?;
             let mod_result = js_runtime.mod_evaluate(mod_id);
 
-            let result = tokio::select! {
+            let result: Result<EdgeCallResult, Error> = tokio::select! {
                 _ = js_runtime.run_event_loop(false) => {
                     debug!("Event loop has completed");
-                    mod_result.await?
+                    let _ = mod_result.await?;
+
+                    Ok(EdgeCallResult::Completed)
                 },
-                _ = &mut halt_isolate_rx => {
+                call_result = &mut halt_isolate_rx => {
                     debug!("User Worker execution halted");
-                    Ok(())
+
+                    Ok(call_result.unwrap_or(EdgeCallResult::Unknown))
                 }
             };
 
@@ -257,18 +268,18 @@ impl EdgeRuntime {
         let res = future.await;
 
         if res.is_err() {
-            error!("worker thread panicked {:?}", res.as_ref().err().unwrap());
+            println!("worker thread panicked {:?}", res.as_ref().err().unwrap());
         }
 
         shutdown_tx.send(()).unwrap();
-        Ok(())
+        res
     }
 
     fn start_controller_thread(
         &mut self,
         worker_timeout_ms: u64,
         mut memory_limit_rx: mpsc::UnboundedReceiver<u64>,
-        halt_isolate_tx: oneshot::Sender<()>,
+        halt_isolate_tx: oneshot::Sender<EdgeCallResult>,
     ) {
         let thread_safe_handle = self.js_runtime.v8_isolate().thread_safe_handle();
 
@@ -283,16 +294,18 @@ impl EdgeRuntime {
                     _ = tokio::time::sleep(Duration::from_millis(worker_timeout_ms)) => {
                         debug!("max duration reached for the worker. terminating the worker. (duration {})", human_elapsed(worker_timeout_ms));
                         thread_safe_handle.terminate_execution();
+                        return EdgeCallResult::TimeOut;
                     }
                     Some(val) = memory_limit_rx.recv() => {
                         error!("memory limit reached for the worker. terminating the worker. (used: {})", bytes_to_display(val));
                         thread_safe_handle.terminate_execution();
+                        return EdgeCallResult::HeapLimitReached;
                     }
                 }
             };
-            rt.block_on(future);
+            let call = rt.block_on(future);
 
-            if let Err(_) = halt_isolate_tx.send(()) {
+            if let Err(_) = halt_isolate_tx.send(call) {
                 error!("failed to send the halt execution signal");
             }
         });
@@ -313,16 +326,19 @@ impl EdgeRuntime {
 
 #[cfg(test)]
 mod test {
-    use crate::edge_runtime::EdgeRuntime;
+    use crate::edge_runtime::{EdgeCallResult, EdgeRuntime};
     use deno_core::v8::{ContextScope, HandleScope, Local, Object};
     use deno_core::{serde_v8, JsRuntime};
     use sb_worker_context::essentials::{
-        EdgeContextInitOpts, EdgeContextOpts, EdgeMainRuntimeOpts, UserWorkerMsgs,
+        EdgeContextInitOpts, EdgeContextOpts, EdgeMainRuntimeOpts, EdgeUserRuntimeOpts,
+        UserWorkerMsgs,
     };
     use std::collections::HashMap;
     use std::path::PathBuf;
-    use tokio::sync::mpsc;
+    use tokio::net::UnixStream;
     use tokio::sync::mpsc::UnboundedSender;
+    use tokio::sync::oneshot::Sender;
+    use tokio::sync::{mpsc, oneshot};
 
     fn create_runtime(
         path: Option<PathBuf>,
@@ -348,6 +364,12 @@ mod test {
         .unwrap();
 
         runtime
+    }
+
+    fn create_user_rt_params_to_run() -> (UnixStream, Sender<()>) {
+        let (sender_stream, recv_stream) = UnixStream::pair().unwrap();
+        let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+        (recv_stream, shutdown_tx)
     }
 
     // Main Runtime should have access to `EdgeRuntime`
@@ -454,5 +476,21 @@ mod test {
         let user_serde_deno_env =
             user_rt.to_value::<deno_core::serde_json::Value>(&user_deno_env_get_supa_test);
         assert_eq!(user_serde_deno_env.unwrap().is_null(), true);
+    }
+
+    #[tokio::test]
+    async fn test_timeout_infinite_loop() {
+        let mut user_rt = create_runtime(
+            Some(PathBuf::from("/Users/andrespirela/Documents/workspace/supabase/edge-runtime/examples/infinite_loop")),
+            None,
+            Some(EdgeContextOpts::UserWorker(EdgeUserRuntimeOpts {
+                memory_limit_mb: 100,
+                worker_timeout_ms: 1000,
+                id: "".to_string()
+            })),
+        );
+        let (stream, shutdown) = create_user_rt_params_to_run();
+        let data = user_rt.run(stream, shutdown).await.unwrap();
+        assert_eq!(data, EdgeCallResult::TimeOut);
     }
 }

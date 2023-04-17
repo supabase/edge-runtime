@@ -88,12 +88,13 @@ fn op_net_listen(_state: &mut OpState) -> Result<(ResourceId, IpAddr), AnyError>
 async fn op_net_accept(
     state: Rc<RefCell<OpState>>,
 ) -> Result<(ResourceId, IpAddr, IpAddr), AnyError> {
-    let mut op_state = state.borrow_mut();
     // we do not want to keep the op_state locked,
     // so we take the channel receiver from it and release op state.
     // we need to add it back later after processing a message.
-    let mut rx = op_state.take::<mpsc::UnboundedReceiver<tokio::net::UnixStream>>();
-    drop(op_state);
+    let mut rx = {
+        let mut op_state = state.borrow_mut();
+        op_state.take::<mpsc::UnboundedReceiver<tokio::net::UnixStream>>()
+    };
 
     let unix_stream = rx.recv().await;
     if unix_stream.is_none() {

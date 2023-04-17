@@ -43,3 +43,6 @@ flate2.workspace = true
 tar.workspace = true
 tokio-util.workspace = true
 percent-encoding = "2.2.0"
+
+[dev-dependencies]
+pretty_assertions = "1"

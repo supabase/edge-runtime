@@ -29,7 +29,7 @@ deno_core::extension!(sb_core_runtime,
     },
     state = |state, options| {
         if let Some(module_init) = options.main_module {
-            state.put::<ModuleSpecifier>(module_init.clone());
+            state.put::<ModuleSpecifier>(module_init);
         }
     },
 );

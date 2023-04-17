@@ -46,7 +46,7 @@ fn op_get_env(state: &mut OpState, key: String) -> Result<Option<String>, AnyErr
     }
 
     let env_vars = state.borrow::<EnvVars>();
-    let r = env_vars.get(&key).map(|k| k.clone());
+    let r = env_vars.get(&key).cloned();
     Ok(r)
 }
 

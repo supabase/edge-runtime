@@ -12,7 +12,7 @@ use hyper::header::{HeaderName, HeaderValue};
 use hyper::{Body, Request, Response};
 use sb_worker_context::essentials::{
     CreateUserWorkerResult, EdgeContextInitOpts, EdgeContextOpts, EdgeUserRuntimeOpts,
-    UserWorkerMsgs, UserWorkerOptions,
+    UserWorkerMsgs,
 };
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;

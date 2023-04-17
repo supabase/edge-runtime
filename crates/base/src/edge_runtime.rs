@@ -1,8 +1,7 @@
 use crate::utils::units::{bytes_to_display, human_elapsed, mib_to_bytes};
 
 use crate::js_worker::module_loader;
-use crate::js_worker::types;
-use anyhow::{anyhow, bail, Error};
+use anyhow::{bail, Error};
 use deno_core::located_script_name;
 use deno_core::url::Url;
 use deno_core::JsRuntime;
@@ -14,13 +13,11 @@ use std::collections::HashMap;
 use std::fs;
 use std::panic;
 use std::path::Path;
-use std::path::PathBuf;
 use std::rc::Rc;
 use std::thread;
 use std::time::Duration;
 use tokio::net::UnixStream;
 use tokio::sync::mpsc;
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot;
 
 use crate::snapshot;
@@ -85,7 +82,7 @@ impl EdgeRuntime {
 
         let (is_user_runtime, user_rt_opts) = match conf.clone() {
             EdgeContextOpts::UserWorker(conf) => (true, conf.clone()),
-            EdgeContextOpts::MainWorker(conf) => (false, EdgeUserRuntimeOpts::default()),
+            EdgeContextOpts::MainWorker(_conf) => (false, EdgeUserRuntimeOpts::default()),
         };
 
         let user_agent = "supabase-edge-runtime".to_string();
@@ -180,7 +177,7 @@ impl EdgeRuntime {
 
         let (unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
         if let Err(e) = unix_stream_tx.send(stream) {
-            return bail!(e);
+            bail!(e)
         }
 
         //run inside a closure, so op_state_rc is released

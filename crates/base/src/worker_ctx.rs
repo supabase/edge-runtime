@@ -4,11 +4,10 @@ use hyper::{Body, Request, Response};
 use log::error;
 use sb_worker_context::essentials::{
     CreateUserWorkerResult, EdgeContextInitOpts, EdgeContextOpts, EdgeMainRuntimeOpts,
-    UserWorkerMsgs, UserWorkerOptions,
+    UserWorkerMsgs,
 };
 use std::collections::HashMap;
 use std::path::Path;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
 use tokio::net::UnixStream;

@@ -131,7 +131,7 @@ impl EdgeRuntime {
         let import_map = load_import_map(import_map_path)?;
         let module_loader = DefaultModuleLoader::new(import_map, no_module_cache)?;
 
-        let js_runtime = JsRuntime::new(RuntimeOptions {
+        let mut js_runtime = JsRuntime::new(RuntimeOptions {
             extensions,
             module_loader: Some(Rc::new(module_loader)),
             is_main: true,
@@ -151,6 +151,17 @@ impl EdgeRuntime {
             ..Default::default()
         });
 
+        // Bootstrapping stage
+        let script = format!(
+            "globalThis.bootstrapSBEdge({}, {})",
+            deno_core::serde_json::json!({ "target": env!("TARGET") }),
+            is_user_runtime
+        );
+
+        js_runtime
+            .execute_script::<String>(&located_script_name!(), script.into())
+            .expect("Failed to execute bootstrap script");
+
         Ok(Self {
             js_runtime,
             main_module_url,
@@ -167,17 +178,6 @@ impl EdgeRuntime {
         shutdown_tx: oneshot::Sender<()>,
     ) -> Result<(), Error> {
         let is_user_rt = self.is_user_runtime;
-
-        // Bootstrapping stage
-        let script = format!(
-            "globalThis.bootstrapSBEdge({}, {})",
-            deno_core::serde_json::json!({ "target": env!("TARGET") }),
-            is_user_rt
-        );
-
-        self.js_runtime
-            .execute_script::<String>(&located_script_name!(), script.into())
-            .expect("Failed to execute bootstrap script");
 
         let (unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
         if let Err(e) = unix_stream_tx.send(stream) {
@@ -291,5 +291,93 @@ impl EdgeRuntime {
                 error!("failed to send the halt execution signal");
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::edge_runtime::EdgeRuntime;
+    use deno_core::v8::{ContextScope, HandleScope, Local, Object};
+    use deno_core::{serde_v8, JsRuntime};
+    use sb_worker_context::essentials::{
+        EdgeContextInitOpts, EdgeContextOpts, EdgeMainRuntimeOpts, UserWorkerMsgs,
+    };
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+    use tokio::sync::mpsc;
+    use tokio::sync::mpsc::UnboundedSender;
+
+    fn create_runtime(
+        path: Option<PathBuf>,
+        env_vars: Option<HashMap<String, String>>,
+        user_conf: Option<EdgeContextOpts>,
+    ) -> EdgeRuntime {
+        let (worker_pool_tx, _) = mpsc::unbounded_channel::<UserWorkerMsgs>();
+        let mut runtime = EdgeRuntime::new(EdgeContextInitOpts {
+            service_path: path.unwrap_or(PathBuf::from("./examples/main")),
+            no_module_cache: false,
+            import_map_path: None,
+            env_vars: env_vars.unwrap_or(Default::default()),
+            conf: {
+                if user_conf.is_some() {
+                    user_conf.unwrap()
+                } else {
+                    EdgeContextOpts::MainWorker(EdgeMainRuntimeOpts {
+                        worker_pool_tx: worker_pool_tx,
+                    })
+                }
+            },
+        })
+        .unwrap();
+
+        runtime
+    }
+
+    // Main Runtime should have access to `EdgeRuntime`
+    #[tokio::test]
+    async fn test_main_runtime_creation() {
+        let mut runtime = create_runtime(None, None, None);
+
+        {
+            let scope = &mut runtime.js_runtime.handle_scope();
+            let context = scope.get_current_context();
+            let inner_scope = &mut deno_core::v8::ContextScope::new(scope, context);
+            let global = context.global(inner_scope);
+            let edge_runtime_key: deno_core::v8::Local<deno_core::v8::Value> =
+                deno_core::serde_v8::to_v8(inner_scope, "EdgeRuntime").unwrap();
+            assert_eq!(
+                global
+                    .get(inner_scope, edge_runtime_key)
+                    .unwrap()
+                    .is_undefined(),
+                false
+            );
+        }
+    }
+
+    // User Runtime Should not have access to EdgeRuntime
+    #[tokio::test]
+    async fn test_user_runtime_creation() {
+        let mut runtime = create_runtime(
+            None,
+            None,
+            Some(EdgeContextOpts::UserWorker(Default::default())),
+        );
+
+        {
+            let scope = &mut runtime.js_runtime.handle_scope();
+            let context = scope.get_current_context();
+            let inner_scope = &mut deno_core::v8::ContextScope::new(scope, context);
+            let global = context.global(inner_scope);
+            let edge_runtime_key: deno_core::v8::Local<deno_core::v8::Value> =
+                deno_core::serde_v8::to_v8(inner_scope, "EdgeRuntime").unwrap();
+            assert_eq!(
+                global
+                    .get(inner_scope, edge_runtime_key)
+                    .unwrap()
+                    .is_undefined(),
+                true
+            );
+        }
     }
 }

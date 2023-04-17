@@ -264,7 +264,7 @@ impl EdgeRuntime {
         &mut self,
         worker_timeout_ms: u64,
         mut memory_limit_rx: mpsc::UnboundedReceiver<u64>,
-        halt_execution_tx: oneshot::Sender<()>,
+        halt_isolate_tx: oneshot::Sender<()>,
     ) {
         let thread_safe_handle = self.js_runtime.v8_isolate().thread_safe_handle();
 
@@ -277,7 +277,8 @@ impl EdgeRuntime {
             let future = async move {
                 tokio::select! {
                     _ = tokio::time::sleep(Duration::from_millis(worker_timeout_ms)) => {
-                        debug!("max duration reached for the worker. terminating the worker. (duration {})", human_elapsed(worker_timeout_ms))
+                        debug!("max duration reached for the worker. terminating the worker. (duration {})", human_elapsed(worker_timeout_ms));
+                        thread_safe_handle.terminate_execution();
                     }
                     Some(val) = memory_limit_rx.recv() => {
                         error!("memory limit reached for the worker. terminating the worker. (used: {})", bytes_to_display(val));
@@ -287,7 +288,7 @@ impl EdgeRuntime {
             };
             rt.block_on(future);
 
-            if let Err(_) = halt_execution_tx.send(()) {
+            if let Err(_) = halt_isolate_tx.send(()) {
                 error!("failed to send the halt execution signal");
             }
         });

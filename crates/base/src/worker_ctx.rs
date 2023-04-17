@@ -47,7 +47,7 @@ impl WorkerContext {
                 worker.run(recv_stream, shutdown_tx).await?;
 
                 // wait for shutdown signal
-                let _ = shutdown_rx.blocking_recv();
+                let _ = shutdown_rx.await;
 
                 Ok(())
             });

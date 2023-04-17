@@ -4,6 +4,12 @@ use std::path::Path;
 
 pub struct Permissions;
 
+impl Default for Permissions {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Permissions {
     pub fn new() -> Self {
         Self

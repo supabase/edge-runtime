@@ -413,7 +413,7 @@ impl FileFetcher {
         let file_fetcher = self.clone();
         // A single pass of fetch either yields code or yields a redirect.
         async move {
-            let result = match fetch_once(
+            match fetch_once(
                 &client,
                 FetchOnceArgs {
                     url: specifier.clone(),
@@ -441,8 +441,7 @@ impl FileFetcher {
                     let file = file_fetcher.build_remote_file(&specifier, bytes, &headers)?;
                     Ok(file)
                 }
-            };
-            result
+            }
         }
         .boxed()
     }
@@ -675,7 +674,6 @@ mod tests {
     use deno_core::url::Url;
     use deno_fetch::create_http_client;
     use deno_web::Blob;
-    use deno_web::InMemoryBlobPart;
     use deno_web::InMemoryBlobPart;
     use std::fs::read;
     use test_util::TempDir;

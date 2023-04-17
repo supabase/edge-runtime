@@ -1,6 +1,5 @@
 // build script
 use std::env;
-use std::fmt::format;
 use std::path::PathBuf;
 
 mod supabase_startup_snapshot {
@@ -142,11 +141,7 @@ mod supabase_startup_snapshot {
                 root_cert_store: None,
                 ..Default::default()
             }),
-            deno_websocket::deno_websocket::init_ops_and_esm::<Permissions>(
-                user_agent.clone(),
-                None,
-                None,
-            ),
+            deno_websocket::deno_websocket::init_ops_and_esm::<Permissions>(user_agent, None, None),
             // TODO: support providing a custom seed for crypto
             deno_crypto::deno_crypto::init_ops_and_esm(None),
             deno_net::deno_net::init_ops_and_esm::<Permissions>(None, false, None),

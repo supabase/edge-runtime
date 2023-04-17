@@ -15,17 +15,14 @@ use std::collections::HashMap;
 use std::fs;
 use std::panic;
 use std::path::Path;
-use std::path::PathBuf;
 use std::rc::Rc;
 use std::thread;
 use std::time::Duration;
 use tokio::net::UnixStream;
 use tokio::sync::mpsc;
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot;
 
 use crate::snapshot;
-use crate::snapshot::snapshot;
 use module_loader::DefaultModuleLoader;
 use sb_core::http_start::sb_core_http;
 use sb_core::net::sb_core_net;
@@ -43,7 +40,7 @@ fn load_import_map(maybe_path: Option<String>) -> Result<Option<ImportMap>, Erro
         let path = Path::new(&path_str);
         let json_str = fs::read_to_string(path)?;
 
-        let abs_path = std::env::current_dir().map(|p| p.join(&path))?;
+        let abs_path = std::env::current_dir().map(|p| p.join(path))?;
         let base_url = Url::from_directory_path(abs_path.parent().unwrap()).unwrap();
         let result = parse_from_json(&base_url, json_str.as_str())?;
         print_import_map_diagnostics(&result.diagnostics);
@@ -87,7 +84,7 @@ impl EdgeRuntime {
 
         let (is_user_runtime, user_rt_opts) = match conf.clone() {
             EdgeContextOpts::UserWorker(conf) => (true, conf.clone()),
-            EdgeContextOpts::MainWorker(conf) => (false, EdgeUserRuntimeOpts::default()),
+            EdgeContextOpts::MainWorker(_conf) => (false, EdgeUserRuntimeOpts::default()),
         };
 
         let user_agent = "supabase-edge-runtime".to_string();
@@ -112,13 +109,13 @@ impl EdgeRuntime {
                 ..Default::default()
             }),
             deno_websocket::deno_websocket::init_ops::<Permissions>(
-                user_agent.clone(),
+                user_agent,
                 Some(root_cert_store.clone()),
                 None,
             ),
             // TODO: support providing a custom seed for crypto
             deno_crypto::deno_crypto::init_ops(None),
-            deno_net::deno_net::init_ops::<Permissions>(Some(root_cert_store.clone()), false, None),
+            deno_net::deno_net::init_ops::<Permissions>(Some(root_cert_store), false, None),
             deno_tls::deno_tls::init_ops(),
             deno_http::deno_http::init_ops(),
             sb_env_op::init_ops(),
@@ -190,7 +187,7 @@ impl EdgeRuntime {
 
         let (unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
         if let Err(e) = unix_stream_tx.send(stream) {
-            return bail!(e);
+            bail!(e)
         }
 
         {
@@ -263,14 +260,15 @@ impl EdgeRuntime {
             error!("worker thread panicked {:?}", res.as_ref().err().unwrap());
         }
 
-        Ok(shutdown_tx.send(()).unwrap())
+        shutdown_tx.send(()).unwrap();
+        Ok(())
     }
 
     fn start_controller_thread(
         &mut self,
         worker_timeout_ms: u64,
         mut memory_limit_rx: mpsc::UnboundedReceiver<u64>,
-        halt_execution_tx: oneshot::Sender<()>,
+        halt_isolate_tx: oneshot::Sender<()>,
     ) {
         let thread_safe_handle = self.js_runtime.v8_isolate().thread_safe_handle();
 
@@ -283,7 +281,8 @@ impl EdgeRuntime {
             let future = async move {
                 tokio::select! {
                     _ = tokio::time::sleep(Duration::from_millis(worker_timeout_ms)) => {
-                        debug!("max duration reached for the worker. terminating the worker. (duration {})", human_elapsed(worker_timeout_ms))
+                        debug!("max duration reached for the worker. terminating the worker. (duration {})", human_elapsed(worker_timeout_ms));
+                        thread_safe_handle.terminate_execution();
                     }
                     Some(val) = memory_limit_rx.recv() => {
                         error!("memory limit reached for the worker. terminating the worker. (used: {})", bytes_to_display(val));
@@ -293,7 +292,7 @@ impl EdgeRuntime {
             };
             rt.block_on(future);
 
-            if let Err(_) = halt_execution_tx.send(()) {
+            if let Err(_) = halt_isolate_tx.send(()) {
                 error!("failed to send the halt execution signal");
             }
         });

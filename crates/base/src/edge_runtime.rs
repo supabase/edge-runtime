@@ -1,15 +1,16 @@
 use crate::utils::units::{bytes_to_display, human_elapsed, mib_to_bytes};
 
 use crate::js_worker::module_loader;
-use crate::js_worker::types;
 use anyhow::{anyhow, bail, Error};
-use deno_core::located_script_name;
+use deno_core::error::AnyError;
 use deno_core::url::Url;
 use deno_core::JsRuntime;
 use deno_core::ModuleSpecifier;
 use deno_core::RuntimeOptions;
+use deno_core::{located_script_name, serde_v8};
 use import_map::{parse_from_json, ImportMap, ImportMapDiagnostic};
 use log::{debug, error, warn};
+use serde::de::DeserializeOwned;
 use std::collections::HashMap;
 use std::fs;
 use std::panic;
@@ -162,6 +163,14 @@ impl EdgeRuntime {
             .execute_script::<String>(&located_script_name!(), script.into())
             .expect("Failed to execute bootstrap script");
 
+        {
+            //run inside a closure, so op_state_rc is released
+            let env_vars = env_vars.clone();
+            let op_state_rc = js_runtime.op_state();
+            let mut op_state = op_state_rc.borrow_mut();
+            op_state.put::<sb_env::EnvVars>(env_vars);
+        }
+
         Ok(Self {
             js_runtime,
             main_module_url,
@@ -184,13 +193,10 @@ impl EdgeRuntime {
             return bail!(e);
         }
 
-        //run inside a closure, so op_state_rc is released
-        let env_vars = self.env_vars.clone();
         {
             let op_state_rc = self.js_runtime.op_state();
             let mut op_state = op_state_rc.borrow_mut();
             op_state.put::<mpsc::UnboundedReceiver<UnixStream>>(unix_stream_rx);
-            op_state.put::<sb_env::EnvVars>(env_vars);
 
             if !is_user_rt {
                 if let EdgeContextOpts::MainWorker(conf) = self.conf.clone() {
@@ -292,6 +298,18 @@ impl EdgeRuntime {
             }
         });
     }
+
+    fn to_value<T>(
+        &mut self,
+        global_value: &deno_core::v8::Global<deno_core::v8::Value>,
+    ) -> Result<T, AnyError>
+    where
+        T: DeserializeOwned + 'static,
+    {
+        let scope = &mut self.js_runtime.handle_scope();
+        let value = deno_core::v8::Local::new(scope, global_value.clone());
+        Ok(serde_v8::from_v8(scope, value)?)
+    }
 }
 
 #[cfg(test)]
@@ -379,5 +397,63 @@ mod test {
                 true
             );
         }
+    }
+
+    #[tokio::test]
+    async fn test_os_env_vars() {
+        std::env::set_var("Supa_Test", "Supa_Value");
+        let mut main_rt = create_runtime(None, Some(std::env::vars().collect()), None);
+        let mut user_rt = create_runtime(
+            None,
+            None,
+            Some(EdgeContextOpts::UserWorker(Default::default())),
+        );
+        assert!(main_rt.env_vars.len() > 0);
+        assert_eq!(user_rt.env_vars.len(), 0);
+
+        let err = main_rt
+            .js_runtime
+            .execute_script(
+                "<anon>",
+                r#"
+            // Should not be able to set
+            Deno.env.set("Supa_Test", "Supa_Value");
+        "#,
+            )
+            .err()
+            .unwrap();
+        assert!(err
+            .to_string()
+            .contains("Error: The operation is not supported"));
+
+        let main_deno_env_get_supa_test = main_rt
+            .js_runtime
+            .execute_script(
+                "<anon>",
+                r#"
+            // Should not be able to set
+            Deno.env.get("Supa_Test");
+        "#,
+            )
+            .unwrap();
+        let serde_deno_env =
+            main_rt.to_value::<deno_core::serde_json::Value>(&main_deno_env_get_supa_test);
+        assert_eq!(serde_deno_env.unwrap().as_str().unwrap(), "Supa_Value");
+
+        // User does not have this env variable because it was not provided
+        // During the runtime creation
+        let user_deno_env_get_supa_test = user_rt
+            .js_runtime
+            .execute_script(
+                "<anon>",
+                r#"
+            // Should not be able to set
+            Deno.env.get("Supa_Test");
+        "#,
+            )
+            .unwrap();
+        let user_serde_deno_env =
+            user_rt.to_value::<deno_core::serde_json::Value>(&user_deno_env_get_supa_test);
+        assert_eq!(user_serde_deno_env.unwrap().is_null(), true);
     }
 }

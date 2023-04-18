@@ -222,7 +222,7 @@ impl EdgeRuntime {
             let memory_limit_mb = self.curr_user_opts.memory_limit_mb;
             let handle = self.js_runtime.v8_isolate().thread_safe_handle();
             self.js_runtime.add_near_heap_limit_callback(move |cur, _| {
-                println!(
+                debug!(
                     "Low memory alert triggered: {}",
                     bytes_to_display(cur as u64),
                 );

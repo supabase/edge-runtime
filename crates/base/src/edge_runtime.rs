@@ -76,6 +76,7 @@ pub struct EdgeRuntime {
 pub enum EdgeCallResult {
     Unknown,
     TimeOut,
+    ModuleEvaluationTimedOut,
     HeapLimitReached,
     Completed,
 }
@@ -250,13 +251,15 @@ impl EdgeRuntime {
             let result: Result<EdgeCallResult, Error> = tokio::select! {
                 _ = js_runtime.run_event_loop(false) => {
                     debug!("Event loop has completed");
-                    let _ = mod_result.await?;
+
+                    if let Err(err) = tokio::time::timeout(std::time::Duration::from_millis(self.curr_user_opts.worker_timeout_ms), mod_result).await {
+                        return Ok(EdgeCallResult::ModuleEvaluationTimedOut);
+                    }
 
                     Ok(EdgeCallResult::Completed)
                 },
                 call_result = &mut halt_isolate_rx => {
                     debug!("User Worker execution halted");
-
                     Ok(call_result.unwrap_or(EdgeCallResult::Unknown))
                 }
             };
@@ -337,7 +340,7 @@ mod test {
     use std::path::PathBuf;
     use tokio::net::UnixStream;
     use tokio::sync::mpsc::UnboundedSender;
-    use tokio::sync::oneshot::Sender;
+    use tokio::sync::oneshot::{Receiver, Sender};
     use tokio::sync::{mpsc, oneshot};
 
     fn create_runtime(
@@ -366,10 +369,10 @@ mod test {
         runtime
     }
 
-    fn create_user_rt_params_to_run() -> (UnixStream, Sender<()>) {
+    fn create_user_rt_params_to_run() -> (UnixStream, Sender<()>, Receiver<()>) {
         let (sender_stream, recv_stream) = UnixStream::pair().unwrap();
         let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
-        (recv_stream, shutdown_tx)
+        (recv_stream, shutdown_tx, shutdown_rx)
     }
 
     // Main Runtime should have access to `EdgeRuntime`
@@ -478,19 +481,55 @@ mod test {
         assert_eq!(user_serde_deno_env.unwrap().is_null(), true);
     }
 
-    #[tokio::test]
-    async fn test_timeout_infinite_loop() {
-        let mut user_rt = create_runtime(
-            Some(PathBuf::from("/Users/andrespirela/Documents/workspace/supabase/edge-runtime/examples/infinite_loop")),
+    fn create_basic_user_runtime(path: &str) -> EdgeRuntime {
+        create_runtime(
+            Some(PathBuf::from(path)),
             None,
             Some(EdgeContextOpts::UserWorker(EdgeUserRuntimeOpts {
                 memory_limit_mb: 100,
                 worker_timeout_ms: 1000,
-                id: "".to_string()
+                id: "".to_string(),
             })),
-        );
-        let (stream, shutdown) = create_user_rt_params_to_run();
+        )
+    }
+
+    #[tokio::test]
+    async fn test_timeout_infinite_promises() {
+        let mut user_rt = create_basic_user_runtime("./test_cases/infinite_promises");
+        let (stream, shutdown, receiver) = create_user_rt_params_to_run();
+        let data = user_rt.run(stream, shutdown).await.unwrap();
+        assert_eq!(data, EdgeCallResult::ModuleEvaluationTimedOut);
+    }
+
+    #[tokio::test]
+    async fn test_timeout_infinite_loop() {
+        let mut user_rt = create_basic_user_runtime("./test_cases/infinite_loop");
+        let (stream, shutdown, receiver) = create_user_rt_params_to_run();
         let data = user_rt.run(stream, shutdown).await.unwrap();
         assert_eq!(data, EdgeCallResult::TimeOut);
+    }
+
+    #[tokio::test]
+    async fn test_unresolved_promise() {
+        let mut user_rt = create_basic_user_runtime("./test_cases/unresolved_promise");
+        let (stream, shutdown, receiver) = create_user_rt_params_to_run();
+        let data = user_rt.run(stream, shutdown).await.unwrap();
+        assert_eq!(data, EdgeCallResult::ModuleEvaluationTimedOut);
+    }
+
+    #[tokio::test]
+    async fn test_delayed_promise() {
+        let mut user_rt = create_basic_user_runtime("./test_cases/resolve_promise_after_timeout");
+        let (stream, shutdown, receiver) = create_user_rt_params_to_run();
+        let data = user_rt.run(stream, shutdown).await.unwrap();
+        assert_eq!(data, EdgeCallResult::TimeOut);
+    }
+
+    #[tokio::test]
+    async fn test_success_delayed_promise() {
+        let mut user_rt = create_basic_user_runtime("./test_cases/resolve_promise_before_timeout");
+        let (stream, shutdown, receiver) = create_user_rt_params_to_run();
+        let data = user_rt.run(stream, shutdown).await.unwrap();
+        assert_eq!(data, EdgeCallResult::Completed);
     }
 }

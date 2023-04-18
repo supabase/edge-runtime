@@ -246,4 +246,17 @@ describe('basic tests (hello function)', () => {
     log(`assert ${data} is equal to 'Hello World'`)
     expect(data).toEqual('Hello World')
   })
+
+  // regression: https://github.com/supabase/edge-runtime/issues/50
+  test('invoke preflight request', async () => {
+    log('perform a preflight request')
+    const res = await getCustomFetch(`http://localhost:${relay.container.getMappedPort(port)}/hello`, {
+      method: 'OPTIONS',
+      headers: {
+        Authorization: `Bearer ${apiKey}`
+      }
+    })('')
+
+    expect(await res.text()).toMatchInlineSnapshot()
+  })
 })

@@ -389,10 +389,7 @@ impl Stream for MpscByteStream {
         let val = std::task::ready!(self.receiver.poll_recv(cx));
         match val {
             None if self.shutdown => Poll::Ready(None),
-            None => Poll::Ready(Some(Err(std::io::Error::new(
-                std::io::ErrorKind::UnexpectedEof,
-                "channel closed",
-            )))),
+            None => Poll::Ready(None),
             Some(None) => {
                 self.shutdown = true;
                 Poll::Ready(None)

@@ -20,6 +20,7 @@ use std::thread;
 use std::time::Duration;
 use tokio::net::UnixStream;
 use tokio::sync::mpsc;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot;
 
 use crate::snapshot;
@@ -145,7 +146,7 @@ impl EdgeRuntime {
             create_params: {
                 if is_user_runtime {
                     Some(deno_core::v8::CreateParams::default().heap_limits(
-                        mib_to_bytes(1) as usize,
+                        mib_to_bytes(0) as usize,
                         mib_to_bytes(user_rt_opts.memory_limit_mb) as usize,
                     ))
                 } else {
@@ -219,19 +220,17 @@ impl EdgeRuntime {
 
             // add a callback when a worker reaches its memory limit
             let memory_limit_mb = self.curr_user_opts.memory_limit_mb;
-            self.js_runtime
-                .add_near_heap_limit_callback(move |cur, _init| {
-                    debug!(
-                        "[{}] Low memory alert triggered: {}",
-                        "x",
-                        bytes_to_display(cur as u64),
-                    );
-                    let _ = memory_limit_tx.send(mib_to_bytes(memory_limit_mb));
-                    // add a 25% allowance to memory limit
-                    let cur =
-                        mib_to_bytes(memory_limit_mb + memory_limit_mb.div_euclid(4)) as usize;
-                    cur
-                });
+            let handle = self.js_runtime.v8_isolate().thread_safe_handle();
+            self.js_runtime.add_near_heap_limit_callback(move |cur, _| {
+                println!(
+                    "Low memory alert triggered: {}",
+                    bytes_to_display(cur as u64),
+                );
+
+                let _ = memory_limit_tx.send(mib_to_bytes(memory_limit_mb));
+
+                (cur + memory_limit_mb as usize) << 20
+            });
 
             self.start_controller_thread(
                 self.curr_user_opts.worker_timeout_ms,
@@ -481,13 +480,17 @@ mod test {
         assert_eq!(user_serde_deno_env.unwrap().is_null(), true);
     }
 
-    fn create_basic_user_runtime(path: &str) -> EdgeRuntime {
+    fn create_basic_user_runtime(
+        path: &str,
+        memory_limit: u64,
+        worker_timeout_ms: u64,
+    ) -> EdgeRuntime {
         create_runtime(
             Some(PathBuf::from(path)),
             None,
             Some(EdgeContextOpts::UserWorker(EdgeUserRuntimeOpts {
-                memory_limit_mb: 100,
-                worker_timeout_ms: 1000,
+                memory_limit_mb: memory_limit,
+                worker_timeout_ms,
                 id: "".to_string(),
             })),
         )
@@ -495,7 +498,7 @@ mod test {
 
     #[tokio::test]
     async fn test_timeout_infinite_promises() {
-        let mut user_rt = create_basic_user_runtime("./test_cases/infinite_promises");
+        let mut user_rt = create_basic_user_runtime("./test_cases/infinite_promises", 100, 1000);
         let (stream, shutdown, receiver) = create_user_rt_params_to_run();
         let data = user_rt.run(stream, shutdown).await.unwrap();
         assert_eq!(data, EdgeCallResult::ModuleEvaluationTimedOut);
@@ -503,7 +506,7 @@ mod test {
 
     #[tokio::test]
     async fn test_timeout_infinite_loop() {
-        let mut user_rt = create_basic_user_runtime("./test_cases/infinite_loop");
+        let mut user_rt = create_basic_user_runtime("./test_cases/infinite_loop", 100, 1000);
         let (stream, shutdown, receiver) = create_user_rt_params_to_run();
         let data = user_rt.run(stream, shutdown).await.unwrap();
         assert_eq!(data, EdgeCallResult::TimeOut);
@@ -511,7 +514,7 @@ mod test {
 
     #[tokio::test]
     async fn test_unresolved_promise() {
-        let mut user_rt = create_basic_user_runtime("./test_cases/unresolved_promise");
+        let mut user_rt = create_basic_user_runtime("./test_cases/unresolved_promise", 100, 1000);
         let (stream, shutdown, receiver) = create_user_rt_params_to_run();
         let data = user_rt.run(stream, shutdown).await.unwrap();
         assert_eq!(data, EdgeCallResult::ModuleEvaluationTimedOut);
@@ -519,7 +522,8 @@ mod test {
 
     #[tokio::test]
     async fn test_delayed_promise() {
-        let mut user_rt = create_basic_user_runtime("./test_cases/resolve_promise_after_timeout");
+        let mut user_rt =
+            create_basic_user_runtime("./test_cases/resolve_promise_after_timeout", 100, 1000);
         let (stream, shutdown, receiver) = create_user_rt_params_to_run();
         let data = user_rt.run(stream, shutdown).await.unwrap();
         assert_eq!(data, EdgeCallResult::TimeOut);
@@ -527,9 +531,18 @@ mod test {
 
     #[tokio::test]
     async fn test_success_delayed_promise() {
-        let mut user_rt = create_basic_user_runtime("./test_cases/resolve_promise_before_timeout");
+        let mut user_rt =
+            create_basic_user_runtime("./test_cases/resolve_promise_before_timeout", 100, 1000);
         let (stream, shutdown, receiver) = create_user_rt_params_to_run();
         let data = user_rt.run(stream, shutdown).await.unwrap();
         assert_eq!(data, EdgeCallResult::Completed);
+    }
+
+    #[tokio::test]
+    async fn test_heap_limits_reached() {
+        let mut user_rt = create_basic_user_runtime("./test_cases/heap_limit", 5, 1000);
+        let (stream, shutdown, receiver) = create_user_rt_params_to_run();
+        let data = user_rt.run(stream, shutdown).await.unwrap();
+        assert_eq!(data, EdgeCallResult::HeapLimitReached);
     }
 }

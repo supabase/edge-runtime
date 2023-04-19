@@ -257,6 +257,7 @@ impl EdgeRuntime {
 
                     Ok(EdgeCallResult::Completed)
                 },
+                // TODO: Fix race condition
                 call_result = &mut halt_isolate_rx => {
                     debug!("User Worker execution halted");
                     Ok(call_result.unwrap_or(EdgeCallResult::Unknown))

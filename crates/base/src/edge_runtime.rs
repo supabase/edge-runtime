@@ -93,7 +93,7 @@ impl EdgeRuntime {
         } = opts;
 
         let (is_user_runtime, user_rt_opts) = match conf.clone() {
-            EdgeContextOpts::UserWorker(conf) => (true, conf.clone()),
+            EdgeContextOpts::UserWorker(conf) => (true, conf),
             EdgeContextOpts::MainWorker(_conf) => (false, EdgeUserRuntimeOpts::default()),
         };
 
@@ -207,8 +207,7 @@ impl EdgeRuntime {
 
             if !is_user_rt {
                 if let EdgeContextOpts::MainWorker(conf) = self.conf.clone() {
-                    op_state
-                        .put::<mpsc::UnboundedSender<UserWorkerMsgs>>(conf.worker_pool_tx.clone());
+                    op_state.put::<mpsc::UnboundedSender<UserWorkerMsgs>>(conf.worker_pool_tx);
                 }
             }
         }
@@ -308,7 +307,7 @@ impl EdgeRuntime {
             };
             let call = rt.block_on(future);
 
-            if let Err(_) = halt_isolate_tx.send(call) {
+            if halt_isolate_tx.send(call).is_err() {
                 error!("failed to send the halt execution signal");
             }
         });

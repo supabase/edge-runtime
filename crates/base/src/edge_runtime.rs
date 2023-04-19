@@ -1,7 +1,7 @@
 use crate::utils::units::{bytes_to_display, human_elapsed, mib_to_bytes};
 
 use crate::js_worker::module_loader;
-use anyhow::{anyhow, bail, Error};
+use anyhow::{bail, Error};
 use deno_core::error::AnyError;
 use deno_core::url::Url;
 use deno_core::JsRuntime;
@@ -20,7 +20,6 @@ use std::thread;
 use std::time::Duration;
 use tokio::net::UnixStream;
 use tokio::sync::mpsc;
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot;
 
 use crate::snapshot;
@@ -167,7 +166,7 @@ impl EdgeRuntime {
         );
 
         js_runtime
-            .execute_script::<String>(&located_script_name!(), script.into())
+            .execute_script::<String>(located_script_name!(), script)
             .expect("Failed to execute bootstrap script");
 
         {
@@ -219,7 +218,6 @@ impl EdgeRuntime {
 
             // add a callback when a worker reaches its memory limit
             let memory_limit_mb = self.curr_user_opts.memory_limit_mb;
-            let handle = self.js_runtime.v8_isolate().thread_safe_handle();
             self.js_runtime.add_near_heap_limit_callback(move |cur, _| {
                 debug!(
                     "Low memory alert triggered: {}",
@@ -250,7 +248,7 @@ impl EdgeRuntime {
                 _ = js_runtime.run_event_loop(false) => {
                     debug!("Event loop has completed");
 
-                    if let Err(err) = tokio::time::timeout(std::time::Duration::from_millis(self.curr_user_opts.worker_timeout_ms), mod_result).await {
+                    if let Err(_err) = tokio::time::timeout(std::time::Duration::from_millis(self.curr_user_opts.worker_timeout_ms), mod_result).await {
                         return Ok(EdgeCallResult::ModuleEvaluationTimedOut);
                     }
 
@@ -296,12 +294,12 @@ impl EdgeRuntime {
                     _ = tokio::time::sleep(Duration::from_millis(worker_timeout_ms)) => {
                         debug!("max duration reached for the worker. terminating the worker. (duration {})", human_elapsed(worker_timeout_ms));
                         thread_safe_handle.terminate_execution();
-                        return EdgeCallResult::TimeOut;
+                        EdgeCallResult::TimeOut
                     }
                     Some(val) = memory_limit_rx.recv() => {
                         error!("memory limit reached for the worker. terminating the worker. (used: {})", bytes_to_display(val));
                         thread_safe_handle.terminate_execution();
-                        return EdgeCallResult::HeapLimitReached;
+                        EdgeCallResult::HeapLimitReached
                     }
                 }
             };
@@ -313,6 +311,9 @@ impl EdgeRuntime {
         });
     }
 
+    #[allow(clippy::wrong_self_convention)]
+    // TODO: figure out why rustc complains about this
+    #[allow(dead_code)]
     fn to_value<T>(
         &mut self,
         global_value: &deno_core::v8::Global<deno_core::v8::Value>,
@@ -329,8 +330,6 @@ impl EdgeRuntime {
 #[cfg(test)]
 mod test {
     use crate::edge_runtime::{EdgeCallResult, EdgeRuntime};
-    use deno_core::v8::{ContextScope, HandleScope, Local, Object};
-    use deno_core::{serde_v8, JsRuntime};
     use sb_worker_context::essentials::{
         EdgeContextInitOpts, EdgeContextOpts, EdgeMainRuntimeOpts, EdgeUserRuntimeOpts,
         UserWorkerMsgs,
@@ -338,7 +337,6 @@ mod test {
     use std::collections::HashMap;
     use std::path::PathBuf;
     use tokio::net::UnixStream;
-    use tokio::sync::mpsc::UnboundedSender;
     use tokio::sync::oneshot::{Receiver, Sender};
     use tokio::sync::{mpsc, oneshot};
 
@@ -348,28 +346,25 @@ mod test {
         user_conf: Option<EdgeContextOpts>,
     ) -> EdgeRuntime {
         let (worker_pool_tx, _) = mpsc::unbounded_channel::<UserWorkerMsgs>();
-        let mut runtime = EdgeRuntime::new(EdgeContextInitOpts {
+
+        EdgeRuntime::new(EdgeContextInitOpts {
             service_path: path.unwrap_or(PathBuf::from("./examples/main")),
             no_module_cache: false,
             import_map_path: None,
             env_vars: env_vars.unwrap_or(Default::default()),
             conf: {
-                if user_conf.is_some() {
-                    user_conf.unwrap()
+                if let Some(uc) = user_conf {
+                    uc
                 } else {
-                    EdgeContextOpts::MainWorker(EdgeMainRuntimeOpts {
-                        worker_pool_tx: worker_pool_tx,
-                    })
+                    EdgeContextOpts::MainWorker(EdgeMainRuntimeOpts { worker_pool_tx })
                 }
             },
         })
-        .unwrap();
-
-        runtime
+        .unwrap()
     }
 
     fn create_user_rt_params_to_run() -> (UnixStream, Sender<()>, Receiver<()>) {
-        let (sender_stream, recv_stream) = UnixStream::pair().unwrap();
+        let (_sender_stream, recv_stream) = UnixStream::pair().unwrap();
         let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
         (recv_stream, shutdown_tx, shutdown_rx)
     }
@@ -386,13 +381,10 @@ mod test {
             let global = context.global(inner_scope);
             let edge_runtime_key: deno_core::v8::Local<deno_core::v8::Value> =
                 deno_core::serde_v8::to_v8(inner_scope, "EdgeRuntime").unwrap();
-            assert_eq!(
-                global
-                    .get(inner_scope, edge_runtime_key)
-                    .unwrap()
-                    .is_undefined(),
-                false
-            );
+            assert!(!global
+                .get(inner_scope, edge_runtime_key)
+                .unwrap()
+                .is_undefined(),);
         }
     }
 
@@ -412,13 +404,10 @@ mod test {
             let global = context.global(inner_scope);
             let edge_runtime_key: deno_core::v8::Local<deno_core::v8::Value> =
                 deno_core::serde_v8::to_v8(inner_scope, "EdgeRuntime").unwrap();
-            assert_eq!(
-                global
-                    .get(inner_scope, edge_runtime_key)
-                    .unwrap()
-                    .is_undefined(),
-                true
-            );
+            assert!(global
+                .get(inner_scope, edge_runtime_key)
+                .unwrap()
+                .is_undefined(),);
         }
     }
 
@@ -431,8 +420,8 @@ mod test {
             None,
             Some(EdgeContextOpts::UserWorker(Default::default())),
         );
-        assert!(main_rt.env_vars.len() > 0);
-        assert_eq!(user_rt.env_vars.len(), 0);
+        assert!(!main_rt.env_vars.is_empty());
+        assert!(user_rt.env_vars.is_empty());
 
         let err = main_rt
             .js_runtime
@@ -477,7 +466,7 @@ mod test {
             .unwrap();
         let user_serde_deno_env =
             user_rt.to_value::<deno_core::serde_json::Value>(&user_deno_env_get_supa_test);
-        assert_eq!(user_serde_deno_env.unwrap().is_null(), true);
+        assert!(user_serde_deno_env.unwrap().is_null());
     }
 
     fn create_basic_user_runtime(
@@ -498,50 +487,50 @@ mod test {
 
     #[tokio::test]
     async fn test_timeout_infinite_promises() {
-        let mut user_rt = create_basic_user_runtime("./test_cases/infinite_promises", 100, 1000);
-        let (stream, shutdown, receiver) = create_user_rt_params_to_run();
+        let user_rt = create_basic_user_runtime("./test_cases/infinite_promises", 100, 1000);
+        let (stream, shutdown, _receiver) = create_user_rt_params_to_run();
         let data = user_rt.run(stream, shutdown).await.unwrap();
         assert_eq!(data, EdgeCallResult::ModuleEvaluationTimedOut);
     }
 
     #[tokio::test]
     async fn test_timeout_infinite_loop() {
-        let mut user_rt = create_basic_user_runtime("./test_cases/infinite_loop", 100, 1000);
-        let (stream, shutdown, receiver) = create_user_rt_params_to_run();
+        let user_rt = create_basic_user_runtime("./test_cases/infinite_loop", 100, 1000);
+        let (stream, shutdown, _receiver) = create_user_rt_params_to_run();
         let data = user_rt.run(stream, shutdown).await.unwrap();
         assert_eq!(data, EdgeCallResult::TimeOut);
     }
 
     #[tokio::test]
     async fn test_unresolved_promise() {
-        let mut user_rt = create_basic_user_runtime("./test_cases/unresolved_promise", 100, 1000);
-        let (stream, shutdown, receiver) = create_user_rt_params_to_run();
+        let user_rt = create_basic_user_runtime("./test_cases/unresolved_promise", 100, 1000);
+        let (stream, shutdown, _receiver) = create_user_rt_params_to_run();
         let data = user_rt.run(stream, shutdown).await.unwrap();
         assert_eq!(data, EdgeCallResult::ModuleEvaluationTimedOut);
     }
 
     #[tokio::test]
     async fn test_delayed_promise() {
-        let mut user_rt =
+        let user_rt =
             create_basic_user_runtime("./test_cases/resolve_promise_after_timeout", 100, 1000);
-        let (stream, shutdown, receiver) = create_user_rt_params_to_run();
+        let (stream, shutdown, _receiver) = create_user_rt_params_to_run();
         let data = user_rt.run(stream, shutdown).await.unwrap();
         assert_eq!(data, EdgeCallResult::TimeOut);
     }
 
     #[tokio::test]
     async fn test_success_delayed_promise() {
-        let mut user_rt =
+        let user_rt =
             create_basic_user_runtime("./test_cases/resolve_promise_before_timeout", 100, 1000);
-        let (stream, shutdown, receiver) = create_user_rt_params_to_run();
+        let (stream, shutdown, _receiver) = create_user_rt_params_to_run();
         let data = user_rt.run(stream, shutdown).await.unwrap();
         assert_eq!(data, EdgeCallResult::Completed);
     }
 
     #[tokio::test]
     async fn test_heap_limits_reached() {
-        let mut user_rt = create_basic_user_runtime("./test_cases/heap_limit", 5, 1000);
-        let (stream, shutdown, receiver) = create_user_rt_params_to_run();
+        let user_rt = create_basic_user_runtime("./test_cases/heap_limit", 5, 1000);
+        let (stream, shutdown, _receiver) = create_user_rt_params_to_run();
         let data = user_rt.run(stream, shutdown).await.unwrap();
         assert_eq!(data, EdgeCallResult::HeapLimitReached);
     }

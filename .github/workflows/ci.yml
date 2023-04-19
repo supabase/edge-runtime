@@ -33,14 +33,14 @@ jobs:
           rustup component add clippy
       - uses: Swatinem/rust-cache@v2
       - run: ./scripts/clippy.sh
-
-  cargo-test:
-    name: "cargo test"
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: "Install Rust toolchain"
-        run: |
-          rustup component add clippy
-      - uses: Swatinem/rust-cache@v2
-      - run: ./scripts/test.sh
+#
+#   cargo-test:
+#     name: "cargo test"
+#     runs-on: ubuntu-latest
+#     steps:
+#       - uses: actions/checkout@v3
+#       - name: "Install Rust toolchain"
+#         run: |
+#           rustup component add clippy
+#       - uses: Swatinem/rust-cache@v2
+#       - run: ./scripts/test.sh

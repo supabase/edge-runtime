@@ -12,8 +12,8 @@ use deno_net::io::UnixStreamResource;
 #[op]
 fn op_http_start(state: &mut OpState, stream_rid: ResourceId) -> Result<ResourceId, AnyError> {
     if let Ok(resource_rc) = state.resource_table.take::<UnixStreamResource>(stream_rid) {
-        // This TCP connection might be used somewhere else. If it's the case, we cannot proceed with the
-        // process of starting a HTTP server on top of this TCP connection, so we just return a bad
+        // This connection might be used somewhere else. If it's the case, we cannot proceed with the
+        // process of starting a HTTP server on top of this connection, so we just return a bad
         // resource error. See also: https://github.com/denoland/deno/pull/16242
         let resource = Rc::try_unwrap(resource_rc)
             .map_err(|_| bad_resource("Unix stream is currently in use"))?;

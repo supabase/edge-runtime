@@ -189,15 +189,10 @@ impl EdgeRuntime {
 
     pub async fn run(
         mut self,
-        stream: UnixStream,
+        unix_stream_rx: mpsc::UnboundedReceiver<UnixStream>,
         shutdown_tx: oneshot::Sender<()>,
     ) -> Result<EdgeCallResult, Error> {
         let is_user_rt = self.is_user_runtime;
-
-        let (unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
-        if let Err(e) = unix_stream_tx.send(stream) {
-            bail!(e)
-        }
 
         {
             let op_state_rc = self.js_runtime.op_state();

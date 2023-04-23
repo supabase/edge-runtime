@@ -48,7 +48,7 @@ impl Service<Request<Body>> for WorkerService {
             let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
             let msg = WorkerRequestMsg { req, res_tx };
 
-            let _ = worker_req_tx.send(msg)?;
+            worker_req_tx.send(msg)?;
             let result = res_rx.await?;
             match result {
                 Ok(res) => Ok(res),

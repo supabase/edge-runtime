@@ -53,34 +53,32 @@ pub async fn create_worker(
     // create an async task waiting for a request
     let (worker_req_tx, mut worker_req_rx) = mpsc::unbounded_channel::<WorkerRequestMsg>();
 
-    // TODO: add error handling
-    tokio::task::spawn(async move {
+    let _handle: tokio::task::JoinHandle<Result<(), Error>> = tokio::task::spawn(async move {
         let unix_stream_tx = unix_stream_tx.clone();
-        loop {
-            // TODO: handle channel error
-            let msg = worker_req_rx.recv().await.unwrap();
 
+        while let Some(msg) = worker_req_rx.recv().await {
             // create a unix socket pair
-            // TODO: handle error
-            let (sender_stream, recv_stream) = UnixStream::pair().unwrap();
+            let (sender_stream, recv_stream) = UnixStream::pair()?;
 
             let _ = unix_stream_tx.clone().send(recv_stream);
 
             // send the HTTP request to the worker over Unix stream
-            // TODO: handle error
             let (mut request_sender, connection) =
-                hyper::client::conn::handshake(sender_stream).await.unwrap();
+                hyper::client::conn::handshake(sender_stream).await?;
 
             // spawn a task to poll the connection and drive the HTTP state
             tokio::task::spawn(async move {
-                if let Err(e) = connection.await {
+                if let Err(e) = connection.without_shutdown().await {
                     error!("Error in main worker connection: {}", e);
                 }
             });
+            tokio::task::yield_now().await;
 
             let result = request_sender.send_request(msg.req).await;
-            msg.res_tx.send(result);
+            let _ = msg.res_tx.send(result);
         }
+
+        Ok(())
     });
 
     Ok(worker_req_tx)

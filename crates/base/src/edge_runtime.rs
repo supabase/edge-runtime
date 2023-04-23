@@ -1,7 +1,7 @@
 use crate::utils::units::{bytes_to_display, human_elapsed, mib_to_bytes};
 
 use crate::js_worker::module_loader;
-use anyhow::{bail, Error};
+use anyhow::Error;
 use deno_core::error::AnyError;
 use deno_core::url::Url;
 use deno_core::JsRuntime;
@@ -358,10 +358,14 @@ mod test {
         .unwrap()
     }
 
-    fn create_user_rt_params_to_run() -> (UnixStream, Sender<()>, Receiver<()>) {
-        let (_sender_stream, recv_stream) = UnixStream::pair().unwrap();
+    fn create_user_rt_params_to_run() -> (
+        mpsc::UnboundedReceiver<UnixStream>,
+        Sender<()>,
+        Receiver<()>,
+    ) {
+        let (_unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
         let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
-        (recv_stream, shutdown_tx, shutdown_rx)
+        (unix_stream_rx, shutdown_tx, shutdown_rx)
     }
 
     // Main Runtime should have access to `EdgeRuntime`
@@ -483,24 +487,24 @@ mod test {
     #[tokio::test]
     async fn test_timeout_infinite_promises() {
         let user_rt = create_basic_user_runtime("./test_cases/infinite_promises", 100, 1000);
-        let (stream, shutdown, _receiver) = create_user_rt_params_to_run();
-        let data = user_rt.run(stream, shutdown).await.unwrap();
+        let (unix_stream_rx, shutdown, _receiver) = create_user_rt_params_to_run();
+        let data = user_rt.run(unix_stream_rx, shutdown).await.unwrap();
         assert_eq!(data, EdgeCallResult::ModuleEvaluationTimedOut);
     }
 
     #[tokio::test]
     async fn test_timeout_infinite_loop() {
         let user_rt = create_basic_user_runtime("./test_cases/infinite_loop", 100, 1000);
-        let (stream, shutdown, _receiver) = create_user_rt_params_to_run();
-        let data = user_rt.run(stream, shutdown).await.unwrap();
+        let (unix_stream_rx, shutdown, _receiver) = create_user_rt_params_to_run();
+        let data = user_rt.run(unix_stream_rx, shutdown).await.unwrap();
         assert_eq!(data, EdgeCallResult::TimeOut);
     }
 
     #[tokio::test]
     async fn test_unresolved_promise() {
         let user_rt = create_basic_user_runtime("./test_cases/unresolved_promise", 100, 1000);
-        let (stream, shutdown, _receiver) = create_user_rt_params_to_run();
-        let data = user_rt.run(stream, shutdown).await.unwrap();
+        let (unix_stream_rx, shutdown, _receiver) = create_user_rt_params_to_run();
+        let data = user_rt.run(unix_stream_rx, shutdown).await.unwrap();
         assert_eq!(data, EdgeCallResult::ModuleEvaluationTimedOut);
     }
 
@@ -508,8 +512,8 @@ mod test {
     async fn test_delayed_promise() {
         let user_rt =
             create_basic_user_runtime("./test_cases/resolve_promise_after_timeout", 100, 1000);
-        let (stream, shutdown, _receiver) = create_user_rt_params_to_run();
-        let data = user_rt.run(stream, shutdown).await.unwrap();
+        let (unix_stream_rx, shutdown, _receiver) = create_user_rt_params_to_run();
+        let data = user_rt.run(unix_stream_rx, shutdown).await.unwrap();
         assert_eq!(data, EdgeCallResult::TimeOut);
     }
 
@@ -525,8 +529,8 @@ mod test {
     #[tokio::test]
     async fn test_heap_limits_reached() {
         let user_rt = create_basic_user_runtime("./test_cases/heap_limit", 5, 1000);
-        let (stream, shutdown, _receiver) = create_user_rt_params_to_run();
-        let data = user_rt.run(stream, shutdown).await.unwrap();
+        let (unix_stream_rx, shutdown, _receiver) = create_user_rt_params_to_run();
+        let data = user_rt.run(unix_stream_rx, shutdown).await.unwrap();
         assert_eq!(data, EdgeCallResult::HeapLimitReached);
     }
 }

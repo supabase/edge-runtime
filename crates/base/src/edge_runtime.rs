@@ -572,8 +572,8 @@ mod test {
     #[tokio::test]
     async fn test_oak_60_issue() {
         let user_rt = create_basic_user_runtime("./test_cases/oak", 5, 1000);
-        let (stream, shutdown, _receiver) = create_user_rt_params_to_run();
-        let data = user_rt.run(stream, shutdown).await.unwrap();
-        // assert_eq!(data, EdgeCallResult::HeapLimitReached);
+        let unix_stream_rx = create_user_rt_params_to_run();
+        let data = user_rt.run(unix_stream_rx).await.unwrap();
+        //assert_eq!(data, EdgeCallResult::HeapLimitReached);
     }
 }

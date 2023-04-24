@@ -12,12 +12,12 @@ use import_map::{parse_from_json, ImportMap, ImportMapDiagnostic};
 use log::{debug, error, warn};
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
-use std::fs;
 use std::panic;
 use std::path::Path;
 use std::rc::Rc;
 use std::thread;
 use std::time::Duration;
+use std::{fmt, fs};
 use tokio::net::UnixStream;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
@@ -72,6 +72,20 @@ pub struct EdgeRuntime {
     pub curr_user_opts: EdgeUserRuntimeOpts,
 }
 
+pub struct EdgeRuntimeError(Error);
+
+impl PartialEq for EdgeRuntimeError {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.to_string() == other.0.to_string()
+    }
+}
+
+impl fmt::Debug for EdgeRuntimeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "[Js Error] {}", self.0.to_string())
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum EdgeCallResult {
     Unknown,
@@ -79,6 +93,7 @@ pub enum EdgeCallResult {
     ModuleEvaluationTimedOut,
     HeapLimitReached,
     Completed,
+    ErrorThrown(EdgeRuntimeError),
 }
 
 impl EdgeRuntime {
@@ -248,8 +263,19 @@ impl EdgeRuntime {
                 _ = js_runtime.run_event_loop(false) => {
                     debug!("Event loop has completed");
 
-                    if let Err(_err) = tokio::time::timeout(std::time::Duration::from_millis(self.curr_user_opts.worker_timeout_ms), mod_result).await {
-                        return Ok(EdgeCallResult::ModuleEvaluationTimedOut);
+                    match tokio::time::timeout(std::time::Duration::from_millis(self.curr_user_opts.worker_timeout_ms), mod_result).await {
+                        Err(_err) => {
+                            return Ok(EdgeCallResult::ModuleEvaluationTimedOut);
+                        },
+                        Ok(r) => {
+                            if let Ok(evaluation_result) = r {
+                                if let Err(e) = evaluation_result {
+                                    let err_as_str = e.to_string();
+                                    debug!("{}", err_as_str);
+                                    return Ok(EdgeCallResult::ErrorThrown(EdgeRuntimeError(e)));
+                                }
+                            }
+                        }
                     }
 
                     Ok(EdgeCallResult::Completed)
@@ -533,5 +559,13 @@ mod test {
         let (stream, shutdown, _receiver) = create_user_rt_params_to_run();
         let data = user_rt.run(stream, shutdown).await.unwrap();
         assert_eq!(data, EdgeCallResult::HeapLimitReached);
+    }
+
+    #[tokio::test]
+    async fn test_oak_60_issue() {
+        let user_rt = create_basic_user_runtime("./test_cases/oak", 5, 1000);
+        let (stream, shutdown, _receiver) = create_user_rt_params_to_run();
+        let data = user_rt.run(stream, shutdown).await.unwrap();
+        // assert_eq!(data, EdgeCallResult::HeapLimitReached);
     }
 }

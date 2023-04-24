@@ -25,6 +25,7 @@ import * as request from "ext:deno_fetch/23_request.js";
 import * as globalInterfaces from "ext:deno_web/04_global_interfaces.js";
 import { SUPABASE_ENV } from "ext:sb_env/env.js";
 import { loadUserRuntime } from "ext:sb_core_main_js/js/user_runtime_loader.js"
+import * as permissions from "ext:sb_core_main_js/js/permissions.js";
 
 
 const core = globalThis.Deno.core;
@@ -482,13 +483,13 @@ function formatException(error) {
     return null;
   } else if (typeof error == "string") {
     return `Uncaught ${
-        inspectArgs([quoteString(error)], {
+        console.inspectArgs([quoteString(error)], {
           colors: false,
         })
     }`;
   } else {
     return `Uncaught ${
-        inspectArgs([error], { colors: false })
+        console.inspectArgs([error], { colors: false })
     }`;
   }
 }
@@ -547,6 +548,9 @@ Deno.connectTls = tls.connectTls;
 Deno.startTls = tls.startTls;
 Deno.resolveDns = net.resolveDns;
 Deno.serveHttp = serveHttp;
+Deno.permissions = permissions.permissions;
+Deno.Permissions = permissions.Permissions;
+Deno.PermissionStatus = permissions.PermissionStatus;
 
 const __bootstrap = globalThis.__bootstrap;
 delete globalThis.__bootstrap;

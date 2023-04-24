@@ -1,7 +1,7 @@
 use crate::utils::units::{bytes_to_display, human_elapsed, mib_to_bytes};
 
 use crate::js_worker::module_loader;
-use anyhow::{bail, Error};
+use anyhow::Error;
 use deno_core::error::AnyError;
 use deno_core::url::Url;
 use deno_core::JsRuntime;
@@ -21,6 +21,7 @@ use std::time::Duration;
 use tokio::net::UnixStream;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
+use uuid::Uuid;
 
 use crate::snapshot;
 use module_loader::DefaultModuleLoader;
@@ -189,15 +190,9 @@ impl EdgeRuntime {
 
     pub async fn run(
         mut self,
-        stream: UnixStream,
-        shutdown_tx: oneshot::Sender<()>,
+        unix_stream_rx: mpsc::UnboundedReceiver<UnixStream>,
     ) -> Result<EdgeCallResult, Error> {
         let is_user_rt = self.is_user_runtime;
-
-        let (unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
-        if let Err(e) = unix_stream_tx.send(stream) {
-            bail!(e)
-        }
 
         {
             let op_state_rc = self.js_runtime.op_state();
@@ -216,6 +211,14 @@ impl EdgeRuntime {
         if is_user_rt {
             let (memory_limit_tx, memory_limit_rx) = mpsc::unbounded_channel::<u64>();
 
+            self.start_controller_thread(
+                self.curr_user_opts.worker_timeout_ms,
+                memory_limit_rx,
+                halt_isolate_tx,
+                self.curr_user_opts.key,
+                self.curr_user_opts.pool_msg_tx.clone(),
+            );
+
             // add a callback when a worker reaches its memory limit
             let memory_limit_mb = self.curr_user_opts.memory_limit_mb;
             self.js_runtime.add_near_heap_limit_callback(move |cur, _| {
@@ -228,12 +231,6 @@ impl EdgeRuntime {
 
                 (cur + memory_limit_mb as usize) << 20
             });
-
-            self.start_controller_thread(
-                self.curr_user_opts.worker_timeout_ms,
-                memory_limit_rx,
-                halt_isolate_tx,
-            );
         }
 
         let mut js_runtime = self.js_runtime;
@@ -271,7 +268,6 @@ impl EdgeRuntime {
             println!("worker thread panicked {:?}", res.as_ref().err().unwrap());
         }
 
-        shutdown_tx.send(()).unwrap();
         res
     }
 
@@ -280,6 +276,8 @@ impl EdgeRuntime {
         worker_timeout_ms: u64,
         mut memory_limit_rx: mpsc::UnboundedReceiver<u64>,
         halt_isolate_tx: oneshot::Sender<EdgeCallResult>,
+        key: Option<Uuid>,
+        pool_msg_tx: Option<mpsc::UnboundedSender<UserWorkerMsgs>>,
     ) {
         let thread_safe_handle = self.js_runtime.v8_isolate().thread_safe_handle();
 
@@ -305,6 +303,17 @@ impl EdgeRuntime {
             };
             let call = rt.block_on(future);
 
+            // send a shutdown message back to user worker pool (so it stops sending requets to the
+            // worker)
+            if let Some(k) = key {
+                if let Some(tx) = pool_msg_tx {
+                    if tx.send(UserWorkerMsgs::Shutdown(k)).is_err() {
+                        error!("failed to send the halt execution signal");
+                    }
+                }
+            };
+
+            // send a message to halt the isolate
             if halt_isolate_tx.send(call).is_err() {
                 error!("failed to send the halt execution signal");
             }
@@ -337,8 +346,7 @@ mod test {
     use std::collections::HashMap;
     use std::path::PathBuf;
     use tokio::net::UnixStream;
-    use tokio::sync::oneshot::{Receiver, Sender};
-    use tokio::sync::{mpsc, oneshot};
+    use tokio::sync::mpsc;
 
     fn create_runtime(
         path: Option<PathBuf>,
@@ -363,10 +371,9 @@ mod test {
         .unwrap()
     }
 
-    fn create_user_rt_params_to_run() -> (UnixStream, Sender<()>, Receiver<()>) {
-        let (_sender_stream, recv_stream) = UnixStream::pair().unwrap();
-        let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
-        (recv_stream, shutdown_tx, shutdown_rx)
+    fn create_user_rt_params_to_run() -> mpsc::UnboundedReceiver<UnixStream> {
+        let (_unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
+        unix_stream_rx
     }
 
     // Main Runtime should have access to `EdgeRuntime`
@@ -480,7 +487,8 @@ mod test {
             Some(EdgeContextOpts::UserWorker(EdgeUserRuntimeOpts {
                 memory_limit_mb: memory_limit,
                 worker_timeout_ms,
-                id: "".to_string(),
+                key: None,
+                pool_msg_tx: None,
             })),
         )
     }
@@ -488,24 +496,24 @@ mod test {
     #[tokio::test]
     async fn test_timeout_infinite_promises() {
         let user_rt = create_basic_user_runtime("./test_cases/infinite_promises", 100, 1000);
-        let (stream, shutdown, _receiver) = create_user_rt_params_to_run();
-        let data = user_rt.run(stream, shutdown).await.unwrap();
+        let unix_stream_rx = create_user_rt_params_to_run();
+        let data = user_rt.run(unix_stream_rx).await.unwrap();
         assert_eq!(data, EdgeCallResult::ModuleEvaluationTimedOut);
     }
 
     #[tokio::test]
     async fn test_timeout_infinite_loop() {
         let user_rt = create_basic_user_runtime("./test_cases/infinite_loop", 100, 1000);
-        let (stream, shutdown, _receiver) = create_user_rt_params_to_run();
-        let data = user_rt.run(stream, shutdown).await.unwrap();
+        let unix_stream_rx = create_user_rt_params_to_run();
+        let data = user_rt.run(unix_stream_rx).await.unwrap();
         assert_eq!(data, EdgeCallResult::TimeOut);
     }
 
     #[tokio::test]
     async fn test_unresolved_promise() {
         let user_rt = create_basic_user_runtime("./test_cases/unresolved_promise", 100, 1000);
-        let (stream, shutdown, _receiver) = create_user_rt_params_to_run();
-        let data = user_rt.run(stream, shutdown).await.unwrap();
+        let unix_stream_rx = create_user_rt_params_to_run();
+        let data = user_rt.run(unix_stream_rx).await.unwrap();
         assert_eq!(data, EdgeCallResult::ModuleEvaluationTimedOut);
     }
 
@@ -513,8 +521,8 @@ mod test {
     async fn test_delayed_promise() {
         let user_rt =
             create_basic_user_runtime("./test_cases/resolve_promise_after_timeout", 100, 1000);
-        let (stream, shutdown, _receiver) = create_user_rt_params_to_run();
-        let data = user_rt.run(stream, shutdown).await.unwrap();
+        let unix_stream_rx = create_user_rt_params_to_run();
+        let data = user_rt.run(unix_stream_rx).await.unwrap();
         assert_eq!(data, EdgeCallResult::TimeOut);
     }
 
@@ -522,16 +530,16 @@ mod test {
     async fn test_success_delayed_promise() {
         let user_rt =
             create_basic_user_runtime("./test_cases/resolve_promise_before_timeout", 100, 1000);
-        let (stream, shutdown, _receiver) = create_user_rt_params_to_run();
-        let data = user_rt.run(stream, shutdown).await.unwrap();
+        let unix_stream_rx = create_user_rt_params_to_run();
+        let data = user_rt.run(unix_stream_rx).await.unwrap();
         assert_eq!(data, EdgeCallResult::Completed);
     }
 
     #[tokio::test]
     async fn test_heap_limits_reached() {
         let user_rt = create_basic_user_runtime("./test_cases/heap_limit", 5, 1000);
-        let (stream, shutdown, _receiver) = create_user_rt_params_to_run();
-        let data = user_rt.run(stream, shutdown).await.unwrap();
+        let unix_stream_rx = create_user_rt_params_to_run();
+        let data = user_rt.run(unix_stream_rx).await.unwrap();
         assert_eq!(data, EdgeCallResult::HeapLimitReached);
     }
 }

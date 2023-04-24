@@ -21,6 +21,7 @@ use std::time::Duration;
 use tokio::net::UnixStream;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
+use uuid::Uuid;
 
 use crate::snapshot;
 use module_loader::DefaultModuleLoader;
@@ -190,7 +191,6 @@ impl EdgeRuntime {
     pub async fn run(
         mut self,
         unix_stream_rx: mpsc::UnboundedReceiver<UnixStream>,
-        shutdown_tx: oneshot::Sender<()>,
     ) -> Result<EdgeCallResult, Error> {
         let is_user_rt = self.is_user_runtime;
 
@@ -211,6 +211,14 @@ impl EdgeRuntime {
         if is_user_rt {
             let (memory_limit_tx, memory_limit_rx) = mpsc::unbounded_channel::<u64>();
 
+            self.start_controller_thread(
+                self.curr_user_opts.worker_timeout_ms,
+                memory_limit_rx,
+                halt_isolate_tx,
+                self.curr_user_opts.key,
+                self.curr_user_opts.pool_msg_tx.clone(),
+            );
+
             // add a callback when a worker reaches its memory limit
             let memory_limit_mb = self.curr_user_opts.memory_limit_mb;
             self.js_runtime.add_near_heap_limit_callback(move |cur, _| {
@@ -223,12 +231,6 @@ impl EdgeRuntime {
 
                 (cur + memory_limit_mb as usize) << 20
             });
-
-            self.start_controller_thread(
-                self.curr_user_opts.worker_timeout_ms,
-                memory_limit_rx,
-                halt_isolate_tx,
-            );
         }
 
         let mut js_runtime = self.js_runtime;
@@ -266,7 +268,6 @@ impl EdgeRuntime {
             println!("worker thread panicked {:?}", res.as_ref().err().unwrap());
         }
 
-        shutdown_tx.send(()).unwrap();
         res
     }
 
@@ -275,6 +276,8 @@ impl EdgeRuntime {
         worker_timeout_ms: u64,
         mut memory_limit_rx: mpsc::UnboundedReceiver<u64>,
         halt_isolate_tx: oneshot::Sender<EdgeCallResult>,
+        key: Option<Uuid>,
+        pool_msg_tx: Option<mpsc::UnboundedSender<UserWorkerMsgs>>,
     ) {
         let thread_safe_handle = self.js_runtime.v8_isolate().thread_safe_handle();
 
@@ -300,6 +303,17 @@ impl EdgeRuntime {
             };
             let call = rt.block_on(future);
 
+            // send a shutdown message back to user worker pool (so it stops sending requets to the
+            // worker)
+            if let Some(k) = key {
+                if let Some(tx) = pool_msg_tx {
+                    if tx.send(UserWorkerMsgs::Shutdown(k)).is_err() {
+                        error!("failed to send the halt execution signal");
+                    }
+                }
+            };
+
+            // send a message to halt the isolate
             if halt_isolate_tx.send(call).is_err() {
                 error!("failed to send the halt execution signal");
             }

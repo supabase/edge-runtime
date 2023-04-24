@@ -80,7 +80,6 @@ impl Server {
 
         // create main worker
         let main_path = Path::new(&main_service_path);
-
         let main_worker_req_tx = create_worker(EdgeContextInitOpts {
             service_path: main_path.to_path_buf(),
             import_map_path,

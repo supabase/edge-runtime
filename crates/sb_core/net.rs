@@ -98,7 +98,6 @@ async fn op_net_accept(
 
     let unix_stream = rx.recv().await;
     if unix_stream.is_none() {
-        println!("no unix stream found");
         return Err(bad_resource("unix stream channel is closed"));
     }
     let unix_stream = unix_stream.unwrap();

@@ -2,6 +2,8 @@ import { serve } from "https://deno.land/std@0.131.0/http/server.ts"
 
 console.log('main function started');
 
+const workerCache = new Map();
+
 serve(async (req: Request) => {
   const url = new URL(req.url);
   const {pathname} = url;
@@ -19,28 +21,50 @@ serve(async (req: Request) => {
   const servicePath = `./examples/${service_name}`;
   console.error(`serving the request with ${servicePath}`);
 
-  const memoryLimitMb = 150;
-  const workerTimeoutMs = 1 * 60 * 1000;
-  const noModuleCache = false;
-  const importMapPath = null;
-  const envVarsObj = Deno.env.toObject();
-  const envVars = Object.keys(envVarsObj).map(k => [k, envVarsObj[k]]);
-  try {
-    const worker = await EdgeRuntime.userWorkers.create({
-      servicePath,
-      memoryLimitMb,
-      workerTimeoutMs,
-      noModuleCache,
-      importMapPath,
-      envVars
+  const createWorker = async () => {
+    const memoryLimitMb = 150;
+    const workerTimeoutMs = 1 * 60 * 1000;
+    const noModuleCache = false;
+    const importMapPath = null;
+    const envVarsObj = Deno.env.toObject();
+    const envVars = Object.keys(envVarsObj).map(k => [k, envVarsObj[k]]);
+
+    return await EdgeRuntime.userWorkers.create({
+        servicePath,
+        memoryLimitMb,
+        workerTimeoutMs,
+        noModuleCache,
+        importMapPath,
+        envVars
     });
-    return worker.fetch(req);
-  } catch (e) {
-    console.error(e);
-    const error = { msg: e.toString() }
-    return new Response(
-        JSON.stringify(error),
-        { status: 500, headers: { "Content-Type": "application/json" } },
-    )
   }
+
+  const callWorker = async () => {
+    try {
+      // check if an existing worker is available in cache
+      let worker = workerCache.get(servicePath);
+      if (!worker) {
+        worker = await createWorker();
+        workerCache.set(servicePath, worker);
+      }
+
+      return await worker.fetch(req);
+    } catch (e) {
+      console.error(e);
+      if (e.message === "user worker not available") {
+        // remove the worker from cache
+        workerCache.delete(servicePath);
+        // recall the worker
+        return callWorker();
+      } else {
+        const error = { msg: e.toString() }
+        return new Response(
+            JSON.stringify(error),
+            { status: 500, headers: { "Content-Type": "application/json" } },
+        );
+      }
+    }
+  }
+
+  return callWorker();
 })

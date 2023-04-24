@@ -78,7 +78,8 @@ pub async fn op_user_worker_create(
             conf: EdgeContextOpts::UserWorker(EdgeUserRuntimeOpts {
                 memory_limit_mb,
                 worker_timeout_ms,
-                id: "".to_string(),
+                key: None,
+                pool_msg_tx: None,
             }),
         };
 
@@ -309,15 +310,15 @@ pub async fn op_user_worker_fetch_send(
     let request = Rc::try_unwrap(request)
         .ok()
         .expect("multiple op_user_worker_fetch_send ongoing");
-    let (result_tx, result_rx) = oneshot::channel::<Response<Body>>();
+    let (result_tx, result_rx) = oneshot::channel::<Result<Response<Body>, Error>>();
     let uuid = Uuid::parse_str(key.as_str())?;
     tx.send(UserWorkerMsgs::SendRequest(uuid, request.0, result_tx))?;
 
-    let result = result_rx.await;
+    let result = result_rx.await?;
     if result.is_err() {
         return Err(custom_error(
             "user_worker_fetch",
-            "failed to fetch from user worker",
+            "user worker not available",
         ));
     }
 

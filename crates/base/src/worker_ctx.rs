@@ -1,8 +1,10 @@
 use crate::edge_runtime::EdgeRuntime;
-use anyhow::{bail, Error};
+use anyhow::{anyhow, bail, Error};
 use hyper::{Body, Request, Response};
 use log::error;
-use sb_worker_context::essentials::{CreateUserWorkerResult, EdgeContextInitOpts, UserWorkerMsgs};
+use sb_worker_context::essentials::{
+    CreateUserWorkerResult, EdgeContextInitOpts, EdgeContextOpts, UserWorkerMsgs,
+};
 use std::collections::HashMap;
 use std::thread;
 use tokio::net::UnixStream;
@@ -33,21 +35,14 @@ pub async fn create_worker(
             .unwrap();
         let local = tokio::task::LocalSet::new();
 
-        let _handle: Result<(), Error> = local.block_on(&runtime, async {
+        local.block_on(&runtime, async {
             let worker = EdgeRuntime::new(conf)?;
 
             // start the worker
-            let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
-            worker.run(unix_stream_rx, shutdown_tx).await?;
-
-            // wait for shutdown signal
-            let _ = shutdown_rx.await;
+            worker.run(unix_stream_rx).await?;
 
             Ok(())
-        });
-
-        // TODO: handle errors in worker
-        Ok(())
+        })
     });
 
     // create an async task waiting for a request
@@ -88,49 +83,67 @@ pub async fn create_user_worker_pool() -> Result<mpsc::UnboundedSender<UserWorke
     let (user_worker_msgs_tx, mut user_worker_msgs_rx) =
         mpsc::unbounded_channel::<UserWorkerMsgs>();
 
-    tokio::spawn(async move {
+    let user_worker_msgs_tx_clone = user_worker_msgs_tx.clone();
+    let _handle: tokio::task::JoinHandle<Result<(), Error>> = tokio::spawn(async move {
         let mut user_workers: HashMap<Uuid, mpsc::UnboundedSender<WorkerRequestMsg>> =
             HashMap::new();
 
         loop {
             match user_worker_msgs_rx.recv().await {
                 None => break,
-                Some(UserWorkerMsgs::Create(worker_options, tx)) => {
+                Some(UserWorkerMsgs::Create(mut worker_options, tx)) => {
+                    let key = Uuid::new_v4();
+                    let mut user_worker_rt_opts = match worker_options.conf {
+                        EdgeContextOpts::UserWorker(opts) => opts,
+                        _ => unreachable!(),
+                    };
+                    user_worker_rt_opts.key = Some(key);
+                    user_worker_rt_opts.pool_msg_tx = Some(user_worker_msgs_tx_clone.clone());
+                    worker_options.conf = EdgeContextOpts::UserWorker(user_worker_rt_opts);
                     let result = create_worker(worker_options).await;
 
                     match result {
                         Ok(user_worker_req_tx) => {
-                            let key = Uuid::new_v4();
                             user_workers.insert(key, user_worker_req_tx);
 
-                            let _ = tx.send(Ok(CreateUserWorkerResult { key }));
+                            if tx.send(Ok(CreateUserWorkerResult { key })).is_err() {
+                                bail!("main worker receiver dropped")
+                            };
                         }
                         Err(e) => {
-                            let _ = tx.send(Err(e));
+                            if tx.send(Err(e)).is_err() {
+                                bail!("main worker receiver dropped")
+                            };
                         }
                     }
                 }
                 Some(UserWorkerMsgs::SendRequest(key, req, tx)) => {
-                    // TODO: handle errors
-                    let worker = user_workers.get(&key).unwrap();
-                    // TODO: Json format
-                    // TODO: Ability to attach hook
-                    let (res_tx, res_rx) =
-                        oneshot::channel::<Result<Response<Body>, hyper::Error>>();
-                    let msg = WorkerRequestMsg { req, res_tx };
+                    if let Some(worker) = user_workers.get(&key) {
+                        let (res_tx, res_rx) =
+                            oneshot::channel::<Result<Response<Body>, hyper::Error>>();
+                        let msg = WorkerRequestMsg { req, res_tx };
 
-                    // send the message to worker
-                    let _ = worker.send(msg);
+                        // send the message to worker
+                        worker.send(msg)?;
 
-                    // wait for the response back from the worker
-                    // TODO: handle response errors
-                    let res = res_rx.await.unwrap().unwrap();
+                        // wait for the response back from the worker
+                        let res = res_rx.await??;
 
-                    // send the response back to the caller
-                    let _ = tx.send(res);
+                        // send the response back to the caller
+                        if tx.send(Ok(res)).is_err() {
+                            bail!("main worker receiver dropped")
+                        }
+                    } else if tx.send(Err(anyhow!("user worker not available"))).is_err() {
+                        bail!("main worker receiver dropped")
+                    };
+                }
+                Some(UserWorkerMsgs::Shutdown(key)) => {
+                    user_workers.remove(&key);
                 }
             }
         }
+
+        Ok(())
     });
 
     Ok(user_worker_msgs_tx)

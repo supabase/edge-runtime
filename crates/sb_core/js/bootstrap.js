@@ -482,13 +482,13 @@ function formatException(error) {
     return null;
   } else if (typeof error == "string") {
     return `Uncaught ${
-        inspectArgs([quoteString(error)], {
+        console.inspectArgs([console.quoteString(error)], {
           colors: false,
         })
     }`;
   } else {
     return `Uncaught ${
-        inspectArgs([error], { colors: false })
+        console.inspectArgs([error], { colors: false })
     }`;
   }
 }

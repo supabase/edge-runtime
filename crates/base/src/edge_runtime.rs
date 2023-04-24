@@ -346,8 +346,7 @@ mod test {
     use std::collections::HashMap;
     use std::path::PathBuf;
     use tokio::net::UnixStream;
-    use tokio::sync::oneshot::{Receiver, Sender};
-    use tokio::sync::{mpsc, oneshot};
+    use tokio::sync::mpsc;
 
     fn create_runtime(
         path: Option<PathBuf>,
@@ -372,14 +371,9 @@ mod test {
         .unwrap()
     }
 
-    fn create_user_rt_params_to_run() -> (
-        mpsc::UnboundedReceiver<UnixStream>,
-        Sender<()>,
-        Receiver<()>,
-    ) {
+    fn create_user_rt_params_to_run() -> mpsc::UnboundedReceiver<UnixStream> {
         let (_unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
-        let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
-        (unix_stream_rx, shutdown_tx, shutdown_rx)
+        unix_stream_rx
     }
 
     // Main Runtime should have access to `EdgeRuntime`
@@ -493,7 +487,8 @@ mod test {
             Some(EdgeContextOpts::UserWorker(EdgeUserRuntimeOpts {
                 memory_limit_mb: memory_limit,
                 worker_timeout_ms,
-                id: "".to_string(),
+                key: None,
+                pool_msg_tx: None,
             })),
         )
     }
@@ -501,24 +496,24 @@ mod test {
     #[tokio::test]
     async fn test_timeout_infinite_promises() {
         let user_rt = create_basic_user_runtime("./test_cases/infinite_promises", 100, 1000);
-        let (unix_stream_rx, shutdown, _receiver) = create_user_rt_params_to_run();
-        let data = user_rt.run(unix_stream_rx, shutdown).await.unwrap();
+        let unix_stream_rx = create_user_rt_params_to_run();
+        let data = user_rt.run(unix_stream_rx).await.unwrap();
         assert_eq!(data, EdgeCallResult::ModuleEvaluationTimedOut);
     }
 
     #[tokio::test]
     async fn test_timeout_infinite_loop() {
         let user_rt = create_basic_user_runtime("./test_cases/infinite_loop", 100, 1000);
-        let (unix_stream_rx, shutdown, _receiver) = create_user_rt_params_to_run();
-        let data = user_rt.run(unix_stream_rx, shutdown).await.unwrap();
+        let unix_stream_rx = create_user_rt_params_to_run();
+        let data = user_rt.run(unix_stream_rx).await.unwrap();
         assert_eq!(data, EdgeCallResult::TimeOut);
     }
 
     #[tokio::test]
     async fn test_unresolved_promise() {
         let user_rt = create_basic_user_runtime("./test_cases/unresolved_promise", 100, 1000);
-        let (unix_stream_rx, shutdown, _receiver) = create_user_rt_params_to_run();
-        let data = user_rt.run(unix_stream_rx, shutdown).await.unwrap();
+        let unix_stream_rx = create_user_rt_params_to_run();
+        let data = user_rt.run(unix_stream_rx).await.unwrap();
         assert_eq!(data, EdgeCallResult::ModuleEvaluationTimedOut);
     }
 
@@ -526,8 +521,8 @@ mod test {
     async fn test_delayed_promise() {
         let user_rt =
             create_basic_user_runtime("./test_cases/resolve_promise_after_timeout", 100, 1000);
-        let (unix_stream_rx, shutdown, _receiver) = create_user_rt_params_to_run();
-        let data = user_rt.run(unix_stream_rx, shutdown).await.unwrap();
+        let unix_stream_rx = create_user_rt_params_to_run();
+        let data = user_rt.run(unix_stream_rx).await.unwrap();
         assert_eq!(data, EdgeCallResult::TimeOut);
     }
 
@@ -535,16 +530,16 @@ mod test {
     async fn test_success_delayed_promise() {
         let user_rt =
             create_basic_user_runtime("./test_cases/resolve_promise_before_timeout", 100, 1000);
-        let (stream, shutdown, _receiver) = create_user_rt_params_to_run();
-        let data = user_rt.run(stream, shutdown).await.unwrap();
+        let unix_stream_rx = create_user_rt_params_to_run();
+        let data = user_rt.run(unix_stream_rx).await.unwrap();
         assert_eq!(data, EdgeCallResult::Completed);
     }
 
     #[tokio::test]
     async fn test_heap_limits_reached() {
         let user_rt = create_basic_user_runtime("./test_cases/heap_limit", 5, 1000);
-        let (unix_stream_rx, shutdown, _receiver) = create_user_rt_params_to_run();
-        let data = user_rt.run(unix_stream_rx, shutdown).await.unwrap();
+        let unix_stream_rx = create_user_rt_params_to_run();
+        let data = user_rt.run(unix_stream_rx).await.unwrap();
         assert_eq!(data, EdgeCallResult::HeapLimitReached);
     }
 }

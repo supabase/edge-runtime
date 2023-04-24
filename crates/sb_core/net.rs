@@ -98,7 +98,6 @@ async fn op_net_accept(
 
     let unix_stream = rx.recv().await;
     if unix_stream.is_none() {
-        println!("no unix stream found");
         return Err(bad_resource("unix stream channel is closed"));
     }
     let unix_stream = unix_stream.unwrap();
@@ -114,11 +113,11 @@ async fn op_net_accept(
         rid,
         IpAddr {
             hostname: "0.0.0.0".to_string(),
-            port: 9999,
+            port: 9999, // FIXME
         },
         IpAddr {
             hostname: "0.0.0.0".to_string(),
-            port: 8888,
+            port: 8888, // FIXME
         },
     ))
 }

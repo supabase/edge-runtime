@@ -9,7 +9,8 @@ use uuid::Uuid;
 pub struct EdgeUserRuntimeOpts {
     pub memory_limit_mb: u64,
     pub worker_timeout_ms: u64,
-    pub id: String,
+    pub key: Option<Uuid>,
+    pub pool_msg_tx: Option<mpsc::UnboundedSender<UserWorkerMsgs>>,
 }
 
 #[derive(Debug, Clone)]
@@ -37,19 +38,10 @@ impl Default for EdgeUserRuntimeOpts {
         EdgeUserRuntimeOpts {
             memory_limit_mb: 150,
             worker_timeout_ms: 60000,
-            id: String::from("Unknown"),
+            key: None,
+            pool_msg_tx: None,
         }
     }
-}
-
-#[derive(Debug)]
-pub struct UserWorkerOptions {
-    pub service_path: PathBuf,
-    pub memory_limit_mb: u64,
-    pub worker_timeout_ms: u64,
-    pub no_module_cache: bool,
-    pub import_map_path: Option<String>,
-    pub env_vars: HashMap<String, String>,
 }
 
 #[derive(Debug)]
@@ -58,7 +50,12 @@ pub enum UserWorkerMsgs {
         EdgeContextInitOpts,
         oneshot::Sender<Result<CreateUserWorkerResult, Error>>,
     ),
-    SendRequest(Uuid, Request<Body>, oneshot::Sender<Response<Body>>),
+    SendRequest(
+        Uuid,
+        Request<Body>,
+        oneshot::Sender<Result<Response<Body>, Error>>,
+    ),
+    Shutdown(Uuid),
 }
 
 #[derive(Debug)]

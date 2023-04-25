@@ -12,12 +12,12 @@ use import_map::{parse_from_json, ImportMap, ImportMapDiagnostic};
 use log::{debug, error, warn};
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
-use std::fs;
 use std::panic;
 use std::path::Path;
 use std::rc::Rc;
 use std::thread;
 use std::time::Duration;
+use std::{fmt, fs};
 use tokio::net::UnixStream;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
@@ -73,6 +73,20 @@ pub struct EdgeRuntime {
     pub curr_user_opts: EdgeUserRuntimeOpts,
 }
 
+pub struct EdgeRuntimeError(Error);
+
+impl PartialEq for EdgeRuntimeError {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.to_string() == other.0.to_string()
+    }
+}
+
+impl fmt::Debug for EdgeRuntimeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "[Js Error] {}", self.0.to_string())
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum EdgeCallResult {
     Unknown,
@@ -80,6 +94,7 @@ pub enum EdgeCallResult {
     ModuleEvaluationTimedOut,
     HeapLimitReached,
     Completed,
+    ErrorThrown(EdgeRuntimeError),
 }
 
 impl EdgeRuntime {
@@ -245,8 +260,19 @@ impl EdgeRuntime {
                 _ = js_runtime.run_event_loop(false) => {
                     debug!("Event loop has completed");
 
-                    if let Err(_err) = tokio::time::timeout(std::time::Duration::from_millis(self.curr_user_opts.worker_timeout_ms), mod_result).await {
-                        return Ok(EdgeCallResult::ModuleEvaluationTimedOut);
+                    match tokio::time::timeout(std::time::Duration::from_millis(self.curr_user_opts.worker_timeout_ms), mod_result).await {
+                        Err(_err) => {
+                            return Ok(EdgeCallResult::ModuleEvaluationTimedOut);
+                        },
+                        Ok(r) => {
+                            if let Ok(evaluation_result) = r {
+                                if let Err(e) = evaluation_result {
+                                    let err_as_str = e.to_string();
+                                    debug!("{}", err_as_str);
+                                    return Ok(EdgeCallResult::ErrorThrown(EdgeRuntimeError(e)));
+                                }
+                            }
+                        }
                     }
 
                     Ok(EdgeCallResult::Completed)
@@ -338,6 +364,7 @@ impl EdgeRuntime {
 
 #[cfg(test)]
 mod test {
+    use crate::commands::start_server;
     use crate::edge_runtime::{EdgeCallResult, EdgeRuntime};
     use sb_worker_context::essentials::{
         EdgeContextInitOpts, EdgeContextOpts, EdgeMainRuntimeOpts, EdgeUserRuntimeOpts,
@@ -347,6 +374,7 @@ mod test {
     use std::path::PathBuf;
     use tokio::net::UnixStream;
     use tokio::sync::mpsc;
+    use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
     fn create_runtime(
         path: Option<PathBuf>,
@@ -371,9 +399,9 @@ mod test {
         .unwrap()
     }
 
-    fn create_user_rt_params_to_run() -> mpsc::UnboundedReceiver<UnixStream> {
-        let (_unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
-        unix_stream_rx
+    fn create_user_rt_params_to_run() -> (UnboundedSender<UnixStream>, UnboundedReceiver<UnixStream>)
+    {
+        mpsc::unbounded_channel::<UnixStream>()
     }
 
     // Main Runtime should have access to `EdgeRuntime`
@@ -496,7 +524,7 @@ mod test {
     #[tokio::test]
     async fn test_timeout_infinite_promises() {
         let user_rt = create_basic_user_runtime("./test_cases/infinite_promises", 100, 1000);
-        let unix_stream_rx = create_user_rt_params_to_run();
+        let (tx, unix_stream_rx) = create_user_rt_params_to_run();
         let data = user_rt.run(unix_stream_rx).await.unwrap();
         assert_eq!(data, EdgeCallResult::ModuleEvaluationTimedOut);
     }
@@ -504,7 +532,7 @@ mod test {
     #[tokio::test]
     async fn test_timeout_infinite_loop() {
         let user_rt = create_basic_user_runtime("./test_cases/infinite_loop", 100, 1000);
-        let unix_stream_rx = create_user_rt_params_to_run();
+        let (tx, unix_stream_rx) = create_user_rt_params_to_run();
         let data = user_rt.run(unix_stream_rx).await.unwrap();
         assert_eq!(data, EdgeCallResult::TimeOut);
     }
@@ -512,7 +540,7 @@ mod test {
     #[tokio::test]
     async fn test_unresolved_promise() {
         let user_rt = create_basic_user_runtime("./test_cases/unresolved_promise", 100, 1000);
-        let unix_stream_rx = create_user_rt_params_to_run();
+        let (tx, unix_stream_rx) = create_user_rt_params_to_run();
         let data = user_rt.run(unix_stream_rx).await.unwrap();
         assert_eq!(data, EdgeCallResult::ModuleEvaluationTimedOut);
     }
@@ -521,7 +549,7 @@ mod test {
     async fn test_delayed_promise() {
         let user_rt =
             create_basic_user_runtime("./test_cases/resolve_promise_after_timeout", 100, 1000);
-        let unix_stream_rx = create_user_rt_params_to_run();
+        let (tx, unix_stream_rx) = create_user_rt_params_to_run();
         let data = user_rt.run(unix_stream_rx).await.unwrap();
         assert_eq!(data, EdgeCallResult::TimeOut);
     }
@@ -530,7 +558,7 @@ mod test {
     async fn test_success_delayed_promise() {
         let user_rt =
             create_basic_user_runtime("./test_cases/resolve_promise_before_timeout", 100, 1000);
-        let unix_stream_rx = create_user_rt_params_to_run();
+        let (tx, unix_stream_rx) = create_user_rt_params_to_run();
         let data = user_rt.run(unix_stream_rx).await.unwrap();
         assert_eq!(data, EdgeCallResult::Completed);
     }
@@ -538,8 +566,43 @@ mod test {
     #[tokio::test]
     async fn test_heap_limits_reached() {
         let user_rt = create_basic_user_runtime("./test_cases/heap_limit", 5, 1000);
-        let unix_stream_rx = create_user_rt_params_to_run();
+        let (tx, unix_stream_rx) = create_user_rt_params_to_run();
         let data = user_rt.run(unix_stream_rx).await.unwrap();
         assert_eq!(data, EdgeCallResult::HeapLimitReached);
+    }
+
+    #[tokio::test]
+    async fn test_oak_60_issue() {
+        let main_rt_simulation = async {
+            let server = start_server(
+                "0.0.0.0",
+                9000,
+                String::from("./test_cases/main"),
+                None,
+                false,
+            )
+            .await;
+            ()
+        };
+
+        let oak_req = async {
+            tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await; // Warm up time
+            let resp: String = reqwest::get("http://localhost:9000/oak")
+                .await
+                .unwrap()
+                .text()
+                .await
+                .unwrap();
+            resp
+        };
+
+        tokio::select! {
+            _ = main_rt_simulation => {
+                panic!("This shouldn't end first");
+            }
+            res = oak_req => {
+                assert_eq!(res, "This is an example Oak server running on Edge Functions!");
+            }
+        };
     }
 }

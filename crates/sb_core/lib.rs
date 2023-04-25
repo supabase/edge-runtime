@@ -7,7 +7,8 @@ deno_core::extension!(
     sb_core_main_js,
     esm = [
         "js/user_runtime_loader.js",
+        "js/permissions.js",
         "js/bootstrap.js",
-        "js/main_worker.js"
+        "js/main_worker.js",
     ]
 );

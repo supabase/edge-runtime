@@ -42,7 +42,7 @@ curl --request POST 'http://localhost:9000/hello-world' \
 
 To run with a different entry point, you can pass a different main service like below
 ```sh
-./run.sh start --main-service /path/to/main-service-directory -p 9000
+./scripts/run.sh start --main-service /path/to/main-service-directory -p 9000
 ```
 
 using Docker:

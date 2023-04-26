@@ -18,16 +18,6 @@ const ops = core.ops;
 //     envVars?: Array<any>
 // }
 
-const createStream = (array) => {
-    return new ReadableStream({
-        start: (controller) => {
-            controller.enqueue(array);
-            controller.close();
-        }
-    });
-};
-
-
 class UserWorker {
     constructor(key) {
         this.key = key;

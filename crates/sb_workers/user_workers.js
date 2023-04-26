@@ -18,16 +18,29 @@ const ops = core.ops;
 //     envVars?: Array<any>
 // }
 
+const createStream = (array) => {
+    return new ReadableStream({
+        start: (controller) => {
+            controller.enqueue(array);
+            controller.close();
+        }
+    });
+};
+
+
 class UserWorker {
     constructor(key) {
         this.key = key;
     }
 
     async fetch(req) {
-        const { method, url, headers, body, bodyUsed } = req;
+        const { method, url, headers, body } = req;
+
+        const bodyData = (await new Response(body).arrayBuffer());
+        const bodyLength = bodyData.byteLength;
 
         const headersArray = Array.from(headers.entries());
-        const hasBody = !(method === "GET" || method === "HEAD" || bodyUsed);
+        const hasBody = bodyLength > 0;
 
         const userWorkerReq = {
             method,
@@ -41,7 +54,7 @@ class UserWorker {
         // stream the request body
         if (hasBody) {
             let writableStream = writableStreamForRid(requestBodyRid);
-            body.pipeTo(writableStream);
+            await (createStream(new Uint8Array(bodyData))).pipeTo(writableStream);
         }
 
         const res = await core.opAsync("op_user_worker_fetch_send", this.key, requestRid);

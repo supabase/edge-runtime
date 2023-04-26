@@ -365,6 +365,7 @@ impl EdgeRuntime {
 mod test {
     use crate::commands::start_server;
     use crate::edge_runtime::{EdgeCallResult, EdgeRuntime};
+    use http::Method;
     use sb_worker_context::essentials::{
         EdgeContextInitOpts, EdgeContextOpts, EdgeMainRuntimeOpts, EdgeUserRuntimeOpts,
         UserWorkerMsgs,
@@ -600,6 +601,82 @@ mod test {
             }
             res = oak_req => {
                 assert_eq!(res, "This is an example Oak server running on Edge Functions!");
+            }
+        };
+    }
+
+    #[tokio::test]
+    async fn test_preflight_issue() {
+        let main_rt_simulation = async {
+            let _server = start_server(
+                "0.0.0.0",
+                9000,
+                String::from("./test_cases/main"),
+                None,
+                false,
+            )
+            .await;
+        };
+
+        let cors_req = async {
+            tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await; // Warm up time
+            let reqwest_client = reqwest::Client::new();
+            reqwest_client
+                .request(Method::OPTIONS, "http://localhost:9000/preflight-50")
+                .send()
+                .await
+                .unwrap()
+                .text()
+                .await
+                .unwrap()
+        };
+
+        tokio::select! {
+            _ = main_rt_simulation => {
+                panic!("This shouldn't end first");
+            },
+            res = cors_req => {
+                assert_eq!(res, "ok");
+            }
+        };
+    }
+
+    #[tokio::test]
+    async fn test_preflight_issue_with_body() {
+        let main_rt_simulation = async {
+            let _server = start_server(
+                "0.0.0.0",
+                9000,
+                String::from("./test_cases/main"),
+                None,
+                false,
+            )
+            .await;
+        };
+
+        let cors_req = async {
+            tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await; // Warm up time
+            let reqwest_client = reqwest::Client::new();
+            let payload = deno_core::serde_json::json!({
+                "name": "Andres"
+            });
+            reqwest_client
+                .post("http://localhost:9000/preflight-50")
+                .json(&payload)
+                .send()
+                .await
+                .unwrap()
+                .text()
+                .await
+                .unwrap()
+        };
+
+        tokio::select! {
+            _ = main_rt_simulation => {
+                panic!("This shouldn't end first");
+            },
+            res = cors_req => {
+                assert_eq!(res, r#"{"message":"Hello Andres!"}"#);
             }
         };
     }

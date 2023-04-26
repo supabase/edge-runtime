@@ -36,11 +36,8 @@ class UserWorker {
     async fetch(req) {
         const { method, url, headers, body } = req;
 
-        const bodyData = (await new Response(body).arrayBuffer());
-        const bodyLength = bodyData.byteLength;
-
         const headersArray = Array.from(headers.entries());
-        const hasBody = bodyLength > 0;
+        const hasBody = headersArray.some(([headerName, headerValue]) => headerName.toLowerCase() === 'content-length' && Number(headerValue) > 0);
 
         const userWorkerReq = {
             method,
@@ -54,7 +51,7 @@ class UserWorker {
         // stream the request body
         if (hasBody) {
             let writableStream = writableStreamForRid(requestBodyRid);
-            await (createStream(new Uint8Array(bodyData))).pipeTo(writableStream);
+            await body.pipeTo(writableStream);
         }
 
         const res = await core.opAsync("op_user_worker_fetch_send", this.key, requestRid);

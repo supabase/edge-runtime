@@ -26,7 +26,7 @@ import * as globalInterfaces from "ext:deno_web/04_global_interfaces.js";
 import { SUPABASE_ENV } from "ext:sb_env/env.js";
 import { loadUserRuntime } from "ext:sb_core_main_js/js/user_runtime_loader.js"
 import * as permissions from "ext:sb_core_main_js/js/permissions.js";
-
+import * as performance from "ext:deno_web/15_performance.js";
 
 const core = globalThis.Deno.core;
 const ops = core.ops;
@@ -191,6 +191,13 @@ const globalScope = {
 
   // web sockets
   WebSocket: nonEnumerable(webSocket.WebSocket),
+
+  // performance
+  Performance: nonEnumerable(performance.Performance),
+  PerformanceEntry: nonEnumerable(performance.PerformanceEntry),
+  PerformanceMark: nonEnumerable(performance.PerformanceMark),
+  PerformanceMeasure: nonEnumerable(performance.PerformanceMeasure),
+  performance: writable(performance.performance),
 }
 
 const pendingRejections = [];

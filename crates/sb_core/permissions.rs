@@ -42,7 +42,7 @@ deno_core::extension!(
 
 impl deno_web::TimersPermission for Permissions {
     fn allow_hrtime(&mut self) -> bool {
-        true
+        false
     }
 
     fn check_unstable(&self, _state: &deno_core::OpState, _api_name: &'static str) {}

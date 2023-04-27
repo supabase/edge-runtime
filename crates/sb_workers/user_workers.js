@@ -27,7 +27,7 @@ class UserWorker {
         const { method, url, headers, body } = req;
 
         const headersArray = Array.from(headers.entries());
-        const hasBody = headersArray.some(([headerName, headerValue]) => headerName.toLowerCase() === 'content-length' && Number(headerValue) > 0) || body == null;
+        const hasBody = headersArray.some(([headerName, headerValue]) => headerName.toLowerCase() === 'content-length' && Number(headerValue) > 0) && body !== null;
 
         const userWorkerReq = {
             method,

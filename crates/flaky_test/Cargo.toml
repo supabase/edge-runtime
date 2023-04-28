@@ -1,0 +1,18 @@
+[package]
+name = "flaky_test"
+version = "0.1.0"
+authors = ["Supabase <team@supabase.com>"]
+edition = "2021"
+resolver = "2"
+description = "We'll take care of this later"
+license = "MIT"
+
+[lib]
+path = "lib.rs"
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "1", features = ["full"] }
+tokio.workspace = true

@@ -1,4 +1,4 @@
-import { Application, Router } from 'https://deno.land/x/oak@v12.2.0/mod.ts'
+import { Application, Router } from 'https://deno.land/x/oak@v12.3.0/mod.ts'
 const router = new Router()
 router
   // Note: path will be prefixed with function name

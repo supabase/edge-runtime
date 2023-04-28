@@ -38,6 +38,9 @@ sb_env = { version = "0.1.0", path = "../sb_env" }
 sb_core = { version = "0.1.0", path = "../sb_core" }
 uuid.workspace = true
 
+[dev-dependencies]
+futures-util = { version = "0.3.28" }
+
 [build-dependencies]
 anyhow = { workspace = true }
 bytes = { version = "1.2.1" }

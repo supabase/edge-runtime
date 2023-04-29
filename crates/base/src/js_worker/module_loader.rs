@@ -143,15 +143,30 @@ impl ModuleLoader for DefaultModuleLoader {
             let module_type = get_module_type(fetched_file.media_type)?;
 
             let code = fetched_file.source;
-            let code = emit_parsed_source(
-                &emit_cache,
-                &parsed_source_cache,
-                &module_specifier,
-                fetched_file.media_type,
-                &code,
-                &emit_options,
-                emit_config_hash,
-            )?;
+            let code = match fetched_file.media_type {
+                MediaType::JavaScript
+                | MediaType::Unknown
+                | MediaType::Cjs
+                | MediaType::Mjs
+                | MediaType::Json => code.into(),
+                MediaType::Dts | MediaType::Dcts | MediaType::Dmts => Default::default(),
+                MediaType::TypeScript
+                | MediaType::Mts
+                | MediaType::Cts
+                | MediaType::Jsx
+                | MediaType::Tsx => emit_parsed_source(
+                    &emit_cache,
+                    &parsed_source_cache,
+                    &module_specifier,
+                    fetched_file.media_type,
+                    &code,
+                    &emit_options,
+                    emit_config_hash,
+                )?,
+                MediaType::TsBuildInfo | MediaType::Wasm | MediaType::SourceMap => {
+                    panic!("Unexpected media type during import.")
+                }
+            };
 
             let module = ModuleSource {
                 code,

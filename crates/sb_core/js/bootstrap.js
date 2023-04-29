@@ -176,6 +176,7 @@ const globalScope = {
   PromiseRejectionEvent: nonEnumerable(event.PromiseRejectionEvent),
   ProgressEvent: nonEnumerable(event.ProgressEvent),
   reportError: writable(event.reportError),
+  DOMException: nonEnumerable(DOMException),
 
   // file
   Blob: nonEnumerable(file.Blob),
@@ -548,16 +549,18 @@ function runtimeStart(runtimeOptions, source) {
   registerErrors();
 }
 
-// Deno overrides
-Deno.listen = net.listen;
-Deno.connect = net.connect;
-Deno.connectTls = tls.connectTls;
-Deno.startTls = tls.startTls;
-Deno.resolveDns = net.resolveDns;
-Deno.serveHttp = serveHttp;
-Deno.permissions = permissions.permissions;
-Deno.Permissions = permissions.Permissions;
-Deno.PermissionStatus = permissions.PermissionStatus;
+const finalDenoNs = {
+  listen: net.listen,
+  connect: net.connect,
+  connectTls: tls.connectTls,
+  startTls: tls.startTls,
+  resolveDns: net.resolveDns,
+  serveHttp: serveHttp,
+  permissions: permissions.permissions,
+  Permissions: permissions.Permissions,
+  PermissionStatus: permissions.PermissionStatus,
+  errors: errors,
+}
 
 const __bootstrap = globalThis.__bootstrap;
 delete globalThis.__bootstrap;
@@ -587,16 +590,6 @@ defineEventHandler(globalThis, "unhandledrejection");
 
 core.setPromiseRejectCallback(promiseRejectCallback);
 
-// set these overrides after runtimeStart
-ObjectDefineProperties(Deno, {
-  build: readOnly(build),
-  env: readOnly(SUPABASE_ENV),
-  pid: readOnly(globalThis.__pid),
-  args: readOnly([]), // args are set to be empty
-  mainModule: getterOnly(opMainModule),
-  errors,
-});
-
 globalThis.bootstrapSBEdge = (opts, isUserRuntime) => {
   runtimeStart({
     denoVersion: "NA",
@@ -606,6 +599,17 @@ globalThis.bootstrapSBEdge = (opts, isUserRuntime) => {
     isTty: false,
     ...opts
   });
+
+  // set these overrides after runtimeStart
+  ObjectDefineProperties(finalDenoNs, {
+    build: readOnly(build),
+    env: readOnly(SUPABASE_ENV),
+    pid: readOnly(globalThis.__pid),
+    args: readOnly([]), // args are set to be empty
+    mainModule: getterOnly(opMainModule),
+  });
+
+  ObjectDefineProperty(globalThis, "Deno", readOnly(finalDenoNs));
 
   if(isUserRuntime) {
     loadUserRuntime();

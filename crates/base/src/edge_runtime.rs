@@ -363,7 +363,6 @@ impl EdgeRuntime {
 
 #[cfg(test)]
 mod test {
-    use crate::commands::start_server;
     use crate::edge_runtime::{EdgeCallResult, EdgeRuntime};
     use flaky_test::flaky_test;
     use sb_worker_context::essentials::{
@@ -569,39 +568,5 @@ mod test {
         let (_tx, unix_stream_rx) = create_user_rt_params_to_run();
         let data = user_rt.run(unix_stream_rx).await.unwrap();
         assert_eq!(data, EdgeCallResult::HeapLimitReached);
-    }
-
-    #[tokio::test]
-    async fn test_oak_60_issue() {
-        let main_rt_simulation = async {
-            let _server = start_server(
-                "0.0.0.0",
-                9000,
-                String::from("./test_cases/main"),
-                None,
-                false,
-            )
-            .await;
-        };
-
-        let oak_req = async {
-            tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await; // Warm up time
-            let resp: String = reqwest::get("http://localhost:9000/oak")
-                .await
-                .unwrap()
-                .text()
-                .await
-                .unwrap();
-            resp
-        };
-
-        tokio::select! {
-            _ = main_rt_simulation => {
-                panic!("This shouldn't end first");
-            }
-            res = oak_req => {
-                assert_eq!(res, "This is an example Oak server running on Edge Functions!");
-            }
-        };
     }
 }

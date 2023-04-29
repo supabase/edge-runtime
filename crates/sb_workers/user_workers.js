@@ -18,6 +18,8 @@ const ops = core.ops;
 //     envVars?: Array<any>
 // }
 
+const chunkExpression = /(?:^|\W)chunked(?:$|\W)/i;
+
 class UserWorker {
     constructor(key) {
         this.key = key;
@@ -27,7 +29,8 @@ class UserWorker {
         const { method, url, headers, body, bodyUsed } = req;
 
         const headersArray = Array.from(headers.entries());
-        const hasBody = !(method === "GET" || method === "HEAD" || bodyUsed);
+        const hasBody = !bodyUsed && !!body && (chunkExpression.test(headers.get("transfer-encoding")) ||
+                        Number.parseInt(headers.get("content-length"), 10) > 0);
 
         const userWorkerReq = {
             method,

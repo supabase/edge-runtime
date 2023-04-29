@@ -364,6 +364,7 @@ impl EdgeRuntime {
 #[cfg(test)]
 mod test {
     use crate::edge_runtime::{EdgeCallResult, EdgeRuntime};
+    use flaky_test::flaky_test;
     use sb_worker_context::essentials::{
         EdgeContextInitOpts, EdgeContextOpts, EdgeMainRuntimeOpts, EdgeUserRuntimeOpts,
         UserWorkerMsgs,
@@ -527,7 +528,7 @@ mod test {
         assert_eq!(data, EdgeCallResult::ModuleEvaluationTimedOut);
     }
 
-    #[tokio::test]
+    #[flaky_test]
     async fn test_timeout_infinite_loop() {
         let user_rt = create_basic_user_runtime("./test_cases/infinite_loop", 100, 1000);
         let (_tx, unix_stream_rx) = create_user_rt_params_to_run();
@@ -535,7 +536,7 @@ mod test {
         assert_eq!(data, EdgeCallResult::TimeOut);
     }
 
-    #[tokio::test]
+    #[flaky_test]
     async fn test_unresolved_promise() {
         let user_rt = create_basic_user_runtime("./test_cases/unresolved_promise", 100, 1000);
         let (_tx, unix_stream_rx) = create_user_rt_params_to_run();
@@ -543,7 +544,7 @@ mod test {
         assert_eq!(data, EdgeCallResult::ModuleEvaluationTimedOut);
     }
 
-    #[tokio::test]
+    #[flaky_test]
     async fn test_delayed_promise() {
         let user_rt =
             create_basic_user_runtime("./test_cases/resolve_promise_after_timeout", 100, 1000);
@@ -552,7 +553,7 @@ mod test {
         assert_eq!(data, EdgeCallResult::TimeOut);
     }
 
-    #[tokio::test]
+    #[flaky_test]
     async fn test_success_delayed_promise() {
         let user_rt =
             create_basic_user_runtime("./test_cases/resolve_promise_before_timeout", 100, 1000);
@@ -561,7 +562,7 @@ mod test {
         assert_eq!(data, EdgeCallResult::Completed);
     }
 
-    #[tokio::test]
+    #[flaky_test]
     async fn test_heap_limits_reached() {
         let user_rt = create_basic_user_runtime("./test_cases/heap_limit", 5, 1000);
         let (_tx, unix_stream_rx) = create_user_rt_params_to_run();

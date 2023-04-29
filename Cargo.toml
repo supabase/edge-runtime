@@ -6,7 +6,8 @@ members = [
   "./crates/sb_workers",
   "./crates/sb_worker_context",
   "./crates/sb_env",
-  "./crates/sb_core"
+  "./crates/sb_core",
+  "./crates/flaky_test"
 ]
 resolver = "2"
 

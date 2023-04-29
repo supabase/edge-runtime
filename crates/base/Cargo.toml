@@ -40,6 +40,7 @@ uuid.workspace = true
 
 [dev-dependencies]
 futures-util = { version = "0.3.28" }
+flaky_test = { version = "0.1.0", path = "../flaky_test" }
 
 [build-dependencies]
 anyhow = { workspace = true }

@@ -83,3 +83,41 @@ async fn test_main_worker_post_request() {
 
     assert_eq!(body_bytes, "{\"message\":\"Hello bar from foo!\"}");
 }
+
+#[tokio::test]
+async fn test_main_worker_post_request_with_transfer_encoding() {
+    // create a user worker pool
+    let user_worker_msgs_tx = create_user_worker_pool().await.unwrap();
+    let opts = EdgeContextInitOpts {
+        service_path: "./test_cases/main".into(),
+        no_module_cache: false,
+        import_map_path: None,
+        env_vars: HashMap::new(),
+        conf: EdgeContextOpts::MainWorker(EdgeMainRuntimeOpts {
+            worker_pool_tx: user_worker_msgs_tx,
+        }),
+    };
+    let worker_req_tx = create_worker(opts).await.unwrap();
+    let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
+
+    let chunks: Vec<Result<_, std::io::Error>> = vec![Ok("{\"name\":"), Ok("\"bar\"}")];
+    let stream = futures_util::stream::iter(chunks);
+    let body = Body::wrap_stream(stream);
+
+    let req = Request::builder()
+        .uri("/std_user_worker")
+        .method("POST")
+        .header("Transfer-Encoding", "chunked")
+        .body(body)
+        .unwrap();
+
+    let msg = WorkerRequestMsg { req, res_tx };
+    let _ = worker_req_tx.send(msg);
+
+    let res = res_rx.await.unwrap().unwrap();
+    assert!(res.status().as_u16() == 200);
+
+    let body_bytes = hyper::body::to_bytes(res.into_body()).await.unwrap();
+
+    assert_eq!(body_bytes, "{\"message\":\"Hello bar from foo!\"}");
+}

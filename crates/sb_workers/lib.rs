@@ -388,12 +388,14 @@ impl Stream for MpscByteStream {
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let val = std::task::ready!(self.receiver.poll_recv(cx));
+        //println!("{:?}", val);
         match val {
             None if self.shutdown => Poll::Ready(None),
-            None => Poll::Ready(Some(Err(std::io::Error::new(
-                std::io::ErrorKind::UnexpectedEof,
-                "channel closed",
-            )))),
+            // handle chunked readable streams
+            None => {
+                self.shutdown = true;
+                Poll::Ready(None)
+            }
             Some(None) => {
                 self.shutdown = true;
                 Poll::Ready(None)

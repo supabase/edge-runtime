@@ -23,7 +23,7 @@ pub async fn create_worker(
     let service_path = conf.service_path.clone();
 
     if !service_path.exists() {
-        bail!("main function does not exist {:?}", &service_path)
+        bail!("service does not exist {:?}", &service_path)
     }
 
     let (unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
@@ -35,14 +35,24 @@ pub async fn create_worker(
             .unwrap();
         let local = tokio::task::LocalSet::new();
 
-        local.block_on(&runtime, async {
+        let result: Result<(), Error> = local.block_on(&runtime, async {
             let worker = EdgeRuntime::new(conf)?;
 
             // start the worker
             worker.run(unix_stream_rx).await?;
 
             Ok(())
-        })
+        });
+
+        if result.is_err() {
+            error!(
+                "worker {:?} returned an error: {:?}",
+                service_path,
+                result.unwrap_err()
+            );
+        }
+
+        Ok(())
     });
 
     // create an async task waiting for a request

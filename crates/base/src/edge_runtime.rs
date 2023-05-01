@@ -39,9 +39,9 @@ use sb_workers::sb_user_workers;
 fn load_import_map(maybe_path: Option<String>) -> Result<Option<ImportMap>, Error> {
     if let Some(path_str) = maybe_path {
         let path = Path::new(&path_str);
-        let json_str = fs::read_to_string(path)?;
-
         let abs_path = std::env::current_dir().map(|p| p.join(path))?;
+
+        let json_str = fs::read_to_string(abs_path.clone())?;
         let base_url = Url::from_directory_path(abs_path.parent().unwrap()).unwrap();
         let result = parse_from_json(&base_url, json_str.as_str())?;
         print_import_map_diagnostics(&result.diagnostics);

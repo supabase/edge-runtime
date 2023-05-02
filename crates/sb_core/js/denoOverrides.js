@@ -5,9 +5,8 @@ import {
     errors
 } from "ext:sb_core_main_js/js/errors.js";
 import { serveHttp } from "ext:sb_core_main_js/js/http.js";
-import { readOnly } from "ext:sb_core_main_js/js/fieldUtils.js";
 
-const finalDenoNs = {
+const denoOverrides = {
     listen: net.listen,
     connect: net.connect,
     connectTls: tls.connectTls,
@@ -19,7 +18,5 @@ const finalDenoNs = {
     PermissionStatus: permissions.PermissionStatus,
     errors: errors,
 }
-
-const denoOverrides = readOnly(finalDenoNs);
 
 export { denoOverrides };

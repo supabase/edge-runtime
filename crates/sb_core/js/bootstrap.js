@@ -17,81 +17,36 @@ import * as url from "ext:deno_url/00_url.js";
 import * as urlPattern from "ext:deno_url/01_urlpattern.js";
 import * as webidl from "ext:deno_webidl/00_webidl.js";
 import * as webSocket from "ext:deno_websocket/01_websocket.js";
-import { HttpConn } from "ext:deno_http/01_http.js";
-import * as tls from "ext:deno_net/02_tls.js";
-import * as net from "ext:deno_net/01_net.js";
 import * as response from "ext:deno_fetch/23_response.js";
 import * as request from "ext:deno_fetch/23_request.js";
 import * as globalInterfaces from "ext:deno_web/04_global_interfaces.js";
 import { SUPABASE_ENV } from "ext:sb_env/env.js";
 import { loadUserRuntime } from "ext:sb_core_main_js/js/user_runtime_loader.js"
-import * as permissions from "ext:sb_core_main_js/js/permissions.js";
+import {
+  registerErrors
+} from "ext:sb_core_main_js/js/errors.js";
+import {
+  nonEnumerable,
+  writable,
+  readOnly,
+  getterOnly,
+  formatException
+} from "ext:sb_core_main_js/js/fieldUtils.js";
+import { promiseRejectMacrotaskCallback } from "ext:sb_core_main_js/js/promises.js";
+import { denoOverrides } from "ext:sb_core_main_js/js/denoOverrides.js";
 import * as performance from "ext:deno_web/15_performance.js";
 
 const core = globalThis.Deno.core;
 const ops = core.ops;
 
 const {
-  ArrayPrototypeIndexOf,
-  ArrayPrototypePush,
-  ArrayPrototypeShift,
-  ArrayPrototypeSplice,
   Error,
-  ErrorPrototype,
   ObjectDefineProperty,
   ObjectDefineProperties,
-  ObjectPrototypeIsPrototypeOf,
   ObjectSetPrototypeOf,
   ObjectFreeze,
-  SafeWeakMap,
   StringPrototypeSplit,
-  WeakMapPrototypeGet,
-  WeakMapPrototypeSet,
-  WeakMapPrototypeDelete
-}= globalThis.__bootstrap.primordials;
-
-const defineEventHandler = event.defineEventHandler;
-
-function serveHttp(conn) {
-  const rid = ops.op_http_start(conn.rid);
-  return new HttpConn(rid, conn.remoteAddr, conn.localAddr);
-}
-
-function nonEnumerable(value) {
-  return {
-    value,
-    writable: true,
-    enumerable: false,
-    configurable: true,
-  };
-}
-
-function writable(value) {
-  return {
-    value,
-    writable: true,
-    enumerable: true,
-    configurable: true,
-  };
-}
-
-function readOnly(value) {
-  return {
-    value,
-    enumerable: true,
-    writable: false,
-    configurable: true,
-  };
-}
-
-function getterOnly(getter) {
-  return {
-    get: getter,
-    set() {},
-    enumerable: true,
-    configurable: true,
-  };
-}
+} = globalThis.__bootstrap.primordials;
 
 const globalScope = {
   console: nonEnumerable(
@@ -201,307 +156,6 @@ const globalScope = {
   performance: writable(performance.performance),
 }
 
-const pendingRejections = [];
-const pendingRejectionsReasons = new SafeWeakMap();
-
-function promiseRejectCallback(type, promise, reason) {
-  switch (type) {
-    case 0: {
-      ops.op_store_pending_promise_rejection(promise, reason);
-      ArrayPrototypePush(pendingRejections, promise);
-      WeakMapPrototypeSet(pendingRejectionsReasons, promise, reason);
-      break;
-    }
-    case 1: {
-      ops.op_remove_pending_promise_rejection(promise);
-      const index = ArrayPrototypeIndexOf(pendingRejections, promise);
-      if (index > -1) {
-        ArrayPrototypeSplice(pendingRejections, index, 1);
-        WeakMapPrototypeDelete(pendingRejectionsReasons, promise);
-      }
-      break;
-    }
-    default:
-      return false;
-  }
-
-  return !!globalThis.onunhandledrejection ||
-      event.listenerCount(globalThis, "unhandledrejection") > 0;
-}
-
-
-function promiseRejectMacrotaskCallback() {
-  while (pendingRejections.length > 0) {
-    const promise = ArrayPrototypeShift(pendingRejections);
-    const hasPendingException = ops.op_has_pending_promise_rejection(
-        promise,
-    );
-    const reason = WeakMapPrototypeGet(pendingRejectionsReasons, promise);
-    WeakMapPrototypeDelete(pendingRejectionsReasons, promise);
-
-    if (!hasPendingException) {
-      continue;
-    }
-
-    const rejectionEvent = new event.PromiseRejectionEvent(
-        "unhandledrejection",
-        {
-          cancelable: true,
-          promise,
-          reason,
-        },
-    );
-
-    const errorEventCb = (event) => {
-      if (event.error === reason) {
-        ops.op_remove_pending_promise_rejection(promise);
-      }
-    };
-    // Add a callback for "error" event - it will be dispatched
-    // if error is thrown during dispatch of "unhandledrejection"
-    // event.
-    globalThis.addEventListener("error", errorEventCb);
-    globalThis.dispatchEvent(rejectionEvent);
-    globalThis.removeEventListener("error", errorEventCb);
-
-    // If event was not prevented (or "unhandledrejection" listeners didn't
-    // throw) we will let Rust side handle it.
-    if (rejectionEvent.defaultPrevented) {
-      ops.op_remove_pending_promise_rejection(promise);
-    }
-  }
-  return true;
-}
-
-class NotFound extends Error {
-  constructor(msg) {
-    super(msg);
-    this.name = "NotFound";
-  }
-}
-
-class PermissionDenied extends Error {
-  constructor(msg) {
-    super(msg);
-    this.name = "PermissionDenied";
-  }
-}
-
-class ConnectionRefused extends Error {
-  constructor(msg) {
-    super(msg);
-    this.name = "ConnectionRefused";
-  }
-}
-
-class ConnectionReset extends Error {
-  constructor(msg) {
-    super(msg);
-    this.name = "ConnectionReset";
-  }
-}
-
-class ConnectionAborted extends Error {
-  constructor(msg) {
-    super(msg);
-    this.name = "ConnectionAborted";
-  }
-}
-
-class NotConnected extends Error {
-  constructor(msg) {
-    super(msg);
-    this.name = "NotConnected";
-  }
-}
-
-class AddrInUse extends Error {
-  constructor(msg) {
-    super(msg);
-    this.name = "AddrInUse";
-  }
-}
-
-class AddrNotAvailable extends Error {
-  constructor(msg) {
-    super(msg);
-    this.name = "AddrNotAvailable";
-  }
-}
-
-class BrokenPipe extends Error {
-  constructor(msg) {
-    super(msg);
-    this.name = "BrokenPipe";
-  }
-}
-
-class AlreadyExists extends Error {
-  constructor(msg) {
-    super(msg);
-    this.name = "AlreadyExists";
-  }
-}
-
-class InvalidData extends Error {
-  constructor(msg) {
-    super(msg);
-    this.name = "InvalidData";
-  }
-}
-
-class TimedOut extends Error {
-  constructor(msg) {
-    super(msg);
-    this.name = "TimedOut";
-  }
-}
-
-class WriteZero extends Error {
-  constructor(msg) {
-    super(msg);
-    this.name = "WriteZero";
-  }
-}
-
-class WouldBlock extends Error {
-  constructor(msg) {
-    super(msg);
-    this.name = "WouldBlock";
-  }
-}
-
-class UnexpectedEof extends Error {
-  constructor(msg) {
-    super(msg);
-    this.name = "UnexpectedEof";
-  }
-}
-
-class Http extends Error {
-  constructor(msg) {
-    super(msg);
-    this.name = "Http";
-  }
-}
-
-class Busy extends Error {
-  constructor(msg) {
-    super(msg);
-    this.name = "Busy";
-  }
-}
-
-class NotSupported extends Error {
-  constructor(msg) {
-    super(msg);
-    this.name = "NotSupported";
-  }
-}
-
-const errors = {
-  NotFound,
-  PermissionDenied,
-  ConnectionRefused,
-  ConnectionReset,
-  ConnectionAborted,
-  NotConnected,
-  AddrInUse,
-  AddrNotAvailable,
-  BrokenPipe,
-  AlreadyExists,
-  InvalidData,
-  TimedOut,
-  Interrupted: core.Interrupted,
-  WriteZero,
-  UnexpectedEof,
-  BadResource: core.BadResource,
-  Http,
-  Busy,
-  NotSupported,
-}
-
-function registerErrors() {
-  core.registerErrorClass("NotFound", NotFound);
-  core.registerErrorClass("PermissionDenied", PermissionDenied);
-  core.registerErrorClass("ConnectionRefused", ConnectionRefused);
-  core.registerErrorClass("ConnectionReset", ConnectionReset);
-  core.registerErrorClass("ConnectionAborted", ConnectionAborted);
-  core.registerErrorClass("NotConnected", NotConnected);
-  core.registerErrorClass("AddrInUse", AddrInUse);
-  core.registerErrorClass("AddrNotAvailable", AddrNotAvailable);
-  core.registerErrorClass("BrokenPipe", BrokenPipe);
-  core.registerErrorClass("AlreadyExists", AlreadyExists);
-  core.registerErrorClass("InvalidData", InvalidData);
-  core.registerErrorClass("TimedOut", TimedOut);
-  core.registerErrorClass("Interrupted", core.Interrupted);
-  core.registerErrorClass("WriteZero", WriteZero);
-  core.registerErrorClass("UnexpectedEof", UnexpectedEof);
-  core.registerErrorClass("BadResource", core.BadResource);
-  core.registerErrorClass("Http", Http);
-  core.registerErrorClass("Busy", Busy);
-  core.registerErrorClass("NotSupported", NotSupported);
-  core.registerErrorBuilder(
-      "DOMExceptionOperationError",
-      function DOMExceptionOperationError(msg) {
-        return new DOMException(msg, "OperationError");
-      },
-  );
-  core.registerErrorBuilder(
-      "DOMExceptionQuotaExceededError",
-      function DOMExceptionQuotaExceededError(msg) {
-        return new DOMException(msg, "QuotaExceededError");
-      },
-  );
-  core.registerErrorBuilder(
-      "DOMExceptionNotSupportedError",
-      function DOMExceptionNotSupportedError(msg) {
-        return new DOMException(msg, "NotSupported");
-      },
-  );
-  core.registerErrorBuilder(
-      "DOMExceptionNetworkError",
-      function DOMExceptionNetworkError(msg) {
-        return new DOMException(msg, "NetworkError");
-      },
-  );
-  core.registerErrorBuilder(
-      "DOMExceptionAbortError",
-      function DOMExceptionAbortError(msg) {
-        return new DOMException(msg, "AbortError");
-      },
-  );
-  core.registerErrorBuilder(
-      "DOMExceptionInvalidCharacterError",
-      function DOMExceptionInvalidCharacterError(msg) {
-        return new DOMException(msg, "InvalidCharacterError");
-      },
-  );
-  core.registerErrorBuilder(
-      "DOMExceptionDataError",
-      function DOMExceptionDataError(msg) {
-        return new DOMException(msg, "DataError");
-      },
-  );
-}
-
-
-function formatException(error) {
-  if (ObjectPrototypeIsPrototypeOf(ErrorPrototype, error)) {
-    return null;
-  } else if (typeof error == "string") {
-    return `Uncaught ${
-        console.inspectArgs([console.quoteString(error)], {
-          colors: false,
-        })
-    }`;
-  } else {
-    return `Uncaught ${
-        console.inspectArgs([error], { colors: false })
-    }`;
-  }
-}
-
 // set build info
 const build = {
   target: "unknown",
@@ -522,24 +176,17 @@ function setBuildInfo(target) {
   build.vendor = vendor;
   build.os = os;
   build.env = env;
-  ObjectFreeze(build);
-}
 
-function opMainModule() {
-  return ops.op_main_module();
+  ObjectFreeze(build);
 }
 
 function runtimeStart(runtimeOptions, source) {
   core.setMacrotaskCallback(timers.handleTimerMacrotask);
   core.setMacrotaskCallback(promiseRejectMacrotaskCallback);
   core.setWasmStreamingCallback(fetch.handleWasmStreaming);
-  //core.setReportExceptionCallback(reportException);
+
   ops.op_set_format_exception_callback(formatException);
-  //version.setVersions(
-  //  runtimeOptions.denoVersion,
-  //  runtimeOptions.v8Version,
-  //  runtimeOptions.tsVersion,
-  //);
+
   setBuildInfo(runtimeOptions.target);
   colors.setNoColor(runtimeOptions.noColor || !runtimeOptions.isTty);
 
@@ -549,20 +196,6 @@ function runtimeStart(runtimeOptions, source) {
   registerErrors();
 }
 
-const finalDenoNs = {
-  listen: net.listen,
-  connect: net.connect,
-  connectTls: tls.connectTls,
-  startTls: tls.startTls,
-  resolveDns: net.resolveDns,
-  serveHttp: serveHttp,
-  permissions: permissions.permissions,
-  Permissions: permissions.Permissions,
-  PermissionStatus: permissions.PermissionStatus,
-  errors: errors,
-}
-
-const __bootstrap = globalThis.__bootstrap;
 delete globalThis.__bootstrap;
 delete globalThis.bootstrap;
 
@@ -582,13 +215,8 @@ globalThis[webidl.brand] = webidl.brand;
 
 event.setEventTargetData(globalThis);
 
-defineEventHandler(globalThis, "error");
-defineEventHandler(globalThis, "load");
-defineEventHandler(globalThis, "beforeunload");
-defineEventHandler(globalThis, "unload");
-defineEventHandler(globalThis, "unhandledrejection");
-
-core.setPromiseRejectCallback(promiseRejectCallback);
+const eventHandlers = ["error", "load", "beforeunload", "unload", "unhandledrejection"];
+eventHandlers.forEach((handlerName) => event.defineEventHandler(globalThis, handlerName));
 
 globalThis.bootstrapSBEdge = (opts, isUserRuntime) => {
   runtimeStart({
@@ -601,15 +229,15 @@ globalThis.bootstrapSBEdge = (opts, isUserRuntime) => {
   });
 
   // set these overrides after runtimeStart
-  ObjectDefineProperties(finalDenoNs, {
+  ObjectDefineProperties(denoOverrides, {
     build: readOnly(build),
     env: readOnly(SUPABASE_ENV),
     pid: readOnly(globalThis.__pid),
     args: readOnly([]), // args are set to be empty
-    mainModule: getterOnly(opMainModule),
+    mainModule: getterOnly(() => ops.op_main_module()),
   });
 
-  ObjectDefineProperty(globalThis, "Deno", readOnly(finalDenoNs));
+  ObjectDefineProperty(globalThis, "Deno", readOnly(denoOverrides));
 
   if(isUserRuntime) {
     loadUserRuntime();
@@ -617,5 +245,3 @@ globalThis.bootstrapSBEdge = (opts, isUserRuntime) => {
 
   delete globalThis.bootstrapSBEdge;
 }
-
-// TODO: Abstract this file into multiple files. There's too much boilerplate

@@ -340,7 +340,7 @@ impl EdgeRuntime {
             if let Some(k) = key {
                 if let Some(tx) = pool_msg_tx {
                     if tx.send(UserWorkerMsgs::Shutdown(k)).is_err() {
-                        error!("failed to send the halt execution signal");
+                        error!("failed to send the shutdown signal to user worker pool");
                     }
                 }
             };

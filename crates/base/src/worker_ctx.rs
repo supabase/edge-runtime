@@ -1,4 +1,4 @@
-use crate::edge_runtime::EdgeRuntime;
+use crate::edge_runtime::{EdgeCallResult, EdgeRuntime};
 use anyhow::{anyhow, bail, Error};
 use hyper::{Body, Request, Response};
 use log::error;
@@ -18,14 +18,15 @@ pub struct WorkerRequestMsg {
 }
 
 pub async fn create_worker(
-    conf: EdgeContextInitOpts,
+    init_opts: EdgeContextInitOpts,
 ) -> Result<mpsc::UnboundedSender<WorkerRequestMsg>, Error> {
-    let service_path = conf.service_path.clone();
+    let service_path = init_opts.service_path.clone();
 
     if !service_path.exists() {
         bail!("service does not exist {:?}", &service_path)
     }
 
+    let (worker_boot_result_tx, worker_boot_result_rx) = oneshot::channel::<Result<(), Error>>();
     let (unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
 
     let _handle: thread::JoinHandle<Result<(), Error>> = thread::spawn(move || {
@@ -35,13 +36,20 @@ pub async fn create_worker(
             .unwrap();
         let local = tokio::task::LocalSet::new();
 
-        let result: Result<(), Error> = local.block_on(&runtime, async {
-            let worker = EdgeRuntime::new(conf)?;
+        let result: Result<EdgeCallResult, Error> = local.block_on(&runtime, async {
+            let result = EdgeRuntime::new(init_opts);
 
-            // start the worker
-            worker.run(unix_stream_rx).await?;
-
-            Ok(())
+            match result {
+                Err(err) => {
+                    let _ = worker_boot_result_tx.send(Err(anyhow!("worker boot error")));
+                    bail!(err)
+                }
+                Ok(worker) => {
+                    let _ = worker_boot_result_tx.send(Ok(()));
+                    // start the worker
+                    worker.run(unix_stream_rx).await
+                }
+            }
         });
 
         if result.is_err() {
@@ -58,35 +66,44 @@ pub async fn create_worker(
     // create an async task waiting for a request
     let (worker_req_tx, mut worker_req_rx) = mpsc::unbounded_channel::<WorkerRequestMsg>();
 
-    let _handle: tokio::task::JoinHandle<Result<(), Error>> = tokio::task::spawn(async move {
-        let unix_stream_tx = unix_stream_tx.clone();
+    let worker_req_handle: tokio::task::JoinHandle<Result<(), Error>> =
+        tokio::task::spawn(async move {
+            let unix_stream_tx = unix_stream_tx.clone();
 
-        while let Some(msg) = worker_req_rx.recv().await {
-            // create a unix socket pair
-            let (sender_stream, recv_stream) = UnixStream::pair()?;
+            while let Some(msg) = worker_req_rx.recv().await {
+                // create a unix socket pair
+                let (sender_stream, recv_stream) = UnixStream::pair()?;
 
-            let _ = unix_stream_tx.clone().send(recv_stream);
+                let _ = unix_stream_tx.clone().send(recv_stream);
 
-            // send the HTTP request to the worker over Unix stream
-            let (mut request_sender, connection) =
-                hyper::client::conn::handshake(sender_stream).await?;
+                // send the HTTP request to the worker over Unix stream
+                let (mut request_sender, connection) =
+                    hyper::client::conn::handshake(sender_stream).await?;
 
-            // spawn a task to poll the connection and drive the HTTP state
-            tokio::task::spawn(async move {
-                if let Err(e) = connection.without_shutdown().await {
-                    error!("Error in main worker connection: {}", e);
-                }
-            });
-            tokio::task::yield_now().await;
+                // spawn a task to poll the connection and drive the HTTP state
+                tokio::task::spawn(async move {
+                    if let Err(e) = connection.without_shutdown().await {
+                        error!("Error in worker connection: {}", e);
+                    }
+                });
+                tokio::task::yield_now().await;
 
-            let result = request_sender.send_request(msg.req).await;
-            let _ = msg.res_tx.send(result);
+                let result = request_sender.send_request(msg.req).await;
+                let _ = msg.res_tx.send(result);
+            }
+
+            Ok(())
+        });
+
+    // wait for worker to be successfully booted
+    let worker_boot_result = worker_boot_result_rx.await?;
+    match worker_boot_result {
+        Err(err) => {
+            worker_req_handle.abort();
+            bail!(err)
         }
-
-        Ok(())
-    });
-
-    Ok(worker_req_tx)
+        Ok(_) => Ok(worker_req_tx),
+    }
 }
 
 pub async fn create_user_worker_pool() -> Result<mpsc::UnboundedSender<UserWorkerMsgs>, Error> {

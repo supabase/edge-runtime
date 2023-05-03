@@ -8,6 +8,11 @@ deno_core::extension!(
     esm = [
         "js/user_runtime_loader.js",
         "js/permissions.js",
+        "js/errors.js",
+        "js/fieldUtils.js",
+        "js/promises.js",
+        "js/http.js",
+        "js/denoOverrides.js",
         "js/bootstrap.js",
         "js/main_worker.js",
     ]

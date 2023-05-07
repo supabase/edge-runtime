@@ -71,31 +71,31 @@ function registerErrors() {
     core.registerErrorClass("Http", Http);
     core.registerErrorClass("Busy", Busy);
     core.registerErrorClass("NotSupported", NotSupported);
-    core.registerErrorBuilder(
+    core.registerErrorClass(
         "DOMExceptionOperationError",
         DOMExceptionOperationError
     );
-    core.registerErrorBuilder(
+    core.registerErrorClass(
         "DOMExceptionQuotaExceededError",
         DOMExceptionQuotaExceededError
     );
-    core.registerErrorBuilder(
+    core.registerErrorClass(
         "DOMExceptionNotSupportedError",
         DOMExceptionNotSupportedError
     );
-    core.registerErrorBuilder(
+    core.registerErrorClass(
         "DOMExceptionNetworkError",
         DOMExceptionNetworkError
     );
-    core.registerErrorBuilder(
+    core.registerErrorClass(
         "DOMExceptionAbortError",
         DOMExceptionAbortError
     );
-    core.registerErrorBuilder(
+    core.registerErrorClass(
         "DOMExceptionInvalidCharacterError",
         DOMExceptionInvalidCharacterError
     );
-    core.registerErrorBuilder(
+    core.registerErrorClass(
         "DOMExceptionDataError",
         DOMExceptionDataError
     );

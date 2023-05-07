@@ -23,7 +23,7 @@ use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use uuid::Uuid;
 
-use crate::snapshot;
+use crate::{errors_rt, snapshot};
 use module_loader::DefaultModuleLoader;
 use sb_core::http_start::sb_core_http;
 use sb_core::net::sb_core_net;
@@ -97,6 +97,10 @@ pub enum EdgeCallResult {
     ErrorThrown(EdgeRuntimeError),
 }
 
+fn get_error_class_name(e: &AnyError) -> &'static str {
+    errors_rt::get_error_class_name(e).unwrap_or("Error")
+}
+
 impl EdgeRuntime {
     pub fn new(opts: EdgeContextInitOpts) -> Result<Self, Error> {
         let EdgeContextInitOpts {
@@ -168,6 +172,7 @@ impl EdgeRuntime {
                     None
                 }
             },
+            get_error_class_fn: Some(&get_error_class_name),
             shared_array_buffer_store: None,
             compiled_wasm_module_store: None,
             startup_snapshot: Some(snapshot::snapshot()),

@@ -90,7 +90,7 @@ pub async fn op_user_worker_create(
     let result = result_rx.await;
     if result.is_err() {
         return Err(custom_error(
-            "create_user_worker_error",
+            "InvalidWorkerCreation",
             "failed to create worker",
         ));
     }
@@ -99,7 +99,7 @@ pub async fn op_user_worker_create(
     let result = result.unwrap();
     if result.is_err() {
         return Err(custom_error(
-            "create_user_worker_error",
+            "InvalidWorkerCreation",
             result.unwrap_err().to_string(),
         ));
     }
@@ -317,7 +317,7 @@ pub async fn op_user_worker_fetch_send(
     let result = result_rx.await?;
     if result.is_err() {
         return Err(custom_error(
-            "user_worker_fetch",
+            "InvalidWorkerResponse",
             "user worker not available",
         ));
     }

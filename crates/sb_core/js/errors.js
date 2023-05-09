@@ -25,6 +25,8 @@ const buildDomErrorClass = (name) => class extends DOMException {
     }
 }
 
+const InvalidWorkerResponse = buildErrorClass('InvalidWorkerResponse');
+const InvalidWorkerCreation = buildErrorClass('InvalidWorkerCreation');
 const NotFound = buildErrorClass('NotFound');
 const PermissionDenied = buildErrorClass('PermissionDenied');
 const ConnectionRefused = buildErrorClass('ConnectionRefused');
@@ -52,6 +54,8 @@ const DOMExceptionInvalidCharacterError = buildDomErrorClass('InvalidCharacterEr
 const DOMExceptionDataError = buildDomErrorClass('DOMExceptionDataError');
 
 function registerErrors() {
+    core.registerErrorClass("InvalidWorkerResponse", InvalidWorkerResponse);
+    core.registerErrorClass("InvalidWorkerCreation", InvalidWorkerCreation);
     core.registerErrorClass("NotFound", NotFound);
     core.registerErrorClass("PermissionDenied", PermissionDenied);
     core.registerErrorClass("ConnectionRefused", ConnectionRefused);

@@ -49,7 +49,7 @@ class UserWorker {
 
         const res = await core.opAsync("op_user_worker_fetch_send", this.key, requestRid);
         const bodyStream = readableStreamForRid(res.bodyRid);
-        return new Response(bodyStream, {
+        return new Response(!hasBody ? undefined : bodyStream, {
             headers: res.headers,
             status: res.status,
             statusText: res.statusText

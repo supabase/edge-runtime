@@ -36,3 +36,36 @@ async fn test_null_body_with_204_status() {
 
     assert_eq!(body_bytes.len(), 0);
 }
+
+#[tokio::test]
+async fn test_null_body_with_204_status_post() {
+    let user_rt_opts = EdgeUserRuntimeOpts::default();
+    let opts = EdgeContextInitOpts {
+        service_path: "./test_cases/empty-response".into(),
+        no_module_cache: false,
+        import_map_path: None,
+        env_vars: HashMap::new(),
+        conf: EdgeContextOpts::UserWorker(user_rt_opts),
+    };
+    let worker_req_tx = create_worker(opts).await.unwrap();
+    let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
+
+    let req = Request::builder()
+        .uri("/")
+        .method("POST")
+        .body(Body::empty())
+        .unwrap();
+
+    let msg = WorkerRequestMsg { req, res_tx };
+    let _ = worker_req_tx.send(msg);
+
+    let res = res_rx.await.unwrap().unwrap();
+    assert!(res.status().as_u16() == 204);
+
+    let body_bytes = hyper::body::to_bytes(res.into_body())
+        .await
+        .unwrap()
+        .to_vec();
+
+    assert_eq!(body_bytes.len(), 0);
+}

@@ -1,3 +1,5 @@
+extern crate core;
+
 pub mod commands;
 pub mod edge_runtime;
 pub mod errors_rt;

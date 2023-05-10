@@ -81,3 +81,33 @@ impl deno_websocket::WebSocketPermissions for Permissions {
         Ok(())
     }
 }
+
+/// TODO: File system should be protected even if it's for main.
+/// Some sort of permission before main is boostrapped should be put in place
+
+impl deno_fs::FsPermissions for Permissions {
+    fn check_read(&mut self, _path: &Path, _api_name: &str) -> Result<(), AnyError> {
+        Ok(())
+    }
+
+    fn check_read_all(&mut self, _api_name: &str) -> Result<(), AnyError> {
+        Ok(())
+    }
+
+    fn check_read_blind(
+        &mut self,
+        _path: &Path,
+        _display: &str,
+        _api_name: &str,
+    ) -> Result<(), AnyError> {
+        Ok(())
+    }
+
+    fn check_write(&mut self, _path: &Path, _api_name: &str) -> Result<(), AnyError> {
+        Ok(())
+    }
+
+    fn check_write_all(&mut self, _api_name: &str) -> Result<(), AnyError> {
+        Ok(())
+    }
+}

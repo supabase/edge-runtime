@@ -14,6 +14,7 @@ path = "lib.rs"
 deno_net.workspace = true
 deno_web.workspace = true
 deno_fetch.workspace = true
+deno_fs.workspace = true
 deno_websocket.workspace = true
 anyhow.workspace = true
 deno_core.workspace = true

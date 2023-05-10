@@ -125,6 +125,33 @@ mod supabase_startup_snapshot {
         }
     }
 
+    impl deno_fs::FsPermissions for Permissions {
+        fn check_read(&mut self, _path: &Path, _api_name: &str) -> Result<(), AnyError> {
+            unreachable!("snapshotting!")
+        }
+
+        fn check_read_all(&mut self, _api_name: &str) -> Result<(), AnyError> {
+            unreachable!("snapshotting!")
+        }
+
+        fn check_read_blind(
+            &mut self,
+            _path: &Path,
+            _display: &str,
+            _api_name: &str,
+        ) -> Result<(), AnyError> {
+            unreachable!("snapshotting!")
+        }
+
+        fn check_write(&mut self, _path: &Path, _api_name: &str) -> Result<(), AnyError> {
+            unreachable!("snapshotting!")
+        }
+
+        fn check_write_all(&mut self, _api_name: &str) -> Result<(), AnyError> {
+            unreachable!("snapshotting!")
+        }
+    }
+
     pub fn create_runtime_snapshot(snapshot_path: PathBuf) {
         let user_agent = String::from("supabase");
         let extensions: Vec<Extension> = vec![
@@ -147,6 +174,8 @@ mod supabase_startup_snapshot {
             deno_net::deno_net::init_ops_and_esm::<Permissions>(None, false, None),
             deno_tls::deno_tls::init_ops_and_esm(),
             deno_http::deno_http::init_ops_and_esm(),
+            deno_io::deno_io::init_ops_and_esm(Default::default()),
+            deno_fs::deno_fs::init_ops_and_esm::<Permissions>(false),
             sb_env::init_ops_and_esm(),
             sb_user_workers::init_ops_and_esm(),
             sb_core_main_js::init_ops_and_esm(),

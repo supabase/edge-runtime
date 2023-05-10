@@ -147,6 +147,8 @@ impl EdgeRuntime {
             deno_net::deno_net::init_ops::<Permissions>(Some(root_cert_store), false, None),
             deno_tls::deno_tls::init_ops(),
             deno_http::deno_http::init_ops(),
+            deno_io::deno_io::init_ops(Default::default()),
+            deno_fs::deno_fs::init_ops::<Permissions>(false),
             sb_env_op::init_ops(),
             sb_user_workers::init_ops(),
             sb_core_main_js::init_ops(),
@@ -451,6 +453,27 @@ mod test {
     }
 
     #[tokio::test]
+    async fn test_main_rt_fs() {
+        let mut main_rt = create_runtime(None, Some(std::env::vars().collect()), None);
+
+        let global_value_deno_read_file_script = main_rt
+            .js_runtime
+            .execute_script(
+                "<anon>",
+                r#"
+            Deno.readTextFileSync("./test_cases/readFile/hello_world.json");
+        "#,
+            )
+            .unwrap();
+        let fs_read_result =
+            main_rt.to_value::<deno_core::serde_json::Value>(&global_value_deno_read_file_script);
+        assert_eq!(
+            fs_read_result.unwrap().as_str().unwrap(),
+            "{\n  \"hello\": \"world\"\n}"
+        );
+    }
+
+    #[tokio::test]
     async fn test_os_env_vars() {
         std::env::set_var("Supa_Test", "Supa_Value");
         let mut main_rt = create_runtime(None, Some(std::env::vars().collect()), None);
@@ -573,5 +596,21 @@ mod test {
         let (_tx, unix_stream_rx) = create_user_rt_params_to_run();
         let data = user_rt.run(unix_stream_rx).await.unwrap();
         assert_eq!(data, EdgeCallResult::HeapLimitReached);
+    }
+
+    #[flaky_test]
+    async fn test_read_file_user_rt() {
+        let user_rt = create_basic_user_runtime("./test_cases/readFile", 5, 1000);
+        let (_tx, unix_stream_rx) = create_user_rt_params_to_run();
+        let data = user_rt.run(unix_stream_rx).await.unwrap();
+        match data {
+            EdgeCallResult::ErrorThrown(data) => {
+                assert!(data
+                    .0
+                    .to_string()
+                    .contains("TypeError: Deno.readFileSync is not a function"));
+            }
+            _ => panic!("Invalid Result"),
+        };
     }
 }

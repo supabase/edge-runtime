@@ -29,20 +29,20 @@ class UserWorker {
         const { method, url, headers, body, bodyUsed } = req;
 
         const headersArray = Array.from(headers.entries());
-        const hasBody = !bodyUsed && !!body && (chunkExpression.test(headers.get("transfer-encoding")) ||
+        const hasReqBody = !bodyUsed && !!body && (chunkExpression.test(headers.get("transfer-encoding")) ||
                         Number.parseInt(headers.get("content-length"), 10) > 0);
 
         const userWorkerReq = {
             method,
             url,
             headers: headersArray,
-            hasBody,
+            hasBody: hasReqBody,
         };
 
         const { requestRid, requestBodyRid } = await ops.op_user_worker_fetch_build(userWorkerReq);
 
         // stream the request body
-        if (hasBody) {
+        if (hasReqBody) {
             let writableStream = writableStreamForRid(requestBodyRid);
             body.pipeTo(writableStream);
         }

@@ -20,6 +20,8 @@ deno_core = { version = "0.179.0" }
 deno_console = { version = "0.97.0" }
 deno_crypto =  { version = "0.111.0" }
 deno_fetch = { version = "0.121.0" }
+deno_fs = "0.7.0"
+deno_io = "0.7.0"
 deno_graph = "=0.45.0"
 deno_http =  { version = "0.92.0" }
 deno_net = { version = "0.89.0" }

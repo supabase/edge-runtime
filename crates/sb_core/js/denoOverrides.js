@@ -86,4 +86,4 @@ const denoOverrides = {
     ...fsVars
 }
 
-export { denoOverrides };
+export { denoOverrides, fsVars };

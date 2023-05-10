@@ -129,7 +129,7 @@ pub struct UserWorkerResponse {
     status_text: String,
     headers: Vec<(ByteString, ByteString)>,
     body_rid: ResourceId,
-    size: Option<u64>
+    size: Option<u64>,
 }
 
 struct UserWorkerRequestResource(Request<Body>);
@@ -351,7 +351,7 @@ pub async fn op_user_worker_fetch_send(
     let body_rid = op_state.resource_table.add(UserWorkerResponseBodyResource {
         reader: AsyncRefCell::new(stream.peekable()),
         cancel: CancelHandle::default(),
-        size: size.clone(),
+        size,
     });
 
     let response = UserWorkerResponse {
@@ -359,7 +359,7 @@ pub async fn op_user_worker_fetch_send(
         status_text,
         headers,
         body_rid,
-        size
+        size,
     };
     Ok(response)
 }

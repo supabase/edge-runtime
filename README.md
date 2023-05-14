@@ -41,6 +41,7 @@ curl --request POST 'http://localhost:9000/hello-world' \
 ```
 
 To run with a different entry point, you can pass a different main service like below
+
 ```sh
 ./scripts/run.sh start --main-service /path/to/main-service-directory -p 9000
 ```
@@ -54,7 +55,9 @@ docker run -it --rm -p 9000:9000 -v /path/to/supabase/functions:/usr/services su
 
 ## How to run tests
 
-Read about running tests [here](https://github.com/supabase/edge-runtime/blob/main/testing.md)
+```sh
+./scripts/test.sh [TEST_NAME]
+```
 
 ## How to update to a newer Deno version
 

@@ -147,7 +147,7 @@ impl EdgeRuntime {
             deno_net::deno_net::init_ops::<Permissions>(Some(root_cert_store), false, None),
             deno_tls::deno_tls::init_ops(),
             deno_http::deno_http::init_ops(),
-            deno_io::deno_io::init_ops(Default::default()),
+            deno_io::deno_io::init_ops(Some(Default::default())),
             deno_fs::deno_fs::init_ops::<Permissions>(false),
             sb_env_op::init_ops(),
             sb_user_workers::init_ops(),

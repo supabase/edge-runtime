@@ -1,9 +1,7 @@
-use base::commands::start_server;
 use base::worker_ctx::{create_worker, WorkerRequestMsg};
 use hyper::{Body, Request, Response};
 use sb_worker_context::essentials::{EdgeContextInitOpts, EdgeContextOpts, EdgeUserRuntimeOpts};
 use std::collections::HashMap;
-use tokio::select;
 use tokio::sync::oneshot;
 
 #[tokio::test]

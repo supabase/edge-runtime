@@ -84,6 +84,25 @@ async fn test_main_worker_post_request() {
     assert_eq!(body_bytes, "{\"message\":\"Hello bar from foo!\"}");
 }
 
+#[tokio::test]
+async fn test_main_worker_boot_error() {
+    // create a user worker pool
+    let user_worker_msgs_tx = create_user_worker_pool().await.unwrap();
+    let opts = EdgeContextInitOpts {
+        service_path: "./test_cases/main".into(),
+        no_module_cache: false,
+        import_map_path: Some("./non-existing-import-map.json".to_string()),
+        env_vars: HashMap::new(),
+        conf: EdgeContextOpts::MainWorker(EdgeMainRuntimeOpts {
+            worker_pool_tx: user_worker_msgs_tx,
+        }),
+    };
+    let result = create_worker(opts).await;
+
+    assert!(result.is_err());
+    assert_eq!(result.unwrap_err().to_string(), "worker boot error");
+}
+
 //#[tokio::test]
 //async fn test_main_worker_post_request_with_transfer_encoding() {
 //    // create a user worker pool

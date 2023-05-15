@@ -498,7 +498,7 @@ mod test {
             .unwrap();
         assert!(err
             .to_string()
-            .contains("Error: The operation is not supported"));
+            .contains("NotSupported: The operation is not supported"));
 
         let main_deno_env_get_supa_test = main_rt
             .js_runtime

@@ -2,7 +2,9 @@ use base::worker_ctx::{create_worker, WorkerRequestMsg};
 use hyper::{Body, Request, Response};
 use sb_worker_context::essentials::{EdgeContextInitOpts, EdgeContextOpts, EdgeUserRuntimeOpts};
 use std::collections::HashMap;
+use tokio::select;
 use tokio::sync::oneshot;
+use base::commands::start_server;
 
 #[tokio::test]
 async fn test_null_body_with_204_status() {
@@ -68,4 +70,22 @@ async fn test_null_body_with_204_status_post() {
         .to_vec();
 
     assert_eq!(body_bytes.len(), 0);
+}
+
+#[tokio::test]
+async fn test_custom_readable_stream_response() {
+    select! {
+        _ = start_server(
+            "0.0.0.0",
+            8999,
+            String::from("./test_cases/main"),
+            None,
+            false
+        ) => {
+            panic!("This one should not end first");
+        }
+        resp = reqwest::get("http://localhost:8999/readable-stream-resp") => {
+            assert_eq!(resp.unwrap().text().await.unwrap(), "Hello world from streams");
+        }
+    }
 }

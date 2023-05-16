@@ -141,14 +141,13 @@ pub async fn create_user_worker_pool() -> Result<mpsc::UnboundedSender<UserWorke
 
                     // derive worker key from service path
                     // if force create is set, add current epoch mili seconds to randomize
-                    let service_path = worker_options.service_path.to_str().or(Some("")).unwrap();
+                    let service_path = worker_options.service_path.to_str().unwrap_or("");
                     let mut key_input = service_path.to_string();
                     if user_worker_rt_opts.force_create {
                         let cur_epoch_time = SystemTime::now().duration_since(UNIX_EPOCH)?;
-                        key_input =
-                            format!("{}-{}", key_input, cur_epoch_time.as_millis().to_string());
+                        key_input = format!("{}-{}", key_input, cur_epoch_time.as_millis());
                     }
-                    let key = city_hash_64(&key_input.as_bytes());
+                    let key = city_hash_64(key_input.as_bytes());
 
                     // do not recreate the worker if it already exists
                     if let Some(_worker) = user_workers.get(&key) {

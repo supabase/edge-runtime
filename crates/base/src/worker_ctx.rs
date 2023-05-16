@@ -150,9 +150,9 @@ pub async fn create_user_worker_pool() -> Result<mpsc::UnboundedSender<UserWorke
                     let key = city_hash_64(key_input.as_bytes());
 
                     // do not recreate the worker if it already exists
-                    if let Some(_worker) = user_workers.get(&key) {
-                        // if the force create option is set skip the existing worker
-                        if !user_worker_rt_opts.force_create {
+                    // unless force_create option is set
+                    if !user_worker_rt_opts.force_create {
+                        if let Some(_worker) = user_workers.get(&key) {
                             if tx.send(Ok(CreateUserWorkerResult { key })).is_err() {
                                 bail!("main worker receiver dropped")
                             }

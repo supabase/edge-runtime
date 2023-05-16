@@ -237,8 +237,6 @@ impl EdgeRuntime {
                 self.curr_user_opts.worker_timeout_ms,
                 memory_limit_rx,
                 halt_isolate_tx,
-                self.curr_user_opts.key,
-                self.curr_user_opts.pool_msg_tx.clone(),
             );
 
             // add a callback when a worker reaches its memory limit
@@ -334,16 +332,6 @@ impl EdgeRuntime {
                 }
             };
             let call = rt.block_on(future);
-
-            // send a shutdown message back to user worker pool (so it stops sending requets to the
-            // worker)
-            if let Some(k) = key {
-                if let Some(tx) = pool_msg_tx {
-                    if tx.send(UserWorkerMsgs::Shutdown(k)).is_err() {
-                        error!("failed to send the shutdown signal to user worker pool");
-                    }
-                }
-            };
 
             // send a message to halt the isolate
             if halt_isolate_tx.send(call).is_err() {

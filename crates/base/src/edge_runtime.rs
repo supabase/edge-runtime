@@ -527,6 +527,7 @@ mod test {
             Some(EdgeContextOpts::UserWorker(EdgeUserRuntimeOpts {
                 memory_limit_mb: memory_limit,
                 worker_timeout_ms,
+                force_create: true,
                 key: None,
                 pool_msg_tx: None,
             })),

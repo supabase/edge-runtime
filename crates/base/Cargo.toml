@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = { workspace = true }
 bytes = { version = "1.2.1" }
+cityhash = { version = "0.1.1" }
 deno_ast = { workspace = true }
 deno_fs = { workspace = true }
 deno_io = { workspace = true }
@@ -38,7 +39,6 @@ sb_worker_context = { version = "0.1.0", path = "../sb_worker_context" }
 sb_workers = { version = "0.1.0", path = "../sb_workers" }
 sb_env = { version = "0.1.0", path = "../sb_env" }
 sb_core = { version = "0.1.0", path = "../sb_core" }
-uuid.workspace = true
 
 [dev-dependencies]
 futures-util = { version = "0.3.28" }

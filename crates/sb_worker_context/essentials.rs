@@ -3,13 +3,13 @@ use hyper::{Body, Request, Response};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use tokio::sync::{mpsc, oneshot};
-use uuid::Uuid;
 
 #[derive(Debug, Clone)]
 pub struct EdgeUserRuntimeOpts {
     pub memory_limit_mb: u64,
     pub worker_timeout_ms: u64,
-    pub key: Option<Uuid>,
+    pub force_create: bool,
+    pub key: Option<u64>,
     pub pool_msg_tx: Option<mpsc::UnboundedSender<UserWorkerMsgs>>,
 }
 
@@ -38,6 +38,7 @@ impl Default for EdgeUserRuntimeOpts {
         EdgeUserRuntimeOpts {
             memory_limit_mb: 150,
             worker_timeout_ms: 60000,
+            force_create: false,
             key: None,
             pool_msg_tx: None,
         }
@@ -51,14 +52,14 @@ pub enum UserWorkerMsgs {
         oneshot::Sender<Result<CreateUserWorkerResult, Error>>,
     ),
     SendRequest(
-        Uuid,
+        u64,
         Request<Body>,
         oneshot::Sender<Result<Response<Body>, Error>>,
     ),
-    Shutdown(Uuid),
+    Shutdown(u64),
 }
 
 #[derive(Debug)]
 pub struct CreateUserWorkerResult {
-    pub key: Uuid,
+    pub key: u64,
 }

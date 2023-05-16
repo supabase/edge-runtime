@@ -1,5 +1,6 @@
 use crate::edge_runtime::{EdgeCallResult, EdgeRuntime};
 use anyhow::{anyhow, bail, Error};
+use cityhash::cityhash_1_1_1::city_hash_64;
 use hyper::{Body, Request, Response};
 use log::error;
 use sb_worker_context::essentials::{
@@ -7,9 +8,9 @@ use sb_worker_context::essentials::{
 };
 use std::collections::HashMap;
 use std::thread;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::net::UnixStream;
 use tokio::sync::{mpsc, oneshot};
-use uuid::Uuid;
 
 #[derive(Debug)]
 pub struct WorkerRequestMsg {
@@ -126,18 +127,40 @@ pub async fn create_user_worker_pool() -> Result<mpsc::UnboundedSender<UserWorke
 
     let user_worker_msgs_tx_clone = user_worker_msgs_tx.clone();
     let _handle: tokio::task::JoinHandle<Result<(), Error>> = tokio::spawn(async move {
-        let mut user_workers: HashMap<Uuid, mpsc::UnboundedSender<WorkerRequestMsg>> =
+        let mut user_workers: HashMap<u64, mpsc::UnboundedSender<WorkerRequestMsg>> =
             HashMap::new();
 
         loop {
             match user_worker_msgs_rx.recv().await {
                 None => break,
                 Some(UserWorkerMsgs::Create(mut worker_options, tx)) => {
-                    let key = Uuid::new_v4();
                     let mut user_worker_rt_opts = match worker_options.conf {
                         EdgeContextOpts::UserWorker(opts) => opts,
                         _ => unreachable!(),
                     };
+
+                    // derive worker key from service path
+                    // if force create is set, add current epoch mili seconds to randomize
+                    let service_path = worker_options.service_path.to_str().or(Some("")).unwrap();
+                    let mut key_input = service_path.to_string();
+                    if user_worker_rt_opts.force_create {
+                        let cur_epoch_time = SystemTime::now().duration_since(UNIX_EPOCH)?;
+                        key_input =
+                            format!("{}-{}", key_input, cur_epoch_time.as_millis().to_string());
+                    }
+                    let key = city_hash_64(&key_input.as_bytes());
+
+                    // do not recreate the worker if it already exists
+                    if let Some(_worker) = user_workers.get(&key) {
+                        // if the force create option is set skip the existing worker
+                        if !user_worker_rt_opts.force_create {
+                            if tx.send(Ok(CreateUserWorkerResult { key })).is_err() {
+                                bail!("main worker receiver dropped")
+                            }
+                            continue;
+                        }
+                    }
+
                     user_worker_rt_opts.key = Some(key);
                     user_worker_rt_opts.pool_msg_tx = Some(user_worker_msgs_tx_clone.clone());
                     worker_options.conf = EdgeContextOpts::UserWorker(user_worker_rt_opts);

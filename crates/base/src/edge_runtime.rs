@@ -21,7 +21,6 @@ use std::{fmt, fs};
 use tokio::net::UnixStream;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
-use uuid::Uuid;
 
 use crate::{errors_rt, snapshot};
 use module_loader::DefaultModuleLoader;
@@ -306,8 +305,6 @@ impl EdgeRuntime {
         worker_timeout_ms: u64,
         mut memory_limit_rx: mpsc::UnboundedReceiver<u64>,
         halt_isolate_tx: oneshot::Sender<EdgeCallResult>,
-        key: Option<Uuid>,
-        pool_msg_tx: Option<mpsc::UnboundedSender<UserWorkerMsgs>>,
     ) {
         let thread_safe_handle = self.js_runtime.v8_isolate().thread_safe_handle();
 

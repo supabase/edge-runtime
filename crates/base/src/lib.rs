@@ -3,6 +3,7 @@ extern crate core;
 pub mod commands;
 pub mod edge_runtime;
 pub mod errors_rt;
+pub mod events;
 pub mod js_worker;
 pub mod server;
 pub mod snapshot;

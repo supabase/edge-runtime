@@ -22,6 +22,7 @@ use tokio::net::UnixStream;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 
+use crate::events::{send_internal_event, EventResponse};
 use crate::{errors_rt, snapshot};
 use module_loader::DefaultModuleLoader;
 use sb_core::http_start::sb_core_http;
@@ -207,6 +208,14 @@ impl EdgeRuntime {
             conf,
             curr_user_opts: user_rt_opts,
         })
+    }
+
+    pub fn send_internal_event(
+        &mut self,
+        event_type: String,
+        data: EventResponse,
+    ) -> Result<(), Error> {
+        send_internal_event(&mut self.js_runtime, event_type, data)
     }
 
     pub async fn run(

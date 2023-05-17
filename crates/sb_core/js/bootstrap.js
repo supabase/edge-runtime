@@ -35,6 +35,7 @@ import {
 import { promiseRejectMacrotaskCallback } from "ext:sb_core_main_js/js/promises.js";
 import { denoOverrides } from "ext:sb_core_main_js/js/denoOverrides.js";
 import * as performance from "ext:deno_web/15_performance.js";
+import { InternalEvents } from "ext:sb_core_main_js/js/internal_events.js"
 
 const core = globalThis.Deno.core;
 const ops = core.ops;
@@ -217,6 +218,12 @@ event.setEventTargetData(globalThis);
 
 const eventHandlers = ["error", "load", "beforeunload", "unload", "unhandledrejection"];
 eventHandlers.forEach((handlerName) => event.defineEventHandler(globalThis, handlerName));
+
+// NOTE(ap): We use `window` to only have it available internally.
+window['__internal_events__'] = {};
+Object.keys(InternalEvents).forEach((i) => {
+  window['__internal_events__'][i] = InternalEvents[i];
+});
 
 globalThis.bootstrapSBEdge = (opts, isUserRuntime) => {
   runtimeStart({

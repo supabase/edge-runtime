@@ -66,6 +66,7 @@ class UserWorker {
             noModuleCache: false,
             importMapPath: null,
             envVars: [],
+            forceCreate: false,
             ...opts
         }
 

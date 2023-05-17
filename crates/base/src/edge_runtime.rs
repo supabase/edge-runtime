@@ -21,7 +21,6 @@ use std::{fmt, fs};
 use tokio::net::UnixStream;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
-use uuid::Uuid;
 
 use crate::{errors_rt, snapshot};
 use module_loader::DefaultModuleLoader;
@@ -237,8 +236,6 @@ impl EdgeRuntime {
                 self.curr_user_opts.worker_timeout_ms,
                 memory_limit_rx,
                 halt_isolate_tx,
-                self.curr_user_opts.key,
-                self.curr_user_opts.pool_msg_tx.clone(),
             );
 
             // add a callback when a worker reaches its memory limit
@@ -308,8 +305,6 @@ impl EdgeRuntime {
         worker_timeout_ms: u64,
         mut memory_limit_rx: mpsc::UnboundedReceiver<u64>,
         halt_isolate_tx: oneshot::Sender<EdgeCallResult>,
-        key: Option<Uuid>,
-        pool_msg_tx: Option<mpsc::UnboundedSender<UserWorkerMsgs>>,
     ) {
         let thread_safe_handle = self.js_runtime.v8_isolate().thread_safe_handle();
 
@@ -334,16 +329,6 @@ impl EdgeRuntime {
                 }
             };
             let call = rt.block_on(future);
-
-            // send a shutdown message back to user worker pool (so it stops sending requets to the
-            // worker)
-            if let Some(k) = key {
-                if let Some(tx) = pool_msg_tx {
-                    if tx.send(UserWorkerMsgs::Shutdown(k)).is_err() {
-                        error!("failed to send the shutdown signal to user worker pool");
-                    }
-                }
-            };
 
             // send a message to halt the isolate
             if halt_isolate_tx.send(call).is_err() {
@@ -542,6 +527,7 @@ mod test {
             Some(EdgeContextOpts::UserWorker(EdgeUserRuntimeOpts {
                 memory_limit_mb: memory_limit,
                 worker_timeout_ms,
+                force_create: true,
                 key: None,
                 pool_msg_tx: None,
             })),

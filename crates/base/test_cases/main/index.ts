@@ -2,8 +2,6 @@ import { serve } from "https://deno.land/std@0.131.0/http/server.ts"
 
 console.log('main function started');
 
-const workerCache = new Map();
-
 serve(async (req: Request) => {
   const url = new URL(req.url);
   const {pathname} = url;
@@ -41,28 +39,15 @@ serve(async (req: Request) => {
 
   const callWorker = async () => {
     try {
-      // check if an existing worker is available in cache
-      let worker = workerCache.get(servicePath);
-      if (!worker) {
-        worker = await createWorker();
-        workerCache.set(servicePath, worker);
-      }
-
+      const worker = await createWorker();
       return await worker.fetch(req);
     } catch (e) {
       console.error(e);
-      if (e.message === "user worker not available") {
-        // remove the worker from cache
-        workerCache.delete(servicePath);
-        // recall the worker
-        return callWorker();
-      } else {
-        const error = { msg: e.toString() }
-        return new Response(
-            JSON.stringify(error),
-            { status: 500, headers: { "Content-Type": "application/json" } },
-        );
-      }
+      const error = { msg: e.toString() }
+      return new Response(
+          JSON.stringify(error),
+          { status: 500, headers: { "Content-Type": "application/json" } },
+      );
     }
   }
 

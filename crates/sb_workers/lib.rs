@@ -23,7 +23,6 @@ use std::pin::Pin;
 use std::rc::Rc;
 use std::task::{Context, Poll};
 use tokio::sync::{mpsc, oneshot};
-use uuid::Uuid;
 
 deno_core::extension!(
     sb_user_workers,
@@ -44,6 +43,7 @@ pub struct UserWorkerCreateOptions {
     no_module_cache: bool,
     import_map_path: Option<String>,
     env_vars: Vec<(String, String)>,
+    force_create: bool,
 }
 
 #[op]
@@ -63,6 +63,7 @@ pub async fn op_user_worker_create(
             no_module_cache,
             import_map_path,
             env_vars,
+            force_create,
         } = opts;
 
         let mut env_vars_map = HashMap::new();
@@ -78,6 +79,7 @@ pub async fn op_user_worker_create(
             conf: EdgeContextOpts::UserWorker(EdgeUserRuntimeOpts {
                 memory_limit_mb,
                 worker_timeout_ms,
+                force_create,
                 key: None,
                 pool_msg_tx: None,
             }),
@@ -312,8 +314,10 @@ pub async fn op_user_worker_fetch_send(
         .ok()
         .expect("multiple op_user_worker_fetch_send ongoing");
     let (result_tx, result_rx) = oneshot::channel::<Result<Response<Body>, Error>>();
-    let uuid = Uuid::parse_str(key.as_str())?;
-    tx.send(UserWorkerMsgs::SendRequest(uuid, request.0, result_tx))?;
+    let key_parsed = key.parse::<u64>()?;
+    tx.send(UserWorkerMsgs::SendRequest(
+        key_parsed, request.0, result_tx,
+    ))?;
 
     let result = result_rx.await?;
     if result.is_err() {

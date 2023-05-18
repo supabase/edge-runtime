@@ -20,6 +20,10 @@ const ops = core.ops;
 
 const chunkExpression = /(?:^|\W)chunked(?:$|\W)/i;
 
+function nullBodyStatus(status) {
+  return status === 101 || status === 204 || status === 205 || status === 304;
+}
+
 class UserWorker {
     constructor(key) {
         this.key = key;
@@ -49,7 +53,7 @@ class UserWorker {
 
         const res = await core.opAsync("op_user_worker_fetch_send", this.key, requestRid);
         const bodyStream = readableStreamForRid(res.bodyRid);
-        return new Response(bodyStream, {
+        return new Response(nullBodyStatus(res.status) ? null : bodyStream, {
             headers: res.headers,
             status: res.status,
             statusText: res.statusText

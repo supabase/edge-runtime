@@ -5,7 +5,6 @@ const {
 import {
     readableStreamForRid,
     writableStreamForRid,
-    readableStreamCollectIntoUint8Array
 } from "ext:deno_web/06_streams.js";
 const core = globalThis.Deno.core;
 const ops = core.ops;
@@ -50,9 +49,7 @@ class UserWorker {
 
         const res = await core.opAsync("op_user_worker_fetch_send", this.key, requestRid);
         const bodyStream = readableStreamForRid(res.bodyRid);
-        const uint8ResBody = (await readableStreamCollectIntoUint8Array(bodyStream)).buffer;
-
-        return new Response(uint8ResBody && uint8ResBody.byteLength > 0 ? uint8ResBody : null, {
+        return new Response(res.size ? bodyStream : null, {
             headers: res.headers,
             status: res.status,
             statusText: res.statusText

@@ -13,7 +13,13 @@ use std::str;
 use std::str::FromStr;
 use std::task::Poll;
 use tokio::net::TcpListener;
+use tokio::sync::mpsc::Sender;
 use tokio::sync::{mpsc, oneshot};
+
+pub enum ServerCodes {
+    Listening,
+    Failure,
+}
 
 struct WorkerService {
     worker_req_tx: mpsc::UnboundedSender<WorkerRequestMsg>,
@@ -65,6 +71,7 @@ pub struct Server {
     ip: Ipv4Addr,
     port: u16,
     main_worker_req_tx: mpsc::UnboundedSender<WorkerRequestMsg>,
+    callback_tx: Option<Sender<ServerCodes>>,
 }
 
 impl Server {
@@ -74,6 +81,7 @@ impl Server {
         main_service_path: String,
         import_map_path: Option<String>,
         no_module_cache: bool,
+        callback_tx: Option<Sender<ServerCodes>>,
     ) -> Result<Self, Error> {
         // create a user worker pool
         let user_worker_msgs_tx = create_user_worker_pool().await?;
@@ -96,6 +104,7 @@ impl Server {
             ip,
             port,
             main_worker_req_tx,
+            callback_tx,
         })
     }
 
@@ -103,6 +112,10 @@ impl Server {
         let addr = SocketAddr::new(IpAddr::V4(self.ip), self.port);
         let listener = TcpListener::bind(&addr).await?;
         debug!("edge-runtime is listening on {:?}", listener.local_addr()?);
+
+        if let Some(callback) = self.callback_tx.clone() {
+            let _ = callback.send(ServerCodes::Listening).await;
+        }
 
         loop {
             let main_worker_req_tx = self.main_worker_req_tx.clone();

@@ -1,11 +1,13 @@
 use base::integration_test;
+mod common;
 
 #[tokio::test]
 async fn test_null_body_with_204_status() {
+    let port = common::port_picker::get_available_port();
     let none_req_builder: Option<reqwest::RequestBuilder> = None;
     integration_test!(
         "./test_cases/empty-response",
-        8999,
+        port,
         "/",
         none_req_builder,
         |resp: Result<reqwest::Response, reqwest::Error>| async {
@@ -18,15 +20,16 @@ async fn test_null_body_with_204_status() {
 
 #[tokio::test]
 async fn test_null_body_with_204_status_post() {
+    let port = common::port_picker::get_available_port();
     integration_test!(
         "./test_cases/empty-response",
-        8999,
+        port,
         "/",
         Some(
             reqwest::Client::new()
                 .request(
                     reqwest::Method::POST,
-                    "http://localhost:8999/std_user_worker"
+                    format!("http://localhost:{}/std_user_worker", port)
                 )
                 .body(reqwest::Body::from(vec![]))
         ),

@@ -1,14 +1,15 @@
 use base::integration_test;
-
+mod common;
 // NOTE: Only add user worker tests that's using oak server here.
 // Any other user worker tests, add to `user_worker_tests.rs`.
 
 #[tokio::test]
 async fn test_oak_server() {
+    let port = common::port_picker::get_available_port();
     let none_req_builder: Option<reqwest::RequestBuilder> = None;
     integration_test!(
         "./test_cases/oak",
-        8999,
+        port,
         "oak",
         none_req_builder,
         |resp: Result<reqwest::Response, reqwest::Error>| async {
@@ -25,6 +26,7 @@ async fn test_oak_server() {
 
 #[tokio::test]
 async fn test_file_upload() {
+    let port = common::port_picker::get_available_port();
     let body_chunk = "--TEST\r\nContent-Disposition: form-data; name=\"file\"; filename=\"test.txt\"\r\nContent-Type: text/plain\r\n\r\ntestuser\r\n--TEST--\r\n";
     let content_length = &body_chunk.len();
     let chunks: Vec<Result<_, std::io::Error>> = vec![Ok(body_chunk)];
@@ -32,14 +34,17 @@ async fn test_file_upload() {
     let body = reqwest::Body::wrap_stream(stream);
 
     let req = reqwest::Client::new()
-        .request(reqwest::Method::POST, "http://localhost:8999/file-upload")
+        .request(
+            reqwest::Method::POST,
+            format!("http://localhost:{}/file-upload", port),
+        )
         .body(body)
         .header("Content-Type", "multipart/form-data; boundary=TEST")
         .header("Content-Length", content_length.to_string());
 
     integration_test!(
         "./test_cases/oak",
-        8999,
+        port,
         "file-upload",
         Some(req),
         |resp: Result<reqwest::Response, reqwest::Error>| async {

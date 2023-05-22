@@ -2,18 +2,20 @@ use base::integration_test;
 use base::worker_ctx::{create_user_worker_pool, create_worker};
 use sb_worker_context::essentials::{EdgeContextInitOpts, EdgeContextOpts, EdgeMainRuntimeOpts};
 use std::collections::HashMap;
+mod common;
 
 #[tokio::test]
 async fn test_main_worker_options_request() {
+    let port = common::port_picker::get_available_port();
     integration_test!(
         "./test_cases/main",
-        8999,
+        port,
         "std_user_worker",
         Some(
             reqwest::Client::new()
                 .request(
                     reqwest::Method::OPTIONS,
-                    "http://localhost:8999/std_user_worker"
+                    format!("http://localhost:{}/std_user_worker", port)
                 )
                 .body(reqwest::Body::from(vec![]))
         ),
@@ -33,6 +35,7 @@ async fn test_main_worker_options_request() {
 
 #[tokio::test]
 async fn test_main_worker_post_request() {
+    let port = common::port_picker::get_available_port();
     let body_chunk = "{ \"name\": \"bar\"}";
 
     let content_length = &body_chunk.len();
@@ -43,7 +46,7 @@ async fn test_main_worker_post_request() {
     let req = reqwest::Client::new()
         .request(
             reqwest::Method::POST,
-            "http://localhost:8999/std_user_worker",
+            format!("http://localhost:{}/std_user_worker", port),
         )
         .body(body)
         .header("Content-Type", "application/json")
@@ -51,7 +54,7 @@ async fn test_main_worker_post_request() {
 
     integration_test!(
         "./test_cases/main",
-        8999,
+        port,
         "std_user_worker",
         Some(req),
         |resp: Result<reqwest::Response, reqwest::Error>| async {

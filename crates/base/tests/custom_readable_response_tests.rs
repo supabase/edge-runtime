@@ -1,11 +1,12 @@
 use base::integration_test;
+mod common;
 
 #[tokio::test]
 async fn test_custom_readable_stream_response() {
     let none_req_builder: Option<reqwest::RequestBuilder> = None;
     integration_test!(
         "./test_cases/main",
-        8999,
+        common::port_picker::get_available_port(),
         "readable-stream-resp",
         none_req_builder,
         |resp: Result<reqwest::Response, reqwest::Error>| async {

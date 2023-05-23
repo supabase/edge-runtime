@@ -3,11 +3,11 @@ mod logger;
 use anyhow::Error;
 use base::commands::start_server;
 use clap::builder::FalseyValueParser;
-use clap::{arg, value_parser, ArgAction, Command};
+use clap::{arg, crate_version, value_parser, ArgAction, Command};
 fn cli() -> Command {
     Command::new("edge-runtime")
         .about("A server based on Deno runtime, capable of running JavaScript, TypeScript, and WASM services")
-        .version("0.0.1") // TODO: set version on compile time
+        .version(crate_version!())
         .arg_required_else_help(true)
         .arg(
             arg!(-v --verbose "Use verbose output")

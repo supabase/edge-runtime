@@ -10,7 +10,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow = { workspace = true }
 base = { path = "../base" }
-clap = "4.0.29"
+clap = { version = "4.0.29", features = ["cargo"] }
 env_logger = "0.10.0"
 log = { workspace = true }
 tokio.workspace = true

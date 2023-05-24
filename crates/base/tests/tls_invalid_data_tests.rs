@@ -1,14 +1,12 @@
 use base::integration_test;
-mod common;
 use flaky_test::flaky_test;
 
 #[flaky_test]
 async fn test_tls_throw_invalid_data() {
-    let port = common::port_picker::get_available_port();
     let none_req_builder: Option<reqwest::RequestBuilder> = None;
     integration_test!(
         "./test_cases/tls_invalid_data",
-        port,
+        2001,
         "/",
         none_req_builder,
         |resp: Result<reqwest::Response, reqwest::Error>| async {

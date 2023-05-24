@@ -1,12 +1,11 @@
 use base::integration_test;
-mod common;
 use flaky_test::flaky_test;
 // NOTE: Only add user worker tests that's using oak server here.
 // Any other user worker tests, add to `user_worker_tests.rs`.
 
 #[flaky_test]
 async fn test_oak_server() {
-    let port = common::port_picker::get_available_port();
+    let port = 2002_u16;
     let none_req_builder: Option<reqwest::RequestBuilder> = None;
     integration_test!(
         "./test_cases/oak",
@@ -27,7 +26,7 @@ async fn test_oak_server() {
 
 #[flaky_test]
 async fn test_file_upload() {
-    let port = common::port_picker::get_available_port();
+    let port = 2003_u16;
     let body_chunk = "--TEST\r\nContent-Disposition: form-data; name=\"file\"; filename=\"test.txt\"\r\nContent-Type: text/plain\r\n\r\ntestuser\r\n--TEST--\r\n";
     let content_length = &body_chunk.len();
     let chunks: Vec<Result<_, std::io::Error>> = vec![Ok(body_chunk)];

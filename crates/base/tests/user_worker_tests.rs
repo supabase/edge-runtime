@@ -1,14 +1,12 @@
 use base::integration_test;
-mod common;
 use flaky_test::flaky_test;
 
 #[flaky_test]
 async fn test_json_imports() {
-    let port = common::port_picker::get_available_port();
     let none_req_builder: Option<reqwest::RequestBuilder> = None;
     integration_test!(
         "./test_cases/json_import",
-        port,
+        2000,
         "/",
         none_req_builder,
         |resp: Result<reqwest::Response, reqwest::Error>| async {

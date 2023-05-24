@@ -1,10 +1,9 @@
 use base::integration_test;
-mod common;
 use flaky_test::flaky_test;
 
 #[flaky_test]
 async fn test_null_body_with_204_status() {
-    let port = common::port_picker::get_available_port();
+    let port = 2005_u16;
     let none_req_builder: Option<reqwest::RequestBuilder> = None;
     integration_test!(
         "./test_cases/empty-response",
@@ -21,7 +20,7 @@ async fn test_null_body_with_204_status() {
 
 #[flaky_test]
 async fn test_null_body_with_204_status_post() {
-    let port = common::port_picker::get_available_port();
+    let port = 2004_u16;
     integration_test!(
         "./test_cases/empty-response",
         port,

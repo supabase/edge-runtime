@@ -1,13 +1,12 @@
 use base::integration_test;
 use base::worker_ctx::{create_user_worker_pool, create_worker};
+use flaky_test::flaky_test;
 use sb_worker_context::essentials::{EdgeContextInitOpts, EdgeContextOpts, EdgeMainRuntimeOpts};
 use std::collections::HashMap;
-mod common;
-use flaky_test::flaky_test;
 
 #[flaky_test]
 async fn test_main_worker_options_request() {
-    let port = common::port_picker::get_available_port();
+    let port = 2006_u16;
     integration_test!(
         "./test_cases/main",
         port,
@@ -36,7 +35,7 @@ async fn test_main_worker_options_request() {
 
 #[flaky_test]
 async fn test_main_worker_post_request() {
-    let port = common::port_picker::get_available_port();
+    let port = 2007_u16;
     let body_chunk = "{ \"name\": \"bar\"}";
 
     let content_length = &body_chunk.len();

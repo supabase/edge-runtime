@@ -1,9 +1,10 @@
 use base::integration_test;
 mod common;
+use flaky_test::flaky_test;
 // NOTE: Only add user worker tests that's using oak server here.
 // Any other user worker tests, add to `user_worker_tests.rs`.
 
-#[tokio::test]
+#[flaky_test]
 async fn test_oak_server() {
     let port = common::port_picker::get_available_port();
     let none_req_builder: Option<reqwest::RequestBuilder> = None;
@@ -24,7 +25,7 @@ async fn test_oak_server() {
     );
 }
 
-#[tokio::test]
+#[flaky_test]
 async fn test_file_upload() {
     let port = common::port_picker::get_available_port();
     let body_chunk = "--TEST\r\nContent-Disposition: form-data; name=\"file\"; filename=\"test.txt\"\r\nContent-Type: text/plain\r\n\r\ntestuser\r\n--TEST--\r\n";

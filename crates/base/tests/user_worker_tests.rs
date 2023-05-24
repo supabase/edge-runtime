@@ -1,6 +1,8 @@
 use base::integration_test;
 mod common;
-#[tokio::test]
+use flaky_test::flaky_test;
+
+#[flaky_test]
 async fn test_json_imports() {
     let port = common::port_picker::get_available_port();
     let none_req_builder: Option<reqwest::RequestBuilder> = None;

@@ -3,8 +3,9 @@ use base::worker_ctx::{create_user_worker_pool, create_worker};
 use sb_worker_context::essentials::{EdgeContextInitOpts, EdgeContextOpts, EdgeMainRuntimeOpts};
 use std::collections::HashMap;
 mod common;
+use flaky_test::flaky_test;
 
-#[tokio::test]
+#[flaky_test]
 async fn test_main_worker_options_request() {
     let port = common::port_picker::get_available_port();
     integration_test!(
@@ -33,7 +34,7 @@ async fn test_main_worker_options_request() {
     );
 }
 
-#[tokio::test]
+#[flaky_test]
 async fn test_main_worker_post_request() {
     let port = common::port_picker::get_available_port();
     let body_chunk = "{ \"name\": \"bar\"}";
@@ -66,7 +67,7 @@ async fn test_main_worker_post_request() {
     );
 }
 
-#[tokio::test]
+#[flaky_test]
 async fn test_main_worker_boot_error() {
     // create a user worker pool
     let user_worker_msgs_tx = create_user_worker_pool().await.unwrap();

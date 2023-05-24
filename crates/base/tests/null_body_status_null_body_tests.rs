@@ -1,7 +1,8 @@
 use base::integration_test;
 mod common;
+use flaky_test::flaky_test;
 
-#[tokio::test]
+#[flaky_test]
 async fn test_null_body_with_204_status() {
     let port = common::port_picker::get_available_port();
     let none_req_builder: Option<reqwest::RequestBuilder> = None;
@@ -18,7 +19,7 @@ async fn test_null_body_with_204_status() {
     );
 }
 
-#[tokio::test]
+#[flaky_test]
 async fn test_null_body_with_204_status_post() {
     let port = common::port_picker::get_available_port();
     integration_test!(

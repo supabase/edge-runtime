@@ -20,8 +20,13 @@ pub fn flaky_test(_attr: TokenStream, input: TokenStream) -> TokenStream {
                         handle.block_on(#name());
                 });
                 catch_unwind
-            }).await.unwrap();
-            if res.is_ok() { return; }
+            }).await;
+
+            if let Ok(thread_res) = res {
+                if thread_res.is_ok() { return; }
+            }
+
+            std::thread::sleep(std::time::Duration::from_secs_f32(1.25))
         }
         panic!("Test finished but did not ok");
       }

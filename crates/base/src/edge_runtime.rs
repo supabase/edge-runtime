@@ -1,7 +1,7 @@
 use crate::utils::units::{bytes_to_display, human_elapsed, mib_to_bytes};
 
 use crate::js_worker::module_loader;
-use anyhow::Error;
+use anyhow::{anyhow, Error};
 use deno_core::error::AnyError;
 use deno_core::url::Url;
 use deno_core::JsRuntime;
@@ -21,6 +21,7 @@ use std::{fmt, fs};
 use tokio::net::UnixStream;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
+use urlencoding::decode;
 
 use crate::{errors_rt, snapshot};
 use module_loader::DefaultModuleLoader;
@@ -37,11 +38,26 @@ use sb_workers::sb_user_workers;
 
 fn load_import_map(maybe_path: Option<String>) -> Result<Option<ImportMap>, Error> {
     if let Some(path_str) = maybe_path {
-        let path = Path::new(&path_str);
-        let abs_path = std::env::current_dir().map(|p| p.join(path))?;
+        let json_str;
+        let base_url;
 
-        let json_str = fs::read_to_string(abs_path.clone())?;
-        let base_url = Url::from_directory_path(abs_path.parent().unwrap()).unwrap();
+        // check if the path is a data URI (prefixed with data:)
+        // the data URI takes the following format
+        // data:{encodeURIComponent(mport_map.json)?{encodeURIComponent(base_path)}
+        if path_str.starts_with("data:") {
+            let data_uri = Url::parse(&path_str)?;
+            json_str = decode(data_uri.path())?.into_owned();
+            base_url =
+                Url::from_directory_path(decode(data_uri.query().unwrap_or(""))?.into_owned())
+                    .map_err(|_| anyhow!("invalid import map base url"))?;
+        } else {
+            let path = Path::new(&path_str);
+            let abs_path = std::env::current_dir().map(|p| p.join(path))?;
+            json_str = fs::read_to_string(abs_path.clone())?;
+            base_url = Url::from_directory_path(abs_path.parent().unwrap())
+                .map_err(|_| anyhow!("invalid import map base url"))?;
+        }
+
         let result = parse_from_json(&base_url, json_str.as_str())?;
         print_import_map_diagnostics(&result.diagnostics);
         Ok(Some(result.import_map))

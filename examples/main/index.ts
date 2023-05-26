@@ -23,6 +23,14 @@ serve(async (req: Request) => {
     const memoryLimitMb = 150;
     const workerTimeoutMs = 1 * 60 * 1000;
     const noModuleCache = false;
+    // you can provide an import map inline
+    // const inlineImportMap = {
+    //   imports: {
+    //     "std/": "https://deno.land/std@0.131.0/",
+    //     "cors": "./examples/_shared/cors.ts"
+    //   }
+    // }
+    // const importMapPath = `data:${encodeURIComponent(JSON.stringify(importMap))}?${encodeURIComponent('/home/deno/functions/test')}`;
     const importMapPath = null;
     const envVarsObj = Deno.env.toObject();
     const envVars = Object.keys(envVarsObj).map(k => [k, envVarsObj[k]]);

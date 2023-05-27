@@ -1,5 +1,6 @@
 import * as net from "ext:deno_net/01_net.js";
 import * as tls from "ext:deno_net/02_tls.js";
+import * as timers from "ext:deno_web/02_timers.js";
 import * as permissions from "ext:sb_core_main_js/js/permissions.js";
 import {
     errors
@@ -83,6 +84,8 @@ const denoOverrides = {
     Permissions: permissions.Permissions,
     PermissionStatus: permissions.PermissionStatus,
     errors: errors,
+    refTimer: timers.refTimer,
+    unrefTimer: timers.unrefTimer,
     ...fsVars
 }
 

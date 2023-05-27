@@ -158,6 +158,9 @@ const globalScope = {
 
   // messagePort
   structuredClone: writable(messagePort.structuredClone),
+
+  // Branding as a WebIDL object
+  [webidl.brand]: nonEnumerable(webidl.brand),
 }
 
 // set build info
@@ -214,8 +217,7 @@ const globalProperties = {
 ObjectDefineProperties(globalThis, globalProperties);
 ObjectSetPrototypeOf(globalThis, Window.prototype);
 
-// TODO: figure out if this is needed
-globalThis[webidl.brand] = webidl.brand;
+
 
 event.setEventTargetData(globalThis);
 

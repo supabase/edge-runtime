@@ -35,6 +35,7 @@ pub async fn create_worker(
         EdgeContextOpts::MainWorker(_opts) => (None, None),
     };
 
+    // spawn a thread to run the worker
     let _handle: thread::JoinHandle<Result<(), Error>> = thread::spawn(move || {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -43,16 +44,13 @@ pub async fn create_worker(
         let local = tokio::task::LocalSet::new();
 
         let result: Result<EdgeCallResult, Error> = local.block_on(&runtime, async {
-            let result = EdgeRuntime::new(init_opts);
-
-            match result {
+            match EdgeRuntime::new(init_opts).await {
                 Err(err) => {
                     let _ = worker_boot_result_tx.send(Err(anyhow!("worker boot error")));
                     bail!(err)
                 }
                 Ok(worker) => {
                     let _ = worker_boot_result_tx.send(Ok(()));
-                    // start the worker
                     worker.run(unix_stream_rx).await
                 }
             }
@@ -69,8 +67,12 @@ pub async fn create_worker(
         // remove the worker from pool
         if let Some(k) = worker_key {
             if let Some(tx) = pool_msg_tx {
-                if tx.send(UserWorkerMsgs::Shutdown(k)).is_err() {
-                    error!("failed to send the shutdown signal to user worker pool");
+                let res = tx.send(UserWorkerMsgs::Shutdown(k));
+                if res.is_err() {
+                    error!(
+                        "failed to send the shutdown signal to user worker pool: {:?}",
+                        res.unwrap_err()
+                    );
                 }
             }
         }
@@ -78,7 +80,7 @@ pub async fn create_worker(
         Ok(())
     });
 
-    // create an async task waiting for a request
+    // create an async task waiting for requests for worker
     let (worker_req_tx, mut worker_req_rx) = mpsc::unbounded_channel::<WorkerRequestMsg>();
 
     let worker_req_handle: tokio::task::JoinHandle<Result<(), Error>> =

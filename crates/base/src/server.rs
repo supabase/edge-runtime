@@ -46,11 +46,6 @@ impl Service<Request<Body>> for WorkerService {
         let fut = async move {
             let req_uri = req.uri().clone();
 
-            // if the request is for the health endpoint return a 200 OK response
-            if req_uri.path() == "/_internal/health" {
-                return Ok(Response::new(Body::empty()));
-            }
-
             let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
             let msg = WorkerRequestMsg { req, res_tx };
 

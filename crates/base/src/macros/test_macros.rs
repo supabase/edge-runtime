@@ -24,6 +24,7 @@ macro_rules! integration_test {
                 $port,
                 String::from($main_file),
                 None,
+                None,
                 false,
                 Some(tx.clone())
             ) => {

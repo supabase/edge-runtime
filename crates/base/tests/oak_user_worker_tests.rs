@@ -17,7 +17,7 @@ async fn test_oak_server() {
         env_vars: HashMap::new(),
         conf: EdgeContextOpts::UserWorker(user_rt_opts),
     };
-    let worker_req_tx = create_worker(opts).await.unwrap();
+    let worker_req_tx = create_worker(opts, None).await.unwrap();
     let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
 
     let req = Request::builder()
@@ -50,7 +50,7 @@ async fn test_file_upload() {
         env_vars: HashMap::new(),
         conf: EdgeContextOpts::UserWorker(user_rt_opts),
     };
-    let worker_req_tx = create_worker(opts).await.unwrap();
+    let worker_req_tx = create_worker(opts, None).await.unwrap();
     let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
 
     let body_chunk = "--TEST\r\nContent-Disposition: form-data; name=\"file\"; filename=\"test.txt\"\r\nContent-Type: text/plain\r\n\r\ntestuser\r\n--TEST--\r\n";

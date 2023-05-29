@@ -18,6 +18,7 @@ mod supabase_startup_snapshot {
     use sb_core::runtime::sb_core_runtime;
     use sb_core::sb_core_main_js;
     use sb_env::sb_env;
+    use sb_workers::events::sb_user_event_worker;
     use sb_workers::sb_user_workers;
     use std::path::Path;
 
@@ -178,6 +179,7 @@ mod supabase_startup_snapshot {
             deno_fs::deno_fs::init_ops_and_esm::<Permissions>(false),
             sb_env::init_ops_and_esm(),
             sb_user_workers::init_ops_and_esm(),
+            sb_user_event_worker::init_ops_and_esm(),
             sb_core_main_js::init_ops_and_esm(),
             sb_core_net::init_ops_and_esm(),
             sb_core_http::init_ops_and_esm(),

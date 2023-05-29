@@ -14,7 +14,7 @@ async fn test_tls_throw_invalid_data() {
         env_vars: HashMap::new(),
         conf: EdgeContextOpts::UserWorker(user_rt_opts),
     };
-    let worker_req_tx = create_worker(opts).await.unwrap();
+    let worker_req_tx = create_worker(opts, None).await.unwrap();
     let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
 
     let req = Request::builder()

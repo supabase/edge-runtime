@@ -29,8 +29,10 @@ use sb_core::runtime::sb_core_runtime;
 use sb_core::sb_core_main_js;
 use sb_env::sb_env as sb_env_op;
 use sb_worker_context::essentials::{
-    EdgeContextInitOpts, EdgeContextOpts, EdgeUserRuntimeOpts, UserWorkerMsgs,
+    EdgeContextInitOpts, EdgeContextOpts, EdgeEventRuntimeOpts, EdgeUserRuntimeOpts, UserWorkerMsgs,
 };
+use sb_worker_context::events::WorkerEvents;
+use sb_workers::events::sb_user_event_worker;
 use sb_workers::sb_user_workers;
 
 fn load_import_map(maybe_path: Option<String>) -> Result<Option<ImportMap>, Error> {
@@ -80,6 +82,7 @@ pub struct EdgeRuntime {
     pub js_runtime: JsRuntime,
     pub main_module_id: ModuleId,
     pub is_user_runtime: bool,
+    pub is_event_worker: bool,
     pub env_vars: HashMap<String, String>,
     pub conf: EdgeContextOpts,
     pub curr_user_opts: EdgeUserRuntimeOpts,
@@ -114,7 +117,12 @@ fn get_error_class_name(e: &AnyError) -> &'static str {
 }
 
 impl EdgeRuntime {
-    pub async fn new(opts: EdgeContextInitOpts) -> Result<Self, Error> {
+    pub async fn new(
+        opts: EdgeContextInitOpts,
+        event_manager_opts: Option<EdgeEventRuntimeOpts>,
+    ) -> Result<Self, Error> {
+        let mut maybe_events_msg_tx: Option<mpsc::UnboundedSender<WorkerEvents>> = None;
+
         let EdgeContextInitOpts {
             service_path,
             no_module_cache,
@@ -123,10 +131,19 @@ impl EdgeRuntime {
             conf,
         } = opts;
 
-        let (is_user_runtime, user_rt_opts) = match conf.clone() {
-            EdgeContextOpts::UserWorker(conf) => (true, conf),
-            EdgeContextOpts::MainWorker(_conf) => (false, EdgeUserRuntimeOpts::default()),
+        let (is_user_runtime, is_event_worker, user_rt_opts) = match conf.clone() {
+            EdgeContextOpts::UserWorker(conf) => (true, false, conf),
+            EdgeContextOpts::MainWorker(_conf) => (false, false, EdgeUserRuntimeOpts::default()),
+            EdgeContextOpts::EventsWorker => (false, true, EdgeUserRuntimeOpts::default()), // TODO: This needs to be an option (user opts)
         };
+
+        if is_user_runtime {
+            if let EdgeContextOpts::UserWorker(conf) = conf.clone() {
+                if let Some(events_msg_tx) = conf.events_msg_tx {
+                    maybe_events_msg_tx = Some(events_msg_tx)
+                }
+            }
+        }
 
         let user_agent = "supabase-edge-runtime".to_string();
         let base_url =
@@ -163,6 +180,7 @@ impl EdgeRuntime {
             deno_fs::deno_fs::init_ops::<Permissions>(false),
             sb_env_op::init_ops(),
             sb_user_workers::init_ops(),
+            sb_user_event_worker::init_ops(),
             sb_core_main_js::init_ops(),
             sb_core_net::init_ops(),
             sb_core_http::init_ops(),
@@ -195,9 +213,10 @@ impl EdgeRuntime {
 
         // Bootstrapping stage
         let script = format!(
-            "globalThis.bootstrapSBEdge({}, {})",
+            "globalThis.bootstrapSBEdge({}, {}, {})",
             deno_core::serde_json::json!({ "target": env!("TARGET") }),
-            is_user_runtime
+            is_user_runtime,
+            is_event_worker
         );
 
         js_runtime
@@ -210,6 +229,21 @@ impl EdgeRuntime {
             let op_state_rc = js_runtime.op_state();
             let mut op_state = op_state_rc.borrow_mut();
             op_state.put::<sb_env::EnvVars>(env_vars);
+
+            if is_event_worker {
+                if let EdgeContextOpts::EventsWorker = conf.clone() {
+                    // We unwrap because event_manager_opts must always be present when type is `EventsWorker`
+                    op_state.put::<mpsc::UnboundedReceiver<WorkerEvents>>(
+                        event_manager_opts.unwrap().event_rx,
+                    );
+                }
+            }
+
+            if is_user_runtime {
+                if let Some(events_msg_tx) = maybe_events_msg_tx.clone() {
+                    op_state.put::<mpsc::UnboundedSender<WorkerEvents>>(events_msg_tx);
+                }
+            }
         }
 
         let main_module_id = js_runtime.load_main_module(&main_module_url, None).await?;
@@ -221,6 +255,7 @@ impl EdgeRuntime {
             env_vars,
             conf,
             curr_user_opts: user_rt_opts,
+            is_event_worker,
         })
     }
 
@@ -380,19 +415,22 @@ mod test {
     ) -> EdgeRuntime {
         let (worker_pool_tx, _) = mpsc::unbounded_channel::<UserWorkerMsgs>();
 
-        EdgeRuntime::new(EdgeContextInitOpts {
-            service_path: path.unwrap_or(PathBuf::from("./test_cases/main")),
-            no_module_cache: false,
-            import_map_path: None,
-            env_vars: env_vars.unwrap_or(Default::default()),
-            conf: {
-                if let Some(uc) = user_conf {
-                    uc
-                } else {
-                    EdgeContextOpts::MainWorker(EdgeMainRuntimeOpts { worker_pool_tx })
-                }
+        EdgeRuntime::new(
+            EdgeContextInitOpts {
+                service_path: path.unwrap_or(PathBuf::from("./test_cases/main")),
+                no_module_cache: false,
+                import_map_path: None,
+                env_vars: env_vars.unwrap_or(Default::default()),
+                conf: {
+                    if let Some(uc) = user_conf {
+                        uc
+                    } else {
+                        EdgeContextOpts::MainWorker(EdgeMainRuntimeOpts { worker_pool_tx })
+                    }
+                },
             },
-        })
+            None,
+        )
         .await
         .unwrap()
     }
@@ -539,6 +577,7 @@ mod test {
                 force_create: true,
                 key: None,
                 pool_msg_tx: None,
+                events_msg_tx: None,
             })),
         )
         .await

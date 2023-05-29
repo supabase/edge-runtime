@@ -5,6 +5,15 @@ console.log('main function started');
 serve(async (req: Request) => {
 	const url = new URL(req.url);
 	const { pathname } = url;
+
+	// handle health checks
+	if (pathname === '/_internal/health') {
+		return new Response(
+			JSON.stringify({ 'message': 'ok' }),
+			{ status: 200, headers: { 'Content-Type': 'application/json' } },
+		);
+	}
+
 	const path_parts = pathname.split('/');
 	const service_name = path_parts[1];
 

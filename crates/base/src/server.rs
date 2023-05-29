@@ -1,5 +1,5 @@
 use crate::worker_ctx::{create_user_worker_pool, create_worker, WorkerRequestMsg};
-use anyhow::{anyhow, Error};
+use anyhow::Error;
 use hyper::{server::conn::Http, service::Service, Body, Request, Response};
 use log::{debug, error, info};
 use sb_worker_context::essentials::{EdgeContextInitOpts, EdgeContextOpts, EdgeMainRuntimeOpts};
@@ -44,10 +44,10 @@ impl Service<Request<Body>> for WorkerService {
         // create a response in a future.
         let worker_req_tx = self.worker_req_tx.clone();
         let fut = async move {
-            let req_path = req.uri().path();
+            let req_uri = req.uri().clone();
 
             // if the request is for the health endpoint return a 200 OK response
-            if req_path == "/_internal/health" {
+            if req_uri.path() == "/_internal/health" {
                 return Ok(Response::new(Body::empty()));
             }
 
@@ -58,7 +58,15 @@ impl Service<Request<Body>> for WorkerService {
             let result = res_rx.await?;
             match result {
                 Ok(res) => Ok(res),
-                Err(e) => Err(anyhow!(e)),
+                Err(e) => {
+                    error!(
+                        "request failed (uri: {:?} reason: {:?})",
+                        req_uri.to_string(),
+                        e
+                    );
+                    // FIXME: add an error body
+                    Ok(Response::builder().status(500).body(Body::empty()).unwrap())
+                }
             }
         };
 

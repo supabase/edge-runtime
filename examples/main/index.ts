@@ -1,19 +1,19 @@
-import { serve } from "https://deno.land/std@0.131.0/http/server.ts"
+import { serve } from "https://deno.land/std@0.131.0/http/server.ts";
 
-console.log('main function started');
+console.log("main function started");
 
 serve(async (req: Request) => {
   const url = new URL(req.url);
-  const {pathname} = url;
+  const { pathname } = url;
   const path_parts = pathname.split("/");
   const service_name = path_parts[1];
 
   if (!service_name || service_name === "") {
-    const error = { msg: "missing function name in request" }
+    const error = { msg: "missing function name in request" };
     return new Response(
-        JSON.stringify(error),
-        { status: 400, headers: { "Content-Type": "application/json" } },
-    )
+      JSON.stringify(error),
+      { status: 400, headers: { "Content-Type": "application/json" } },
+    );
   }
 
   const servicePath = `./examples/${service_name}`;
@@ -33,19 +33,19 @@ serve(async (req: Request) => {
     // const importMapPath = `data:${encodeURIComponent(JSON.stringify(importMap))}?${encodeURIComponent('/home/deno/functions/test')}`;
     const importMapPath = null;
     const envVarsObj = Deno.env.toObject();
-    const envVars = Object.keys(envVarsObj).map(k => [k, envVarsObj[k]]);
+    const envVars = Object.keys(envVarsObj).map((k) => [k, envVarsObj[k]]);
     const forceCreate = false;
 
     return await EdgeRuntime.userWorkers.create({
-        servicePath,
-        memoryLimitMb,
-        workerTimeoutMs,
-        noModuleCache,
-        importMapPath,
-        envVars,
-        forceCreate,
+      servicePath,
+      memoryLimitMb,
+      workerTimeoutMs,
+      noModuleCache,
+      importMapPath,
+      envVars,
+      forceCreate,
     });
-  }
+  };
 
   const callWorker = async () => {
     try {
@@ -56,13 +56,13 @@ serve(async (req: Request) => {
       return await worker.fetch(req);
     } catch (e) {
       console.error(e);
-      const error = { msg: e.toString() }
+      const error = { msg: e.toString() };
       return new Response(
-          JSON.stringify(error),
-          { status: 500, headers: { "Content-Type": "application/json" } },
+        JSON.stringify(error),
+        { status: 500, headers: { "Content-Type": "application/json" } },
       );
     }
-  }
+  };
 
   return callWorker();
-})
+});

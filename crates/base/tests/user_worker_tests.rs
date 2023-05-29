@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use tokio::sync::oneshot;
 
 #[tokio::test]
-async fn test_json_imports() {
+async fn test_user_worker_json_imports() {
     let user_rt_opts = EdgeUserRuntimeOpts::default();
     let opts = EdgeContextInitOpts {
         service_path: "./test_cases/json_import".into(),

@@ -104,6 +104,42 @@ async fn test_main_worker_boot_error() {
 }
 
 //#[tokio::test]
+//async fn test_main_worker_user_worker_mod_evaluate_exception() {
+//    // create a user worker pool
+//    let user_worker_msgs_tx = create_user_worker_pool().await.unwrap();
+//    let opts = EdgeContextInitOpts {
+//        service_path: "./test_cases/main".into(),
+//        no_module_cache: false,
+//        import_map_path: None,
+//        env_vars: HashMap::new(),
+//        conf: EdgeContextOpts::MainWorker(EdgeMainRuntimeOpts {
+//            worker_pool_tx: user_worker_msgs_tx,
+//        }),
+//    };
+//    let worker_req_tx = create_worker(opts).await.unwrap();
+//    let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
+//
+//    let req = Request::builder()
+//        .uri("/boot_err_user_worker")
+//        .method("GET")
+//        .body(Body::empty())
+//        .unwrap();
+//
+//    let msg = WorkerRequestMsg { req, res_tx };
+//    let _ = worker_req_tx.send(msg);
+//
+//    let res = res_rx.await.unwrap().unwrap();
+//    assert!(res.status().as_u16() == 500);
+//
+//    let body_bytes = hyper::body::to_bytes(res.into_body()).await.unwrap();
+//
+//    assert_eq!(
+//        body_bytes,
+//        "{\\"msg\\":\\"InvalidWorkerResponse: user worker not available\\"}"
+//    );
+//}
+
+//#[tokio::test]
 //async fn test_main_worker_post_request_with_transfer_encoding() {
 //    // create a user worker pool
 //    let user_worker_msgs_tx = create_user_worker_pool().await.unwrap();

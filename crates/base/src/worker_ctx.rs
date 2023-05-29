@@ -18,6 +18,32 @@ pub struct WorkerRequestMsg {
     pub res_tx: oneshot::Sender<Result<Response<Body>, hyper::Error>>,
 }
 
+async fn handle_request(
+    unix_stream_tx: mpsc::UnboundedSender<UnixStream>,
+    msg: WorkerRequestMsg,
+) -> Result<(), Error> {
+    // create a unix socket pair
+    let (sender_stream, recv_stream) = UnixStream::pair()?;
+
+    let _ = unix_stream_tx.send(recv_stream);
+
+    // send the HTTP request to the worker over Unix stream
+    let (mut request_sender, connection) = hyper::client::conn::handshake(sender_stream).await?;
+
+    // spawn a task to poll the connection and drive the HTTP state
+    tokio::task::spawn(async move {
+        if let Err(e) = connection.without_shutdown().await {
+            error!("Error in worker connection: {}", e);
+        }
+    });
+    tokio::task::yield_now().await;
+
+    let result = request_sender.send_request(msg.req).await;
+    let _ = msg.res_tx.send(result);
+
+    Ok(())
+}
+
 pub async fn create_worker(
     init_opts: EdgeContextInitOpts,
 ) -> Result<mpsc::UnboundedSender<WorkerRequestMsg>, Error> {
@@ -88,25 +114,9 @@ pub async fn create_worker(
             let unix_stream_tx = unix_stream_tx.clone();
 
             while let Some(msg) = worker_req_rx.recv().await {
-                // create a unix socket pair
-                let (sender_stream, recv_stream) = UnixStream::pair()?;
-
-                let _ = unix_stream_tx.clone().send(recv_stream);
-
-                // send the HTTP request to the worker over Unix stream
-                let (mut request_sender, connection) =
-                    hyper::client::conn::handshake(sender_stream).await?;
-
-                // spawn a task to poll the connection and drive the HTTP state
-                tokio::task::spawn(async move {
-                    if let Err(e) = connection.without_shutdown().await {
-                        error!("Error in worker connection: {}", e);
-                    }
-                });
-                tokio::task::yield_now().await;
-
-                let result = request_sender.send_request(msg.req).await;
-                let _ = msg.res_tx.send(result);
+                if let Err(err) = handle_request(unix_stream_tx.clone(), msg).await {
+                    error!("worker failed to handle request: {:?}", err);
+                }
             }
 
             Ok(())
@@ -121,6 +131,24 @@ pub async fn create_worker(
         }
         Ok(_) => Ok(worker_req_tx),
     }
+}
+
+async fn send_user_worker_request(
+    worker_channel: mpsc::UnboundedSender<WorkerRequestMsg>,
+    req: Request<Body>,
+) -> Result<Response<Body>, Error> {
+    let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
+    let msg = WorkerRequestMsg { req, res_tx };
+
+    // send the message to worker
+    worker_channel.send(msg)?;
+
+    // wait for the response back from the worker
+    let res = res_rx.await??;
+
+    // send the response back to the caller
+
+    Ok(res)
 }
 
 pub async fn create_user_worker_pool() -> Result<mpsc::UnboundedSender<UserWorkerMsgs>, Error> {
@@ -170,7 +198,6 @@ pub async fn create_user_worker_pool() -> Result<mpsc::UnboundedSender<UserWorke
                     match result {
                         Ok(user_worker_req_tx) => {
                             user_workers.insert(key, user_worker_req_tx);
-
                             if tx.send(Ok(CreateUserWorkerResult { key })).is_err() {
                                 bail!("main worker receiver dropped")
                             };
@@ -183,24 +210,16 @@ pub async fn create_user_worker_pool() -> Result<mpsc::UnboundedSender<UserWorke
                     }
                 }
                 Some(UserWorkerMsgs::SendRequest(key, req, tx)) => {
-                    if let Some(worker) = user_workers.get(&key) {
-                        let (res_tx, res_rx) =
-                            oneshot::channel::<Result<Response<Body>, hyper::Error>>();
-                        let msg = WorkerRequestMsg { req, res_tx };
-
-                        // send the message to worker
-                        worker.send(msg)?;
-
-                        // wait for the response back from the worker
-                        let res = res_rx.await??;
-
-                        // send the response back to the caller
-                        if tx.send(Ok(res)).is_err() {
-                            bail!("main worker receiver dropped")
+                    let result = match user_workers.get(&key) {
+                        Some(worker) => send_user_worker_request(worker.clone(), req).await,
+                        None => {
+                            bail!("user worker not available")
                         }
-                    } else if tx.send(Err(anyhow!("user worker not available"))).is_err() {
-                        bail!("main worker receiver dropped")
                     };
+
+                    if tx.send(result).is_err() {
+                        bail!("main worker receiver dropped")
+                    }
                 }
                 Some(UserWorkerMsgs::Shutdown(key)) => {
                     user_workers.remove(&key);

@@ -1,0 +1,10 @@
+{
+  "fmt": {
+    "useTabs": true,
+    "lineWidth": 100,
+    "indentWidth": 4,
+    "singleQuote": true,
+    "proseWrap": "preserve",
+    "include": ["examples/**/*.ts"]
+  }
+}

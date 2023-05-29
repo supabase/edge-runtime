@@ -35,6 +35,7 @@ import {
 import { promiseRejectMacrotaskCallback } from "ext:sb_core_main_js/js/promises.js";
 import { denoOverrides } from "ext:sb_core_main_js/js/denoOverrides.js";
 import * as performance from "ext:deno_web/15_performance.js";
+import * as messagePort from "ext:deno_web/13_message_port.js";
 
 const core = globalThis.Deno.core;
 const ops = core.ops;
@@ -154,6 +155,12 @@ const globalScope = {
   PerformanceMark: nonEnumerable(performance.PerformanceMark),
   PerformanceMeasure: nonEnumerable(performance.PerformanceMeasure),
   performance: writable(performance.performance),
+
+  // messagePort
+  structuredClone: writable(messagePort.structuredClone),
+
+  // Branding as a WebIDL object
+  [webidl.brand]: nonEnumerable(webidl.brand),
 }
 
 // set build info
@@ -210,8 +217,7 @@ const globalProperties = {
 ObjectDefineProperties(globalThis, globalProperties);
 ObjectSetPrototypeOf(globalThis, Window.prototype);
 
-// TODO: figure out if this is needed
-globalThis[webidl.brand] = webidl.brand;
+
 
 event.setEventTargetData(globalThis);
 

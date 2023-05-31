@@ -1,3 +1,4 @@
+use crate::events::WorkerEvents;
 use anyhow::Error;
 use hyper::{Body, Request, Response};
 use std::collections::HashMap;
@@ -11,6 +12,7 @@ pub struct EdgeUserRuntimeOpts {
     pub force_create: bool,
     pub key: Option<u64>,
     pub pool_msg_tx: Option<mpsc::UnboundedSender<UserWorkerMsgs>>,
+    pub events_msg_tx: Option<mpsc::UnboundedSender<WorkerEvents>>,
 }
 
 #[derive(Debug, Clone)]
@@ -18,10 +20,16 @@ pub struct EdgeMainRuntimeOpts {
     pub worker_pool_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
 }
 
+#[derive(Debug)]
+pub struct EdgeEventRuntimeOpts {
+    pub event_rx: mpsc::UnboundedReceiver<WorkerEvents>,
+}
+
 #[derive(Debug, Clone)]
 pub enum EdgeContextOpts {
     UserWorker(EdgeUserRuntimeOpts),
     MainWorker(EdgeMainRuntimeOpts),
+    EventsWorker,
 }
 
 #[derive(Debug, Clone)]
@@ -41,6 +49,7 @@ impl Default for EdgeUserRuntimeOpts {
             force_create: false,
             key: None,
             pool_msg_tx: None,
+            events_msg_tx: None,
         }
     }
 }

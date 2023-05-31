@@ -33,6 +33,7 @@ fn cli() -> Command {
                 .arg(arg!(--"main-service" <DIR> "Path to main service directory").default_value("examples/main"))
                 .arg(arg!(--"disable-module-cache" "Disable using module cache").default_value("false").value_parser(FalseyValueParser::new()))
                 .arg(arg!(--"import-map" <Path> "Path to import map file"))
+                .arg(arg!(--"event-manager" <Path> "Path to event manager directory"))
         )
 }
 
@@ -77,11 +78,14 @@ fn main() -> Result<(), anyhow::Error> {
                     .get_one::<bool>("disable-module-cache")
                     .cloned()
                     .unwrap();
+                let event_service_manager_path =
+                    sub_matches.get_one::<String>("event-manager").cloned();
 
                 start_server(
                     ip.as_str(),
                     port,
                     main_service_path,
+                    event_service_manager_path,
                     import_map_path,
                     no_module_cache,
                     None,

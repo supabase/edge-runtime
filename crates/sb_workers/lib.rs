@@ -1,3 +1,5 @@
+pub mod events;
+
 use anyhow::Error;
 use deno_core::error::{custom_error, type_error, AnyError};
 use deno_core::futures::stream::Peekable;
@@ -82,6 +84,7 @@ pub async fn op_user_worker_create(
                 force_create,
                 key: None,
                 pool_msg_tx: None,
+                events_msg_tx: None,
             }),
         };
 

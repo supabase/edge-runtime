@@ -1,14 +1,18 @@
 use crate::edge_runtime::{EdgeCallResult, EdgeRuntime};
+use crate::utils::send_event_if_event_manager_available;
 use anyhow::{anyhow, bail, Error};
 use cityhash::cityhash_1_1_1::city_hash_64;
 use hyper::{Body, Request, Response};
 use log::error;
 use sb_worker_context::essentials::{
-    CreateUserWorkerResult, EdgeContextInitOpts, EdgeContextOpts, UserWorkerMsgs,
+    CreateUserWorkerResult, EdgeContextInitOpts, EdgeContextOpts, EdgeEventRuntimeOpts,
+    UserWorkerMsgs,
 };
+use sb_worker_context::events::{BootEvent, BootFailure, WorkerEvents};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::thread;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tokio::net::UnixStream;
 use tokio::sync::{mpsc, oneshot};
 
@@ -46,6 +50,7 @@ async fn handle_request(
 
 pub async fn create_worker(
     init_opts: EdgeContextInitOpts,
+    event_manager_opts: Option<EdgeEventRuntimeOpts>,
 ) -> Result<mpsc::UnboundedSender<WorkerRequestMsg>, Error> {
     let service_path = init_opts.service_path.clone();
 
@@ -58,7 +63,7 @@ pub async fn create_worker(
 
     let (worker_key, pool_msg_tx) = match init_opts.conf.clone() {
         EdgeContextOpts::UserWorker(worker_opts) => (worker_opts.key, worker_opts.pool_msg_tx),
-        EdgeContextOpts::MainWorker(_opts) => (None, None),
+        _ => (None, None),
     };
 
     // spawn a thread to run the worker
@@ -70,7 +75,7 @@ pub async fn create_worker(
         let local = tokio::task::LocalSet::new();
 
         let result: Result<EdgeCallResult, Error> = local.block_on(&runtime, async {
-            match EdgeRuntime::new(init_opts).await {
+            match EdgeRuntime::new(init_opts, event_manager_opts).await {
                 Err(err) => {
                     let _ = worker_boot_result_tx.send(Err(anyhow!("worker boot error")));
                     bail!(err)
@@ -151,7 +156,31 @@ async fn send_user_worker_request(
     Ok(res)
 }
 
-pub async fn create_user_worker_pool() -> Result<mpsc::UnboundedSender<UserWorkerMsgs>, Error> {
+pub async fn create_event_worker(
+    event_worker_path: PathBuf,
+    import_map_path: Option<String>,
+    no_module_cache: bool,
+) -> Result<mpsc::UnboundedSender<WorkerEvents>, Error> {
+    let (event_tx, event_rx) = mpsc::unbounded_channel::<WorkerEvents>();
+
+    let _ = create_worker(
+        EdgeContextInitOpts {
+            service_path: event_worker_path,
+            no_module_cache,
+            import_map_path,
+            env_vars: std::env::vars().collect(),
+            conf: EdgeContextOpts::EventsWorker,
+        },
+        Some(EdgeEventRuntimeOpts { event_rx }),
+    )
+    .await?;
+
+    Ok(event_tx)
+}
+
+pub async fn create_user_worker_pool(
+    worker_event_sender: Option<mpsc::UnboundedSender<WorkerEvents>>,
+) -> Result<mpsc::UnboundedSender<UserWorkerMsgs>, Error> {
     let (user_worker_msgs_tx, mut user_worker_msgs_rx) =
         mpsc::unbounded_channel::<UserWorkerMsgs>();
 
@@ -192,17 +221,33 @@ pub async fn create_user_worker_pool() -> Result<mpsc::UnboundedSender<UserWorke
 
                     user_worker_rt_opts.key = Some(key);
                     user_worker_rt_opts.pool_msg_tx = Some(user_worker_msgs_tx_clone.clone());
+                    user_worker_rt_opts.events_msg_tx = worker_event_sender.clone();
                     worker_options.conf = EdgeContextOpts::UserWorker(user_worker_rt_opts);
-                    let result = create_worker(worker_options).await;
+                    let now = Instant::now();
+                    let result = create_worker(worker_options, None).await;
+                    let elapsed = now.elapsed().as_secs();
+
+                    let event_manager = worker_event_sender.clone();
 
                     match result {
                         Ok(user_worker_req_tx) => {
+                            send_event_if_event_manager_available(
+                                event_manager,
+                                WorkerEvents::Boot(BootEvent {
+                                    boot_time: elapsed as usize,
+                                }),
+                            );
+
                             user_workers.insert(key, user_worker_req_tx);
                             if tx.send(Ok(CreateUserWorkerResult { key })).is_err() {
                                 bail!("main worker receiver dropped")
                             };
                         }
                         Err(e) => {
+                            send_event_if_event_manager_available(
+                                event_manager,
+                                WorkerEvents::BootFailure(BootFailure { msg: e.to_string() }),
+                            );
                             if tx.send(Err(e)).is_err() {
                                 bail!("main worker receiver dropped")
                             };

@@ -13,7 +13,7 @@ async fn test_worker_boot_invalid_imports() {
         env_vars: HashMap::new(),
         conf: EdgeContextOpts::UserWorker(user_rt_opts),
     };
-    let result = create_worker(opts).await;
+    let result = create_worker(opts, None).await;
 
     assert!(result.is_err());
     assert_eq!(result.unwrap_err().to_string(), "worker boot error");

@@ -7,7 +7,7 @@ use tokio::sync::oneshot;
 #[tokio::test]
 async fn test_main_worker_options_request() {
     // create a user worker pool
-    let user_worker_msgs_tx = create_user_worker_pool().await.unwrap();
+    let user_worker_msgs_tx = create_user_worker_pool(None).await.unwrap();
     let opts = EdgeContextInitOpts {
         service_path: "./test_cases/main".into(),
         no_module_cache: false,
@@ -17,7 +17,7 @@ async fn test_main_worker_options_request() {
             worker_pool_tx: user_worker_msgs_tx,
         }),
     };
-    let worker_req_tx = create_worker(opts).await.unwrap();
+    let worker_req_tx = create_worker(opts, None).await.unwrap();
     let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
 
     let req = Request::builder()
@@ -45,7 +45,7 @@ async fn test_main_worker_options_request() {
 #[tokio::test]
 async fn test_main_worker_post_request() {
     // create a user worker pool
-    let user_worker_msgs_tx = create_user_worker_pool().await.unwrap();
+    let user_worker_msgs_tx = create_user_worker_pool(None).await.unwrap();
     let opts = EdgeContextInitOpts {
         service_path: "./test_cases/main".into(),
         no_module_cache: false,
@@ -55,7 +55,7 @@ async fn test_main_worker_post_request() {
             worker_pool_tx: user_worker_msgs_tx,
         }),
     };
-    let worker_req_tx = create_worker(opts).await.unwrap();
+    let worker_req_tx = create_worker(opts, None).await.unwrap();
     let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
 
     let body_chunk = "{ \"name\": \"bar\"}";
@@ -87,7 +87,7 @@ async fn test_main_worker_post_request() {
 #[tokio::test]
 async fn test_main_worker_boot_error() {
     // create a user worker pool
-    let user_worker_msgs_tx = create_user_worker_pool().await.unwrap();
+    let user_worker_msgs_tx = create_user_worker_pool(None).await.unwrap();
     let opts = EdgeContextInitOpts {
         service_path: "./test_cases/main".into(),
         no_module_cache: false,
@@ -97,7 +97,7 @@ async fn test_main_worker_boot_error() {
             worker_pool_tx: user_worker_msgs_tx,
         }),
     };
-    let result = create_worker(opts).await;
+    let result = create_worker(opts, None).await;
 
     assert!(result.is_err());
     assert_eq!(result.unwrap_err().to_string(), "worker boot error");

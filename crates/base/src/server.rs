@@ -1,8 +1,11 @@
-use crate::worker_ctx::{create_user_worker_pool, create_worker, WorkerRequestMsg};
+use crate::worker_ctx::{
+    create_event_worker, create_user_worker_pool, create_worker, WorkerRequestMsg,
+};
 use anyhow::Error;
 use hyper::{server::conn::Http, service::Service, Body, Request, Response};
 use log::{debug, error, info};
 use sb_worker_context::essentials::{EdgeContextInitOpts, EdgeContextOpts, EdgeMainRuntimeOpts};
+use sb_worker_context::events::WorkerEvents;
 use std::future::Future;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
@@ -82,24 +85,43 @@ impl Server {
         ip: &str,
         port: u16,
         main_service_path: String,
+        maybe_events_service_path: Option<String>,
         import_map_path: Option<String>,
         no_module_cache: bool,
         callback_tx: Option<Sender<ServerCodes>>,
     ) -> Result<Self, Error> {
+        let mut worker_event_sender: Option<mpsc::UnboundedSender<WorkerEvents>> = None;
+
+        // Creates Event Worker
+        if let Some(events_service_path) = maybe_events_service_path {
+            let events_path = Path::new(&events_service_path);
+            let events_path_buf = events_path.to_path_buf();
+
+            let event_worker =
+                create_event_worker(events_path_buf, import_map_path.clone(), no_module_cache)
+                    .await
+                    .expect("Event worker could not be created");
+
+            worker_event_sender = Some(event_worker);
+        }
+
         // create a user worker pool
-        let user_worker_msgs_tx = create_user_worker_pool().await?;
+        let user_worker_msgs_tx = create_user_worker_pool(worker_event_sender).await?;
 
         // create main worker
         let main_path = Path::new(&main_service_path);
-        let main_worker_req_tx = create_worker(EdgeContextInitOpts {
-            service_path: main_path.to_path_buf(),
-            import_map_path,
-            no_module_cache,
-            conf: EdgeContextOpts::MainWorker(EdgeMainRuntimeOpts {
-                worker_pool_tx: user_worker_msgs_tx,
-            }),
-            env_vars: std::env::vars().collect(),
-        })
+        let main_worker_req_tx = create_worker(
+            EdgeContextInitOpts {
+                service_path: main_path.to_path_buf(),
+                import_map_path,
+                no_module_cache,
+                conf: EdgeContextOpts::MainWorker(EdgeMainRuntimeOpts {
+                    worker_pool_tx: user_worker_msgs_tx,
+                }),
+                env_vars: std::env::vars().collect(),
+            },
+            None,
+        )
         .await?;
 
         let ip = Ipv4Addr::from_str(ip)?;

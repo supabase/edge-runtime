@@ -36,6 +36,7 @@ import { promiseRejectMacrotaskCallback } from "ext:sb_core_main_js/js/promises.
 import { denoOverrides } from "ext:sb_core_main_js/js/denoOverrides.js";
 import * as performance from "ext:deno_web/15_performance.js";
 import * as messagePort from "ext:deno_web/13_message_port.js";
+import { SupabaseEventListener } from "ext:sb_user_event_worker/event_worker.js";
 
 const core = globalThis.Deno.core;
 const ops = core.ops;
@@ -224,7 +225,7 @@ event.setEventTargetData(globalThis);
 const eventHandlers = ["error", "load", "beforeunload", "unload", "unhandledrejection"];
 eventHandlers.forEach((handlerName) => event.defineEventHandler(globalThis, handlerName));
 
-globalThis.bootstrapSBEdge = (opts, isUserRuntime) => {
+globalThis.bootstrapSBEdge = (opts, isUserRuntime, isEventManager) => {
   runtimeStart({
     denoVersion: "NA",
     v8Version: "NA",
@@ -247,6 +248,14 @@ globalThis.bootstrapSBEdge = (opts, isUserRuntime) => {
 
   if(isUserRuntime) {
     loadUserRuntime();
+  }
+
+  if(isEventManager) {
+    // Event Manager should have the same as the `main` except it can't create workers (that would be catastrophic)
+    delete globalThis.EdgeRuntime;
+    ObjectDefineProperties(globalThis, {
+      EventManager: getterOnly(() => SupabaseEventListener)
+    })
   }
 
   delete globalThis.bootstrapSBEdge;

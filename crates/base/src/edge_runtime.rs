@@ -20,6 +20,7 @@ use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use urlencoding::decode;
 
+use crate::utils::send_event_if_event_manager_available;
 use crate::{errors_rt, snapshot};
 use module_loader::DefaultModuleLoader;
 use sb_core::http_start::sb_core_http;
@@ -31,7 +32,7 @@ use sb_env::sb_env as sb_env_op;
 use sb_worker_context::essentials::{
     EdgeContextInitOpts, EdgeContextOpts, EdgeEventRuntimeOpts, EdgeUserRuntimeOpts, UserWorkerMsgs,
 };
-use sb_worker_context::events::WorkerEvents;
+use sb_worker_context::events::{PseudoEvent, WorkerEvents};
 use sb_workers::events::sb_user_event_worker;
 use sb_workers::sb_user_workers;
 
@@ -259,6 +260,18 @@ impl EdgeRuntime {
         })
     }
 
+    pub fn event_sender(&self) -> Option<mpsc::UnboundedSender<WorkerEvents>> {
+        if self.is_user_runtime {
+            if let EdgeContextOpts::UserWorker(conf) = self.conf.clone() {
+                conf.events_msg_tx
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
     pub async fn run(
         mut self,
         unix_stream_rx: mpsc::UnboundedReceiver<UnixStream>,
@@ -348,6 +361,7 @@ impl EdgeRuntime {
         halt_isolate_tx: oneshot::Sender<EdgeCallResult>,
     ) {
         let thread_safe_handle = self.js_runtime.v8_isolate().thread_safe_handle();
+        let event_sender = self.event_sender();
 
         thread::spawn(move || {
             let rt = tokio::runtime::Builder::new_current_thread()
@@ -359,11 +373,13 @@ impl EdgeRuntime {
                 tokio::select! {
                     _ = tokio::time::sleep(Duration::from_millis(worker_timeout_ms)) => {
                         debug!("max duration reached for the worker. terminating the worker. (duration {})", human_elapsed(worker_timeout_ms));
+                        send_event_if_event_manager_available(event_sender, WorkerEvents::TimeLimit(PseudoEvent {}));
                         thread_safe_handle.terminate_execution();
                         EdgeCallResult::TimeOut
                     }
                     Some(val) = memory_limit_rx.recv() => {
                         error!("memory limit reached for the worker. terminating the worker. (used: {})", bytes_to_display(val));
+                        send_event_if_event_manager_available(event_sender, WorkerEvents::MemoryLimit(PseudoEvent {}));
                         thread_safe_handle.terminate_execution();
                         EdgeCallResult::HeapLimitReached
                     }

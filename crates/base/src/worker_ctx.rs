@@ -8,7 +8,7 @@ use sb_worker_context::essentials::{
     CreateUserWorkerResult, EdgeContextInitOpts, EdgeContextOpts, EdgeEventRuntimeOpts,
     UserWorkerMsgs,
 };
-use sb_worker_context::events::{BootEvent, BootFailure, WorkerEvents};
+use sb_worker_context::events::{BootEvent, BootFailure, UncaughtException, WorkerEvents};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::thread;
@@ -20,6 +20,12 @@ use tokio::sync::{mpsc, oneshot};
 pub struct WorkerRequestMsg {
     pub req: Request<Body>,
     pub res_tx: oneshot::Sender<Result<Response<Body>, hyper::Error>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct UserWorkerProfile {
+    worker_event_tx: mpsc::UnboundedSender<WorkerRequestMsg>,
+    event_manager_tx: Option<mpsc::UnboundedSender<WorkerEvents>>,
 }
 
 async fn handle_request(
@@ -61,9 +67,13 @@ pub async fn create_worker(
     let (worker_boot_result_tx, worker_boot_result_rx) = oneshot::channel::<Result<(), Error>>();
     let (unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
 
-    let (worker_key, pool_msg_tx) = match init_opts.conf.clone() {
-        EdgeContextOpts::UserWorker(worker_opts) => (worker_opts.key, worker_opts.pool_msg_tx),
-        _ => (None, None),
+    let (worker_key, pool_msg_tx, event_msg_tx) = match init_opts.conf.clone() {
+        EdgeContextOpts::UserWorker(worker_opts) => (
+            worker_opts.key,
+            worker_opts.pool_msg_tx,
+            worker_opts.events_msg_tx,
+        ),
+        _ => (None, None, None),
     };
 
     // spawn a thread to run the worker
@@ -87,12 +97,14 @@ pub async fn create_worker(
             }
         });
 
-        if result.is_err() {
-            error!(
-                "worker {:?} returned an error: {:?}",
-                service_path,
-                result.unwrap_err()
+        if let Err(err) = result {
+            send_event_if_event_manager_available(
+                event_msg_tx,
+                WorkerEvents::UncaughtException(UncaughtException {
+                    exception: err.to_string(),
+                }),
             );
+            error!("worker {:?} returned an error: {:?}", service_path, err);
         }
 
         // remove the worker from pool
@@ -186,8 +198,7 @@ pub async fn create_user_worker_pool(
 
     let user_worker_msgs_tx_clone = user_worker_msgs_tx.clone();
     let _handle: tokio::task::JoinHandle<Result<(), Error>> = tokio::spawn(async move {
-        let mut user_workers: HashMap<u64, mpsc::UnboundedSender<WorkerRequestMsg>> =
-            HashMap::new();
+        let mut user_workers: HashMap<u64, UserWorkerProfile> = HashMap::new();
 
         loop {
             match user_worker_msgs_rx.recv().await {
@@ -232,13 +243,19 @@ pub async fn create_user_worker_pool(
                     match result {
                         Ok(user_worker_req_tx) => {
                             send_event_if_event_manager_available(
-                                event_manager,
+                                event_manager.clone(),
                                 WorkerEvents::Boot(BootEvent {
                                     boot_time: elapsed as usize,
                                 }),
                             );
 
-                            user_workers.insert(key, user_worker_req_tx);
+                            user_workers.insert(
+                                key,
+                                UserWorkerProfile {
+                                    worker_event_tx: user_worker_req_tx,
+                                    event_manager_tx: event_manager,
+                                },
+                            );
                             if tx.send(Ok(CreateUserWorkerResult { key })).is_err() {
                                 bail!("main worker receiver dropped")
                             };
@@ -256,7 +273,23 @@ pub async fn create_user_worker_pool(
                 }
                 Some(UserWorkerMsgs::SendRequest(key, req, tx)) => {
                     let result = match user_workers.get(&key) {
-                        Some(worker) => send_user_worker_request(worker.clone(), req).await,
+                        Some(worker) => {
+                            let profile = worker.clone();
+                            let req = send_user_worker_request(profile.worker_event_tx, req).await;
+
+                            match req {
+                                Ok(rep) => Ok(rep),
+                                Err(err) => {
+                                    send_event_if_event_manager_available(
+                                        profile.event_manager_tx,
+                                        WorkerEvents::UncaughtException(UncaughtException {
+                                            exception: err.to_string(),
+                                        }),
+                                    );
+                                    Err(err)
+                                }
+                            }
+                        }
                         None => {
                             bail!("user worker not available")
                         }

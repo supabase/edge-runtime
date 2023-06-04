@@ -79,16 +79,6 @@ fn print_import_map_diagnostics(diagnostics: &[ImportMapDiagnostic]) {
     }
 }
 
-pub struct EdgeRuntime {
-    pub js_runtime: JsRuntime,
-    pub main_module_id: ModuleId,
-    pub is_user_runtime: bool,
-    pub is_event_worker: bool,
-    pub env_vars: HashMap<String, String>,
-    pub conf: EdgeContextOpts,
-    pub curr_user_opts: EdgeUserRuntimeOpts,
-}
-
 pub struct EdgeRuntimeError(Error);
 
 impl PartialEq for EdgeRuntimeError {
@@ -117,7 +107,17 @@ fn get_error_class_name(e: &AnyError) -> &'static str {
     errors_rt::get_error_class_name(e).unwrap_or("Error")
 }
 
-impl EdgeRuntime {
+pub struct DenoRuntime {
+    pub js_runtime: JsRuntime,
+    pub main_module_id: ModuleId,
+    pub is_user_runtime: bool,
+    pub is_event_worker: bool,
+    pub env_vars: HashMap<String, String>,
+    pub conf: EdgeContextOpts,
+    pub curr_user_opts: EdgeUserRuntimeOpts,
+}
+
+impl DenoRuntime {
     pub async fn new(
         opts: EdgeContextInitOpts,
         event_manager_opts: Option<EdgeEventRuntimeOpts>,
@@ -192,6 +192,9 @@ impl EdgeRuntime {
         let import_map = load_import_map(import_map_path)?;
         let module_loader = DefaultModuleLoader::new(import_map, no_module_cache)?;
 
+        let ret = deno_core::v8_set_flags(vec!["IGNORED".to_string()]);
+        debug!("v8 flags unrecognized {:?}", ret);
+
         let mut js_runtime = JsRuntime::new(RuntimeOptions {
             extensions,
             module_loader: Some(Rc::new(module_loader)),
@@ -207,8 +210,8 @@ impl EdgeRuntime {
                 }
             },
             get_error_class_fn: Some(&get_error_class_name),
-            shared_array_buffer_store: None,
-            compiled_wasm_module_store: None,
+            shared_array_buffer_store: Default::default(),
+            compiled_wasm_module_store: Default::default(),
             startup_snapshot: Some(snapshot::snapshot()),
             ..Default::default()
         });
@@ -276,6 +279,7 @@ impl EdgeRuntime {
     pub async fn run(
         mut self,
         unix_stream_rx: mpsc::UnboundedReceiver<UnixStream>,
+        force_quit_rx: oneshot::Receiver<()>,
     ) -> Result<EdgeCallResult, Error> {
         let is_user_rt = self.is_user_runtime;
 
@@ -291,108 +295,37 @@ impl EdgeRuntime {
             }
         }
 
-        let (halt_isolate_tx, mut halt_isolate_rx) = oneshot::channel::<EdgeCallResult>();
-
-        if is_user_rt {
-            let (memory_limit_tx, memory_limit_rx) = mpsc::unbounded_channel::<u64>();
-
-            self.start_controller_thread(
-                self.curr_user_opts.worker_timeout_ms,
-                memory_limit_rx,
-                halt_isolate_tx,
-            );
-
-            // add a callback when a worker reaches its memory limit
-            let memory_limit_mb = self.curr_user_opts.memory_limit_mb;
-            self.js_runtime.add_near_heap_limit_callback(move |cur, _| {
-                debug!(
-                    "Low memory alert triggered: {}",
-                    bytes_to_display(cur as u64),
-                );
-
-                let _ = memory_limit_tx.send(mib_to_bytes(memory_limit_mb));
-
-                (cur + memory_limit_mb as usize) << 20
-            });
-        }
-
         let mut js_runtime = self.js_runtime;
 
         let future = async move {
             let mod_result = js_runtime.mod_evaluate(self.main_module_id);
-
-            let result: Result<EdgeCallResult, Error> = tokio::select! {
-                _ = js_runtime.run_event_loop(false) => {
-                    debug!("Event loop has completed");
-
-                    match tokio::time::timeout(std::time::Duration::from_millis(self.curr_user_opts.worker_timeout_ms), mod_result).await {
-                        Err(_err) => {
-                            return Ok(EdgeCallResult::ModuleEvaluationTimedOut);
-                        },
-                        Ok(Ok(evaluation_result)) => {
-                            if let Err(e) = evaluation_result {
-                                let err_as_str = e.to_string();
-                                debug!("{}", err_as_str);
-                                return Ok(EdgeCallResult::ErrorThrown(EdgeRuntimeError(e)));
-                            }
-                        },
-                        Ok(Err(_)) => { return Ok(EdgeCallResult::Unknown); }
-                    }
-
-                    Ok(EdgeCallResult::Completed)
-                },
-                // TODO: Fix race condition
-                call_result = &mut halt_isolate_rx => {
-                    debug!("User Worker execution halted");
-                    Ok(call_result.unwrap_or(EdgeCallResult::Unknown))
+            match js_runtime.run_event_loop(false).await {
+                Err(err) => {
+                    debug!("event loop error: {}", err);
+                    // TODO: send the error back
+                    Ok(EdgeCallResult::Unknown)
                 }
-            };
-
-            drop(js_runtime);
-            result
+                Ok(_) => match mod_result.await {
+                    Err(err) => {
+                        let err_as_str = err.to_string();
+                        debug!("mod evaluate error {}", err_as_str);
+                        Ok(EdgeCallResult::ErrorThrown(EdgeRuntimeError(err.into())))
+                    }
+                    Ok(Err(err)) => {
+                        let err_as_str = err.to_string();
+                        debug!("{}", err_as_str);
+                        // send to event manager
+                        Ok(EdgeCallResult::ErrorThrown(EdgeRuntimeError(err.into())))
+                    }
+                    Ok(Ok(_)) => Ok(EdgeCallResult::Completed),
+                },
+            }
         };
 
-        future.await
-    }
-
-    fn start_controller_thread(
-        &mut self,
-        worker_timeout_ms: u64,
-        mut memory_limit_rx: mpsc::UnboundedReceiver<u64>,
-        halt_isolate_tx: oneshot::Sender<EdgeCallResult>,
-    ) {
-        let thread_safe_handle = self.js_runtime.v8_isolate().thread_safe_handle();
-        let event_sender = self.event_sender();
-
-        thread::spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap();
-
-            let future = async move {
-                tokio::select! {
-                    _ = tokio::time::sleep(Duration::from_millis(worker_timeout_ms)) => {
-                        debug!("max duration reached for the worker. terminating the worker. (duration {})", human_elapsed(worker_timeout_ms));
-                        send_event_if_event_manager_available(event_sender, WorkerEvents::TimeLimit(PseudoEvent {}));
-                        thread_safe_handle.terminate_execution();
-                        EdgeCallResult::TimeOut
-                    }
-                    Some(val) = memory_limit_rx.recv() => {
-                        error!("memory limit reached for the worker. terminating the worker. (used: {})", bytes_to_display(val));
-                        send_event_if_event_manager_available(event_sender, WorkerEvents::MemoryLimit(PseudoEvent {}));
-                        thread_safe_handle.terminate_execution();
-                        EdgeCallResult::HeapLimitReached
-                    }
-                }
-            };
-            let call = rt.block_on(future);
-
-            // send a message to halt the isolate
-            if halt_isolate_tx.send(call).is_err() {
-                error!("failed to send the halt execution signal");
-            }
-        });
+        tokio::select! {
+            res = future => res,
+            Ok(()) = force_quit_rx => Ok(EdgeCallResult::Unknown)
+        }
     }
 
     #[allow(clippy::wrong_self_convention)]
@@ -413,7 +346,7 @@ impl EdgeRuntime {
 
 #[cfg(test)]
 mod test {
-    use crate::edge_runtime::{EdgeCallResult, EdgeRuntime};
+    use crate::deno_runtime::{DenoRuntime, EdgeCallResult};
     use flaky_test::flaky_test;
     use sb_worker_context::essentials::{
         EdgeContextInitOpts, EdgeContextOpts, EdgeMainRuntimeOpts, EdgeUserRuntimeOpts,

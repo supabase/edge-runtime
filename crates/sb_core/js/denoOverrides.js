@@ -7,6 +7,19 @@ import {
 } from "ext:sb_core_main_js/js/errors.js";
 import { serveHttp } from "ext:sb_core_main_js/js/http.js";
 import * as fs from "ext:deno_fs/30_fs.js";
+import { osCalls } from "ext:sb_os/os.js"
+
+const osCallsVars = {
+    gid: osCalls.gid,
+    uid: osCalls.uid,
+    hostname: osCalls.hostname,
+    loadavg: osCalls.loadAvg,
+    osUptime: osCalls.osUptime,
+    osRelease: osCalls.osRelease,
+    systemMemoryInfo: osCalls.systemMemoryInfo,
+    consoleSize: osCalls.consoleSize,
+    Command: osCalls.command
+}
 
 const fsVars = {
     writeFileSync: fs.writeFileSync,
@@ -86,7 +99,8 @@ const denoOverrides = {
     errors: errors,
     refTimer: timers.refTimer,
     unrefTimer: timers.unrefTimer,
-    ...fsVars
+    ...fsVars,
+    ...osCallsVars
 }
 
-export { denoOverrides, fsVars };
+export { denoOverrides, fsVars, osCallsVars };

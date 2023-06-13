@@ -180,6 +180,7 @@ impl EdgeRuntime {
             deno_io::deno_io::init_ops(Some(Default::default())),
             deno_fs::deno_fs::init_ops::<Permissions>(false),
             sb_env_op::init_ops(),
+            sb_os::sb_os::init_ops(),
             sb_user_workers::init_ops(),
             sb_user_event_worker::init_ops(),
             sb_core_main_js::init_ops(),
@@ -518,6 +519,93 @@ mod test {
             fs_read_result.unwrap().as_str().unwrap(),
             "{\n  \"hello\": \"world\"\n}"
         );
+    }
+
+    #[tokio::test]
+    async fn test_os_ops() {
+        let mut user_rt = create_runtime(
+            None,
+            None,
+            Some(EdgeContextOpts::UserWorker(Default::default())),
+        )
+        .await;
+
+        let user_rt_execute_scripts = user_rt
+            .js_runtime
+            .execute_script(
+                "<anon>",
+                r#"
+            // Should not be able to set
+            const data = {
+                gid: Deno.gid(),
+                uid: Deno.uid(),
+                hostname: Deno.hostname(),
+                loadavg: Deno.loadavg(),
+                osUptime: Deno.osUptime(),
+                osRelease: Deno.osRelease(),
+                systemMemoryInfo: Deno.systemMemoryInfo(),
+                consoleSize: Deno.consoleSize()
+            };
+            data;
+        "#,
+            )
+            .unwrap();
+        let serde_deno_env = user_rt
+            .to_value::<deno_core::serde_json::Value>(&user_rt_execute_scripts)
+            .unwrap();
+        assert_eq!(serde_deno_env.get("gid").unwrap().as_i64().unwrap(), 1000);
+        assert_eq!(serde_deno_env.get("uid").unwrap().as_i64().unwrap(), 1000);
+        assert!(serde_deno_env.get("osUptime").unwrap().as_i64().unwrap() > 0);
+        assert_eq!(
+            serde_deno_env.get("osRelease").unwrap().as_str().unwrap(),
+            "0.0.0-00000000-generic"
+        );
+
+        let loadavg_array = serde_deno_env
+            .get("loadavg")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .to_vec();
+        assert_eq!(loadavg_array.get(0).unwrap().as_f64().unwrap(), 0.0);
+        assert_eq!(loadavg_array.get(1).unwrap().as_f64().unwrap(), 0.0);
+        assert_eq!(loadavg_array.get(2).unwrap().as_f64().unwrap(), 0.0);
+
+        let system_memory_info_map = serde_deno_env
+            .get("systemMemoryInfo")
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .clone();
+        assert!(system_memory_info_map.contains_key("total"));
+        assert!(system_memory_info_map.contains_key("free"));
+        assert!(system_memory_info_map.contains_key("available"));
+        assert!(system_memory_info_map.contains_key("buffers"));
+        assert!(system_memory_info_map.contains_key("cached"));
+        assert!(system_memory_info_map.contains_key("swapTotal"));
+        assert!(system_memory_info_map.contains_key("swapFree"));
+
+        let deno_consle_size_map = serde_deno_env
+            .get("consoleSize")
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .clone();
+        assert!(deno_consle_size_map.contains_key("rows"));
+        assert!(deno_consle_size_map.contains_key("columns"));
+
+        let user_rt_execute_scripts = user_rt.js_runtime.execute_script(
+            "<anon>",
+            r#"
+            let cmd = new Deno.Command("", {});
+            cmd.outputSync();
+        "#,
+        );
+        assert!(user_rt_execute_scripts.is_err());
+        assert!(user_rt_execute_scripts
+            .unwrap_err()
+            .to_string()
+            .contains("Spawning subprocesses is not allowed on Supabase Edge Runtime"));
     }
 
     #[tokio::test]

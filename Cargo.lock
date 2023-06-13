@@ -295,6 +295,7 @@ dependencies = [
  "reqwest",
  "sb_core",
  "sb_env",
+ "sb_os",
  "sb_worker_context",
  "sb_workers",
  "serde",
@@ -3345,6 +3346,17 @@ dependencies = [
  "deno_core",
  "deno_node",
  "sb_core",
+]
+
+[[package]]
+name = "sb_os"
+version = "0.1.0"
+dependencies = [
+ "deno_core",
+ "deno_node",
+ "libc",
+ "sb_core",
+ "serde",
 ]
 
 [[package]]

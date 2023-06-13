@@ -7,14 +7,15 @@ members = [
   "./crates/sb_worker_context",
   "./crates/sb_env",
   "./crates/sb_core",
-  "./crates/flaky_test"
+  "./crates/flaky_test",
+  "./crates/sb_os"
 ]
 resolver = "2"
 
 [workspace.dependencies]
 log = "0.4.17"
 anyhow = { version = "1.0.57" }
-
+libc = "0.2.126"
 deno_ast = { version = "0.25.0", features = [ "cjs", "transpiling" ] }
 deno_core = { version = "0.179.0" }
 deno_console = { version = "0.97.0" }

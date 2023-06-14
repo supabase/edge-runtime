@@ -21,13 +21,21 @@ class DenoCommand {
 }
 
 const osCalls = {
-    gid: () => ops.op_gid(),
-    uid: () => ops.op_uid(),
+    gid: () => 1000,
+    uid: () => 1000,
     osUptime: () => ops.op_os_uptime(),
-    osRelease: () => ops.op_os_release(),
-    loadAvg: () => ops.op_loadavg(),
-    hostname: () => ops.op_hostname(),
-    systemMemoryInfo: () => ops.op_system_memory_info(),
+    osRelease: () => "0.0.0-00000000-generic",
+    loadAvg: () => [0, 0, 0],
+    hostname: () => "localhost",
+    systemMemoryInfo: () => ({
+        total: 0,
+        free: 0,
+        available: 0,
+        buffers: 0,
+        cached: 0,
+        swapTotal: 0,
+        swapFree: 0,
+    }),
     consoleSize: () => ({ columns: 80, rows: 24}),
     command: DenoCommand
 }

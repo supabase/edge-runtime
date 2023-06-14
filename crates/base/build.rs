@@ -178,6 +178,7 @@ mod supabase_startup_snapshot {
             deno_io::deno_io::init_ops_and_esm(Default::default()),
             deno_fs::deno_fs::init_ops_and_esm::<Permissions>(false),
             sb_env::init_ops_and_esm(),
+            sb_os::sb_os::init_ops_and_esm(),
             sb_user_workers::init_ops_and_esm(),
             sb_user_event_worker::init_ops_and_esm(),
             sb_core_main_js::init_ops_and_esm(),

@@ -67,61 +67,69 @@ pub async fn create_worker(
     let (worker_boot_result_tx, worker_boot_result_rx) = oneshot::channel::<Result<(), Error>>();
     let (unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
 
-    let (worker_key, pool_msg_tx, event_msg_tx) = match init_opts.conf.clone() {
+    let (worker_key, pool_msg_tx, event_msg_tx, thread_name) = match init_opts.conf.clone() {
         EdgeContextOpts::UserWorker(worker_opts) => (
             worker_opts.key,
             worker_opts.pool_msg_tx,
             worker_opts.events_msg_tx,
+            worker_opts
+                .key
+                .map(|k| format!("isolate-worker-{:?}", k))
+                .unwrap_or("isolate-worker-unknown".to_string()),
         ),
-        _ => (None, None, None),
+        EdgeContextOpts::MainWorker(_) => (None, None, None, "main-worker".to_string()),
+        EdgeContextOpts::EventsWorker => (None, None, None, "events-worker".to_string()),
     };
 
     // spawn a thread to run the worker
-    let _handle: thread::JoinHandle<Result<(), Error>> = thread::spawn(move || {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-        let local = tokio::task::LocalSet::new();
+    let worker_thread = thread::Builder::new().name(thread_name);
+    let _handle: thread::JoinHandle<Result<(), Error>> = worker_thread
+        .spawn(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let local = tokio::task::LocalSet::new();
 
-        let result: Result<EdgeCallResult, Error> = local.block_on(&runtime, async {
-            match EdgeRuntime::new(init_opts, event_manager_opts).await {
-                Err(err) => {
-                    let _ = worker_boot_result_tx.send(Err(anyhow!("worker boot error")));
-                    bail!(err)
+            let result: Result<EdgeCallResult, Error> = local.block_on(&runtime, async {
+                match EdgeRuntime::new(init_opts, event_manager_opts).await {
+                    Err(err) => {
+                        let _ = worker_boot_result_tx.send(Err(anyhow!("worker boot error")));
+                        bail!(err)
+                    }
+                    Ok(worker) => {
+                        let _ = worker_boot_result_tx.send(Ok(()));
+                        worker.run(unix_stream_rx).await
+                    }
                 }
-                Ok(worker) => {
-                    let _ = worker_boot_result_tx.send(Ok(()));
-                    worker.run(unix_stream_rx).await
+            });
+
+            if let Err(err) = result {
+                send_event_if_event_manager_available(
+                    event_msg_tx,
+                    WorkerEvents::UncaughtException(UncaughtException {
+                        exception: err.to_string(),
+                    }),
+                );
+                error!("worker {:?} returned an error: {:?}", service_path, err);
+            }
+
+            // remove the worker from pool
+            if let Some(k) = worker_key {
+                if let Some(tx) = pool_msg_tx {
+                    let res = tx.send(UserWorkerMsgs::Shutdown(k));
+                    if res.is_err() {
+                        error!(
+                            "failed to send the shutdown signal to user worker pool: {:?}",
+                            res.unwrap_err()
+                        );
+                    }
                 }
             }
-        });
 
-        if let Err(err) = result {
-            send_event_if_event_manager_available(
-                event_msg_tx,
-                WorkerEvents::UncaughtException(UncaughtException {
-                    exception: err.to_string(),
-                }),
-            );
-            error!("worker {:?} returned an error: {:?}", service_path, err);
-        }
-
-        // remove the worker from pool
-        if let Some(k) = worker_key {
-            if let Some(tx) = pool_msg_tx {
-                let res = tx.send(UserWorkerMsgs::Shutdown(k));
-                if res.is_err() {
-                    error!(
-                        "failed to send the shutdown signal to user worker pool: {:?}",
-                        res.unwrap_err()
-                    );
-                }
-            }
-        }
-
-        Ok(())
-    });
+            Ok(())
+        })
+        .unwrap();
 
     // create an async task waiting for requests for worker
     let (worker_req_tx, mut worker_req_rx) = mpsc::unbounded_channel::<WorkerRequestMsg>();

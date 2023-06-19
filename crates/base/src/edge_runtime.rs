@@ -545,7 +545,8 @@ mod test {
                 osRelease: Deno.osRelease(),
                 systemMemoryInfo: Deno.systemMemoryInfo(),
                 consoleSize: Deno.consoleSize(),
-                version: [Deno.version.deno, Deno.version.v8, Deno.version.typescript]
+                version: [Deno.version.deno, Deno.version.v8, Deno.version.typescript],
+                networkInterfaces: Deno.networkInterfaces()
             };
             data;
         "#,
@@ -571,6 +572,14 @@ mod test {
         assert_eq!(loadavg_array.get(0).unwrap().as_f64().unwrap(), 0.0);
         assert_eq!(loadavg_array.get(1).unwrap().as_f64().unwrap(), 0.0);
         assert_eq!(loadavg_array.get(2).unwrap().as_f64().unwrap(), 0.0);
+
+        let network_interfaces_data = serde_deno_env
+            .get("networkInterfaces")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .to_vec();
+        assert_eq!(network_interfaces_data.len(), 2);
 
         let deno_version_array = serde_deno_env
             .get("version")

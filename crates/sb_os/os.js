@@ -37,7 +37,16 @@ const osCalls = {
         swapFree: 0,
     }),
     consoleSize: () => ({ columns: 80, rows: 24}),
-    command: DenoCommand
+    command: DenoCommand,
+    version: {
+        deno: "",
+        "v8": "",
+        typescript: ""
+    },
+    networkInterfaces: () => [
+        {"family":"IPv4","name":"lo","address":"127.0.0.1","netmask":"255.0.0.0","scopeid":null,"cidr":"127.0.0.1/8","mac":"00:00:00:00:00:00"},
+        {"family":"IPv4","name":"eth0","address":"10.0.0.10","netmask":"255.255.255.0","scopeid":null,"cidr":"10.0.0.10/24","mac":"00:00:00:00:00:01"}
+    ]
 }
 
 export { osCalls };

@@ -18,7 +18,9 @@ const osCallsVars = {
     osRelease: osCalls.osRelease,
     systemMemoryInfo: osCalls.systemMemoryInfo,
     consoleSize: osCalls.consoleSize,
-    Command: osCalls.command
+    Command: osCalls.command,
+    version: osCalls.version,
+    networkInterfaces: osCalls.networkInterfaces
 }
 
 const fsVars = {

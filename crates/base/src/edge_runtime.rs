@@ -544,7 +544,8 @@ mod test {
                 osUptime: Deno.osUptime(),
                 osRelease: Deno.osRelease(),
                 systemMemoryInfo: Deno.systemMemoryInfo(),
-                consoleSize: Deno.consoleSize()
+                consoleSize: Deno.consoleSize(),
+                version: [Deno.version.deno, Deno.version.v8, Deno.version.typescript]
             };
             data;
         "#,
@@ -570,6 +571,16 @@ mod test {
         assert_eq!(loadavg_array.get(0).unwrap().as_f64().unwrap(), 0.0);
         assert_eq!(loadavg_array.get(1).unwrap().as_f64().unwrap(), 0.0);
         assert_eq!(loadavg_array.get(2).unwrap().as_f64().unwrap(), 0.0);
+
+        let deno_version_array = serde_deno_env
+            .get("version")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .to_vec();
+        assert_eq!(deno_version_array.get(0).unwrap().as_str().unwrap(), "");
+        assert_eq!(deno_version_array.get(1).unwrap().as_str().unwrap(), "");
+        assert_eq!(deno_version_array.get(2).unwrap().as_str().unwrap(), "");
 
         let system_memory_info_map = serde_deno_env
             .get("systemMemoryInfo")

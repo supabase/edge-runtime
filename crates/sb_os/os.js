@@ -37,7 +37,12 @@ const osCalls = {
         swapFree: 0,
     }),
     consoleSize: () => ({ columns: 80, rows: 24}),
-    command: DenoCommand
+    command: DenoCommand,
+    version: {
+        deno: "",
+        "v8": "",
+        typescript: ""
+    }
 }
 
 export { osCalls };

@@ -9,21 +9,7 @@
 import { TextEncoder } from "ext:deno_web/08_text_encoding.js";
 
 // deno-lint-ignore no-explicit-any
-let DenoCore: any;
-
-// deno-lint-ignore no-explicit-any
-const { Deno } = globalThis as any;
-
-// @ts-ignore Deno.core is not defined in types
-if (Deno?.[Deno.internal]?.core) {
-  // @ts-ignore Deno[Deno.internal].core is not defined in types
-  DenoCore = Deno[Deno.internal].core;
-} else if (Deno?.core) {
-  // @ts-ignore Deno.core is not defined in types
-  DenoCore = Deno.core;
-} else {
-  DenoCore = {};
-}
+let DenoCore: any = globalThis.Deno.core;
 
 export const core = {
   runMicrotasks: DenoCore.runMicrotasks ?? function () {

@@ -680,7 +680,7 @@ internals.__bootstrapNodeProcess = function (
   } else {
     Object.defineProperty(argv, "0", {
       get: () => {
-        return Deno.execPath();
+        return "/usr";
       },
     });
   }

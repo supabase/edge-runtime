@@ -25,10 +25,8 @@
 // - https://github.com/nodejs/node/blob/master/src/util.cc
 // - https://github.com/nodejs/node/blob/master/src/util.h
 
-import { notImplemented } from "ext:deno_node/_utils.ts";
-
 export function guessHandleType(_fd: number): string {
-  notImplemented("util.guessHandleType");
+  throw new Error("Not implemented: util.guessHandleType");
 }
 
 export const ALL_PROPERTIES = 0;

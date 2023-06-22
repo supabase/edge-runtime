@@ -136,12 +136,13 @@ pub async fn create_worker(
 
     let worker_req_handle: tokio::task::JoinHandle<Result<(), Error>> =
         tokio::task::spawn(async move {
-            let unix_stream_tx = unix_stream_tx.clone();
-
             while let Some(msg) = worker_req_rx.recv().await {
-                if let Err(err) = handle_request(unix_stream_tx.clone(), msg).await {
-                    error!("worker failed to handle request: {:?}", err);
-                }
+                let unix_stream_tx_clone = unix_stream_tx.clone();
+                tokio::task::spawn(async move {
+                    if let Err(err) = handle_request(unix_stream_tx_clone, msg).await {
+                        error!("worker failed to handle request: {:?}", err);
+                    }
+                });
             }
 
             Ok(())
@@ -280,32 +281,37 @@ pub async fn create_user_worker_pool(
                     }
                 }
                 Some(UserWorkerMsgs::SendRequest(key, req, tx)) => {
-                    let result = match user_workers.get(&key) {
+                    match user_workers.get(&key) {
                         Some(worker) => {
                             let profile = worker.clone();
-                            let req = send_user_worker_request(profile.worker_event_tx, req).await;
+                            tokio::task::spawn(async move {
+                                let req =
+                                    send_user_worker_request(profile.worker_event_tx, req).await;
+                                let result = match req {
+                                    Ok(rep) => Ok(rep),
+                                    Err(err) => {
+                                        send_event_if_event_manager_available(
+                                            profile.event_manager_tx,
+                                            WorkerEvents::UncaughtException(UncaughtException {
+                                                exception: err.to_string(),
+                                            }),
+                                        );
+                                        Err(err)
+                                    }
+                                };
 
-                            match req {
-                                Ok(rep) => Ok(rep),
-                                Err(err) => {
-                                    send_event_if_event_manager_available(
-                                        profile.event_manager_tx,
-                                        WorkerEvents::UncaughtException(UncaughtException {
-                                            exception: err.to_string(),
-                                        }),
-                                    );
-                                    Err(err)
+                                if tx.send(result).is_err() {
+                                    error!("main worker receiver dropped")
                                 }
+                            });
+                        }
+
+                        None => {
+                            if tx.send(Err(anyhow!("user worker not available"))).is_err() {
+                                bail!("main worker receiver dropped")
                             }
                         }
-                        None => {
-                            bail!("user worker not available")
-                        }
                     };
-
-                    if tx.send(result).is_err() {
-                        bail!("main worker receiver dropped")
-                    }
                 }
                 Some(UserWorkerMsgs::Shutdown(key)) => {
                     user_workers.remove(&key);

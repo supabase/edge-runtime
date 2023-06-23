@@ -8,7 +8,8 @@ members = [
   "./crates/sb_env",
   "./crates/sb_core",
   "./crates/flaky_test",
-  "./crates/sb_os"
+  "./crates/sb_os",
+  "./crates/cpu_timer"
 ]
 resolver = "2"
 

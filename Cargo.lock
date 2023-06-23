@@ -269,6 +269,7 @@ dependencies = [
  "anyhow",
  "bytes",
  "cityhash",
+ "cpu_timer",
  "deno_ast",
  "deno_console",
  "deno_core",
@@ -290,10 +291,8 @@ dependencies = [
  "httparse",
  "hyper",
  "import_map",
- "libc",
  "log",
  "module_fetcher",
- "nix 0.26.2",
  "reqwest",
  "sb_core",
  "sb_env",
@@ -644,6 +643,17 @@ name = "core-foundation-sys"
 version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e496a50fda8aacccc86d7529e2c1e0892dbd0f898a6b5645b5561b89c3210efa"
+
+[[package]]
+name = "cpu_timer"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "libc",
+ "log",
+ "nix 0.26.2",
+ "tokio",
+]
 
 [[package]]
 name = "cpufeatures"

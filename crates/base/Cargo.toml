@@ -6,6 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+cpu_timer = { version = "0.1.0", path = "../cpu_timer" }
 anyhow = { workspace = true }
 bytes = { version = "1.2.1" }
 cityhash = { version = "0.1.1" }
@@ -29,12 +30,10 @@ hyper = { version = "0.14.25", features = ["full"] }
 http = { version = "0.2" }
 import_map = { version = "0.15.0" }
 log = { workspace = true }
-libc = { workspace = true }
 module_fetcher = { path = "../module_fetcher" }
-nix = { version = "0.26.2", features = ["signal"] }
 reqwest = { version = "0.11.13" }
 serde = { version = "1.0.149", features = ["derive"] }
-tokio.workspace = true
+tokio = { workspace = true }
 url = { version = "2.3.1" }
 sb_worker_context = { version = "0.1.0", path = "../sb_worker_context" }
 sb_workers = { version = "0.1.0", path = "../sb_workers" }

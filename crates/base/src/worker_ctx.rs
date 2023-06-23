@@ -4,6 +4,7 @@ use crate::utils::units::bytes_to_display;
 
 use anyhow::{anyhow, bail, Error};
 use cityhash::cityhash_1_1_1::city_hash_64;
+use cpu_timer::{get_thread_time, CPUAlarmVal, CPUTimer};
 use deno_core::JsRuntime;
 use hyper::{Body, Request, Response};
 use log::{debug, error};
@@ -17,7 +18,6 @@ use std::path::PathBuf;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::net::UnixStream;
-use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::{mpsc, oneshot};
 
 #[derive(Debug)]
@@ -58,88 +58,6 @@ async fn handle_request(
     Ok(())
 }
 
-struct TimerId(*mut libc::c_void);
-
-#[cfg(target_os = "linux")]
-impl Drop for TimerId {
-    fn drop(&mut self) {
-        if !self.0.is_null() {
-            unsafe { libc::timer_delete(self.0) };
-        }
-    }
-}
-
-fn get_thread_time() -> Result<i64, Error> {
-    let mut time = libc::timespec {
-        tv_sec: 0,
-        tv_nsec: 0,
-    };
-    if unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut time) } == -1 {
-        return Err(std::io::Error::last_os_error().into());
-    }
-
-    Ok(time.tv_nsec)
-}
-
-struct CPUTimer {}
-
-impl CPUTimer {
-    #[cfg(target_os = "linux")]
-    fn start(&self, thread_id: i32) -> Result<TimerId, Error> {
-        let mut timerid = TimerId(std::ptr::null_mut());
-        let mut sigev: libc::sigevent = unsafe { std::mem::zeroed() };
-        sigev.sigev_notify = libc::SIGEV_THREAD_ID;
-        sigev.sigev_signo = libc::SIGALRM;
-        sigev.sigev_notify_thread_id = thread_id;
-
-        if unsafe {
-            // creates a new per-thread timer
-            libc::timer_create(
-                libc::CLOCK_THREAD_CPUTIME_ID,
-                &mut sigev as *mut libc::sigevent,
-                &mut timerid.0 as *mut *mut libc::c_void,
-            )
-        } < 0
-        {
-            bail!(std::io::Error::last_os_error())
-        }
-
-        let mut tmspec: libc::itimerspec = unsafe { std::mem::zeroed() };
-        tmspec.it_interval.tv_sec = 0;
-        tmspec.it_interval.tv_nsec = 10 * 1_000_000;
-        tmspec.it_value.tv_sec = 0;
-        tmspec.it_value.tv_nsec = 10 * 1_000_000;
-
-        if unsafe {
-            // start the timer with an expiry
-            libc::timer_settime(timerid.0, 0, &tmspec, std::ptr::null_mut())
-        } < 0
-        {
-            bail!(std::io::Error::last_os_error())
-        }
-
-        Ok(timerid)
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    fn start(&self, thread_id: i32) -> Result<TimerId, Box<dyn std::error::Error>> {
-        println!("CPU timer: not enabled (need Linux)");
-        Err(Box::new(&"not linux error"))
-    }
-}
-
-#[cfg(target_os = "linux")]
-fn get_thread_id() -> i32 {
-    let tid;
-    unsafe { tid = libc::gettid() }
-    return tid;
-}
-
-#[cfg(not(target_os = "linux"))]
-fn get_thread_id() -> i32 {
-    return 0;
-}
-
 struct WorkerLimits {
     wall_clock_limit_ms: u64,
     low_memory_multiplier: u64,
@@ -151,10 +69,9 @@ async fn create_supervisor(
     key: u64,
     js_runtime: &mut JsRuntime,
     force_quit_tx: oneshot::Sender<()>,
+    mut cpu_alarms_rx: mpsc::UnboundedReceiver<()>,
     worker_limits: WorkerLimits,
-) -> Result<i32, Error> {
-    let mut signals = signal(SignalKind::alarm())?;
-    let (thread_id_tx, thread_id_rx) = oneshot::channel::<i32>();
+) -> Result<(), Error> {
     let thread_safe_handle = js_runtime.v8_isolate().thread_safe_handle();
 
     let (memory_limit_tx, mut memory_limit_rx) = mpsc::unbounded_channel::<()>();
@@ -182,20 +99,19 @@ async fn create_supervisor(
                 .build()
                 .unwrap();
             let local = tokio::task::LocalSet::new();
-            thread_id_tx.send(get_thread_id()).unwrap();
 
             let future = async move {
                 let mut bursts = 0;
                 let mut last_burst = Instant::now();
 
-                let sleep = tokio::time::sleep(Duration::from_millis(worker_limits.wall_clock_limit_ms));
+                let sleep =
+                    tokio::time::sleep(Duration::from_millis(worker_limits.wall_clock_limit_ms));
                 tokio::pin!(sleep);
 
                 loop {
                     tokio::select! {
-                        // handle the CPU time alarm
-                        // FIME: multiple cpu alarms receiving
-                        Some(_) = signals.recv() => {
+                        Some(_) = cpu_alarms_rx.recv() => {
+                            error!("CPU alarms received. isolate: {:?}", key);
                             if last_burst.elapsed().as_millis() > worker_limits.cpu_burst_interval_ms {
                                 bursts += 1;
                                 last_burst = Instant::now();
@@ -233,8 +149,7 @@ async fn create_supervisor(
         })
         .unwrap();
 
-    let thread_id = thread_id_rx.await?;
-    Ok(thread_id)
+    Ok(())
 }
 
 pub async fn create_worker(
@@ -285,8 +200,7 @@ pub async fn create_worker(
 
                         let (force_quit_tx, force_quit_rx) = oneshot::channel::<()>();
 
-                        // start CPU timer only if the worker is a user worker
-                        //let mut timerid = None;
+                        let cputimer;
                         if worker.is_user_runtime {
                             let start_time = get_thread_time();
                             println!("start time {:?}", start_time);
@@ -296,10 +210,12 @@ pub async fn create_worker(
                             let max_cpu_bursts = 10;
                             let cpu_burst_interval_ms = 100;
 
-                            let thread_id = create_supervisor(
+                            let (cpu_alarms_tx, cpu_alarms_rx) = mpsc::unbounded_channel::<()>();
+                            create_supervisor(
                                 worker_key.unwrap_or(0),
                                 &mut worker.js_runtime,
                                 force_quit_tx,
+                                cpu_alarms_rx,
                                 WorkerLimits {
                                     wall_clock_limit_ms,
                                     low_memory_multiplier,
@@ -308,9 +224,7 @@ pub async fn create_worker(
                                 },
                             )
                             .await?;
-                            //let cpu_timer = CPUTimer {};
-                            //// Note: we intentionally let the thread to panic here if CPU timer cannot be started
-                            //timerid = Some(cpu_timer.start(thread_id).unwrap());
+                            cputimer = CPUTimer::start(50, CPUAlarmVal { cpu_alarms_tx })?;
                         }
 
                         worker.run(unix_stream_rx, force_quit_rx).await

@@ -1,4 +1,4 @@
-use crate::utils::units::{bytes_to_display, human_elapsed, mib_to_bytes};
+use crate::utils::units::mib_to_bytes;
 
 use crate::js_worker::module_loader;
 use anyhow::{anyhow, Error};
@@ -6,21 +6,18 @@ use deno_core::error::AnyError;
 use deno_core::url::Url;
 use deno_core::{located_script_name, serde_v8, JsRuntime, ModuleId, RuntimeOptions};
 use import_map::{parse_from_json, ImportMap, ImportMapDiagnostic};
-use log::{debug, error, warn};
+use log::{debug, warn};
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
 use std::panic;
 use std::path::Path;
 use std::rc::Rc;
-use std::thread;
-use std::time::Duration;
 use std::{fmt, fs};
 use tokio::net::UnixStream;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use urlencoding::decode;
 
-use crate::utils::send_event_if_event_manager_available;
 use crate::{errors_rt, snapshot};
 use module_loader::DefaultModuleLoader;
 use sb_core::http_start::sb_core_http;
@@ -32,7 +29,7 @@ use sb_env::sb_env as sb_env_op;
 use sb_worker_context::essentials::{
     EdgeContextInitOpts, EdgeContextOpts, EdgeEventRuntimeOpts, EdgeUserRuntimeOpts, UserWorkerMsgs,
 };
-use sb_worker_context::events::{PseudoEvent, WorkerEvents};
+use sb_worker_context::events::WorkerEvents;
 use sb_workers::events::sb_user_event_worker;
 use sb_workers::sb_user_workers;
 

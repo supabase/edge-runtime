@@ -6,8 +6,6 @@ interface reqPayload {
 
 console.log('server started modified');
 
-throw new Error('user function error');
-
 serve(async (req: Request) => {
 	const { name }: reqPayload = await req.json();
 	const data = {

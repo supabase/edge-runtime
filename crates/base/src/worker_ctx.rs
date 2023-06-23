@@ -141,7 +141,7 @@ async fn create_supervisor(
                 }
             };
 
-            let _ = local.block_on(&rt, future);
+            local.block_on(&rt, future);
 
             // send force quit signal
             let _ = force_quit_tx.send(());

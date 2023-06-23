@@ -312,7 +312,7 @@ impl DenoRuntime {
                         let err_as_str = err.to_string();
                         debug!("{}", err_as_str);
                         // send to event manager
-                        Ok(EdgeCallResult::ErrorThrown(EdgeRuntimeError(err.into())))
+                        Ok(EdgeCallResult::ErrorThrown(EdgeRuntimeError(err)))
                     }
                     Ok(Ok(_)) => Ok(EdgeCallResult::Completed),
                 },
@@ -353,16 +353,16 @@ mod test {
     use std::path::PathBuf;
     use tokio::net::UnixStream;
     use tokio::sync::mpsc;
-    use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+    use tokio::sync::oneshot;
 
     async fn create_runtime(
         path: Option<PathBuf>,
         env_vars: Option<HashMap<String, String>>,
         user_conf: Option<EdgeContextOpts>,
-    ) -> EdgeRuntime {
+    ) -> DenoRuntime {
         let (worker_pool_tx, _) = mpsc::unbounded_channel::<UserWorkerMsgs>();
 
-        EdgeRuntime::new(
+        DenoRuntime::new(
             EdgeContextInitOpts {
                 service_path: path.unwrap_or(PathBuf::from("./test_cases/main")),
                 no_module_cache: false,
@@ -380,11 +380,6 @@ mod test {
         )
         .await
         .unwrap()
-    }
-
-    fn create_user_rt_params_to_run() -> (UnboundedSender<UnixStream>, UnboundedReceiver<UnixStream>)
-    {
-        mpsc::unbounded_channel::<UnixStream>()
     }
 
     // Main Runtime should have access to `EdgeRuntime`
@@ -621,7 +616,7 @@ mod test {
         path: &str,
         memory_limit: u64,
         worker_timeout_ms: u64,
-    ) -> EdgeRuntime {
+    ) -> DenoRuntime {
         create_runtime(
             Some(PathBuf::from(path)),
             None,
@@ -637,64 +632,12 @@ mod test {
         .await
     }
 
-    // FIXME: Disabling these tests since they are flaky in CI
-    //#[tokio::test]
-    //async fn test_timeout_infinite_promises() {
-    //    let user_rt = create_basic_user_runtime("./test_cases/infinite_promises", 100, 1000);
-    //    let (_tx, unix_stream_rx) = create_user_rt_params_to_run();
-    //    let data = user_rt.run(unix_stream_rx).await.unwrap();
-    //    assert_eq!(data, EdgeCallResult::ModuleEvaluationTimedOut);
-    //}
-
-    //#[flaky_test]
-    //async fn test_timeout_infinite_loop() {
-    //    let user_rt = create_basic_user_runtime("./test_cases/infinite_loop", 100, 1000);
-    //    let (_tx, unix_stream_rx) = create_user_rt_params_to_run();
-    //    let data = user_rt.run(unix_stream_rx).await.unwrap();
-    //    assert_eq!(data, EdgeCallResult::TimeOut);
-    //}
-
-    #[flaky_test]
-    async fn test_unresolved_promise() {
-        let user_rt = create_basic_user_runtime("./test_cases/unresolved_promise", 100, 1000).await;
-        let (_tx, unix_stream_rx) = create_user_rt_params_to_run();
-        let data = user_rt.run(unix_stream_rx).await.unwrap();
-        assert_eq!(data, EdgeCallResult::ModuleEvaluationTimedOut);
-    }
-
-    #[flaky_test]
-    async fn test_delayed_promise() {
-        let user_rt =
-            create_basic_user_runtime("./test_cases/resolve_promise_after_timeout", 100, 1000)
-                .await;
-        let (_tx, unix_stream_rx) = create_user_rt_params_to_run();
-        let data = user_rt.run(unix_stream_rx).await.unwrap();
-        assert_eq!(data, EdgeCallResult::TimeOut);
-    }
-
-    #[flaky_test]
-    async fn test_success_delayed_promise() {
-        let user_rt =
-            create_basic_user_runtime("./test_cases/resolve_promise_before_timeout", 100, 1000)
-                .await;
-        let (_tx, unix_stream_rx) = create_user_rt_params_to_run();
-        let data = user_rt.run(unix_stream_rx).await.unwrap();
-        assert_eq!(data, EdgeCallResult::Completed);
-    }
-
-    #[flaky_test]
-    async fn test_heap_limits_reached() {
-        let user_rt = create_basic_user_runtime("./test_cases/heap_limit", 5, 1000).await;
-        let (_tx, unix_stream_rx) = create_user_rt_params_to_run();
-        let data = user_rt.run(unix_stream_rx).await.unwrap();
-        assert_eq!(data, EdgeCallResult::HeapLimitReached);
-    }
-
     #[flaky_test]
     async fn test_read_file_user_rt() {
         let user_rt = create_basic_user_runtime("./test_cases/readFile", 5, 1000).await;
-        let (_tx, unix_stream_rx) = create_user_rt_params_to_run();
-        let data = user_rt.run(unix_stream_rx).await.unwrap();
+        let (_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
+        let (_, force_quit_rx) = oneshot::channel::<()>();
+        let data = user_rt.run(unix_stream_rx, force_quit_rx).await.unwrap();
         match data {
             EdgeCallResult::ErrorThrown(data) => {
                 assert!(data

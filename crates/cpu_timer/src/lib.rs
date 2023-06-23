@@ -19,7 +19,7 @@ impl Drop for CPUAlarmVal {
 }
 
 pub struct CPUTimer {
-    timerid: TimerId,
+    _timerid: TimerId,
     val_ptr: *mut CPUAlarmVal,
 }
 
@@ -61,7 +61,10 @@ impl CPUTimer {
             bail!(std::io::Error::last_os_error())
         }
 
-        Ok(Self { timerid, val_ptr })
+        Ok(Self {
+            _timerid: timerid,
+            val_ptr,
+        })
     }
 
     #[cfg(not(target_os = "linux"))]

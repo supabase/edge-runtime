@@ -111,7 +111,6 @@ async fn create_supervisor(
                 loop {
                     tokio::select! {
                         Some(_) = cpu_alarms_rx.recv() => {
-                            error!("CPU alarms received. isolate: {:?}", key);
                             if last_burst.elapsed().as_millis() > worker_limits.cpu_burst_interval_ms {
                                 bursts += 1;
                                 last_burst = Instant::now();
@@ -189,6 +188,7 @@ pub async fn create_worker(
                 .unwrap();
             let local = tokio::task::LocalSet::new();
 
+            let mut start_time = 0;
             let result: Result<EdgeCallResult, Error> = local.block_on(&runtime, async {
                 match DenoRuntime::new(init_opts, event_manager_opts).await {
                     Err(err) => {
@@ -200,15 +200,15 @@ pub async fn create_worker(
 
                         let (force_quit_tx, force_quit_rx) = oneshot::channel::<()>();
 
-                        let cputimer;
+                        let _cputimer;
                         if worker.is_user_runtime {
-                            let start_time = get_thread_time();
-                            println!("start time {:?}", start_time);
+                            start_time = get_thread_time()?;
 
                             let wall_clock_limit_ms = 60 * 1000;
                             let low_memory_multiplier = 5;
                             let max_cpu_bursts = 10;
                             let cpu_burst_interval_ms = 100;
+                            let cpu_time_interval = 50;
 
                             let (cpu_alarms_tx, cpu_alarms_rx) = mpsc::unbounded_channel::<()>();
                             create_supervisor(
@@ -224,7 +224,8 @@ pub async fn create_worker(
                                 },
                             )
                             .await?;
-                            cputimer = CPUTimer::start(50, CPUAlarmVal { cpu_alarms_tx })?;
+                            _cputimer =
+                                CPUTimer::start(cpu_time_interval, CPUAlarmVal { cpu_alarms_tx })?;
                         }
 
                         worker.run(unix_stream_rx, force_quit_rx).await
@@ -242,8 +243,12 @@ pub async fn create_worker(
                 error!("worker {:?} returned an error: {:?}", service_path, err);
             }
 
-            let end_time = get_thread_time();
-            println!("end time {:?}", end_time);
+            let end_time = get_thread_time()?;
+            debug!(
+                "[{:?}] CPU time used: {:?}ms",
+                service_path,
+                (end_time - start_time) / 1_000_000
+            );
 
             // remove the worker from pool
             if let Some(k) = worker_key {

@@ -1,4 +1,4 @@
-use crate::deno_runtime::{DenoRuntime, EdgeCallResult};
+use crate::deno_runtime::DenoRuntime;
 use crate::utils::send_event_if_event_manager_available;
 use crate::utils::units::bytes_to_display;
 
@@ -65,16 +65,15 @@ struct WorkerLimits {
     cpu_burst_interval_ms: u128,
 }
 
-async fn create_supervisor(
+fn create_supervisor(
     key: u64,
     js_runtime: &mut JsRuntime,
-    force_quit_tx: oneshot::Sender<()>,
+    termination_event_tx: oneshot::Sender<WorkerEvents>,
     mut cpu_alarms_rx: mpsc::UnboundedReceiver<()>,
     worker_limits: WorkerLimits,
 ) -> Result<(), Error> {
-    let thread_safe_handle = js_runtime.v8_isolate().thread_safe_handle();
-
     let (memory_limit_tx, mut memory_limit_rx) = mpsc::unbounded_channel::<()>();
+    let thread_safe_handle = js_runtime.v8_isolate().thread_safe_handle();
     js_runtime.add_near_heap_limit_callback(move |cur, _| {
         debug!(
             "Low memory alert triggered: {}",
@@ -118,15 +117,17 @@ async fn create_supervisor(
                             if bursts > worker_limits.max_cpu_bursts {
                                 thread_safe_handle.terminate_execution();
                                 error!("CPU time limit reached. isolate: {:?}", key);
-                                return;
+                                return WorkerEvents::CpuTimeLimit
                             }
                         }
 
                         // wall-clock limit
                         () = &mut sleep => {
+                            // use interrupt to capture the heap stats
+                            //thread_safe_handle.request_interrupt(callback, std::ptr::null_mut());
                             thread_safe_handle.terminate_execution();
                             error!("wall clock duration reached. isolate: {:?}", key);
-                            return;
+                            return WorkerEvents::WallClockTimeLimit;
 
                         }
 
@@ -134,17 +135,16 @@ async fn create_supervisor(
                         Some(_) = memory_limit_rx.recv() => {
                             thread_safe_handle.terminate_execution();
                             error!("memory limit reached for the worker. isolate: {:?}", key);
-                            //send_event_if_event_manager_available(event_sender, WorkerEvents::MemoryLimit(PseudoEvent {}));
-                            return;
+                            return WorkerEvents::MemoryLimit;
                         }
                     }
                 }
             };
 
-            local.block_on(&rt, future);
+            let result = local.block_on(&rt, future);
 
-            // send force quit signal
-            let _ = force_quit_tx.send(());
+            // send termination reason
+            let _ = termination_event_tx.send(result);
         })
         .unwrap();
 
@@ -189,32 +189,35 @@ pub async fn create_worker(
             let local = tokio::task::LocalSet::new();
 
             let mut start_time = 0;
-            let result: Result<EdgeCallResult, Error> = local.block_on(&runtime, async {
+            let result: Result<WorkerEvents, Error> = local.block_on(&runtime, async {
                 match DenoRuntime::new(init_opts, event_manager_opts).await {
                     Err(err) => {
                         let _ = worker_boot_result_tx.send(Err(anyhow!("worker boot error")));
-                        bail!(err)
+                        Ok(WorkerEvents::BootFailure(BootFailure {
+                            msg: err.to_string(),
+                        }))
                     }
                     Ok(mut worker) => {
                         let _ = worker_boot_result_tx.send(Ok(()));
 
-                        let (force_quit_tx, force_quit_rx) = oneshot::channel::<()>();
-
                         let _cputimer;
+
+                        let wall_clock_limit_ms = 10 * 1000;
+                        let low_memory_multiplier = 5;
+                        let max_cpu_bursts = 10;
+                        let cpu_burst_interval_ms = 100;
+                        let cpu_time_threshold = 50;
+
+                        let (termination_event_tx, termination_event_rx) =
+                            oneshot::channel::<WorkerEvents>();
                         if worker.is_user_runtime {
                             start_time = get_thread_time()?;
-
-                            let wall_clock_limit_ms = 60 * 1000;
-                            let low_memory_multiplier = 5;
-                            let max_cpu_bursts = 10;
-                            let cpu_burst_interval_ms = 100;
-                            let cpu_time_interval = 50;
 
                             let (cpu_alarms_tx, cpu_alarms_rx) = mpsc::unbounded_channel::<()>();
                             create_supervisor(
                                 worker_key.unwrap_or(0),
                                 &mut worker.js_runtime,
-                                force_quit_tx,
+                                termination_event_tx,
                                 cpu_alarms_rx,
                                 WorkerLimits {
                                     wall_clock_limit_ms,
@@ -222,26 +225,39 @@ pub async fn create_worker(
                                     max_cpu_bursts,
                                     cpu_burst_interval_ms,
                                 },
-                            )
-                            .await?;
+                            )?;
+                            // TODO: move this to supervisor
                             _cputimer =
-                                CPUTimer::start(cpu_time_interval, CPUAlarmVal { cpu_alarms_tx })?;
+                                CPUTimer::start(cpu_time_threshold, CPUAlarmVal { cpu_alarms_tx })?;
                         }
 
-                        worker.run(unix_stream_rx, force_quit_rx).await
+                        match worker.run(unix_stream_rx, wall_clock_limit_ms as u64).await {
+                            // if the error is execution terminated, check termination event reason
+                            Err(err) => {
+                                let err_string = err.to_string();
+                                if err_string.ends_with("execution terminated")
+                                    || err_string.ends_with("wall clock duration reached")
+                                {
+                                    Ok(termination_event_rx.await?)
+                                } else {
+                                    Ok(WorkerEvents::UncaughtException(UncaughtException {
+                                        exception: err_string,
+                                    }))
+                                }
+                            }
+                            Ok(()) => Ok(WorkerEvents::EventLoopCompleted),
+                        }
                     }
                 }
             });
 
-            if let Err(err) = result {
-                send_event_if_event_manager_available(
-                    event_msg_tx,
-                    WorkerEvents::UncaughtException(UncaughtException {
-                        exception: err.to_string(),
-                    }),
-                );
-                error!("worker {:?} returned an error: {:?}", service_path, err);
-            }
+            match result {
+                Ok(event) => {
+                    debug!("worker event: {:?}", event);
+                    send_event_if_event_manager_available(event_msg_tx, event)
+                }
+                Err(err) => error!("unexpected worker error {}", err),
+            };
 
             let end_time = get_thread_time()?;
             debug!(
@@ -406,10 +422,6 @@ pub async fn create_user_worker_pool(
                             };
                         }
                         Err(e) => {
-                            send_event_if_event_manager_available(
-                                event_manager,
-                                WorkerEvents::BootFailure(BootFailure { msg: e.to_string() }),
-                            );
                             if tx.send(Err(e)).is_err() {
                                 bail!("main worker receiver dropped")
                             };

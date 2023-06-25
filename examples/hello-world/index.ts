@@ -13,11 +13,6 @@ serve(async (req: Request) => {
 		test: 'foo',
 	};
 
-	const rand = Math.floor(Math.random() * 2);
-	if (rand === 1) {
-		throw new Error('user function error');
-	}
-
 	return new Response(
 		JSON.stringify(data),
 		{ headers: { 'Content-Type': 'application/json', 'Connection': 'keep-alive' } },

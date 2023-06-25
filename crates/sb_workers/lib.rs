@@ -326,7 +326,7 @@ pub async fn op_user_worker_fetch_send(
     if result.is_err() {
         return Err(custom_error(
             "InvalidWorkerResponse",
-            "user worker not available",
+            "user worker failed to respond",
         ));
     }
 

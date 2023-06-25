@@ -23,6 +23,8 @@ pub enum WorkerEvents {
     Boot(BootEvent),
     BootFailure(BootFailure),
     UncaughtException(UncaughtException),
-    TimeLimit(PseudoEvent),
-    MemoryLimit(PseudoEvent),
+    CpuTimeLimit,
+    WallClockTimeLimit,
+    MemoryLimit,
+    EventLoopCompleted,
 }

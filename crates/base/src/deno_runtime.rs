@@ -6,12 +6,13 @@ use deno_core::error::AnyError;
 use deno_core::url::Url;
 use deno_core::{located_script_name, serde_v8, JsRuntime, ModuleId, RuntimeOptions};
 use import_map::{parse_from_json, ImportMap, ImportMapDiagnostic};
-use log::{debug, warn};
+use log::{debug, error, warn};
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
 use std::panic;
 use std::path::Path;
 use std::rc::Rc;
+use std::time::Duration;
 use std::{fmt, fs};
 use tokio::net::UnixStream;
 use tokio::sync::mpsc;
@@ -76,28 +77,18 @@ fn print_import_map_diagnostics(diagnostics: &[ImportMapDiagnostic]) {
     }
 }
 
-pub struct EdgeRuntimeError(Error);
+pub struct DenoRuntimeError(Error);
 
-impl PartialEq for EdgeRuntimeError {
+impl PartialEq for DenoRuntimeError {
     fn eq(&self, other: &Self) -> bool {
         self.0.to_string() == other.0.to_string()
     }
 }
 
-impl fmt::Debug for EdgeRuntimeError {
+impl fmt::Debug for DenoRuntimeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "[Js Error] {}", self.0)
     }
-}
-
-#[derive(Debug, PartialEq)]
-pub enum EdgeCallResult {
-    Unknown,
-    TimeOut,
-    ModuleEvaluationTimedOut,
-    HeapLimitReached,
-    Completed,
-    ErrorThrown(EdgeRuntimeError),
 }
 
 fn get_error_class_name(e: &AnyError) -> &'static str {
@@ -207,7 +198,7 @@ impl DenoRuntime {
                 }
             },
             get_error_class_fn: Some(&get_error_class_name),
-            shared_array_buffer_store: Default::default(),
+            shared_array_buffer_store: None,
             compiled_wasm_module_store: Default::default(),
             startup_snapshot: Some(snapshot::snapshot()),
             ..Default::default()
@@ -276,8 +267,8 @@ impl DenoRuntime {
     pub async fn run(
         mut self,
         unix_stream_rx: mpsc::UnboundedReceiver<UnixStream>,
-        force_quit_rx: oneshot::Receiver<()>,
-    ) -> Result<EdgeCallResult, Error> {
+        wall_clock_limit_ms: u64,
+    ) -> Result<(), Error> {
         let is_user_rt = self.is_user_runtime;
 
         {
@@ -295,33 +286,32 @@ impl DenoRuntime {
         let mut js_runtime = self.js_runtime;
 
         let future = async move {
-            let mod_result = js_runtime.mod_evaluate(self.main_module_id);
+            let mod_result_rx = js_runtime.mod_evaluate(self.main_module_id);
             match js_runtime.run_event_loop(false).await {
                 Err(err) => {
+                    // usually this happens because isolate is terminated
                     debug!("event loop error: {}", err);
-                    // TODO: send the error back
-                    Ok(EdgeCallResult::Unknown)
+                    Err(anyhow!("event loop error: {}", err))
                 }
-                Ok(_) => match mod_result.await {
-                    Err(err) => {
-                        let err_as_str = err.to_string();
-                        debug!("mod evaluate error {}", err_as_str);
-                        Ok(EdgeCallResult::ErrorThrown(EdgeRuntimeError(err.into())))
-                    }
+                Ok(_) => match mod_result_rx.await {
+                    Err(_) => Err(anyhow!("mod result sender dropped")),
                     Ok(Err(err)) => {
-                        let err_as_str = err.to_string();
-                        debug!("{}", err_as_str);
-                        // send to event manager
-                        Ok(EdgeCallResult::ErrorThrown(EdgeRuntimeError(err)))
+                        debug!("{}", err.to_string());
+                        Err(err)
                     }
-                    Ok(Ok(_)) => Ok(EdgeCallResult::Completed),
+                    Ok(Ok(_)) => Ok(()),
                 },
             }
         };
 
-        tokio::select! {
-            res = future => res,
-            Ok(()) = force_quit_rx => Ok(EdgeCallResult::Unknown)
+        // need to set an explicit timeout here in case the event loop idle
+        let mut duration = Duration::MAX;
+        if is_user_rt {
+            duration = Duration::from_millis(wall_clock_limit_ms);
+        }
+        match tokio::time::timeout(duration, future).await {
+            Err(_) => Err(anyhow!("wall clock duration reached")),
+            Ok(res) => res,
         }
     }
 
@@ -343,7 +333,7 @@ impl DenoRuntime {
 
 #[cfg(test)]
 mod test {
-    use crate::deno_runtime::{DenoRuntime, EdgeCallResult};
+    use crate::deno_runtime::{DenoRuntime, WorkerResult};
     use flaky_test::flaky_test;
     use sb_worker_context::essentials::{
         EdgeContextInitOpts, EdgeContextOpts, EdgeMainRuntimeOpts, EdgeUserRuntimeOpts,
@@ -636,10 +626,10 @@ mod test {
     async fn test_read_file_user_rt() {
         let user_rt = create_basic_user_runtime("./test_cases/readFile", 5, 1000).await;
         let (_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
-        let (_, force_quit_rx) = oneshot::channel::<()>();
+        let (_, force_quit_rx) = oneshot::channel::<WorkerResult>();
         let data = user_rt.run(unix_stream_rx, force_quit_rx).await.unwrap();
         match data {
-            EdgeCallResult::ErrorThrown(data) => {
+            WorkerResult::ErrorThrown(data) => {
                 assert!(data
                     .0
                     .to_string()

@@ -6,6 +6,7 @@ use quote::quote;
 #[proc_macro_attribute]
 pub fn flaky_test(_attr: TokenStream, input: TokenStream) -> TokenStream {
     let input_fn = syn::parse_macro_input!(input as syn::ItemFn);
+    #[allow(clippy::redundant_clone)]
     let name = input_fn.sig.ident.clone();
 
     TokenStream::from(quote! {

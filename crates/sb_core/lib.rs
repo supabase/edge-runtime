@@ -13,6 +13,7 @@ deno_core::extension!(
         "js/http.js",
         "js/denoOverrides.js",
         "js/user_runtime_loader.js",
+        "js/navigator.js",
         "js/bootstrap.js",
         "js/main_worker.js",
     ]

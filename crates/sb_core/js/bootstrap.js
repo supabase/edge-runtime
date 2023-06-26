@@ -32,6 +32,7 @@ import {
   getterOnly,
   formatException
 } from "ext:sb_core_main_js/js/fieldUtils.js";
+import { Navigator, navigator, setNumCpus, setLanguage, setUserAgent } from "ext:sb_core_main_js/js/navigator.js"
 import { promiseRejectMacrotaskCallback } from "ext:sb_core_main_js/js/promises.js";
 import { denoOverrides } from "ext:sb_core_main_js/js/denoOverrides.js";
 import * as performance from "ext:deno_web/15_performance.js";
@@ -212,13 +213,13 @@ ObjectDefineProperties(globalThis, globalScope);
 const globalProperties = {
     Window: globalInterfaces.windowConstructorDescriptor,
     window: getterOnly(() => globalThis),
+    Navigator: nonEnumerable(Navigator),
+    navigator: getterOnly(() => navigator),
     self: getterOnly(() => globalThis),
 };
 
 ObjectDefineProperties(globalThis, globalProperties);
 ObjectSetPrototypeOf(globalThis, Window.prototype);
-
-
 
 event.setEventTargetData(globalThis);
 
@@ -243,6 +244,10 @@ globalThis.bootstrapSBEdge = (opts, isUserRuntime, isEventManager) => {
     args: readOnly([]), // args are set to be empty
     mainModule: getterOnly(() => ops.op_main_module()),
   });
+
+  setNumCpus(1); // explicitly setting no of CPUs to 1 (since we don't allow workers)
+  setUserAgent("Supabase Edge Runtime");
+  setLanguage("en");
 
   ObjectDefineProperty(globalThis, "Deno", readOnly(denoOverrides));
 

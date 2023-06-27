@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 // build script
 use std::env;
 use std::path::PathBuf;
@@ -25,6 +26,7 @@ mod supabase_startup_snapshot {
     fn transpile_ts_for_snapshotting(
         file_source: &ExtensionFileSource,
     ) -> Result<ModuleCode, AnyError> {
+        println!("+ {}", file_source.specifier.to_string());
         let media_type = MediaType::from_path(Path::new(&file_source.specifier));
 
         let should_transpile = match media_type {
@@ -195,15 +197,15 @@ mod supabase_startup_snapshot {
             deno_http::deno_http::init_ops_and_esm(),
             deno_io::deno_io::init_ops_and_esm(Default::default()),
             deno_fs::deno_fs::init_ops_and_esm::<Permissions>(false),
+            deno_flash::deno_flash::init_ops_and_esm::<Permissions>(false),
             sb_env::init_ops_and_esm(),
             sb_os::sb_os::init_ops_and_esm(),
-            deno_flash::deno_flash::init_ops_and_esm::<Permissions>(false),
-            sb_node::deno_node::init_ops_and_esm::<RuntimeNodeEnv>(None),
             sb_user_workers::init_ops_and_esm(),
             sb_user_event_worker::init_ops_and_esm(),
             sb_core_main_js::init_ops_and_esm(),
             sb_core_net::init_ops_and_esm(),
             sb_core_http::init_ops_and_esm(),
+            sb_node::deno_node::init_ops_and_esm::<RuntimeNodeEnv>(None),
             sb_core_runtime::init_ops_and_esm(None),
         ];
 

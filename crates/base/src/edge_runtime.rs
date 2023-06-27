@@ -179,15 +179,15 @@ impl EdgeRuntime {
             deno_http::deno_http::init_ops(),
             deno_io::deno_io::init_ops(Some(Default::default())),
             deno_fs::deno_fs::init_ops::<Permissions>(false),
+            deno_flash::deno_flash::init_ops::<Permissions>(false),
             sb_env_op::init_ops(),
             sb_os::sb_os::init_ops(),
-            deno_flash::deno_flash::init_ops::<Permissions>(false),
-            sb_node::deno_node::init_ops::<RuntimeNodeEnv>(None),
             sb_user_workers::init_ops(),
             sb_user_event_worker::init_ops(),
             sb_core_main_js::init_ops(),
             sb_core_net::init_ops(),
             sb_core_http::init_ops(),
+            sb_node::deno_node::init_ops::<RuntimeNodeEnv>(None),
             sb_core_runtime::init_ops(Some(main_module_url.clone())),
         ];
 

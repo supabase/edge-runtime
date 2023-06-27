@@ -5,6 +5,7 @@ target/
 temp/
 .idea/
 .idea
+scripts/debug.sh
 
 node_modules/
 .DS_Store

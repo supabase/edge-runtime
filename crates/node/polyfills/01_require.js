@@ -40,195 +40,195 @@ const {
   Error,
   TypeError,
 } = primordials;
-// import { nodeGlobalThis } from "ext:deno_node/00_globals.js";
-// import _httpAgent from "ext:deno_node/_http_agent.mjs";
-// import _httpOutgoing from "ext:deno_node/_http_outgoing.ts";
-// import _streamDuplex from "ext:deno_node/internal/streams/duplex.mjs";
-// import _streamPassthrough from "ext:deno_node/internal/streams/passthrough.mjs";
-// import _streamReadable from "ext:deno_node/internal/streams/readable.mjs";
-// import _streamTransform from "ext:deno_node/internal/streams/transform.mjs";
-// import _streamWritable from "ext:deno_node/internal/streams/writable.mjs";
-// import assert from "ext:deno_node/assert.ts";
-// import assertStrict from "ext:deno_node/assert/strict.ts";
-// import asyncHooks from "ext:deno_node/async_hooks.ts";
-// import buffer from "ext:deno_node/buffer.ts";
-// import childProcess from "ext:deno_node/child_process.ts";
-// import cluster from "ext:deno_node/cluster.ts";
-// import console from "ext:deno_node/console.ts";
-// import constants from "ext:deno_node/constants.ts";
-// import crypto from "ext:deno_node/crypto.ts";
-// import dgram from "ext:deno_node/dgram.ts";
-// import diagnosticsChannel from "ext:deno_node/diagnostics_channel.ts";
-// import dns from "ext:deno_node/dns.ts";
-// import dnsPromises from "ext:deno_node/dns/promises.ts";
-// import domain from "ext:deno_node/domain.ts";
-// import events from "ext:deno_node/events.ts";
-// import fs from "ext:deno_node/fs.ts";
-// import fsPromises from "ext:deno_node/fs/promises.ts";
-// import http from "ext:deno_node/http.ts";
-// import http2 from "ext:deno_node/http2.ts";
-// import https from "ext:deno_node/https.ts";
-// import inspector from "ext:deno_node/inspector.ts";
-// import internalCp from "ext:deno_node/internal/child_process.ts";
-// import internalCryptoCertificate from "ext:deno_node/internal/crypto/certificate.ts";
-// import internalCryptoCipher from "ext:deno_node/internal/crypto/cipher.ts";
-// import internalCryptoDiffiehellman from "ext:deno_node/internal/crypto/diffiehellman.ts";
-// import internalCryptoHash from "ext:deno_node/internal/crypto/hash.ts";
-// import internalCryptoHkdf from "ext:deno_node/internal/crypto/hkdf.ts";
-// import internalCryptoKeygen from "ext:deno_node/internal/crypto/keygen.ts";
-// import internalCryptoKeys from "ext:deno_node/internal/crypto/keys.ts";
-// import internalCryptoPbkdf2 from "ext:deno_node/internal/crypto/pbkdf2.ts";
-// import internalCryptoRandom from "ext:deno_node/internal/crypto/random.ts";
-// import internalCryptoScrypt from "ext:deno_node/internal/crypto/scrypt.ts";
-// import internalCryptoSig from "ext:deno_node/internal/crypto/sig.ts";
-// import internalCryptoUtil from "ext:deno_node/internal/crypto/util.ts";
-// import internalCryptoX509 from "ext:deno_node/internal/crypto/x509.ts";
-// import internalDgram from "ext:deno_node/internal/dgram.ts";
-// import internalDnsPromises from "ext:deno_node/internal/dns/promises.ts";
-// import internalErrors from "ext:deno_node/internal/errors.ts";
-// import internalEventTarget from "ext:deno_node/internal/event_target.mjs";
-// import internalFsUtils from "ext:deno_node/internal/fs/utils.mjs";
-// import internalHttp from "ext:deno_node/internal/http.ts";
-// import internalReadlineUtils from "ext:deno_node/internal/readline/utils.mjs";
-// import internalStreamsAddAbortSignal from "ext:deno_node/internal/streams/add-abort-signal.mjs";
-// import internalStreamsBufferList from "ext:deno_node/internal/streams/buffer_list.mjs";
-// import internalStreamsLazyTransform from "ext:deno_node/internal/streams/lazy_transform.mjs";
-// import internalStreamsState from "ext:deno_node/internal/streams/state.mjs";
-// import internalTestBinding from "ext:deno_node/internal/test/binding.ts";
-// import internalTimers from "ext:deno_node/internal/timers.mjs";
-// import internalUtil from "ext:deno_node/internal/util.mjs";
-// import internalUtilInspect from "ext:deno_node/internal/util/inspect.mjs";
-// import net from "ext:deno_node/net.ts";
-// import os from "ext:deno_node/os.ts";
-// import pathPosix from "ext:deno_node/path/posix.ts";
-// import pathWin32 from "ext:deno_node/path/win32.ts";
-// import path from "ext:deno_node/path.ts";
-// import perfHooks from "ext:deno_node/perf_hooks.ts";
-// import punycode from "ext:deno_node/punycode.ts";
-// import process from "ext:deno_node/process.ts";
-// import querystring from "ext:deno_node/querystring.ts";
-// import readline from "ext:deno_node/readline.ts";
-// import readlinePromises from "ext:deno_node/readline/promises.ts";
-// import repl from "ext:deno_node/repl.ts";
-// import stream from "ext:deno_node/stream.ts";
-// import streamConsumers from "ext:deno_node/stream/consumers.mjs";
-// import streamPromises from "ext:deno_node/stream/promises.mjs";
-// import streamWeb from "ext:deno_node/stream/web.ts";
-// import stringDecoder from "ext:deno_node/string_decoder.ts";
-// import sys from "ext:deno_node/sys.ts";
-// import timers from "ext:deno_node/timers.ts";
-// import timersPromises from "ext:deno_node/timers/promises.ts";
-// import tls from "ext:deno_node/tls.ts";
-// import tty from "ext:deno_node/tty.ts";
-// import url from "ext:deno_node/url.ts";
-// import utilTypes from "ext:deno_node/util/types.ts";
-// import util from "ext:deno_node/util.ts";
-// import v8 from "ext:deno_node/v8.ts";
-// import vm from "ext:deno_node/vm.ts";
-// import workerThreads from "ext:deno_node/worker_threads.ts";
-// import wasi from "ext:deno_node/wasi.ts";
-// import zlib from "ext:deno_node/zlib.ts";
+import { nodeGlobalThis } from "ext:deno_node/00_globals.js";
+import _httpAgent from "ext:deno_node/_http_agent.mjs";
+import _httpOutgoing from "ext:deno_node/_http_outgoing.ts";
+import _streamDuplex from "ext:deno_node/internal/streams/duplex.mjs";
+import _streamPassthrough from "ext:deno_node/internal/streams/passthrough.mjs";
+import _streamReadable from "ext:deno_node/internal/streams/readable.mjs";
+import _streamTransform from "ext:deno_node/internal/streams/transform.mjs";
+import _streamWritable from "ext:deno_node/internal/streams/writable.mjs";
+import assert from "ext:deno_node/assert.ts";
+import assertStrict from "ext:deno_node/assert/strict.ts";
+import asyncHooks from "ext:deno_node/async_hooks.ts";
+import buffer from "ext:deno_node/buffer.ts";
+import childProcess from "ext:deno_node/child_process.ts";
+import cluster from "ext:deno_node/cluster.ts";
+import console from "ext:deno_node/console.ts";
+import constants from "ext:deno_node/constants.ts";
+import crypto from "ext:deno_node/crypto.ts";
+import dgram from "ext:deno_node/dgram.ts";
+import diagnosticsChannel from "ext:deno_node/diagnostics_channel.ts";
+import dns from "ext:deno_node/dns.ts";
+import dnsPromises from "ext:deno_node/dns/promises.ts";
+import domain from "ext:deno_node/domain.ts";
+import events from "ext:deno_node/events.ts";
+import fs from "ext:deno_node/fs.ts";
+import fsPromises from "ext:deno_node/fs/promises.ts";
+import http from "ext:deno_node/http.ts";
+import http2 from "ext:deno_node/http2.ts";
+import https from "ext:deno_node/https.ts";
+import inspector from "ext:deno_node/inspector.ts";
+import internalCp from "ext:deno_node/internal/child_process.ts";
+import internalCryptoCertificate from "ext:deno_node/internal/crypto/certificate.ts";
+import internalCryptoCipher from "ext:deno_node/internal/crypto/cipher.ts";
+import internalCryptoDiffiehellman from "ext:deno_node/internal/crypto/diffiehellman.ts";
+import internalCryptoHash from "ext:deno_node/internal/crypto/hash.ts";
+import internalCryptoHkdf from "ext:deno_node/internal/crypto/hkdf.ts";
+import internalCryptoKeygen from "ext:deno_node/internal/crypto/keygen.ts";
+import internalCryptoKeys from "ext:deno_node/internal/crypto/keys.ts";
+import internalCryptoPbkdf2 from "ext:deno_node/internal/crypto/pbkdf2.ts";
+import internalCryptoRandom from "ext:deno_node/internal/crypto/random.ts";
+import internalCryptoScrypt from "ext:deno_node/internal/crypto/scrypt.ts";
+import internalCryptoSig from "ext:deno_node/internal/crypto/sig.ts";
+import internalCryptoUtil from "ext:deno_node/internal/crypto/util.ts";
+import internalCryptoX509 from "ext:deno_node/internal/crypto/x509.ts";
+import internalDgram from "ext:deno_node/internal/dgram.ts";
+import internalDnsPromises from "ext:deno_node/internal/dns/promises.ts";
+import internalErrors from "ext:deno_node/internal/errors.ts";
+import internalEventTarget from "ext:deno_node/internal/event_target.mjs";
+import internalFsUtils from "ext:deno_node/internal/fs/utils.mjs";
+import internalHttp from "ext:deno_node/internal/http.ts";
+import internalReadlineUtils from "ext:deno_node/internal/readline/utils.mjs";
+import internalStreamsAddAbortSignal from "ext:deno_node/internal/streams/add-abort-signal.mjs";
+import internalStreamsBufferList from "ext:deno_node/internal/streams/buffer_list.mjs";
+import internalStreamsLazyTransform from "ext:deno_node/internal/streams/lazy_transform.mjs";
+import internalStreamsState from "ext:deno_node/internal/streams/state.mjs";
+import internalTestBinding from "ext:deno_node/internal/test/binding.ts";
+import internalTimers from "ext:deno_node/internal/timers.mjs";
+import internalUtil from "ext:deno_node/internal/util.mjs";
+import internalUtilInspect from "ext:deno_node/internal/util/inspect.mjs";
+import net from "ext:deno_node/net.ts";
+import os from "ext:deno_node/os.ts";
+import pathPosix from "ext:deno_node/path/posix.ts";
+import pathWin32 from "ext:deno_node/path/win32.ts";
+import path from "ext:deno_node/path.ts";
+import perfHooks from "ext:deno_node/perf_hooks.ts";
+import punycode from "ext:deno_node/punycode.ts";
+import process from "ext:deno_node/process.ts";
+import querystring from "ext:deno_node/querystring.ts";
+import readline from "ext:deno_node/readline.ts";
+import readlinePromises from "ext:deno_node/readline/promises.ts";
+import repl from "ext:deno_node/repl.ts";
+import stream from "ext:deno_node/stream.ts";
+import streamConsumers from "ext:deno_node/stream/consumers.mjs";
+import streamPromises from "ext:deno_node/stream/promises.mjs";
+import streamWeb from "ext:deno_node/stream/web.ts";
+import stringDecoder from "ext:deno_node/string_decoder.ts";
+import sys from "ext:deno_node/sys.ts";
+import timers from "ext:deno_node/timers.ts";
+import timersPromises from "ext:deno_node/timers/promises.ts";
+import tls from "ext:deno_node/tls.ts";
+import tty from "ext:deno_node/tty.ts";
+import url from "ext:deno_node/url.ts";
+import utilTypes from "ext:deno_node/util/types.ts";
+import util from "ext:deno_node/util.ts";
+import v8 from "ext:deno_node/v8.ts";
+import vm from "ext:deno_node/vm.ts";
+import workerThreads from "ext:deno_node/worker_threads.ts";
+import wasi from "ext:deno_node/wasi.ts";
+import zlib from "ext:deno_node/zlib.ts";
 
 const nativeModuleExports = ObjectCreate(null);
 const builtinModules = [];
 
 function setupBuiltinModules() {
   const nodeModules = {
-    // "_http_agent": _httpAgent,
-    // "_http_outgoing": _httpOutgoing,
-    // "_stream_duplex": _streamDuplex,
-    // "_stream_passthrough": _streamPassthrough,
-    // "_stream_readable": _streamReadable,
-    // "_stream_transform": _streamTransform,
-    // "_stream_writable": _streamWritable,
-    // assert,
-    // "assert/strict": assertStrict,
-    // "async_hooks": asyncHooks,
-    // buffer,
-    // crypto,
-    // console,
-    // constants,
-    // child_process: childProcess,
-    // cluster,
-    // dgram,
-    // diagnostics_channel: diagnosticsChannel,
-    // dns,
-    // "dns/promises": dnsPromises,
-    // domain,
-    // events,
-    // fs,
-    // "fs/promises": fsPromises,
-    // http,
-    // http2,
-    // https,
-    // inspector,
-    // "internal/child_process": internalCp,
-    // "internal/crypto/certificate": internalCryptoCertificate,
-    // "internal/crypto/cipher": internalCryptoCipher,
-    // "internal/crypto/diffiehellman": internalCryptoDiffiehellman,
-    // "internal/crypto/hash": internalCryptoHash,
-    // "internal/crypto/hkdf": internalCryptoHkdf,
-    // "internal/crypto/keygen": internalCryptoKeygen,
-    // "internal/crypto/keys": internalCryptoKeys,
-    // "internal/crypto/pbkdf2": internalCryptoPbkdf2,
-    // "internal/crypto/random": internalCryptoRandom,
-    // "internal/crypto/scrypt": internalCryptoScrypt,
-    // "internal/crypto/sig": internalCryptoSig,
-    // "internal/crypto/util": internalCryptoUtil,
-    // "internal/crypto/x509": internalCryptoX509,
-    // "internal/dgram": internalDgram,
-    // "internal/dns/promises": internalDnsPromises,
-    // "internal/errors": internalErrors,
-    // "internal/event_target": internalEventTarget,
-    // "internal/fs/utils": internalFsUtils,
-    // "internal/http": internalHttp,
-    // "internal/readline/utils": internalReadlineUtils,
-    // "internal/streams/add-abort-signal": internalStreamsAddAbortSignal,
-    // "internal/streams/buffer_list": internalStreamsBufferList,
-    // "internal/streams/lazy_transform": internalStreamsLazyTransform,
-    // "internal/streams/state": internalStreamsState,
-    // "internal/test/binding": internalTestBinding,
-    // "internal/timers": internalTimers,
-    // "internal/util/inspect": internalUtilInspect,
-    // "internal/util": internalUtil,
-    // net,
-    // os,
-    // "path/posix": pathPosix,
-    // "path/win32": pathWin32,
-    // path,
-    // perf_hooks: perfHooks,
-    // process,
-    // get punycode() {
-    //   process.emitWarning(
-    //     "The `punycode` module is deprecated. Please use a userland " +
-    //       "alternative instead.",
-    //     "DeprecationWarning",
-    //     "DEP0040",
-    //   );
-    //   return punycode;
-    // },
-    // querystring,
-    // readline,
-    // "readline/promises": readlinePromises,
-    // repl,
-    // stream,
-    // "stream/consumers": streamConsumers,
-    // "stream/promises": streamPromises,
-    // "stream/web": streamWeb,
-    // string_decoder: stringDecoder,
-    // sys,
-    // timers,
-    // "timers/promises": timersPromises,
-    // tls,
-    // tty,
-    // url,
-    // util,
-    // "util/types": utilTypes,
-    // v8,
-    // vm,
-    // wasi,
-    // worker_threads: workerThreads,
-    // zlib,
+    "_http_agent": _httpAgent,
+    "_http_outgoing": _httpOutgoing,
+    "_stream_duplex": _streamDuplex,
+    "_stream_passthrough": _streamPassthrough,
+    "_stream_readable": _streamReadable,
+    "_stream_transform": _streamTransform,
+    "_stream_writable": _streamWritable,
+    assert,
+    "assert/strict": assertStrict,
+    "async_hooks": asyncHooks,
+    buffer,
+    crypto,
+    console,
+    constants,
+    child_process: childProcess,
+    cluster,
+    dgram,
+    diagnostics_channel: diagnosticsChannel,
+    dns,
+    "dns/promises": dnsPromises,
+    domain,
+    events,
+    fs,
+    "fs/promises": fsPromises,
+    http,
+    http2,
+    https,
+    inspector,
+    "internal/child_process": internalCp,
+    "internal/crypto/certificate": internalCryptoCertificate,
+    "internal/crypto/cipher": internalCryptoCipher,
+    "internal/crypto/diffiehellman": internalCryptoDiffiehellman,
+    "internal/crypto/hash": internalCryptoHash,
+    "internal/crypto/hkdf": internalCryptoHkdf,
+    "internal/crypto/keygen": internalCryptoKeygen,
+    "internal/crypto/keys": internalCryptoKeys,
+    "internal/crypto/pbkdf2": internalCryptoPbkdf2,
+    "internal/crypto/random": internalCryptoRandom,
+    "internal/crypto/scrypt": internalCryptoScrypt,
+    "internal/crypto/sig": internalCryptoSig,
+    "internal/crypto/util": internalCryptoUtil,
+    "internal/crypto/x509": internalCryptoX509,
+    "internal/dgram": internalDgram,
+    "internal/dns/promises": internalDnsPromises,
+    "internal/errors": internalErrors,
+    "internal/event_target": internalEventTarget,
+    "internal/fs/utils": internalFsUtils,
+    "internal/http": internalHttp,
+    "internal/readline/utils": internalReadlineUtils,
+    "internal/streams/add-abort-signal": internalStreamsAddAbortSignal,
+    "internal/streams/buffer_list": internalStreamsBufferList,
+    "internal/streams/lazy_transform": internalStreamsLazyTransform,
+    "internal/streams/state": internalStreamsState,
+    "internal/test/binding": internalTestBinding,
+    "internal/timers": internalTimers,
+    "internal/util/inspect": internalUtilInspect,
+    "internal/util": internalUtil,
+    net,
+    os,
+    "path/posix": pathPosix,
+    "path/win32": pathWin32,
+    path,
+    perf_hooks: perfHooks,
+    process,
+    get punycode() {
+      process.emitWarning(
+          "The `punycode` module is deprecated. Please use a userland " +
+          "alternative instead.",
+          "DeprecationWarning",
+          "DEP0040",
+      );
+      return punycode;
+    },
+    querystring,
+    readline,
+    "readline/promises": readlinePromises,
+    repl,
+    stream,
+    "stream/consumers": streamConsumers,
+    "stream/promises": streamPromises,
+    "stream/web": streamWeb,
+    string_decoder: stringDecoder,
+    sys,
+    timers,
+    "timers/promises": timersPromises,
+    tls,
+    tty,
+    url,
+    util,
+    "util/types": utilTypes,
+    v8,
+    vm,
+    wasi,
+    worker_threads: workerThreads,
+    zlib,
   };
   for (const [name, moduleExports] of ObjectEntries(nodeModules)) {
     nativeModuleExports[name] = moduleExports;
@@ -301,51 +301,51 @@ function tryFile(requestPath, _isMain) {
 
 function tryPackage(requestPath, exts, isMain, originalPath) {
   const packageJsonPath = pathResolve(
-    requestPath,
-    "package.json",
+      requestPath,
+      "package.json",
   );
   const pkg = ops.op_require_read_package_scope(packageJsonPath)?.main;
   if (!pkg) {
     return tryExtensions(
-      pathResolve(requestPath, "index"),
-      exts,
-      isMain,
+        pathResolve(requestPath, "index"),
+        exts,
+        isMain,
     );
   }
 
   const filename = pathResolve(requestPath, pkg);
   let actual = tryFile(filename, isMain) ||
-    tryExtensions(filename, exts, isMain) ||
-    tryExtensions(
-      pathResolve(filename, "index"),
-      exts,
-      isMain,
-    );
+      tryExtensions(filename, exts, isMain) ||
+      tryExtensions(
+          pathResolve(filename, "index"),
+          exts,
+          isMain,
+      );
   if (actual === false) {
     actual = tryExtensions(
-      pathResolve(requestPath, "index"),
-      exts,
-      isMain,
+        pathResolve(requestPath, "index"),
+        exts,
+        isMain,
     );
     if (!actual) {
       // eslint-disable-next-line no-restricted-syntax
       const err = new Error(
-        `Cannot find module '${filename}'. ` +
+          `Cannot find module '${filename}'. ` +
           'Please verify that the package.json has a valid "main" entry',
       );
       err.code = "MODULE_NOT_FOUND";
       err.path = pathResolve(
-        requestPath,
-        "package.json",
+          requestPath,
+          "package.json",
       );
       err.requestPath = originalPath;
       throw err;
     } else {
       nodeGlobalThis.process.emitWarning(
-        `Invalid 'main' field in '${packageJsonPath}' of '${pkg}'. ` +
+          `Invalid 'main' field in '${packageJsonPath}' of '${pkg}'. ` +
           "Please either fix that or report it to the module author",
-        "DeprecationWarning",
-        "DEP0128",
+          "DeprecationWarning",
+          "DEP0128",
       );
     }
   }
@@ -394,18 +394,18 @@ function findLongestRegisteredExtension(filename) {
 
 function getExportsForCircularRequire(module) {
   if (
-    module.exports &&
-    ObjectGetPrototypeOf(module.exports) === ObjectPrototype &&
-    // Exclude transpiled ES6 modules / TypeScript code because those may
-    // employ unusual patterns for accessing 'module.exports'. That should
-    // be okay because ES6 modules have a different approach to circular
-    // dependencies anyway.
-    !module.exports.__esModule
+      module.exports &&
+      ObjectGetPrototypeOf(module.exports) === ObjectPrototype &&
+      // Exclude transpiled ES6 modules / TypeScript code because those may
+      // employ unusual patterns for accessing 'module.exports'. That should
+      // be okay because ES6 modules have a different approach to circular
+      // dependencies anyway.
+      !module.exports.__esModule
   ) {
     // This is later unset once the module is done loading.
     ObjectSetPrototypeOf(
-      module.exports,
-      CircularRequirePrototypeWarningProxy,
+        module.exports,
+        CircularRequirePrototypeWarningProxy,
     );
   }
 
@@ -414,7 +414,7 @@ function getExportsForCircularRequire(module) {
 
 function emitCircularRequireWarning(prop) {
   nodeGlobalThis.process.emitWarning(
-    `Accessing non-existent property '${String(prop)}' of module exports ` +
+      `Accessing non-existent property '${String(prop)}' of module exports ` +
       "inside circular dependency",
   );
 }
@@ -433,7 +433,7 @@ const CircularRequirePrototypeWarningProxy = new Proxy({}, {
 
   getOwnPropertyDescriptor(target, prop) {
     if (
-      ObjectPrototypeHasOwnProperty(target, prop) || prop === "__esModule"
+        ObjectPrototypeHasOwnProperty(target, prop) || prop === "__esModule"
     ) {
       return ObjectGetOwnPropertyDescriptor(target, prop);
     }
@@ -467,15 +467,15 @@ const TRAILING_SLASH_REGEX = /(?:^|\/)\.?\.$/;
 const encodedSepRegEx = /%2F|%2C/i;
 
 function finalizeEsmResolution(
-  resolved,
-  parentPath,
-  pkgPath,
+    resolved,
+    parentPath,
+    pkgPath,
 ) {
   if (RegExpPrototypeTest(encodedSepRegEx, resolved)) {
     throw new ERR_INVALID_MODULE_SPECIFIER(
-      resolved,
-      'must not include encoded "/" or "\\" characters',
-      parentPath,
+        resolved,
+        'must not include encoded "/" or "\\" characters',
+        parentPath,
     );
   }
   // const filename = fileURLToPath(resolved);
@@ -485,8 +485,8 @@ function finalizeEsmResolution(
     return actual;
   }
   throw new ERR_MODULE_NOT_FOUND(
-    filename,
-    path.resolve(pkgPath, "package.json"),
+      filename,
+      path.resolve(pkgPath, "package.json"),
   );
 }
 
@@ -495,25 +495,25 @@ function finalizeEsmResolution(
 // 2. @scope/name/.*
 const EXPORTS_PATTERN = /^((?:@[^/\\%]+\/)?[^./\\%][^/\\%]*)(\/.*)?$/;
 function resolveExports(
-  modulesPath,
-  request,
-  parentPath,
-  usesLocalNodeModulesDir,
+    modulesPath,
+    request,
+    parentPath,
+    usesLocalNodeModulesDir,
 ) {
   // The implementation's behavior is meant to mirror resolution in ESM.
   const [, name, expansion = ""] =
-    StringPrototypeMatch(request, EXPORTS_PATTERN) || [];
+  StringPrototypeMatch(request, EXPORTS_PATTERN) || [];
   if (!name) {
     return;
   }
 
   return ops.op_require_resolve_exports(
-    usesLocalNodeModulesDir,
-    modulesPath,
-    request,
-    name,
-    expansion,
-    parentPath,
+      usesLocalNodeModulesDir,
+      modulesPath,
+      request,
+      name,
+      expansion,
+      parentPath,
   ) ?? false;
 }
 
@@ -533,7 +533,7 @@ Module._findPath = function (request, paths, isMain, parentPath) {
 
   let exts;
   let trailingSlash = request.length > 0 &&
-    StringPrototypeCharCodeAt(request, request.length - 1) ===
+      StringPrototypeCharCodeAt(request, request.length - 1) ===
       CHAR_FORWARD_SLASH;
   if (!trailingSlash) {
     trailingSlash = RegExpPrototypeTest(TRAILING_SLASH_REGEX, request);
@@ -547,10 +547,10 @@ Module._findPath = function (request, paths, isMain, parentPath) {
 
     if (!absoluteRequest) {
       const exportsResolved = resolveExports(
-        curPath,
-        request,
-        parentPath,
-        usesLocalNodeModulesDir,
+          curPath,
+          request,
+          parentPath,
+          usesLocalNodeModulesDir,
       );
       if (exportsResolved) {
         return exportsResolved;
@@ -558,14 +558,14 @@ Module._findPath = function (request, paths, isMain, parentPath) {
     }
 
     const isDenoDirPackage = ops.op_require_is_deno_dir_package(
-      curPath,
+        curPath,
     );
     const isRelative = ops.op_require_is_request_relative(
-      request,
+        request,
     );
     const basePath = (isDenoDirPackage && !isRelative)
-      ? pathResolve(curPath, packageSpecifierSubPath(request))
-      : pathResolve(curPath, request);
+        ? pathResolve(curPath, packageSpecifierSubPath(request))
+        : pathResolve(curPath, request);
     let filename;
 
     const rc = stat(basePath);
@@ -609,25 +609,25 @@ Module._resolveLookupPaths = function (request, parent) {
 
   if (ops.op_require_is_request_relative(request)) {
     ArrayPrototypePush(
-      paths,
-      parent?.filename ? ops.op_require_path_dirname(parent.filename) : ".",
+        paths,
+        parent?.filename ? ops.op_require_path_dirname(parent.filename) : ".",
     );
     return paths;
   }
 
   if (parent?.filename && parent.filename.length > 0) {
     const denoDirPath = ops.op_require_resolve_deno_dir(
-      request,
-      parent.filename,
+        request,
+        parent.filename,
     );
     if (denoDirPath) {
       ArrayPrototypePush(paths, denoDirPath);
     }
   }
   const lookupPathsResult = ops.op_require_resolve_lookup_paths(
-    request,
-    parent?.paths,
-    parent?.filename ?? "",
+      request,
+      parent?.paths,
+      parent?.filename ?? "",
   );
   if (lookupPathsResult) {
     ArrayPrototypePush(paths, ...new SafeArrayIterator(lookupPathsResult));
@@ -682,7 +682,7 @@ Module._load = function (request, parent, isMain) {
 
   const mod = loadNativeModule(filename, request);
   if (
-    mod
+      mod
   ) {
     return mod.exports;
   }
@@ -718,8 +718,8 @@ Module._load = function (request, parent, isMain) {
         }
       }
     } else if (
-      module.exports &&
-      ObjectGetPrototypeOf(module.exports) ===
+        module.exports &&
+        ObjectGetPrototypeOf(module.exports) ===
         CircularRequirePrototypeWarningProxy
     ) {
       ObjectSetPrototypeOf(module.exports, ObjectPrototype);
@@ -730,14 +730,14 @@ Module._load = function (request, parent, isMain) {
 };
 
 Module._resolveFilename = function (
-  request,
-  parent,
-  isMain,
-  options,
+    request,
+    parent,
+    isMain,
+    options,
 ) {
   if (
-    StringPrototypeStartsWith(request, "node:") ||
-    nativeModuleCanBeRequiredByUsers(request)
+      StringPrototypeStartsWith(request, "node:") ||
+      nativeModuleCanBeRequiredByUsers(request)
   ) {
     return request;
   }
@@ -747,7 +747,7 @@ Module._resolveFilename = function (
   if (typeof options === "object" && options !== null) {
     if (ArrayIsArray(options.paths)) {
       const isRelative = ops.op_require_is_request_relative(
-        request,
+          request,
       );
 
       if (isRelative) {
@@ -782,8 +782,8 @@ Module._resolveFilename = function (
   if (parent?.filename) {
     if (request[0] === "#") {
       const maybeResolved = ops.op_require_package_imports_resolve(
-        parent.filename,
-        request,
+          parent.filename,
+          request,
       );
       if (maybeResolved) {
         return maybeResolved;
@@ -793,24 +793,24 @@ Module._resolveFilename = function (
 
   // Try module self resolution first
   const parentPath = ops.op_require_try_self_parent_path(
-    !!parent,
-    parent?.filename,
-    parent?.id,
+      !!parent,
+      parent?.filename,
+      parent?.id,
   );
   const selfResolved = ops.op_require_try_self(parentPath, request);
   if (selfResolved) {
     const cacheKey = request + "\x00" +
-      (paths.length === 1 ? paths[0] : ArrayPrototypeJoin(paths, "\x00"));
+        (paths.length === 1 ? paths[0] : ArrayPrototypeJoin(paths, "\x00"));
     Module._pathCache[cacheKey] = selfResolved;
     return selfResolved;
   }
 
   // Look up the filename first, since that's the cache key.
   const filename = Module._findPath(
-    request,
-    paths,
-    isMain,
-    parentPath,
+      request,
+      paths,
+      isMain,
+      parentPath,
   );
   if (filename) return filename;
   const requireStack = [];
@@ -820,7 +820,7 @@ Module._resolveFilename = function (
   let message = `Cannot find module '${request}'`;
   if (requireStack.length > 0) {
     message = message + "\nRequire stack:\n- " +
-      ArrayPrototypeJoin(requireStack, "\n- ");
+        ArrayPrototypeJoin(requireStack, "\n- ");
   }
   // eslint-disable-next-line no-restricted-syntax
   const err = new Error(message);
@@ -855,12 +855,12 @@ Module.prototype.load = function (filename) {
 
   this.filename = filename;
   this.paths = Module._nodeModulePaths(
-    pathDirname(filename),
+      pathDirname(filename),
   );
   const extension = findLongestRegisteredExtension(filename);
   // allow .mjs to be overriden
   if (
-    StringPrototypeEndsWith(filename, ".mjs") && !Module._extensions[".mjs"]
+      StringPrototypeEndsWith(filename, ".mjs") && !Module._extensions[".mjs"]
   ) {
     // TODO: use proper error class
     throw new Error("require ESM", filename);
@@ -908,14 +908,14 @@ Module.wrap = function (script) {
 function enrichCJSError(error) {
   if (error instanceof SyntaxError) {
     if (
-      StringPrototypeIncludes(
-        error.message,
-        "Cannot use import statement outside a module",
-      ) ||
-      StringPrototypeIncludes(error.message, "Unexpected token 'export'")
+        StringPrototypeIncludes(
+            error.message,
+            "Cannot use import statement outside a module",
+        ) ||
+        StringPrototypeIncludes(error.message, "Unexpected token 'export'")
     ) {
       console.error(
-        'To load an ES module, set "type": "module" in the package.json or use ' +
+          'To load an ES module, set "type": "module" in the package.json or use ' +
           "the .mjs extension.",
       );
     }
@@ -923,9 +923,9 @@ function enrichCJSError(error) {
 }
 
 function wrapSafe(
-  filename,
-  content,
-  cjsModuleInstance,
+    filename,
+    content,
+    cjsModuleInstance,
 ) {
   const wrapper = Module.wrap(content);
   const [f, err] = core.evalContext(wrapper, `file://${filename}`);
@@ -956,13 +956,13 @@ Module.prototype._compile = function (content, filename) {
   }
 
   const result = compiledWrapper.call(
-    thisValue,
-    exports,
-    require,
-    this,
-    filename,
-    dirname,
-    nodeGlobalThis,
+      thisValue,
+      exports,
+      require,
+      this,
+      filename,
+      dirname,
+      nodeGlobalThis,
   );
   if (requireDepth === 0) {
     statCache = null;
@@ -1066,20 +1066,20 @@ function createRequire(filenameOrUrl) {
   if (filenameOrUrl instanceof URL) {
     if (filenameOrUrl.protocol !== "file:") {
       throw new Error(
-        `The argument 'filename' must be a file URL object, file URL string, or absolute path string. Received ${filenameOrUrl}`,
+          `The argument 'filename' must be a file URL object, file URL string, or absolute path string. Received ${filenameOrUrl}`,
       );
     }
     fileUrlStr = filenameOrUrl.toString();
   } else if (typeof filenameOrUrl === "string") {
     if (!filenameOrUrl.startsWith("file:") && !isAbsolute(filenameOrUrl)) {
       throw new Error(
-        `The argument 'filename' must be a file URL object, file URL string, or absolute path string. Received ${filenameOrUrl}`,
+          `The argument 'filename' must be a file URL object, file URL string, or absolute path string. Received ${filenameOrUrl}`,
       );
     }
     fileUrlStr = filenameOrUrl;
   } else {
     throw new Error(
-      `The argument 'filename' must be a file URL object, file URL string, or absolute path string. Received ${filenameOrUrl}`,
+        `The argument 'filename' must be a file URL object, file URL string, or absolute path string. Received ${filenameOrUrl}`,
     );
   }
   const filename = ops.op_require_as_file_path(fileUrlStr);

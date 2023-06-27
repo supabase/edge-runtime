@@ -204,9 +204,6 @@ function runtimeStart(runtimeOptions, source) {
   registerErrors();
 }
 
-delete globalThis.__bootstrap;
-delete globalThis.bootstrap;
-
 ObjectDefineProperties(globalThis, globalScope);
 
 const globalProperties = {
@@ -226,6 +223,12 @@ const eventHandlers = ["error", "load", "beforeunload", "unload", "unhandledreje
 eventHandlers.forEach((handlerName) => event.defineEventHandler(globalThis, handlerName));
 
 globalThis.bootstrapSBEdge = (opts, isUserRuntime, isEventManager) => {
+
+  // We should delete this after initialization,
+  // Deleting it during bootstrapping can backfire
+  delete globalThis.__bootstrap;
+  delete globalThis.bootstrap;
+
   runtimeStart({
     denoVersion: "NA",
     v8Version: "NA",

@@ -22,7 +22,7 @@ import {
   isAnyArrayBuffer,
   isArrayBufferView,
 } from "ext:deno_node/internal/util/types.ts";
-// import { hideStackFrames } from "ext:deno_node/internal/errors.ts";
+import { hideStackFrames } from "ext:deno_node/internal/errors.ts";
 import {
   isCryptoKey as isCryptoKey_,
   isKeyObject as isKeyObject_,

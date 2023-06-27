@@ -4,15 +4,15 @@ use libz_sys as sys;
 
 #[derive(Debug)]
 pub enum Error {
-  BadArgument,
+    BadArgument,
 }
 
 impl std::fmt::Display for Error {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    match self {
-      Error::BadArgument => write!(f, "bad argument"),
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Error::BadArgument => write!(f, "bad argument"),
+        }
     }
-  }
 }
 
 impl std::error::Error for Error {}

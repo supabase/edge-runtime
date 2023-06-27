@@ -113,13 +113,17 @@ impl deno_fs::FsPermissions for Permissions {
 }
 
 impl sb_node::NodePermissions for Permissions {
-    fn check_read(&mut self, path: &Path) -> Result<(), AnyError> {
+    fn check_read(&mut self, _path: &Path) -> Result<(), AnyError> {
         Ok(())
     }
 }
 
 impl deno_flash::FlashPermissions for Permissions {
-    fn check_net<T: AsRef<str>>(&mut self, _host: &(T, Option<u16>), _api_name: &str) -> Result<(), AnyError> {
+    fn check_net<T: AsRef<str>>(
+        &mut self,
+        _host: &(T, Option<u16>),
+        _api_name: &str,
+    ) -> Result<(), AnyError> {
         Ok(())
     }
 }

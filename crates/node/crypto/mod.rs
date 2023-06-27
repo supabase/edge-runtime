@@ -28,10 +28,7 @@ pub fn op_node_check_prime(num: serde_v8::BigInt, checks: usize) -> bool {
 }
 
 #[op]
-pub fn op_node_check_prime_bytes(
-    bytes: &[u8],
-    checks: usize,
-) -> Result<bool, AnyError> {
+pub fn op_node_check_prime_bytes(bytes: &[u8], checks: usize) -> Result<bool, AnyError> {
     let candidate = BigInt::from_bytes_be(num_bigint::Sign::Plus, bytes);
     Ok(primes::is_probably_prime(&candidate, checks))
 }
@@ -42,12 +39,7 @@ pub async fn op_node_check_prime_async(
     checks: usize,
 ) -> Result<bool, AnyError> {
     // TODO(@littledivy): use rayon for CPU-bound tasks
-    Ok(
-        tokio::task::spawn_blocking(move || {
-            primes::is_probably_prime(&num, checks)
-        })
-            .await?,
-    )
+    Ok(tokio::task::spawn_blocking(move || primes::is_probably_prime(&num, checks)).await?)
 }
 
 #[op]
@@ -59,9 +51,7 @@ pub fn op_node_check_prime_bytes_async(
     // TODO(@littledivy): use rayon for CPU-bound tasks
     Ok(async move {
         Ok(
-            tokio::task::spawn_blocking(move || {
-                primes::is_probably_prime(&candidate, checks)
-            })
+            tokio::task::spawn_blocking(move || primes::is_probably_prime(&candidate, checks))
                 .await?,
         )
     })
@@ -88,11 +78,7 @@ pub fn op_node_hash_update(state: &mut OpState, rid: u32, data: &[u8]) -> bool {
 }
 
 #[op(fast)]
-pub fn op_node_hash_update_str(
-    state: &mut OpState,
-    rid: u32,
-    data: &str,
-) -> bool {
+pub fn op_node_hash_update_str(state: &mut OpState, rid: u32, data: &str) -> bool {
     let context = match state.resource_table.get::<digest::Context>(rid) {
         Ok(context) => context,
         _ => return false,
@@ -102,33 +88,24 @@ pub fn op_node_hash_update_str(
 }
 
 #[op]
-pub fn op_node_hash_digest(
-    state: &mut OpState,
-    rid: ResourceId,
-) -> Result<ZeroCopyBuf, AnyError> {
+pub fn op_node_hash_digest(state: &mut OpState, rid: ResourceId) -> Result<ZeroCopyBuf, AnyError> {
     let context = state.resource_table.take::<digest::Context>(rid)?;
-    let context = Rc::try_unwrap(context)
-        .map_err(|_| type_error("Hash context is already in use"))?;
+    let context =
+        Rc::try_unwrap(context).map_err(|_| type_error("Hash context is already in use"))?;
     Ok(context.digest()?.into())
 }
 
 #[op]
-pub fn op_node_hash_digest_hex(
-    state: &mut OpState,
-    rid: ResourceId,
-) -> Result<String, AnyError> {
+pub fn op_node_hash_digest_hex(state: &mut OpState, rid: ResourceId) -> Result<String, AnyError> {
     let context = state.resource_table.take::<digest::Context>(rid)?;
-    let context = Rc::try_unwrap(context)
-        .map_err(|_| type_error("Hash context is already in use"))?;
+    let context =
+        Rc::try_unwrap(context).map_err(|_| type_error("Hash context is already in use"))?;
     let digest = context.digest()?;
     Ok(hex::encode(digest))
 }
 
 #[op]
-pub fn op_node_hash_clone(
-    state: &mut OpState,
-    rid: ResourceId,
-) -> Result<ResourceId, AnyError> {
+pub fn op_node_hash_clone(state: &mut OpState, rid: ResourceId) -> Result<ResourceId, AnyError> {
     let context = state.resource_table.get::<digest::Context>(rid)?;
     Ok(state.resource_table.add(context.as_ref().clone()))
 }
@@ -143,16 +120,12 @@ pub fn op_node_private_encrypt(
 
     let mut rng = rand::thread_rng();
     match padding {
-        1 => Ok(
-            key
-                .encrypt(&mut rng, PaddingScheme::new_pkcs1v15_encrypt(), &msg)?
-                .into(),
-        ),
-        4 => Ok(
-            key
-                .encrypt(&mut rng, PaddingScheme::new_oaep::<sha1::Sha1>(), &msg)?
-                .into(),
-        ),
+        1 => Ok(key
+            .encrypt(&mut rng, PaddingScheme::new_pkcs1v15_encrypt(), &msg)?
+            .into()),
+        4 => Ok(key
+            .encrypt(&mut rng, PaddingScheme::new_oaep::<sha1::Sha1>(), &msg)?
+            .into()),
         _ => Err(type_error("Unknown padding")),
     }
 }
@@ -166,16 +139,12 @@ pub fn op_node_private_decrypt(
     let key = RsaPrivateKey::from_pkcs8_pem((&key).try_into()?)?;
 
     match padding {
-        1 => Ok(
-            key
-                .decrypt(PaddingScheme::new_pkcs1v15_encrypt(), &msg)?
-                .into(),
-        ),
-        4 => Ok(
-            key
-                .decrypt(PaddingScheme::new_oaep::<sha1::Sha1>(), &msg)?
-                .into(),
-        ),
+        1 => Ok(key
+            .decrypt(PaddingScheme::new_pkcs1v15_encrypt(), &msg)?
+            .into()),
+        4 => Ok(key
+            .decrypt(PaddingScheme::new_oaep::<sha1::Sha1>(), &msg)?
+            .into()),
         _ => Err(type_error("Unknown padding")),
     }
 }
@@ -190,33 +159,24 @@ pub fn op_node_public_encrypt(
 
     let mut rng = rand::thread_rng();
     match padding {
-        1 => Ok(
-            key
-                .encrypt(&mut rng, PaddingScheme::new_pkcs1v15_encrypt(), &msg)?
-                .into(),
-        ),
-        4 => Ok(
-            key
-                .encrypt(&mut rng, PaddingScheme::new_oaep::<sha1::Sha1>(), &msg)?
-                .into(),
-        ),
+        1 => Ok(key
+            .encrypt(&mut rng, PaddingScheme::new_pkcs1v15_encrypt(), &msg)?
+            .into()),
+        4 => Ok(key
+            .encrypt(&mut rng, PaddingScheme::new_oaep::<sha1::Sha1>(), &msg)?
+            .into()),
         _ => Err(type_error("Unknown padding")),
     }
 }
 
 #[op(fast)]
-pub fn op_node_create_cipheriv(
-    state: &mut OpState,
-    algorithm: &str,
-    key: &[u8],
-    iv: &[u8],
-) -> u32 {
-    state.resource_table.add(
-        match cipher::CipherContext::new(algorithm, key, iv) {
+pub fn op_node_create_cipheriv(state: &mut OpState, algorithm: &str, key: &[u8], iv: &[u8]) -> u32 {
+    state
+        .resource_table
+        .add(match cipher::CipherContext::new(algorithm, key, iv) {
             Ok(context) => context,
             Err(_) => return 0,
-        },
-    )
+        })
 }
 
 #[op(fast)]
@@ -242,8 +202,8 @@ pub fn op_node_cipheriv_final(
     output: &mut [u8],
 ) -> Result<(), AnyError> {
     let context = state.resource_table.take::<cipher::CipherContext>(rid)?;
-    let context = Rc::try_unwrap(context)
-        .map_err(|_| type_error("Cipher context is already in use"))?;
+    let context =
+        Rc::try_unwrap(context).map_err(|_| type_error("Cipher context is already in use"))?;
     context.r#final(input, output)
 }
 
@@ -254,12 +214,12 @@ pub fn op_node_create_decipheriv(
     key: &[u8],
     iv: &[u8],
 ) -> u32 {
-    state.resource_table.add(
-        match cipher::DecipherContext::new(algorithm, key, iv) {
+    state
+        .resource_table
+        .add(match cipher::DecipherContext::new(algorithm, key, iv) {
             Ok(context) => context,
             Err(_) => return 0,
-        },
-    )
+        })
 }
 
 #[op(fast)]
@@ -285,8 +245,8 @@ pub fn op_node_decipheriv_final(
     output: &mut [u8],
 ) -> Result<(), AnyError> {
     let context = state.resource_table.take::<cipher::DecipherContext>(rid)?;
-    let context = Rc::try_unwrap(context)
-        .map_err(|_| type_error("Cipher context is already in use"))?;
+    let context =
+        Rc::try_unwrap(context).map_err(|_| type_error("Cipher context is already in use"))?;
     context.r#final(input, output)
 }
 
@@ -313,33 +273,31 @@ pub fn op_node_sign(
                     )))
                 }
             };
-            Ok(
-                match digest_type {
-                    "sha224" => {
-                        let signing_key = SigningKey::<sha2::Sha224>::new_with_prefix(key);
-                        signing_key.sign_prehash(digest)?.to_vec()
-                    }
-                    "sha256" => {
-                        let signing_key = SigningKey::<sha2::Sha256>::new_with_prefix(key);
-                        signing_key.sign_prehash(digest)?.to_vec()
-                    }
-                    "sha384" => {
-                        let signing_key = SigningKey::<sha2::Sha384>::new_with_prefix(key);
-                        signing_key.sign_prehash(digest)?.to_vec()
-                    }
-                    "sha512" => {
-                        let signing_key = SigningKey::<sha2::Sha512>::new_with_prefix(key);
-                        signing_key.sign_prehash(digest)?.to_vec()
-                    }
-                    _ => {
-                        return Err(type_error(format!(
-                            "Unknown digest algorithm: {}",
-                            digest_type
-                        )))
-                    }
+            Ok(match digest_type {
+                "sha224" => {
+                    let signing_key = SigningKey::<sha2::Sha224>::new_with_prefix(key);
+                    signing_key.sign_prehash(digest)?.to_vec()
                 }
-                    .into(),
-            )
+                "sha256" => {
+                    let signing_key = SigningKey::<sha2::Sha256>::new_with_prefix(key);
+                    signing_key.sign_prehash(digest)?.to_vec()
+                }
+                "sha384" => {
+                    let signing_key = SigningKey::<sha2::Sha384>::new_with_prefix(key);
+                    signing_key.sign_prehash(digest)?.to_vec()
+                }
+                "sha512" => {
+                    let signing_key = SigningKey::<sha2::Sha512>::new_with_prefix(key);
+                    signing_key.sign_prehash(digest)?.to_vec()
+                }
+                _ => {
+                    return Err(type_error(format!(
+                        "Unknown digest algorithm: {}",
+                        digest_type
+                    )))
+                }
+            }
+            .into())
         }
         _ => Err(type_error(format!(
             "Signing with {} keys is not supported yet",
@@ -356,10 +314,10 @@ fn pbkdf2_sync(
     derived_key: &mut [u8],
 ) -> Result<(), AnyError> {
     macro_rules! pbkdf2_hmac {
-    ($digest:ty) => {{
-      pbkdf2::pbkdf2_hmac::<$digest>(password, salt, iterations, derived_key)
-    }};
-  }
+        ($digest:ty) => {{
+            pbkdf2::pbkdf2_hmac::<$digest>(password, salt, iterations, derived_key)
+        }};
+    }
 
     match digest {
         "md4" => pbkdf2_hmac!(md4::Md4),
@@ -400,5 +358,5 @@ pub async fn op_node_pbkdf2_async(
         pbkdf2_sync(&password, &salt, iterations, &digest, &mut derived_key)
             .map(|_| derived_key.into())
     })
-        .await?
+    .await?
 }

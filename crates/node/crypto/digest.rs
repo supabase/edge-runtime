@@ -35,8 +35,8 @@ impl Context {
     }
 
     pub fn digest(self) -> Result<Box<[u8]>, AnyError> {
-        let hash = Rc::try_unwrap(self.hash)
-            .map_err(|_| type_error("Hash context is already in use"))?;
+        let hash =
+            Rc::try_unwrap(self.hash).map_err(|_| type_error("Hash context is already in use"))?;
 
         let hash = hash.into_inner();
         Ok(hash.digest_and_drop())

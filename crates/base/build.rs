@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 // build script
 use std::env;
 use std::path::PathBuf;
@@ -26,7 +25,6 @@ mod supabase_startup_snapshot {
     fn transpile_ts_for_snapshotting(
         file_source: &ExtensionFileSource,
     ) -> Result<ModuleCode, AnyError> {
-        println!("+ {}", file_source.specifier.to_string());
         let media_type = MediaType::from_path(Path::new(&file_source.specifier));
 
         let should_transpile = match media_type {
@@ -156,13 +154,17 @@ mod supabase_startup_snapshot {
     }
 
     impl sb_node::NodePermissions for Permissions {
-        fn check_read(&mut self, path: &Path) -> Result<(), AnyError> {
+        fn check_read(&mut self, _path: &Path) -> Result<(), AnyError> {
             Ok(())
         }
     }
-    
+
     impl deno_flash::FlashPermissions for Permissions {
-        fn check_net<T: AsRef<str>>(&mut self, _host: &(T, Option<u16>), _api_name: &str) -> Result<(), AnyError> {
+        fn check_net<T: AsRef<str>>(
+            &mut self,
+            _host: &(T, Option<u16>),
+            _api_name: &str,
+        ) -> Result<(), AnyError> {
             Ok(())
         }
     }

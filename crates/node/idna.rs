@@ -4,23 +4,21 @@ use deno_core::error::AnyError;
 use deno_core::op;
 
 #[op]
-pub fn op_node_idna_domain_to_ascii(
-  domain: String,
-) -> Result<String, AnyError> {
-  Ok(idna::domain_to_ascii(&domain)?)
+pub fn op_node_idna_domain_to_ascii(domain: String) -> Result<String, AnyError> {
+    Ok(idna::domain_to_ascii(&domain)?)
 }
 
 #[op]
 pub fn op_node_idna_domain_to_unicode(domain: String) -> String {
-  idna::domain_to_unicode(&domain).0
+    idna::domain_to_unicode(&domain).0
 }
 
 #[op]
 pub fn op_node_idna_punycode_decode(domain: String) -> String {
-  idna::punycode::decode_to_string(&domain).unwrap_or_default()
+    idna::punycode::decode_to_string(&domain).unwrap_or_default()
 }
 
 #[op]
 pub fn op_node_idna_punycode_encode(domain: String) -> String {
-  idna::punycode::encode_str(&domain).unwrap_or_default()
+    idna::punycode::encode_str(&domain).unwrap_or_default()
 }

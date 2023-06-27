@@ -524,6 +524,31 @@ mod test {
     }
 
     #[tokio::test]
+    async fn test_node_builtin_imports() {
+        let mut main_rt = create_runtime(
+            Some(PathBuf::from("./test_cases/node-built-in")),
+            Some(std::env::vars().collect()),
+            None,
+        )
+        .await;
+        let mod_evaluate = main_rt.js_runtime.mod_evaluate(main_rt.main_module_id);
+        let _ = main_rt.js_runtime.run_event_loop(false).await;
+        let global_value_deno_read_file_script = main_rt
+            .js_runtime
+            .execute_script(
+                "<anon>",
+                r#"
+            globalThis.basename('/Users/Refsnes/demo_path.js');
+        "#,
+            )
+            .unwrap();
+        let fs_read_result =
+            main_rt.to_value::<deno_core::serde_json::Value>(&global_value_deno_read_file_script);
+        assert_eq!(fs_read_result.unwrap().as_str().unwrap(), "demo_path.js");
+        std::mem::drop(mod_evaluate);
+    }
+
+    #[tokio::test]
     async fn test_os_ops() {
         let mut user_rt = create_runtime(
             None,

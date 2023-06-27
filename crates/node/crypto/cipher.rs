@@ -44,11 +44,7 @@ impl CipherContext {
         self.cipher.borrow_mut().encrypt(input, output);
     }
 
-    pub fn r#final(
-        self,
-        input: &[u8],
-        output: &mut [u8],
-    ) -> Result<(), AnyError> {
+    pub fn r#final(self, input: &[u8], output: &mut [u8]) -> Result<(), AnyError> {
         Rc::try_unwrap(self.cipher)
             .map_err(|_| type_error("Cipher context is already in use"))?
             .into_inner()
@@ -67,11 +63,7 @@ impl DecipherContext {
         self.decipher.borrow_mut().decrypt(input, output);
     }
 
-    pub fn r#final(
-        self,
-        input: &[u8],
-        output: &mut [u8],
-    ) -> Result<(), AnyError> {
+    pub fn r#final(self, input: &[u8], output: &mut [u8]) -> Result<(), AnyError> {
         Rc::try_unwrap(self.decipher)
             .map_err(|_| type_error("Decipher context is already in use"))?
             .into_inner()
@@ -92,16 +84,10 @@ impl Resource for DecipherContext {
 }
 
 impl Cipher {
-    fn new(
-        algorithm_name: &str,
-        key: &[u8],
-        iv: &[u8],
-    ) -> Result<Self, AnyError> {
+    fn new(algorithm_name: &str, key: &[u8], iv: &[u8]) -> Result<Self, AnyError> {
         use Cipher::*;
         Ok(match algorithm_name {
-            "aes-128-cbc" => {
-                Aes128Cbc(Box::new(cbc::Encryptor::new(key.into(), iv.into())))
-            }
+            "aes-128-cbc" => Aes128Cbc(Box::new(cbc::Encryptor::new(key.into(), iv.into()))),
             "aes-128-ecb" => Aes128Ecb(Box::new(ecb::Encryptor::new(key.into()))),
             _ => return Err(type_error(format!("Unknown cipher {algorithm_name}"))),
         })
@@ -148,16 +134,10 @@ impl Cipher {
 }
 
 impl Decipher {
-    fn new(
-        algorithm_name: &str,
-        key: &[u8],
-        iv: &[u8],
-    ) -> Result<Self, AnyError> {
+    fn new(algorithm_name: &str, key: &[u8], iv: &[u8]) -> Result<Self, AnyError> {
         use Decipher::*;
         Ok(match algorithm_name {
-            "aes-128-cbc" => {
-                Aes128Cbc(Box::new(cbc::Decryptor::new(key.into(), iv.into())))
-            }
+            "aes-128-cbc" => Aes128Cbc(Box::new(cbc::Decryptor::new(key.into(), iv.into()))),
             "aes-128-ecb" => Aes128Ecb(Box::new(ecb::Decryptor::new(key.into()))),
             _ => return Err(type_error(format!("Unknown cipher {algorithm_name}"))),
         })

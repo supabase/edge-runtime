@@ -1,4 +1,4 @@
-use anyhow::{bail, Error};
+use anyhow::{anyhow, bail, Error};
 use deno_ast::EmitOptions;
 use deno_ast::MediaType;
 use deno_core::error::AnyError;
@@ -139,7 +139,16 @@ impl ModuleLoader for DefaultModuleLoader {
             .finish();
 
         async move {
-            let fetched_file = file_fetcher.fetch(&module_specifier, permissions).await?;
+            let fetched_file = file_fetcher
+                .fetch(&module_specifier, permissions)
+                .await
+                .map_err(|err| {
+                    anyhow!(
+                        "Failed to load module: {:?} - {:?}",
+                        module_specifier.as_str(),
+                        err
+                    )
+                })?;
             let module_type = get_module_type(fetched_file.media_type)?;
 
             let code = fetched_file.source;

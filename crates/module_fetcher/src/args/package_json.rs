@@ -10,7 +10,7 @@ use deno_core::error::AnyError;
 use deno_graph::npm::NpmPackageReq;
 use deno_graph::semver::NpmVersionReqSpecifierParseError;
 use deno_graph::semver::VersionReq;
-use deno_node::PackageJson;
+use sb_node::PackageJson;
 use thiserror::Error;
 
 #[derive(Debug, Clone, Error, PartialEq, Eq, Hash)]

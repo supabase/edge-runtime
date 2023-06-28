@@ -18,25 +18,25 @@ use deno_core::serde_json::Value;
 use deno_core::url::Url;
 use deno_graph::npm::NpmPackageNv;
 use deno_graph::npm::NpmPackageNvReference;
-use deno_node;
-use deno_node::errors;
-use deno_node::find_builtin_node_module;
-use deno_node::get_closest_package_json;
-use deno_node::legacy_main_resolve;
-use deno_node::package_exports_resolve;
-use deno_node::package_imports_resolve;
-use deno_node::package_resolve;
-use deno_node::path_to_declaration_path;
-use deno_node::NodeModuleKind;
-use deno_node::NodePermissions;
-use deno_node::NodeResolutionMode;
-use deno_node::PackageJson;
-use deno_node::PathClean;
-use deno_node::RealFs;
-use deno_node::RequireNpmResolver;
-use deno_node::DEFAULT_CONDITIONS;
 use once_cell::sync::Lazy;
 use regex::Regex;
+use sb_node;
+use sb_node::errors;
+use sb_node::find_builtin_node_module;
+use sb_node::get_closest_package_json;
+use sb_node::legacy_main_resolve;
+use sb_node::package_exports_resolve;
+use sb_node::package_imports_resolve;
+use sb_node::package_resolve;
+use sb_node::path_to_declaration_path;
+use sb_node::NodeModuleKind;
+use sb_node::NodePermissions;
+use sb_node::NodeResolutionMode;
+use sb_node::PackageJson;
+use sb_node::PathClean;
+use sb_node::RealFs;
+use sb_node::RequireNpmResolver;
+use sb_node::DEFAULT_CONDITIONS;
 
 use crate::cache::NodeAnalysisCache;
 use crate::file_fetcher::FileFetcher;
@@ -47,7 +47,7 @@ mod analyze;
 
 pub use analyze::esm_code_with_node_globals;
 
-impl deno_node::NodePermissions for Permissions {
+impl sb_node::NodePermissions for Permissions {
     fn check_read(&mut self, _p: &Path) -> Result<(), deno_core::error::AnyError> {
         Ok(())
     }
@@ -183,7 +183,7 @@ pub fn node_resolve(
     // Note: if we are here, then the referrer is an esm module
     // TODO(bartlomieju): skipped "policy" part as we don't plan to support it
 
-    if deno_node::is_builtin_node_module(specifier) {
+    if sb_node::is_builtin_node_module(specifier) {
         return Ok(Some(NodeResolution::BuiltIn(specifier.to_string())));
     }
 
@@ -198,7 +198,7 @@ pub fn node_resolve(
             let split_specifier = url.as_str().split(':');
             let specifier = split_specifier.skip(1).collect::<String>();
 
-            if deno_node::is_builtin_node_module(&specifier) {
+            if sb_node::is_builtin_node_module(&specifier) {
                 return Ok(Some(NodeResolution::BuiltIn(specifier)));
             }
         }
@@ -801,7 +801,7 @@ fn resolve(
             PackageJson::load::<RealFs>(npm_resolver, permissions, package_json_path.clone())?;
 
         if let Some(exports) = &package_json.exports {
-            return package_exports_resolve::<deno_node::RealFs>(
+            return package_exports_resolve::<sb_node::RealFs>(
                 &package_json_path,
                 package_subpath,
                 exports,

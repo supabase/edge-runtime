@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
-import { serve } from "https://deno.land/std@0.131.0/http/server.ts"
+import { createServer } from "node:http";
+import process from "node:process";
 
 const generateRandomString = (length) => {
     const buffer = randomBytes(length);
@@ -9,6 +10,9 @@ const generateRandomString = (length) => {
 const randomString = generateRandomString(10);
 console.log(randomString);
 
-serve(async (req: Request) => {
-    return new Response(generateRandomString(10), { status: 200 })
+const server = createServer((req, res) => {
+    const message = `Hello`;
+    res.end(message);
 });
+
+server.listen(9999);

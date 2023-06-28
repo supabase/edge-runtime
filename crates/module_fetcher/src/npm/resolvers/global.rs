@@ -9,8 +9,8 @@ use async_trait::async_trait;
 use deno_ast::ModuleSpecifier;
 use deno_core::error::AnyError;
 use deno_core::url::Url;
-use deno_node::NodePermissions;
-use deno_node::NodeResolutionMode;
+use sb_node::NodePermissions;
+use sb_node::NodeResolutionMode;
 
 use crate::npm::cache::NpmPackageCacheFolderId;
 use crate::npm::resolution::NpmResolution;

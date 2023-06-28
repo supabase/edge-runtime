@@ -27,7 +27,6 @@ deno_console = { workspace = true }
 deno_crypto =  { workspace = true }
 deno_fetch = { workspace = true }
 deno_graph = { workspace = true }
-deno_node = { workspace = true }
 deno_tls = { workspace = true }
 deno_web = { workspace = true }
 deno_webstorage = { workspace = true }
@@ -43,6 +42,7 @@ flate2.workspace = true
 tar.workspace = true
 tokio-util.workspace = true
 percent-encoding = "2.2.0"
+sb_node = { version = "0.1.0", path = "../node" }
 
 [dev-dependencies]
 pretty_assertions = "1"

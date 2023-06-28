@@ -9,7 +9,7 @@ use deno_ast::ModuleSpecifier;
 use deno_ast::ParsedSource;
 use deno_ast::SourceRanged;
 use deno_core::error::AnyError;
-use deno_node::NODE_GLOBAL_THIS_NAME;
+use sb_node::NODE_GLOBAL_THIS_NAME;
 use std::fmt::Write;
 
 use crate::cache::NodeAnalysisCache;

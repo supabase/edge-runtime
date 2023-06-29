@@ -13,8 +13,8 @@ use hyper::body::HttpBody;
 use hyper::header::{HeaderName, HeaderValue};
 use hyper::{Body, Request, Response};
 use sb_worker_context::essentials::{
-    CreateUserWorkerResult, EdgeContextInitOpts, EdgeContextOpts, EdgeUserRuntimeOpts,
-    UserWorkerMsgs,
+    CreateUserWorkerResult, UserWorkerMsgs, UserWorkerRuntimeOpts, WorkerContextInitOpts,
+    WorkerRuntimeOpts,
 };
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
@@ -40,12 +40,17 @@ deno_core::extension!(
 #[serde(rename_all = "camelCase")]
 pub struct UserWorkerCreateOptions {
     service_path: String,
-    memory_limit_mb: u64,
-    worker_timeout_ms: u64,
     no_module_cache: bool,
     import_map_path: Option<String>,
     env_vars: Vec<(String, String)>,
     force_create: bool,
+
+    memory_limit_mb: u64,
+    low_memory_multiplier: u64,
+    worker_timeout_ms: u64,
+    cpu_time_threshold_ms: u64,
+    max_cpu_bursts: u64,
+    cpu_burst_interval_ms: u64,
 }
 
 #[op]
@@ -60,12 +65,17 @@ pub async fn op_user_worker_create(
 
         let UserWorkerCreateOptions {
             service_path,
-            memory_limit_mb,
-            worker_timeout_ms,
             no_module_cache,
             import_map_path,
             env_vars,
             force_create,
+
+            memory_limit_mb,
+            low_memory_multiplier,
+            worker_timeout_ms,
+            cpu_time_threshold_ms,
+            max_cpu_bursts,
+            cpu_burst_interval_ms,
         } = opts;
 
         let mut env_vars_map = HashMap::new();
@@ -73,14 +83,18 @@ pub async fn op_user_worker_create(
             env_vars_map.insert(key, value);
         }
 
-        let user_worker_options = EdgeContextInitOpts {
+        let user_worker_options = WorkerContextInitOpts {
             service_path: PathBuf::from(service_path),
             no_module_cache,
             import_map_path,
             env_vars: env_vars_map,
-            conf: EdgeContextOpts::UserWorker(EdgeUserRuntimeOpts {
+            conf: WorkerRuntimeOpts::UserWorker(UserWorkerRuntimeOpts {
                 memory_limit_mb,
+                low_memory_multiplier,
                 worker_timeout_ms,
+                cpu_time_threshold_ms,
+                max_cpu_bursts,
+                cpu_burst_interval_ms,
                 force_create,
                 key: None,
                 pool_msg_tx: None,
@@ -326,7 +340,7 @@ pub async fn op_user_worker_fetch_send(
     if result.is_err() {
         return Err(custom_error(
             "InvalidWorkerResponse",
-            "user worker not available",
+            "user worker failed to respond",
         ));
     }
 

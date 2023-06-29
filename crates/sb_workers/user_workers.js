@@ -62,8 +62,12 @@ class UserWorker {
 
     static async create(opts) {
         const readyOptions = {
-            memoryLimitMb: 150,
-            workerTimeoutMs: 60 * 1000,
+            memoryLimitMb: 512,
+            lowMemoryMultiplier: 5,
+            workerTimeoutMs: 5 * 60 * 1000,
+            cpuTimeThresholdMs: 50,
+            cpuBurstIntervalMs: 100,
+            maxCpuBursts: 10,
             noModuleCache: false,
             importMapPath: null,
             envVars: [],

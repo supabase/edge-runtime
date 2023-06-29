@@ -1,7 +1,7 @@
 extern crate core;
 
 pub mod commands;
-pub mod edge_runtime;
+pub mod deno_runtime;
 pub mod errors_rt;
 pub mod js_worker;
 pub mod macros;

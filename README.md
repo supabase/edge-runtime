@@ -50,7 +50,7 @@ using Docker:
 
 ```
 docker build -t edge-runtime .
-docker run -it --rm -p 9000:9000 -v /path/to/supabase/functions:/usr/services supabase/edge-runtime start --main-service /usr/services
+docker run -it --rm -p 9000:9000 -v /path/to/supabase/functions:/functions supabase/edge-runtime start --main-service /functions/main
 ```
 
 ## How to run tests

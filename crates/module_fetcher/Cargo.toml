@@ -34,7 +34,7 @@ deno_webstorage = { workspace = true }
 encoding_rs = { version = "=0.8.31" }
 import_map = { version = "=0.15.0" }
 log = { workspace = true }
-libc = { version = "0.2.126" }
+libc = { workspace = true }
 ring = { version = "=0.16.20" }
 serde = { workspace = true }
 tokio.workspace = true

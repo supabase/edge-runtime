@@ -6,17 +6,15 @@ use deno_core::error::AnyError;
 use deno_core::url::Url;
 use deno_core::{located_script_name, serde_v8, JsRuntime, ModuleId, RuntimeOptions};
 use import_map::{parse_from_json, ImportMap, ImportMapDiagnostic};
-use log::{debug, error, warn};
+use log::{debug, warn};
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
-use std::panic;
 use std::path::Path;
 use std::rc::Rc;
 use std::time::Duration;
 use std::{fmt, fs};
 use tokio::net::UnixStream;
 use tokio::sync::mpsc;
-use tokio::sync::oneshot;
 use urlencoding::decode;
 
 use crate::{errors_rt, snapshot};
@@ -333,8 +331,7 @@ impl DenoRuntime {
 
 #[cfg(test)]
 mod test {
-    use crate::deno_runtime::{DenoRuntime, WorkerResult};
-    use flaky_test::flaky_test;
+    use crate::deno_runtime::DenoRuntime;
     use sb_worker_context::essentials::{
         EdgeContextInitOpts, EdgeContextOpts, EdgeMainRuntimeOpts, EdgeUserRuntimeOpts,
         UserWorkerMsgs,
@@ -343,7 +340,6 @@ mod test {
     use std::path::PathBuf;
     use tokio::net::UnixStream;
     use tokio::sync::mpsc;
-    use tokio::sync::oneshot;
 
     async fn create_runtime(
         path: Option<PathBuf>,
@@ -622,16 +618,15 @@ mod test {
         .await
     }
 
-    #[flaky_test]
+    #[tokio::test]
     async fn test_read_file_user_rt() {
         let user_rt = create_basic_user_runtime("./test_cases/readFile", 5, 1000).await;
         let (_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
-        let (_, force_quit_rx) = oneshot::channel::<WorkerResult>();
-        let data = user_rt.run(unix_stream_rx, force_quit_rx).await.unwrap();
-        match data {
-            WorkerResult::ErrorThrown(data) => {
-                assert!(data
-                    .0
+        let wall_clock_limit_ms = 100 * 60 * 1000;
+        let result = user_rt.run(unix_stream_rx, wall_clock_limit_ms).await;
+        match result {
+            Err(err) => {
+                assert!(err
                     .to_string()
                     .contains("TypeError: Deno.readFileSync is not a function"));
             }

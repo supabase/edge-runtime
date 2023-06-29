@@ -231,7 +231,7 @@ pub async fn create_worker(
                                 CPUTimer::start(cpu_time_threshold, CPUAlarmVal { cpu_alarms_tx })?;
                         }
 
-                        match worker.run(unix_stream_rx, wall_clock_limit_ms as u64).await {
+                        match worker.run(unix_stream_rx, wall_clock_limit_ms).await {
                             // if the error is execution terminated, check termination event reason
                             Err(err) => {
                                 let err_string = err.to_string();

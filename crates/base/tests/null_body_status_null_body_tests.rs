@@ -1,18 +1,20 @@
 use base::worker_ctx::{create_worker, WorkerRequestMsg};
 use hyper::{Body, Request, Response};
-use sb_worker_context::essentials::{EdgeContextInitOpts, EdgeContextOpts, EdgeUserRuntimeOpts};
+use sb_worker_context::essentials::{
+    UserWorkerRuntimeOpts, WorkerContextInitOpts, WorkerRuntimeOpts,
+};
 use std::collections::HashMap;
 use tokio::sync::oneshot;
 
 #[tokio::test]
 async fn test_null_body_with_204_status() {
-    let user_rt_opts = EdgeUserRuntimeOpts::default();
-    let opts = EdgeContextInitOpts {
+    let user_rt_opts = UserWorkerRuntimeOpts::default();
+    let opts = WorkerContextInitOpts {
         service_path: "./test_cases/empty-response".into(),
         no_module_cache: false,
         import_map_path: None,
         env_vars: HashMap::new(),
-        conf: EdgeContextOpts::UserWorker(user_rt_opts),
+        conf: WorkerRuntimeOpts::UserWorker(user_rt_opts),
     };
     let worker_req_tx = create_worker(opts, None).await.unwrap();
     let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
@@ -39,13 +41,13 @@ async fn test_null_body_with_204_status() {
 
 #[tokio::test]
 async fn test_null_body_with_204_status_post() {
-    let user_rt_opts = EdgeUserRuntimeOpts::default();
-    let opts = EdgeContextInitOpts {
+    let user_rt_opts = UserWorkerRuntimeOpts::default();
+    let opts = WorkerContextInitOpts {
         service_path: "./test_cases/empty-response".into(),
         no_module_cache: false,
         import_map_path: None,
         env_vars: HashMap::new(),
-        conf: EdgeContextOpts::UserWorker(user_rt_opts),
+        conf: WorkerRuntimeOpts::UserWorker(user_rt_opts),
     };
     let worker_req_tx = create_worker(opts, None).await.unwrap();
     let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();

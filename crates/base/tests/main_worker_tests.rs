@@ -1,6 +1,8 @@
 use base::worker_ctx::{create_user_worker_pool, create_worker, WorkerRequestMsg};
 use hyper::{Body, Request, Response};
-use sb_worker_context::essentials::{EdgeContextInitOpts, EdgeContextOpts, EdgeMainRuntimeOpts};
+use sb_worker_context::essentials::{
+    MainWorkerRuntimeOpts, WorkerContextInitOpts, WorkerRuntimeOpts,
+};
 use std::collections::HashMap;
 use tokio::sync::oneshot;
 
@@ -8,12 +10,12 @@ use tokio::sync::oneshot;
 async fn test_main_worker_options_request() {
     // create a user worker pool
     let user_worker_msgs_tx = create_user_worker_pool(None).await.unwrap();
-    let opts = EdgeContextInitOpts {
+    let opts = WorkerContextInitOpts {
         service_path: "./test_cases/main".into(),
         no_module_cache: false,
         import_map_path: None,
         env_vars: HashMap::new(),
-        conf: EdgeContextOpts::MainWorker(EdgeMainRuntimeOpts {
+        conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
             worker_pool_tx: user_worker_msgs_tx,
         }),
     };
@@ -46,12 +48,12 @@ async fn test_main_worker_options_request() {
 async fn test_main_worker_post_request() {
     // create a user worker pool
     let user_worker_msgs_tx = create_user_worker_pool(None).await.unwrap();
-    let opts = EdgeContextInitOpts {
+    let opts = WorkerContextInitOpts {
         service_path: "./test_cases/main".into(),
         no_module_cache: false,
         import_map_path: None,
         env_vars: HashMap::new(),
-        conf: EdgeContextOpts::MainWorker(EdgeMainRuntimeOpts {
+        conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
             worker_pool_tx: user_worker_msgs_tx,
         }),
     };
@@ -88,12 +90,12 @@ async fn test_main_worker_post_request() {
 async fn test_main_worker_boot_error() {
     // create a user worker pool
     let user_worker_msgs_tx = create_user_worker_pool(None).await.unwrap();
-    let opts = EdgeContextInitOpts {
+    let opts = WorkerContextInitOpts {
         service_path: "./test_cases/main".into(),
         no_module_cache: false,
         import_map_path: Some("./non-existing-import-map.json".to_string()),
         env_vars: HashMap::new(),
-        conf: EdgeContextOpts::MainWorker(EdgeMainRuntimeOpts {
+        conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
             worker_pool_tx: user_worker_msgs_tx,
         }),
     };

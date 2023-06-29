@@ -68,7 +68,7 @@ impl CPUTimer {
     }
 
     #[cfg(not(target_os = "linux"))]
-    pub fn start(_: i64, _: CPUAlarmVal) -> Result<Self, Error> {
+    pub fn start(_: u64, _: CPUAlarmVal) -> Result<Self, Error> {
         println!("CPU timer: not enabled (need Linux)");
         Ok(Self {})
     }

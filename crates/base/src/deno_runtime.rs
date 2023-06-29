@@ -26,7 +26,7 @@ use sb_core::runtime::sb_core_runtime;
 use sb_core::sb_core_main_js;
 use sb_env::sb_env as sb_env_op;
 use sb_worker_context::essentials::{
-    EdgeContextInitOpts, EdgeContextOpts, EdgeEventRuntimeOpts, EdgeUserRuntimeOpts, UserWorkerMsgs,
+    EventWorkerRuntimeOpts, UserWorkerMsgs, WorkerContextInitOpts, WorkerRuntimeOpts,
 };
 use sb_worker_context::events::WorkerEvents;
 use sb_workers::events::sb_user_event_worker;
@@ -97,20 +97,19 @@ pub struct DenoRuntime {
     pub js_runtime: JsRuntime,
     pub main_module_id: ModuleId,
     pub is_user_runtime: bool,
-    pub is_event_worker: bool,
+    pub is_event_worker: bool, // TODO: make this a method
     pub env_vars: HashMap<String, String>,
-    pub conf: EdgeContextOpts,
-    pub curr_user_opts: EdgeUserRuntimeOpts,
+    pub conf: WorkerRuntimeOpts,
 }
 
 impl DenoRuntime {
     pub async fn new(
-        opts: EdgeContextInitOpts,
-        event_manager_opts: Option<EdgeEventRuntimeOpts>,
+        opts: WorkerContextInitOpts,
+        event_manager_opts: Option<EventWorkerRuntimeOpts>,
     ) -> Result<Self, Error> {
         let mut maybe_events_msg_tx: Option<mpsc::UnboundedSender<WorkerEvents>> = None;
 
-        let EdgeContextInitOpts {
+        let WorkerContextInitOpts {
             service_path,
             no_module_cache,
             import_map_path,
@@ -119,13 +118,13 @@ impl DenoRuntime {
         } = opts;
 
         let (is_user_runtime, is_event_worker, user_rt_opts) = match conf.clone() {
-            EdgeContextOpts::UserWorker(conf) => (true, false, conf),
-            EdgeContextOpts::MainWorker(_conf) => (false, false, EdgeUserRuntimeOpts::default()),
-            EdgeContextOpts::EventsWorker => (false, true, EdgeUserRuntimeOpts::default()), // TODO: This needs to be an option (user opts)
+            WorkerRuntimeOpts::UserWorker(conf) => (true, false, Some(conf)),
+            WorkerRuntimeOpts::MainWorker(_conf) => (false, false, None),
+            WorkerRuntimeOpts::EventsWorker => (false, true, None),
         };
 
         if is_user_runtime {
-            if let EdgeContextOpts::UserWorker(conf) = conf.clone() {
+            if let WorkerRuntimeOpts::UserWorker(conf) = conf.clone() {
                 if let Some(events_msg_tx) = conf.events_msg_tx {
                     maybe_events_msg_tx = Some(events_msg_tx)
                 }
@@ -189,7 +188,7 @@ impl DenoRuntime {
                 if is_user_runtime {
                     Some(deno_core::v8::CreateParams::default().heap_limits(
                         mib_to_bytes(0) as usize,
-                        mib_to_bytes(user_rt_opts.memory_limit_mb) as usize,
+                        mib_to_bytes(user_rt_opts.unwrap().memory_limit_mb) as usize,
                     ))
                 } else {
                     None
@@ -222,7 +221,7 @@ impl DenoRuntime {
             op_state.put::<sb_env::EnvVars>(env_vars);
 
             if is_event_worker {
-                if let EdgeContextOpts::EventsWorker = conf.clone() {
+                if let WorkerRuntimeOpts::EventsWorker = conf.clone() {
                     // We unwrap because event_manager_opts must always be present when type is `EventsWorker`
                     op_state.put::<mpsc::UnboundedReceiver<WorkerEvents>>(
                         event_manager_opts.unwrap().event_rx,
@@ -245,14 +244,13 @@ impl DenoRuntime {
             is_user_runtime,
             env_vars,
             conf,
-            curr_user_opts: user_rt_opts,
             is_event_worker,
         })
     }
 
     pub fn event_sender(&self) -> Option<mpsc::UnboundedSender<WorkerEvents>> {
         if self.is_user_runtime {
-            if let EdgeContextOpts::UserWorker(conf) = self.conf.clone() {
+            if let WorkerRuntimeOpts::UserWorker(conf) = self.conf.clone() {
                 conf.events_msg_tx
             } else {
                 None
@@ -275,7 +273,7 @@ impl DenoRuntime {
             op_state.put::<mpsc::UnboundedReceiver<UnixStream>>(unix_stream_rx);
 
             if !is_user_rt {
-                if let EdgeContextOpts::MainWorker(conf) = self.conf.clone() {
+                if let WorkerRuntimeOpts::MainWorker(conf) = self.conf.clone() {
                     op_state.put::<mpsc::UnboundedSender<UserWorkerMsgs>>(conf.worker_pool_tx);
                 }
             }
@@ -333,8 +331,8 @@ impl DenoRuntime {
 mod test {
     use crate::deno_runtime::DenoRuntime;
     use sb_worker_context::essentials::{
-        EdgeContextInitOpts, EdgeContextOpts, EdgeMainRuntimeOpts, EdgeUserRuntimeOpts,
-        UserWorkerMsgs,
+        MainWorkerRuntimeOpts, UserWorkerMsgs, UserWorkerRuntimeOpts, WorkerContextInitOpts,
+        WorkerRuntimeOpts,
     };
     use std::collections::HashMap;
     use std::path::PathBuf;
@@ -344,12 +342,12 @@ mod test {
     async fn create_runtime(
         path: Option<PathBuf>,
         env_vars: Option<HashMap<String, String>>,
-        user_conf: Option<EdgeContextOpts>,
+        user_conf: Option<WorkerRuntimeOpts>,
     ) -> DenoRuntime {
         let (worker_pool_tx, _) = mpsc::unbounded_channel::<UserWorkerMsgs>();
 
         DenoRuntime::new(
-            EdgeContextInitOpts {
+            WorkerContextInitOpts {
                 service_path: path.unwrap_or(PathBuf::from("./test_cases/main")),
                 no_module_cache: false,
                 import_map_path: None,
@@ -358,7 +356,7 @@ mod test {
                     if let Some(uc) = user_conf {
                         uc
                     } else {
-                        EdgeContextOpts::MainWorker(EdgeMainRuntimeOpts { worker_pool_tx })
+                        WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts { worker_pool_tx })
                     }
                 },
             },
@@ -393,7 +391,7 @@ mod test {
         let mut runtime = create_runtime(
             None,
             None,
-            Some(EdgeContextOpts::UserWorker(Default::default())),
+            Some(WorkerRuntimeOpts::UserWorker(Default::default())),
         )
         .await;
 
@@ -437,7 +435,7 @@ mod test {
         let mut user_rt = create_runtime(
             None,
             None,
-            Some(EdgeContextOpts::UserWorker(Default::default())),
+            Some(WorkerRuntimeOpts::UserWorker(Default::default())),
         )
         .await;
 
@@ -546,7 +544,7 @@ mod test {
         let mut user_rt = create_runtime(
             None,
             None,
-            Some(EdgeContextOpts::UserWorker(Default::default())),
+            Some(WorkerRuntimeOpts::UserWorker(Default::default())),
         )
         .await;
         assert!(!main_rt.env_vars.is_empty());
@@ -606,7 +604,7 @@ mod test {
         create_runtime(
             Some(PathBuf::from(path)),
             None,
-            Some(EdgeContextOpts::UserWorker(EdgeUserRuntimeOpts {
+            Some(WorkerRuntimeOpts::UserWorker(UserWorkerRuntimeOpts {
                 memory_limit_mb: memory_limit,
                 worker_timeout_ms,
                 force_create: true,

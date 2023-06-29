@@ -9,8 +9,8 @@ use deno_core::JsRuntime;
 use hyper::{Body, Request, Response};
 use log::{debug, error};
 use sb_worker_context::essentials::{
-    CreateUserWorkerResult, EdgeContextInitOpts, EdgeContextOpts, EdgeEventRuntimeOpts,
-    UserWorkerMsgs,
+    CreateUserWorkerResult, EventWorkerRuntimeOpts, UserWorkerMsgs, WorkerContextInitOpts,
+    WorkerRuntimeOpts,
 };
 use sb_worker_context::events::{BootEvent, BootFailure, UncaughtException, WorkerEvents};
 use std::collections::HashMap;
@@ -152,8 +152,8 @@ fn create_supervisor(
 }
 
 pub async fn create_worker(
-    init_opts: EdgeContextInitOpts,
-    event_manager_opts: Option<EdgeEventRuntimeOpts>,
+    init_opts: WorkerContextInitOpts,
+    event_manager_opts: Option<EventWorkerRuntimeOpts>,
 ) -> Result<mpsc::UnboundedSender<WorkerRequestMsg>, Error> {
     let service_path = init_opts.service_path.clone();
 
@@ -165,7 +165,7 @@ pub async fn create_worker(
     let (unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
 
     let (worker_key, pool_msg_tx, event_msg_tx, thread_name) = match init_opts.conf.clone() {
-        EdgeContextOpts::UserWorker(worker_opts) => (
+        WorkerRuntimeOpts::UserWorker(worker_opts) => (
             worker_opts.key,
             worker_opts.pool_msg_tx,
             worker_opts.events_msg_tx,
@@ -174,8 +174,8 @@ pub async fn create_worker(
                 .map(|k| format!("sb-iso-{:?}", k))
                 .unwrap_or("isolate-worker-unknown".to_string()),
         ),
-        EdgeContextOpts::MainWorker(_) => (None, None, None, "main-worker".to_string()),
-        EdgeContextOpts::EventsWorker => (None, None, None, "events-worker".to_string()),
+        WorkerRuntimeOpts::MainWorker(_) => (None, None, None, "main-worker".to_string()),
+        WorkerRuntimeOpts::EventsWorker => (None, None, None, "events-worker".to_string()),
     };
 
     // spawn a thread to run the worker
@@ -337,14 +337,14 @@ pub async fn create_event_worker(
     let (event_tx, event_rx) = mpsc::unbounded_channel::<WorkerEvents>();
 
     let _ = create_worker(
-        EdgeContextInitOpts {
+        WorkerContextInitOpts {
             service_path: event_worker_path,
             no_module_cache,
             import_map_path,
             env_vars: std::env::vars().collect(),
-            conf: EdgeContextOpts::EventsWorker,
+            conf: WorkerRuntimeOpts::EventsWorker,
         },
-        Some(EdgeEventRuntimeOpts { event_rx }),
+        Some(EventWorkerRuntimeOpts { event_rx }),
     )
     .await?;
 
@@ -366,7 +366,7 @@ pub async fn create_user_worker_pool(
                 None => break,
                 Some(UserWorkerMsgs::Create(mut worker_options, tx)) => {
                     let mut user_worker_rt_opts = match worker_options.conf {
-                        EdgeContextOpts::UserWorker(opts) => opts,
+                        WorkerRuntimeOpts::UserWorker(opts) => opts,
                         _ => unreachable!(),
                     };
 
@@ -394,7 +394,7 @@ pub async fn create_user_worker_pool(
                     user_worker_rt_opts.key = Some(key);
                     user_worker_rt_opts.pool_msg_tx = Some(user_worker_msgs_tx_clone.clone());
                     user_worker_rt_opts.events_msg_tx = worker_event_sender.clone();
-                    worker_options.conf = EdgeContextOpts::UserWorker(user_worker_rt_opts);
+                    worker_options.conf = WorkerRuntimeOpts::UserWorker(user_worker_rt_opts);
                     let now = Instant::now();
                     let result = create_worker(worker_options, None).await;
                     let elapsed = now.elapsed().as_secs();

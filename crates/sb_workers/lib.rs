@@ -13,8 +13,8 @@ use hyper::body::HttpBody;
 use hyper::header::{HeaderName, HeaderValue};
 use hyper::{Body, Request, Response};
 use sb_worker_context::essentials::{
-    CreateUserWorkerResult, EdgeContextInitOpts, EdgeContextOpts, EdgeUserRuntimeOpts,
-    UserWorkerMsgs,
+    CreateUserWorkerResult, UserWorkerMsgs, UserWorkerRuntimeOpts, WorkerContextInitOpts,
+    WorkerRuntimeOpts,
 };
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
@@ -73,12 +73,12 @@ pub async fn op_user_worker_create(
             env_vars_map.insert(key, value);
         }
 
-        let user_worker_options = EdgeContextInitOpts {
+        let user_worker_options = WorkerContextInitOpts {
             service_path: PathBuf::from(service_path),
             no_module_cache,
             import_map_path,
             env_vars: env_vars_map,
-            conf: EdgeContextOpts::UserWorker(EdgeUserRuntimeOpts {
+            conf: WorkerRuntimeOpts::UserWorker(UserWorkerRuntimeOpts {
                 memory_limit_mb,
                 worker_timeout_ms,
                 force_create,

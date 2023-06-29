@@ -1,5 +1,6 @@
 use crate::events::WorkerEvents;
 use anyhow::Error;
+use enum_as_inner::EnumAsInner;
 use hyper::{Body, Request, Response};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -7,12 +8,21 @@ use tokio::sync::{mpsc, oneshot};
 
 #[derive(Debug, Clone)]
 pub struct UserWorkerRuntimeOpts {
-    pub memory_limit_mb: u64,
-    pub worker_timeout_ms: u64,
-    pub force_create: bool,
     pub key: Option<u64>,
+
     pub pool_msg_tx: Option<mpsc::UnboundedSender<UserWorkerMsgs>>,
     pub events_msg_tx: Option<mpsc::UnboundedSender<WorkerEvents>>,
+
+    pub memory_limit_mb: u64,
+    pub low_memory_multiplier: u64,
+
+    pub worker_timeout_ms: u64, // wall clock limit
+
+    pub cpu_time_threshold_ms: u64,
+    pub cpu_burst_interval_ms: u64,
+    pub max_cpu_bursts: u64,
+
+    pub force_create: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -25,7 +35,7 @@ pub struct EventWorkerRuntimeOpts {
     pub event_rx: mpsc::UnboundedReceiver<WorkerEvents>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, EnumAsInner)]
 pub enum WorkerRuntimeOpts {
     UserWorker(UserWorkerRuntimeOpts),
     MainWorker(MainWorkerRuntimeOpts),
@@ -46,6 +56,11 @@ impl Default for UserWorkerRuntimeOpts {
         UserWorkerRuntimeOpts {
             memory_limit_mb: 512,
             worker_timeout_ms: 5 * 60 * 1000,
+            low_memory_multiplier: 5,
+            max_cpu_bursts: 10,
+            cpu_burst_interval_ms: 100,
+            cpu_time_threshold_ms: 50,
+
             force_create: false,
             key: None,
             pool_msg_tx: None,

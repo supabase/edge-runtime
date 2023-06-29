@@ -15,12 +15,6 @@ pub struct CPUAlarmVal {
     pub cpu_alarms_tx: mpsc::UnboundedSender<()>,
 }
 
-impl Drop for CPUAlarmVal {
-    fn drop(&mut self) {
-        debug!("CPUAlarmval dropped");
-    }
-}
-
 #[cfg(target_os = "linux")]
 pub struct CPUTimer {
     _timerid: TimerId,
@@ -31,7 +25,7 @@ pub struct CPUTimer {}
 
 impl CPUTimer {
     #[cfg(target_os = "linux")]
-    pub fn start(interval: i64, cpu_alarm_val: CPUAlarmVal) -> Result<Self, Error> {
+    pub fn start(interval: u64, cpu_alarm_val: CPUAlarmVal) -> Result<Self, Error> {
         let mut timerid = TimerId(std::ptr::null_mut());
         let val_ptr = Box::into_raw(Box::new(cpu_alarm_val));
         let sival_ptr: *mut libc::c_void = val_ptr as *mut libc::c_void;
@@ -55,9 +49,9 @@ impl CPUTimer {
 
         let mut tmspec: libc::itimerspec = unsafe { std::mem::zeroed() };
         tmspec.it_interval.tv_sec = 0;
-        tmspec.it_interval.tv_nsec = interval * 1_000_000;
+        tmspec.it_interval.tv_nsec = (interval as i64) * 1_000_000;
         tmspec.it_value.tv_sec = 0;
-        tmspec.it_value.tv_nsec = interval * 1_000_000;
+        tmspec.it_value.tv_nsec = (interval as i64) * 1_000_000;
 
         if unsafe {
             // start the timer with an expiry
@@ -87,7 +81,6 @@ impl Drop for CPUTimer {
         unsafe {
             let _ = Box::from_raw(self.val_ptr);
         }
-        debug!("CPUTimer dropped");
     }
 }
 

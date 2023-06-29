@@ -40,12 +40,17 @@ deno_core::extension!(
 #[serde(rename_all = "camelCase")]
 pub struct UserWorkerCreateOptions {
     service_path: String,
-    memory_limit_mb: u64,
-    worker_timeout_ms: u64,
     no_module_cache: bool,
     import_map_path: Option<String>,
     env_vars: Vec<(String, String)>,
     force_create: bool,
+
+    memory_limit_mb: u64,
+    low_memory_multiplier: u64,
+    worker_timeout_ms: u64,
+    cpu_time_threshold_ms: u64,
+    max_cpu_bursts: u64,
+    cpu_burst_interval_ms: u64,
 }
 
 #[op]
@@ -60,12 +65,17 @@ pub async fn op_user_worker_create(
 
         let UserWorkerCreateOptions {
             service_path,
-            memory_limit_mb,
-            worker_timeout_ms,
             no_module_cache,
             import_map_path,
             env_vars,
             force_create,
+
+            memory_limit_mb,
+            low_memory_multiplier,
+            worker_timeout_ms,
+            cpu_time_threshold_ms,
+            max_cpu_bursts,
+            cpu_burst_interval_ms,
         } = opts;
 
         let mut env_vars_map = HashMap::new();
@@ -80,7 +90,11 @@ pub async fn op_user_worker_create(
             env_vars: env_vars_map,
             conf: WorkerRuntimeOpts::UserWorker(UserWorkerRuntimeOpts {
                 memory_limit_mb,
+                low_memory_multiplier,
                 worker_timeout_ms,
+                cpu_time_threshold_ms,
+                max_cpu_bursts,
+                cpu_burst_interval_ms,
                 force_create,
                 key: None,
                 pool_msg_tx: None,

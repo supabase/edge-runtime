@@ -95,17 +95,15 @@ fn get_error_class_name(e: &AnyError) -> &'static str {
 
 pub struct DenoRuntime {
     pub js_runtime: JsRuntime,
-    pub main_module_id: ModuleId,
-    pub is_user_runtime: bool,
-    pub is_event_worker: bool, // TODO: make this a method
-    pub env_vars: HashMap<String, String>,
+    pub env_vars: HashMap<String, String>, // TODO: does this need to be pub?
+    main_module_id: ModuleId,
     pub conf: WorkerRuntimeOpts,
 }
 
 impl DenoRuntime {
     pub async fn new(
         opts: WorkerContextInitOpts,
-        event_manager_opts: Option<EventWorkerRuntimeOpts>,
+        event_manager_opts: Option<EventWorkerRuntimeOpts>, // TODO: refactor this be part of opts
     ) -> Result<Self, Error> {
         let mut maybe_events_msg_tx: Option<mpsc::UnboundedSender<WorkerEvents>> = None;
 
@@ -117,17 +115,9 @@ impl DenoRuntime {
             conf,
         } = opts;
 
-        let (is_user_runtime, is_event_worker, user_rt_opts) = match conf.clone() {
-            WorkerRuntimeOpts::UserWorker(conf) => (true, false, Some(conf)),
-            WorkerRuntimeOpts::MainWorker(_conf) => (false, false, None),
-            WorkerRuntimeOpts::EventsWorker => (false, true, None),
-        };
-
-        if is_user_runtime {
-            if let WorkerRuntimeOpts::UserWorker(conf) = conf.clone() {
-                if let Some(events_msg_tx) = conf.events_msg_tx {
-                    maybe_events_msg_tx = Some(events_msg_tx)
-                }
+        if conf.is_user_worker() {
+            if let Some(events_msg_tx) = conf.as_user_worker().unwrap().events_msg_tx.clone() {
+                maybe_events_msg_tx = Some(events_msg_tx)
             }
         }
 
@@ -185,10 +175,10 @@ impl DenoRuntime {
             module_loader: Some(Rc::new(module_loader)),
             is_main: true,
             create_params: {
-                if is_user_runtime {
+                if conf.is_user_worker() {
                     Some(deno_core::v8::CreateParams::default().heap_limits(
                         mib_to_bytes(0) as usize,
-                        mib_to_bytes(user_rt_opts.unwrap().memory_limit_mb) as usize,
+                        mib_to_bytes(conf.as_user_worker().unwrap().memory_limit_mb) as usize,
                     ))
                 } else {
                     None
@@ -205,8 +195,8 @@ impl DenoRuntime {
         let script = format!(
             "globalThis.bootstrapSBEdge({}, {}, {})",
             deno_core::serde_json::json!({ "target": env!("TARGET") }),
-            is_user_runtime,
-            is_event_worker
+            conf.is_user_worker(),
+            conf.is_events_worker()
         );
 
         js_runtime
@@ -220,7 +210,7 @@ impl DenoRuntime {
             let mut op_state = op_state_rc.borrow_mut();
             op_state.put::<sb_env::EnvVars>(env_vars);
 
-            if is_event_worker {
+            if conf.is_events_worker() {
                 if let WorkerRuntimeOpts::EventsWorker = conf.clone() {
                     // We unwrap because event_manager_opts must always be present when type is `EventsWorker`
                     op_state.put::<mpsc::UnboundedReceiver<WorkerEvents>>(
@@ -229,7 +219,7 @@ impl DenoRuntime {
                 }
             }
 
-            if is_user_runtime {
+            if conf.is_user_worker() {
                 if let Some(events_msg_tx) = maybe_events_msg_tx.clone() {
                     op_state.put::<mpsc::UnboundedSender<WorkerEvents>>(events_msg_tx);
                 }
@@ -241,41 +231,31 @@ impl DenoRuntime {
         Ok(Self {
             js_runtime,
             main_module_id,
-            is_user_runtime,
             env_vars,
             conf,
-            is_event_worker,
         })
     }
 
     pub fn event_sender(&self) -> Option<mpsc::UnboundedSender<WorkerEvents>> {
-        if self.is_user_runtime {
-            if let WorkerRuntimeOpts::UserWorker(conf) = self.conf.clone() {
-                conf.events_msg_tx
-            } else {
-                None
-            }
-        } else {
-            None
-        }
+        self.conf
+            .as_user_worker()
+            .map(|c| c.events_msg_tx.clone())
+            .unwrap()
     }
 
     pub async fn run(
         mut self,
         unix_stream_rx: mpsc::UnboundedReceiver<UnixStream>,
-        wall_clock_limit_ms: u64,
     ) -> Result<(), Error> {
-        let is_user_rt = self.is_user_runtime;
-
         {
             let op_state_rc = self.js_runtime.op_state();
             let mut op_state = op_state_rc.borrow_mut();
             op_state.put::<mpsc::UnboundedReceiver<UnixStream>>(unix_stream_rx);
 
-            if !is_user_rt {
-                if let WorkerRuntimeOpts::MainWorker(conf) = self.conf.clone() {
-                    op_state.put::<mpsc::UnboundedSender<UserWorkerMsgs>>(conf.worker_pool_tx);
-                }
+            if self.conf.is_main_worker() {
+                op_state.put::<mpsc::UnboundedSender<UserWorkerMsgs>>(
+                    self.conf.as_main_worker().unwrap().worker_pool_tx.clone(),
+                );
             }
         }
 
@@ -302,8 +282,9 @@ impl DenoRuntime {
 
         // need to set an explicit timeout here in case the event loop idle
         let mut duration = Duration::MAX;
-        if is_user_rt {
-            duration = Duration::from_millis(wall_clock_limit_ms);
+        if self.conf.is_user_worker() {
+            let worker_timeout_ms = self.conf.as_user_worker().unwrap().worker_timeout_ms;
+            duration = Duration::from_millis(worker_timeout_ms);
         }
         match tokio::time::timeout(duration, future).await {
             Err(_) => Err(anyhow!("wall clock duration reached")),
@@ -607,6 +588,10 @@ mod test {
             Some(WorkerRuntimeOpts::UserWorker(UserWorkerRuntimeOpts {
                 memory_limit_mb: memory_limit,
                 worker_timeout_ms,
+                cpu_burst_interval_ms: 100,
+                cpu_time_threshold_ms: 50,
+                max_cpu_bursts: 10,
+                low_memory_multiplier: 5,
                 force_create: true,
                 key: None,
                 pool_msg_tx: None,
@@ -620,8 +605,7 @@ mod test {
     async fn test_read_file_user_rt() {
         let user_rt = create_basic_user_runtime("./test_cases/readFile", 5, 1000).await;
         let (_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
-        let wall_clock_limit_ms = 100 * 60 * 1000;
-        let result = user_rt.run(unix_stream_rx, wall_clock_limit_ms).await;
+        let result = user_rt.run(unix_stream_rx).await;
         match result {
             Err(err) => {
                 assert!(err

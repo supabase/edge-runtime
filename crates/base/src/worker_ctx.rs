@@ -5,7 +5,6 @@ use crate::utils::units::bytes_to_display;
 use anyhow::{anyhow, bail, Error};
 use cityhash::cityhash_1_1_1::city_hash_64;
 use cpu_timer::{get_thread_time, CPUAlarmVal, CPUTimer};
-use deno_core::JsRuntime;
 use hyper::{Body, Request, Response};
 use log::{debug, error};
 use sb_worker_context::essentials::{
@@ -58,23 +57,18 @@ async fn handle_request(
     Ok(())
 }
 
-struct WorkerLimits {
-    wall_clock_limit_ms: u64,
-    low_memory_multiplier: u64,
-    max_cpu_bursts: u64,
-    cpu_burst_interval_ms: u128,
-}
-
 fn create_supervisor(
     key: u64,
-    js_runtime: &mut JsRuntime,
+    worker_runtime: &mut DenoRuntime,
     termination_event_tx: oneshot::Sender<WorkerEvents>,
-    mut cpu_alarms_rx: mpsc::UnboundedReceiver<()>,
-    worker_limits: WorkerLimits,
-) -> Result<(), Error> {
+) -> Result<CPUTimer, Error> {
     let (memory_limit_tx, mut memory_limit_rx) = mpsc::unbounded_channel::<()>();
-    let thread_safe_handle = js_runtime.v8_isolate().thread_safe_handle();
-    js_runtime.add_near_heap_limit_callback(move |cur, _| {
+    let thread_safe_handle = worker_runtime.js_runtime.v8_isolate().thread_safe_handle();
+
+    // we assert supervisor is only run for user workers
+    let conf = worker_runtime.conf.as_user_worker().unwrap().clone();
+
+    worker_runtime.js_runtime.add_near_heap_limit_callback(move |cur, _| {
         debug!(
             "Low memory alert triggered: {}",
             bytes_to_display(cur as u64),
@@ -86,8 +80,12 @@ fn create_supervisor(
 
         // give an allowance on current limit (until the isolate is terminated)
         // we do this so that oom won't end up killing the edge-runtime process
-        cur * (worker_limits.low_memory_multiplier as usize)
+        cur * (conf.low_memory_multiplier as usize)
     });
+
+    // Note: CPU timer must be started in the same thread as the worker runtime
+    let (cpu_alarms_tx, mut cpu_alarms_rx) = mpsc::unbounded_channel::<()>();
+    let cputimer = CPUTimer::start(conf.cpu_time_threshold_ms, CPUAlarmVal { cpu_alarms_tx })?;
 
     let thread_name = format!("sb-sup-{:?}", key);
     let _handle = thread::Builder::new()
@@ -103,18 +101,17 @@ fn create_supervisor(
                 let mut bursts = 0;
                 let mut last_burst = Instant::now();
 
-                let sleep =
-                    tokio::time::sleep(Duration::from_millis(worker_limits.wall_clock_limit_ms));
+                let sleep = tokio::time::sleep(Duration::from_millis(conf.worker_timeout_ms));
                 tokio::pin!(sleep);
 
                 loop {
                     tokio::select! {
                         Some(_) = cpu_alarms_rx.recv() => {
-                            if last_burst.elapsed().as_millis() > worker_limits.cpu_burst_interval_ms {
+                            if last_burst.elapsed().as_millis() > (conf.cpu_burst_interval_ms as u128) {
                                 bursts += 1;
                                 last_burst = Instant::now();
                             }
-                            if bursts > worker_limits.max_cpu_bursts {
+                            if bursts > conf.max_cpu_bursts {
                                 thread_safe_handle.terminate_execution();
                                 error!("CPU time limit reached. isolate: {:?}", key);
                                 return WorkerEvents::CpuTimeLimit
@@ -148,7 +145,7 @@ fn create_supervisor(
         })
         .unwrap();
 
-    Ok(())
+    Ok(cputimer)
 }
 
 pub async fn create_worker(
@@ -164,11 +161,11 @@ pub async fn create_worker(
     let (worker_boot_result_tx, worker_boot_result_rx) = oneshot::channel::<Result<(), Error>>();
     let (unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
 
-    let (worker_key, pool_msg_tx, event_msg_tx, thread_name) = match init_opts.conf.clone() {
+    let (worker_key, pool_msg_tx, event_msg_tx, thread_name) = match &init_opts.conf {
         WorkerRuntimeOpts::UserWorker(worker_opts) => (
             worker_opts.key,
-            worker_opts.pool_msg_tx,
-            worker_opts.events_msg_tx,
+            worker_opts.pool_msg_tx.clone(),
+            worker_opts.events_msg_tx.clone(),
             worker_opts
                 .key
                 .map(|k| format!("sb-iso-{:?}", k))
@@ -197,41 +194,24 @@ pub async fn create_worker(
                             msg: err.to_string(),
                         }))
                     }
-                    Ok(mut worker) => {
+                    Ok(mut worker_runtime) => {
                         let _ = worker_boot_result_tx.send(Ok(()));
-
-                        let _cputimer;
-
-                        let wall_clock_limit_ms = 10 * 1000;
-                        let low_memory_multiplier = 5;
-                        let max_cpu_bursts = 10;
-                        let cpu_burst_interval_ms = 100;
-                        let cpu_time_threshold = 50;
 
                         let (termination_event_tx, termination_event_rx) =
                             oneshot::channel::<WorkerEvents>();
-                        if worker.is_user_runtime {
+                        let _cputimer;
+                        if worker_runtime.conf.is_user_worker() {
                             start_time = get_thread_time()?;
 
-                            let (cpu_alarms_tx, cpu_alarms_rx) = mpsc::unbounded_channel::<()>();
-                            create_supervisor(
+                            // cputimer is returned from supervisor and assigned here to keep it in scope.
+                            _cputimer = create_supervisor(
                                 worker_key.unwrap_or(0),
-                                &mut worker.js_runtime,
+                                &mut worker_runtime,
                                 termination_event_tx,
-                                cpu_alarms_rx,
-                                WorkerLimits {
-                                    wall_clock_limit_ms,
-                                    low_memory_multiplier,
-                                    max_cpu_bursts,
-                                    cpu_burst_interval_ms,
-                                },
                             )?;
-                            // TODO: move this to supervisor
-                            _cputimer =
-                                CPUTimer::start(cpu_time_threshold, CPUAlarmVal { cpu_alarms_tx })?;
                         }
 
-                        match worker.run(unix_stream_rx, wall_clock_limit_ms).await {
+                        match worker_runtime.run(unix_stream_rx).await {
                             // if the error is execution terminated, check termination event reason
                             Err(err) => {
                                 let err_string = err.to_string();
@@ -254,7 +234,7 @@ pub async fn create_worker(
             match result {
                 Ok(event) => {
                     debug!("worker event: {:?}", event);
-                    send_event_if_event_manager_available(event_msg_tx, event)
+                    send_event_if_event_manager_available(event_msg_tx, event);
                 }
                 Err(err) => error!("unexpected worker error {}", err),
             };
@@ -267,14 +247,16 @@ pub async fn create_worker(
             );
 
             // remove the worker from pool
-            if let Some(k) = worker_key {
-                if let Some(tx) = pool_msg_tx {
-                    let res = tx.send(UserWorkerMsgs::Shutdown(k));
-                    if res.is_err() {
-                        error!(
-                            "failed to send the shutdown signal to user worker pool: {:?}",
-                            res.unwrap_err()
-                        );
+            if worker_key.is_some() {
+                if let Some(worker_key_unwrapped) = worker_key {
+                    if let Some(tx) = pool_msg_tx {
+                        let res = tx.send(UserWorkerMsgs::Shutdown(worker_key_unwrapped));
+                        if res.is_err() {
+                            error!(
+                                "failed to send the shutdown signal to user worker pool: {:?}",
+                                res.unwrap_err()
+                            );
+                        }
                     }
                 }
             }

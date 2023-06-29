@@ -1375,6 +1375,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "enum-as-inner"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5ffccbb6966c05b32ef8fbac435df276c4ae4d3dc55a8cd0eb9745e6c12f546a"
+dependencies = [
+ "heck",
+ "proc-macro2 1.0.56",
+ "quote 1.0.26",
+ "syn 2.0.15",
+]
+
+[[package]]
 name = "enum_kind"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3398,6 +3410,7 @@ name = "sb_worker_context"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "enum-as-inner 0.6.0",
  "hyper",
  "serde",
  "tokio",
@@ -4561,7 +4574,7 @@ dependencies = [
  "async-trait",
  "cfg-if 1.0.0",
  "data-encoding",
- "enum-as-inner",
+ "enum-as-inner 0.5.1",
  "futures-channel",
  "futures-io",
  "futures-util",

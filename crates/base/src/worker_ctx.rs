@@ -11,7 +11,9 @@ use sb_worker_context::essentials::{
     CreateUserWorkerResult, EventWorkerRuntimeOpts, UserWorkerMsgs, WorkerContextInitOpts,
     WorkerRuntimeOpts,
 };
-use sb_worker_context::events::{BootEvent, BootFailure, UncaughtException, WorkerEvents};
+use sb_worker_context::events::{
+    BootEvent, BootFailure, LogEvent, LogLevel, PseudoEvent, UncaughtException, WorkerEvents,
+};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::thread;
@@ -114,7 +116,7 @@ fn create_supervisor(
                             if bursts > conf.max_cpu_bursts {
                                 thread_safe_handle.terminate_execution();
                                 error!("CPU time limit reached. isolate: {:?}", key);
-                                return WorkerEvents::CpuTimeLimit
+                                return WorkerEvents::CpuTimeLimit(PseudoEvent{})
                             }
                         }
 
@@ -124,7 +126,7 @@ fn create_supervisor(
                             //thread_safe_handle.request_interrupt(callback, std::ptr::null_mut());
                             thread_safe_handle.terminate_execution();
                             error!("wall clock duration reached. isolate: {:?}", key);
-                            return WorkerEvents::WallClockTimeLimit;
+                            return WorkerEvents::WallClockTimeLimit(PseudoEvent{});
 
                         }
 
@@ -132,7 +134,7 @@ fn create_supervisor(
                         Some(_) = memory_limit_rx.recv() => {
                             thread_safe_handle.terminate_execution();
                             error!("memory limit reached for the worker. isolate: {:?}", key);
-                            return WorkerEvents::MemoryLimit;
+                            return WorkerEvents::MemoryLimit(PseudoEvent{});
                         }
                     }
                 }
@@ -225,7 +227,7 @@ pub async fn create_worker(
                                     }))
                                 }
                             }
-                            Ok(()) => Ok(WorkerEvents::EventLoopCompleted),
+                            Ok(()) => Ok(WorkerEvents::EventLoopCompleted(PseudoEvent {})),
                         }
                     }
                 }
@@ -233,17 +235,18 @@ pub async fn create_worker(
 
             match result {
                 Ok(event) => {
-                    debug!("worker event: {:?}", event);
-                    send_event_if_event_manager_available(event_msg_tx, event);
+                    send_event_if_event_manager_available(event_msg_tx.clone(), event);
                 }
                 Err(err) => error!("unexpected worker error {}", err),
             };
 
             let end_time = get_thread_time()?;
-            debug!(
-                "[{:?}] CPU time used: {:?}ms",
-                service_path,
-                (end_time - start_time) / 1_000_000
+            send_event_if_event_manager_available(
+                event_msg_tx.clone(),
+                WorkerEvents::Log(LogEvent {
+                    msg: format!("CPU time used: {:?}ms", (end_time - start_time) / 1_000_000),
+                    level: LogLevel::Info,
+                }),
             );
 
             // remove the worker from pool

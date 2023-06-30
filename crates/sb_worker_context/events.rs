@@ -19,12 +19,27 @@ pub struct UncaughtException {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+pub enum LogLevel {
+    Debug,
+    Info,
+    Warning,
+    Error,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct LogEvent {
+    pub msg: String,
+    pub level: LogLevel,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 pub enum WorkerEvents {
     Boot(BootEvent),
     BootFailure(BootFailure),
     UncaughtException(UncaughtException),
-    CpuTimeLimit,
-    WallClockTimeLimit,
-    MemoryLimit,
-    EventLoopCompleted,
+    CpuTimeLimit(PseudoEvent),
+    WallClockTimeLimit(PseudoEvent),
+    MemoryLimit(PseudoEvent),
+    EventLoopCompleted(PseudoEvent),
+    Log(LogEvent),
 }

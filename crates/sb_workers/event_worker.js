@@ -7,7 +7,7 @@ class SupabaseEventListener {
         try {
             return await core.opAsync("op_event_accept");
         } catch (e) {
-            console.log(e);
+            console.error(e);
         }
     }
 

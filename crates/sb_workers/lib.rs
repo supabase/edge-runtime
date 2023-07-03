@@ -16,6 +16,7 @@ use sb_worker_context::essentials::{
     CreateUserWorkerResult, UserWorkerMsgs, UserWorkerRuntimeOpts, WorkerContextInitOpts,
     WorkerRuntimeOpts,
 };
+use sb_worker_context::events::{LogEvent, LogLevel, WorkerEvents};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::cell::RefCell;
@@ -31,7 +32,8 @@ deno_core::extension!(
     ops = [
         op_user_worker_create,
         op_user_worker_fetch_build,
-        op_user_worker_fetch_send
+        op_user_worker_fetch_send,
+        op_user_worker_log,
     ],
     esm = ["user_workers.js"]
 );
@@ -123,6 +125,24 @@ pub async fn op_user_worker_create(
         ));
     }
     Ok(result.unwrap().key.to_string())
+}
+
+#[op]
+pub fn op_user_worker_log(state: &mut OpState, msg: &str, is_err: bool) -> Result<(), AnyError> {
+    let maybe_tx = state.try_borrow::<mpsc::UnboundedSender<WorkerEvents>>();
+    let mut level = LogLevel::Info;
+    if is_err {
+        level = LogLevel::Error;
+    }
+    if maybe_tx.is_some() {
+        maybe_tx.unwrap().send(WorkerEvents::Log(LogEvent {
+            msg: msg.to_string(),
+            level,
+        }))?;
+    } else {
+        println!("[{:?}] {}", level, msg);
+    }
+    Ok(())
 }
 
 #[derive(Deserialize, Debug)]

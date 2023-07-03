@@ -93,6 +93,20 @@ fn get_error_class_name(e: &AnyError) -> &'static str {
     errors_rt::get_error_class_name(e).unwrap_or("Error")
 }
 
+fn set_v8_flags() {
+    let v8_flags = std::env::var("V8_FLAGS").unwrap_or("".to_string());
+    let mut vec = vec!["IGNORED"];
+    if v8_flags.is_empty() {
+        return;
+    }
+
+    vec.append(&mut v8_flags.split(' ').collect());
+    debug!(
+        "v8 flags unrecognized {:?}",
+        deno_core::v8_set_flags(vec.iter().map(|v| v.to_string()).collect())
+    );
+}
+
 pub struct DenoRuntime {
     pub js_runtime: JsRuntime,
     pub env_vars: HashMap<String, String>, // TODO: does this need to be pub?
@@ -120,6 +134,8 @@ impl DenoRuntime {
                 maybe_events_msg_tx = Some(events_msg_tx)
             }
         }
+
+        set_v8_flags();
 
         let user_agent = "supabase-edge-runtime".to_string();
         let base_url =
@@ -166,9 +182,6 @@ impl DenoRuntime {
 
         let import_map = load_import_map(import_map_path)?;
         let module_loader = DefaultModuleLoader::new(import_map, no_module_cache)?;
-
-        let ret = deno_core::v8_set_flags(vec!["IGNORED".to_string()]);
-        debug!("v8 flags unrecognized {:?}", ret);
 
         let mut js_runtime = JsRuntime::new(RuntimeOptions {
             extensions,

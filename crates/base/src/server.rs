@@ -94,7 +94,7 @@ impl Server {
     ) -> Result<Self, Error> {
         let mut worker_event_sender: Option<mpsc::UnboundedSender<WorkerEvents>> = None;
 
-        // Creates Event Worker
+        // Create Event Worker
         if let Some(events_service_path) = maybe_events_service_path {
             let events_path = Path::new(&events_service_path);
             let events_path_buf = events_path.to_path_buf();
@@ -107,7 +107,7 @@ impl Server {
             worker_event_sender = Some(event_worker);
         }
 
-        // create a user worker pool
+        // Create a user worker pool
         let user_worker_msgs_tx = create_user_worker_pool(worker_event_sender).await?;
 
         // create main worker

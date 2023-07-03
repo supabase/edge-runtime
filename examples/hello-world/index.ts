@@ -4,7 +4,7 @@ interface reqPayload {
 	name: string;
 }
 
-console.log('server started modified');
+console.info('server started modified');
 
 serve(async (req: Request) => {
 	const { name }: reqPayload = await req.json();

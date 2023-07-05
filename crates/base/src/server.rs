@@ -4,7 +4,9 @@ use crate::worker_ctx::{
 use anyhow::Error;
 use hyper::{server::conn::Http, service::Service, Body, Request, Response};
 use log::{debug, error, info};
-use sb_worker_context::essentials::{EdgeContextInitOpts, EdgeContextOpts, EdgeMainRuntimeOpts};
+use sb_worker_context::essentials::{
+    MainWorkerRuntimeOpts, WorkerContextInitOpts, WorkerRuntimeOpts,
+};
 use sb_worker_context::events::WorkerEvents;
 use std::future::Future;
 use std::net::IpAddr;
@@ -111,11 +113,11 @@ impl Server {
         // create main worker
         let main_path = Path::new(&main_service_path);
         let main_worker_req_tx = create_worker(
-            EdgeContextInitOpts {
+            WorkerContextInitOpts {
                 service_path: main_path.to_path_buf(),
                 import_map_path,
                 no_module_cache,
-                conf: EdgeContextOpts::MainWorker(EdgeMainRuntimeOpts {
+                conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
                     worker_pool_tx: user_worker_msgs_tx,
                 }),
                 env_vars: std::env::vars().collect(),
@@ -123,6 +125,9 @@ impl Server {
             None,
         )
         .await?;
+
+        // register alarm signal handler
+        cpu_timer::register_alarm()?;
 
         let ip = Ipv4Addr::from_str(ip)?;
         Ok(Self {

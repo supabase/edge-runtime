@@ -21,7 +21,6 @@ import * as response from "ext:deno_fetch/23_response.js";
 import * as request from "ext:deno_fetch/23_request.js";
 import * as globalInterfaces from "ext:deno_web/04_global_interfaces.js";
 import { SUPABASE_ENV } from "ext:sb_env/env.js";
-import { loadUserRuntime } from "ext:sb_core_main_js/js/user_runtime_loader.js"
 import {
   registerErrors
 } from "ext:sb_core_main_js/js/errors.js";
@@ -32,8 +31,9 @@ import {
   getterOnly,
   formatException
 } from "ext:sb_core_main_js/js/fieldUtils.js";
+import { Navigator, navigator, setNumCpus, setLanguage, setUserAgent } from "ext:sb_core_main_js/js/navigator.js"
 import { promiseRejectMacrotaskCallback } from "ext:sb_core_main_js/js/promises.js";
-import { denoOverrides } from "ext:sb_core_main_js/js/denoOverrides.js";
+import { fsVars, denoOverrides } from "ext:sb_core_main_js/js/denoOverrides.js";
 import * as performance from "ext:deno_web/15_performance.js";
 import * as messagePort from "ext:deno_web/13_message_port.js";
 import { SupabaseEventListener } from "ext:sb_user_event_worker/event_worker.js";
@@ -52,7 +52,7 @@ const {
 
 const globalScope = {
   console: nonEnumerable(
-      new console.Console((msg, level) => core.print(msg, level > 1)),
+    new console.Console((msg, level) => core.print(msg, level > 1)),
   ),
 
   // timers
@@ -209,20 +209,25 @@ ObjectDefineProperties(globalThis, globalScope);
 const globalProperties = {
     Window: globalInterfaces.windowConstructorDescriptor,
     window: getterOnly(() => globalThis),
+    Navigator: nonEnumerable(Navigator),
+    navigator: getterOnly(() => navigator),
     self: getterOnly(() => globalThis),
 };
 
 ObjectDefineProperties(globalThis, globalProperties);
 ObjectSetPrototypeOf(globalThis, Window.prototype);
-
-
-
 event.setEventTargetData(globalThis);
 
 const eventHandlers = ["error", "load", "beforeunload", "unload", "unhandledrejection"];
 eventHandlers.forEach((handlerName) => event.defineEventHandler(globalThis, handlerName));
 
-globalThis.bootstrapSBEdge = (opts, isUserRuntime, isEventManager) => {
+const deleteDenoApis = (apis) => {
+    apis.forEach((key) => {
+       delete Deno[key];
+    });
+}
+
+globalThis.bootstrapSBEdge = (opts, isUserWorker, isEventsWorker) => {
 
   // We should delete this after initialization,
   // Deleting it during bootstrapping can backfire
@@ -246,14 +251,25 @@ globalThis.bootstrapSBEdge = (opts, isUserRuntime, isEventManager) => {
     args: readOnly([]), // args are set to be empty
     mainModule: getterOnly(() => ops.op_main_module()),
   });
-
   ObjectDefineProperty(globalThis, "Deno", readOnly(denoOverrides));
 
-  if(isUserRuntime) {
-    loadUserRuntime();
+  setNumCpus(1); // explicitly setting no of CPUs to 1 (since we don't allow workers)
+  setUserAgent("Supabase Edge Runtime");
+  setLanguage("en");
+
+
+  if(isUserWorker) {
+    delete globalThis.EdgeRuntime;
+
+    // override console
+    ObjectDefineProperties(globalThis, { console: nonEnumerable(
+      new console.Console((msg, level) => ops.op_user_worker_log(msg, level > 1)),
+    )});
+
+    deleteDenoApis(Object.keys(fsVars));
   }
 
-  if(isEventManager) {
+  if(isEventsWorker) {
     // Event Manager should have the same as the `main` except it can't create workers (that would be catastrophic)
     delete globalThis.EdgeRuntime;
     ObjectDefineProperties(globalThis, {

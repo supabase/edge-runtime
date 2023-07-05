@@ -1,18 +1,23 @@
-use crate::edge_runtime::{EdgeCallResult, EdgeRuntime};
+use crate::deno_runtime::DenoRuntime;
 use crate::utils::send_event_if_event_manager_available;
+use crate::utils::units::bytes_to_display;
+
 use anyhow::{anyhow, bail, Error};
 use cityhash::cityhash_1_1_1::city_hash_64;
+use cpu_timer::{get_thread_time, CPUAlarmVal, CPUTimer};
 use hyper::{Body, Request, Response};
-use log::error;
+use log::{debug, error};
 use sb_worker_context::essentials::{
-    CreateUserWorkerResult, EdgeContextInitOpts, EdgeContextOpts, EdgeEventRuntimeOpts,
-    UserWorkerMsgs,
+    CreateUserWorkerResult, EventWorkerRuntimeOpts, UserWorkerMsgs, WorkerContextInitOpts,
+    WorkerRuntimeOpts,
 };
-use sb_worker_context::events::{BootEvent, BootFailure, UncaughtException, WorkerEvents};
+use sb_worker_context::events::{
+    BootEvent, BootFailure, LogEvent, LogLevel, PseudoEvent, UncaughtException, WorkerEvents,
+};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::thread;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::net::UnixStream;
 use tokio::sync::{mpsc, oneshot};
 
@@ -54,9 +59,100 @@ async fn handle_request(
     Ok(())
 }
 
+fn create_supervisor(
+    key: u64,
+    worker_runtime: &mut DenoRuntime,
+    termination_event_tx: oneshot::Sender<WorkerEvents>,
+) -> Result<CPUTimer, Error> {
+    let (memory_limit_tx, mut memory_limit_rx) = mpsc::unbounded_channel::<()>();
+    let thread_safe_handle = worker_runtime.js_runtime.v8_isolate().thread_safe_handle();
+
+    // we assert supervisor is only run for user workers
+    let conf = worker_runtime.conf.as_user_worker().unwrap().clone();
+
+    worker_runtime.js_runtime.add_near_heap_limit_callback(move |cur, _| {
+        debug!(
+            "Low memory alert triggered: {}",
+            bytes_to_display(cur as u64),
+        );
+
+        if memory_limit_tx.send(()).is_err() {
+            error!("failed to send memory limit reached notification - isolate may already be terminating");
+        };
+
+        // give an allowance on current limit (until the isolate is terminated)
+        // we do this so that oom won't end up killing the edge-runtime process
+        cur * (conf.low_memory_multiplier as usize)
+    });
+
+    // Note: CPU timer must be started in the same thread as the worker runtime
+    let (cpu_alarms_tx, mut cpu_alarms_rx) = mpsc::unbounded_channel::<()>();
+    let cputimer = CPUTimer::start(conf.cpu_time_threshold_ms, CPUAlarmVal { cpu_alarms_tx })?;
+
+    let thread_name = format!("sb-sup-{:?}", key);
+    let _handle = thread::Builder::new()
+        .name(thread_name)
+        .spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let local = tokio::task::LocalSet::new();
+
+            let future = async move {
+                let mut bursts = 0;
+                let mut last_burst = Instant::now();
+
+                let sleep = tokio::time::sleep(Duration::from_millis(conf.worker_timeout_ms));
+                tokio::pin!(sleep);
+
+                loop {
+                    tokio::select! {
+                        Some(_) = cpu_alarms_rx.recv() => {
+                            if last_burst.elapsed().as_millis() > (conf.cpu_burst_interval_ms as u128) {
+                                bursts += 1;
+                                last_burst = Instant::now();
+                            }
+                            if bursts > conf.max_cpu_bursts {
+                                thread_safe_handle.terminate_execution();
+                                error!("CPU time limit reached. isolate: {:?}", key);
+                                return WorkerEvents::CpuTimeLimit(PseudoEvent{})
+                            }
+                        }
+
+                        // wall-clock limit
+                        () = &mut sleep => {
+                            // use interrupt to capture the heap stats
+                            //thread_safe_handle.request_interrupt(callback, std::ptr::null_mut());
+                            thread_safe_handle.terminate_execution();
+                            error!("wall clock duration reached. isolate: {:?}", key);
+                            return WorkerEvents::WallClockTimeLimit(PseudoEvent{});
+
+                        }
+
+                        // memory usage
+                        Some(_) = memory_limit_rx.recv() => {
+                            thread_safe_handle.terminate_execution();
+                            error!("memory limit reached for the worker. isolate: {:?}", key);
+                            return WorkerEvents::MemoryLimit(PseudoEvent{});
+                        }
+                    }
+                }
+            };
+
+            let result = local.block_on(&rt, future);
+
+            // send termination reason
+            let _ = termination_event_tx.send(result);
+        })
+        .unwrap();
+
+    Ok(cputimer)
+}
+
 pub async fn create_worker(
-    init_opts: EdgeContextInitOpts,
-    event_manager_opts: Option<EdgeEventRuntimeOpts>,
+    init_opts: WorkerContextInitOpts,
+    event_manager_opts: Option<EventWorkerRuntimeOpts>,
 ) -> Result<mpsc::UnboundedSender<WorkerRequestMsg>, Error> {
     let service_path = init_opts.service_path.clone();
 
@@ -67,23 +163,23 @@ pub async fn create_worker(
     let (worker_boot_result_tx, worker_boot_result_rx) = oneshot::channel::<Result<(), Error>>();
     let (unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
 
-    let (worker_key, pool_msg_tx, event_msg_tx, thread_name) = match init_opts.conf.clone() {
-        EdgeContextOpts::UserWorker(worker_opts) => (
+    let (worker_key, pool_msg_tx, event_msg_tx, thread_name) = match &init_opts.conf {
+        WorkerRuntimeOpts::UserWorker(worker_opts) => (
             worker_opts.key,
-            worker_opts.pool_msg_tx,
-            worker_opts.events_msg_tx,
+            worker_opts.pool_msg_tx.clone(),
+            worker_opts.events_msg_tx.clone(),
             worker_opts
                 .key
-                .map(|k| format!("isolate-worker-{:?}", k))
+                .map(|k| format!("sb-iso-{:?}", k))
                 .unwrap_or("isolate-worker-unknown".to_string()),
         ),
-        EdgeContextOpts::MainWorker(_) => (None, None, None, "main-worker".to_string()),
-        EdgeContextOpts::EventsWorker => (None, None, None, "events-worker".to_string()),
+        WorkerRuntimeOpts::MainWorker(_) => (None, None, None, "main-worker".to_string()),
+        WorkerRuntimeOpts::EventsWorker => (None, None, None, "events-worker".to_string()),
     };
 
     // spawn a thread to run the worker
-    let worker_thread = thread::Builder::new().name(thread_name);
-    let _handle: thread::JoinHandle<Result<(), Error>> = worker_thread
+    let _handle: thread::JoinHandle<Result<(), Error>> = thread::Builder::new()
+        .name(thread_name)
         .spawn(move || {
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -91,38 +187,79 @@ pub async fn create_worker(
                 .unwrap();
             let local = tokio::task::LocalSet::new();
 
-            let result: Result<EdgeCallResult, Error> = local.block_on(&runtime, async {
-                match EdgeRuntime::new(init_opts, event_manager_opts).await {
+            let mut start_time = 0;
+            let result: Result<WorkerEvents, Error> = local.block_on(&runtime, async {
+                match DenoRuntime::new(init_opts, event_manager_opts).await {
                     Err(err) => {
                         let _ = worker_boot_result_tx.send(Err(anyhow!("worker boot error")));
-                        bail!(err)
+                        Ok(WorkerEvents::BootFailure(BootFailure {
+                            msg: err.to_string(),
+                        }))
                     }
-                    Ok(worker) => {
+                    Ok(mut worker_runtime) => {
                         let _ = worker_boot_result_tx.send(Ok(()));
-                        worker.run(unix_stream_rx).await
+
+                        let (termination_event_tx, termination_event_rx) =
+                            oneshot::channel::<WorkerEvents>();
+                        let _cputimer;
+                        if worker_runtime.conf.is_user_worker() {
+                            start_time = get_thread_time()?;
+
+                            // cputimer is returned from supervisor and assigned here to keep it in scope.
+                            _cputimer = create_supervisor(
+                                worker_key.unwrap_or(0),
+                                &mut worker_runtime,
+                                termination_event_tx,
+                            )?;
+                        }
+
+                        match worker_runtime.run(unix_stream_rx).await {
+                            // if the error is execution terminated, check termination event reason
+                            Err(err) => {
+                                let err_string = err.to_string();
+                                if err_string.ends_with("execution terminated")
+                                    || err_string.ends_with("wall clock duration reached")
+                                {
+                                    Ok(termination_event_rx.await?)
+                                } else {
+                                    Ok(WorkerEvents::UncaughtException(UncaughtException {
+                                        exception: err_string,
+                                    }))
+                                }
+                            }
+                            Ok(()) => Ok(WorkerEvents::EventLoopCompleted(PseudoEvent {})),
+                        }
                     }
                 }
             });
 
-            if let Err(err) = result {
-                send_event_if_event_manager_available(
-                    event_msg_tx,
-                    WorkerEvents::UncaughtException(UncaughtException {
-                        exception: err.to_string(),
-                    }),
-                );
-                error!("worker {:?} returned an error: {:?}", service_path, err);
-            }
+            match result {
+                Ok(event) => {
+                    send_event_if_event_manager_available(event_msg_tx.clone(), event);
+                }
+                Err(err) => error!("unexpected worker error {}", err),
+            };
+
+            let end_time = get_thread_time()?;
+            send_event_if_event_manager_available(
+                event_msg_tx.clone(),
+                WorkerEvents::Log(LogEvent {
+                    msg: format!("CPU time used: {:?}ms", (end_time - start_time) / 1_000_000),
+                    level: LogLevel::Info,
+                }),
+            );
 
             // remove the worker from pool
-            if let Some(k) = worker_key {
-                if let Some(tx) = pool_msg_tx {
-                    let res = tx.send(UserWorkerMsgs::Shutdown(k));
-                    if res.is_err() {
-                        error!(
-                            "failed to send the shutdown signal to user worker pool: {:?}",
-                            res.unwrap_err()
-                        );
+            if worker_key.is_some() {
+                if let Some(worker_key_unwrapped) = worker_key {
+                    if let Some(tx) = pool_msg_tx {
+                        let res = tx.send(UserWorkerMsgs::Shutdown(worker_key_unwrapped));
+                        if res.is_err() {
+                            error!(
+                                "failed to send the shutdown signal to user worker pool: {:?}",
+                                res.unwrap_err()
+                            );
+                        }
                     }
                 }
             }
@@ -136,12 +273,13 @@ pub async fn create_worker(
 
     let worker_req_handle: tokio::task::JoinHandle<Result<(), Error>> =
         tokio::task::spawn(async move {
-            let unix_stream_tx = unix_stream_tx.clone();
-
             while let Some(msg) = worker_req_rx.recv().await {
-                if let Err(err) = handle_request(unix_stream_tx.clone(), msg).await {
-                    error!("worker failed to handle request: {:?}", err);
-                }
+                let unix_stream_tx_clone = unix_stream_tx.clone();
+                tokio::task::spawn(async move {
+                    if let Err(err) = handle_request(unix_stream_tx_clone, msg).await {
+                        error!("worker failed to handle request: {:?}", err);
+                    }
+                });
             }
 
             Ok(())
@@ -184,14 +322,14 @@ pub async fn create_event_worker(
     let (event_tx, event_rx) = mpsc::unbounded_channel::<WorkerEvents>();
 
     let _ = create_worker(
-        EdgeContextInitOpts {
+        WorkerContextInitOpts {
             service_path: event_worker_path,
             no_module_cache,
             import_map_path,
             env_vars: std::env::vars().collect(),
-            conf: EdgeContextOpts::EventsWorker,
+            conf: WorkerRuntimeOpts::EventsWorker,
         },
-        Some(EdgeEventRuntimeOpts { event_rx }),
+        Some(EventWorkerRuntimeOpts { event_rx }),
     )
     .await?;
 
@@ -213,7 +351,7 @@ pub async fn create_user_worker_pool(
                 None => break,
                 Some(UserWorkerMsgs::Create(mut worker_options, tx)) => {
                     let mut user_worker_rt_opts = match worker_options.conf {
-                        EdgeContextOpts::UserWorker(opts) => opts,
+                        WorkerRuntimeOpts::UserWorker(opts) => opts,
                         _ => unreachable!(),
                     };
 
@@ -241,7 +379,7 @@ pub async fn create_user_worker_pool(
                     user_worker_rt_opts.key = Some(key);
                     user_worker_rt_opts.pool_msg_tx = Some(user_worker_msgs_tx_clone.clone());
                     user_worker_rt_opts.events_msg_tx = worker_event_sender.clone();
-                    worker_options.conf = EdgeContextOpts::UserWorker(user_worker_rt_opts);
+                    worker_options.conf = WorkerRuntimeOpts::UserWorker(user_worker_rt_opts);
                     let now = Instant::now();
                     let result = create_worker(worker_options, None).await;
                     let elapsed = now.elapsed().as_secs();
@@ -269,10 +407,6 @@ pub async fn create_user_worker_pool(
                             };
                         }
                         Err(e) => {
-                            send_event_if_event_manager_available(
-                                event_manager,
-                                WorkerEvents::BootFailure(BootFailure { msg: e.to_string() }),
-                            );
                             if tx.send(Err(e)).is_err() {
                                 bail!("main worker receiver dropped")
                             };
@@ -280,32 +414,37 @@ pub async fn create_user_worker_pool(
                     }
                 }
                 Some(UserWorkerMsgs::SendRequest(key, req, tx)) => {
-                    let result = match user_workers.get(&key) {
+                    match user_workers.get(&key) {
                         Some(worker) => {
                             let profile = worker.clone();
-                            let req = send_user_worker_request(profile.worker_event_tx, req).await;
+                            tokio::task::spawn(async move {
+                                let req =
+                                    send_user_worker_request(profile.worker_event_tx, req).await;
+                                let result = match req {
+                                    Ok(rep) => Ok(rep),
+                                    Err(err) => {
+                                        send_event_if_event_manager_available(
+                                            profile.event_manager_tx,
+                                            WorkerEvents::UncaughtException(UncaughtException {
+                                                exception: err.to_string(),
+                                            }),
+                                        );
+                                        Err(err)
+                                    }
+                                };
 
-                            match req {
-                                Ok(rep) => Ok(rep),
-                                Err(err) => {
-                                    send_event_if_event_manager_available(
-                                        profile.event_manager_tx,
-                                        WorkerEvents::UncaughtException(UncaughtException {
-                                            exception: err.to_string(),
-                                        }),
-                                    );
-                                    Err(err)
+                                if tx.send(result).is_err() {
+                                    error!("main worker receiver dropped")
                                 }
+                            });
+                        }
+
+                        None => {
+                            if tx.send(Err(anyhow!("user worker not available"))).is_err() {
+                                bail!("main worker receiver dropped")
                             }
                         }
-                        None => {
-                            bail!("user worker not available")
-                        }
                     };
-
-                    if tx.send(result).is_err() {
-                        bail!("main worker receiver dropped")
-                    }
                 }
                 Some(UserWorkerMsgs::Shutdown(key)) => {
                     user_workers.remove(&key);

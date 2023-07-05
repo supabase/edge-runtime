@@ -1,4 +1,4 @@
-use deno_core::error::AnyError;
+use anyhow::{bail, Error};
 use deno_core::op;
 use deno_core::OpState;
 use sb_worker_context::events::WorkerEvents;
@@ -6,12 +6,10 @@ use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::rc::Rc;
 use tokio::sync::mpsc;
-use tokio::sync::mpsc::error::TryRecvError;
 
 #[derive(Serialize, Deserialize)]
 pub enum RawEvent {
     Event(WorkerEvents),
-    Empty,
     Done,
 }
 
@@ -24,26 +22,25 @@ pub struct IncomingEvent {
 }
 
 #[op]
-async fn op_event_accept(state: Rc<RefCell<OpState>>) -> Result<RawEvent, AnyError> {
-    let mut rx = {
+async fn op_event_accept(state: Rc<RefCell<OpState>>) -> Result<RawEvent, Error> {
+    let rx = {
         let mut op_state = state.borrow_mut();
-        op_state.take::<mpsc::UnboundedReceiver<WorkerEvents>>()
+        op_state.try_take::<mpsc::UnboundedReceiver<WorkerEvents>>()
     };
+    if rx.is_none() {
+        bail!("events worker receiver not available")
+    }
+    let mut rx = rx.unwrap();
 
-    let data = rx.try_recv();
-
-    let get_data: Result<RawEvent, AnyError> = match data {
-        Ok(event) => Ok(RawEvent::Event(event)),
-        Err(err) => match err {
-            TryRecvError::Empty => Ok(RawEvent::Empty),
-            TryRecvError::Disconnected => Ok(RawEvent::Done),
-        },
-    };
+    let data = rx.recv().await;
 
     let mut op_state = state.borrow_mut();
     op_state.put::<mpsc::UnboundedReceiver<WorkerEvents>>(rx);
 
-    get_data
+    match data {
+        Some(event) => Ok(RawEvent::Event(event)),
+        None => Ok(RawEvent::Done),
+    }
 }
 
 deno_core::extension!(

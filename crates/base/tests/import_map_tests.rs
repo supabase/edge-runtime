@@ -5,17 +5,19 @@ use tokio::sync::oneshot;
 use urlencoding::encode;
 
 use base::worker_ctx::{create_worker, WorkerRequestMsg};
-use sb_worker_context::essentials::{EdgeContextInitOpts, EdgeContextOpts, EdgeUserRuntimeOpts};
+use sb_worker_context::essentials::{
+    UserWorkerRuntimeOpts, WorkerContextInitOpts, WorkerRuntimeOpts,
+};
 
 #[tokio::test]
 async fn test_import_map_file_path() {
-    let user_rt_opts = EdgeUserRuntimeOpts::default();
-    let opts = EdgeContextInitOpts {
+    let user_rt_opts = UserWorkerRuntimeOpts::default();
+    let opts = WorkerContextInitOpts {
         service_path: "./test_cases/with_import_map".into(),
         no_module_cache: false,
         import_map_path: Some("./test_cases/with_import_map/import_map.json".to_string()),
         env_vars: HashMap::new(),
-        conf: EdgeContextOpts::UserWorker(user_rt_opts),
+        conf: WorkerRuntimeOpts::UserWorker(user_rt_opts),
     };
     let worker_req_tx = create_worker(opts, None).await.unwrap();
     let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
@@ -39,7 +41,7 @@ async fn test_import_map_file_path() {
 
 #[tokio::test]
 async fn test_import_map_inline() {
-    let user_rt_opts = EdgeUserRuntimeOpts::default();
+    let user_rt_opts = UserWorkerRuntimeOpts::default();
     let inline_import_map = format!(
         "data:{}?{}",
         encode(
@@ -57,12 +59,12 @@ async fn test_import_map_inline() {
                 .unwrap()
         )
     );
-    let opts = EdgeContextInitOpts {
+    let opts = WorkerContextInitOpts {
         service_path: "./test_cases/with_import_map".into(),
         no_module_cache: false,
         import_map_path: Some(inline_import_map),
         env_vars: HashMap::new(),
-        conf: EdgeContextOpts::UserWorker(user_rt_opts),
+        conf: WorkerRuntimeOpts::UserWorker(user_rt_opts),
     };
     let worker_req_tx = create_worker(opts, None).await.unwrap();
     let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();

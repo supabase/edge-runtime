@@ -269,6 +269,7 @@ dependencies = [
  "anyhow",
  "bytes",
  "cityhash",
+ "cpu_timer",
  "deno_ast",
  "deno_console",
  "deno_core",
@@ -303,7 +304,6 @@ dependencies = [
  "tokio",
  "url",
  "urlencoding",
- "v8 0.60.1",
 ]
 
 [[package]]
@@ -646,6 +646,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e496a50fda8aacccc86d7529e2c1e0892dbd0f898a6b5645b5561b89c3210efa"
 
 [[package]]
+name = "cpu_timer"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "libc",
+ "log",
+ "nix 0.26.2",
+ "tokio",
+]
+
+[[package]]
 name = "cpufeatures"
 version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -914,7 +925,7 @@ dependencies = [
  "smallvec",
  "sourcemap",
  "url",
- "v8 0.68.0",
+ "v8",
 ]
 
 [[package]]
@@ -1007,7 +1018,7 @@ dependencies = [
  "fs3",
  "libc",
  "log",
- "nix",
+ "nix 0.24.2",
  "serde",
  "tokio",
  "winapi",
@@ -1067,7 +1078,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "830342535b39cd223cad825709a20dde24736aa700ba628551e1c6efb57c9589"
 dependencies = [
  "deno_core",
- "nix",
+ "nix 0.24.2",
  "once_cell",
  "tokio",
  "winapi",
@@ -1347,6 +1358,18 @@ dependencies = [
  "proc-macro2 1.0.56",
  "quote 1.0.26",
  "syn 1.0.109",
+]
+
+[[package]]
+name = "enum-as-inner"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5ffccbb6966c05b32ef8fbac435df276c4ae4d3dc55a8cd0eb9745e6c12f546a"
+dependencies = [
+ "heck",
+ "proc-macro2 1.0.56",
+ "quote 1.0.26",
+ "syn 2.0.15",
 ]
 
 [[package]]
@@ -2220,9 +2243,9 @@ dependencies = [
 
 [[package]]
 name = "libc"
-version = "0.2.142"
+version = "0.2.144"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a987beff54b60ffa6d51982e1aa1146bc42f19bd26be28b0586f252fccf5317"
+checksum = "2b00cc1c228a6782d0f076e7b232802e0c5689d41bb5df366f2a6b6621cfdfe1"
 
 [[package]]
 name = "libloading"
@@ -2364,6 +2387,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "memoffset"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5de893c32cde5f383baa4c04c5d6dbdd735cfd4a794b0debdb2bb1b421da5ff4"
+dependencies = [
+ "autocfg",
+]
+
+[[package]]
 name = "mime"
 version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2482,7 +2514,21 @@ dependencies = [
  "bitflags",
  "cfg-if 1.0.0",
  "libc",
- "memoffset",
+ "memoffset 0.6.5",
+]
+
+[[package]]
+name = "nix"
+version = "0.26.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bfdda3d196821d6af13126e40375cdf7da646a96114af134d5f417a9a1dc8e1a"
+dependencies = [
+ "bitflags",
+ "cfg-if 1.0.0",
+ "libc",
+ "memoffset 0.7.1",
+ "pin-utils",
+ "static_assertions",
 ]
 
 [[package]]
@@ -3384,6 +3430,7 @@ name = "sb_worker_context"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "enum-as-inner 0.6.0",
  "hyper",
  "serde",
  "tokio",
@@ -3576,7 +3623,7 @@ dependencies = [
  "serde",
  "serde_bytes",
  "smallvec",
- "v8 0.68.0",
+ "v8",
 ]
 
 [[package]]
@@ -4547,7 +4594,7 @@ dependencies = [
  "async-trait",
  "cfg-if 1.0.0",
  "data-encoding",
- "enum-as-inner",
+ "enum-as-inner 0.5.1",
  "futures-channel",
  "futures-io",
  "futures-util",
@@ -4782,18 +4829,6 @@ checksum = "5b55a3fef2a1e3b3a00ce878640918820d3c51081576ac657d23af9fc7928fdb"
 dependencies = [
  "getrandom 0.2.9",
  "serde",
-]
-
-[[package]]
-name = "v8"
-version = "0.60.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "07fd5b3ed559897ff02c0f62bc0a5f300bfe79bb4c77a50031b8df771701c628"
-dependencies = [
- "bitflags",
- "fslock",
- "lazy_static",
- "which 4.4.0",
 ]
 
 [[package]]

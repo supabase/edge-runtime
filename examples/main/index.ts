@@ -30,7 +30,7 @@ serve(async (req: Request) => {
 
 	const createWorker = async () => {
 		const memoryLimitMb = 150;
-		const workerTimeoutMs = 1 * 60 * 1000;
+		const workerTimeoutMs = 10 * 1000;
 		const noModuleCache = false;
 		// you can provide an import map inline
 		// const inlineImportMap = {

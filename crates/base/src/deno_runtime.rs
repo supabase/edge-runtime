@@ -643,7 +643,7 @@ mod test {
 
     #[tokio::test]
     async fn test_read_file_user_rt() {
-        let user_rt = create_basic_user_runtime("./test_cases/readFile", 5, 1000).await;
+        let user_rt = create_basic_user_runtime("./test_cases/readFile", 10, 1000).await;
         let (_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
         let result = user_rt.run(unix_stream_rx).await;
         match result {

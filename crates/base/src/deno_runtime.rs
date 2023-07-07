@@ -9,7 +9,7 @@ use import_map::{parse_from_json, ImportMap, ImportMapDiagnostic};
 use log::{debug, warn};
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Duration;
 use std::{fmt, fs};
@@ -138,9 +138,8 @@ impl DenoRuntime {
         set_v8_flags();
 
         let user_agent = "supabase-edge-runtime".to_string();
-        let base_url =
-            Url::from_directory_path(std::env::current_dir().map(|p| p.join(&service_path))?)
-                .unwrap();
+        let base_dir_path = std::env::current_dir().map(|p| p.join(&service_path))?;
+        let base_url = Url::from_directory_path(&base_dir_path).unwrap();
         // TODO: check for other potential main paths (eg: index.js, index.tsx)
         let main_module_url = base_url.join("index.ts")?;
 
@@ -181,7 +180,21 @@ impl DenoRuntime {
         ];
 
         let import_map = load_import_map(import_map_path)?;
-        let module_loader = DefaultModuleLoader::new(import_map, no_module_cache)?;
+        let mut allow_remote_modules = true;
+        let mut module_root_path = base_dir_path.clone();
+        if conf.is_user_worker() {
+            let user_conf = conf.as_user_worker().unwrap();
+            allow_remote_modules = user_conf.allow_remote_modules;
+            if let Some(custom_module_root) = &user_conf.custom_module_root {
+                module_root_path = PathBuf::from(custom_module_root);
+            }
+        }
+        let module_loader = DefaultModuleLoader::new(
+            module_root_path,
+            import_map,
+            no_module_cache,
+            allow_remote_modules,
+        )?;
 
         let mut js_runtime = JsRuntime::new(RuntimeOptions {
             extensions,
@@ -606,6 +619,8 @@ mod test {
                 max_cpu_bursts: 10,
                 low_memory_multiplier: 5,
                 force_create: true,
+                allow_remote_modules: true,
+                custom_module_root: None,
                 key: None,
                 pool_msg_tx: None,
                 events_msg_tx: None,

@@ -32,6 +32,7 @@ serve(async (req: Request) => {
 		const memoryLimitMb = 150;
 		const workerTimeoutMs = 10 * 1000;
 		const noModuleCache = false;
+		const customModuleRoot = null;
 		// you can provide an import map inline
 		// const inlineImportMap = {
 		//   imports: {
@@ -53,6 +54,7 @@ serve(async (req: Request) => {
 			importMapPath,
 			envVars,
 			forceCreate,
+			customModuleRoot,
 		});
 	};
 

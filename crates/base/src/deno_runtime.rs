@@ -619,6 +619,8 @@ mod test {
                 max_cpu_bursts: 10,
                 low_memory_multiplier: 5,
                 force_create: true,
+                allow_remote_modules: true,
+                custom_module_root: None,
                 key: None,
                 pool_msg_tx: None,
                 events_msg_tx: None,

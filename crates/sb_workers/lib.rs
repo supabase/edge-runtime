@@ -46,6 +46,8 @@ pub struct UserWorkerCreateOptions {
     import_map_path: Option<String>,
     env_vars: Vec<(String, String)>,
     force_create: bool,
+    allow_remote_modules: bool,
+    custom_module_root: Option<String>,
 
     memory_limit_mb: u64,
     low_memory_multiplier: u64,
@@ -71,6 +73,8 @@ pub async fn op_user_worker_create(
             import_map_path,
             env_vars,
             force_create,
+            allow_remote_modules,
+            custom_module_root,
 
             memory_limit_mb,
             low_memory_multiplier,
@@ -98,6 +102,8 @@ pub async fn op_user_worker_create(
                 max_cpu_bursts,
                 cpu_burst_interval_ms,
                 force_create,
+                allow_remote_modules,
+                custom_module_root,
                 key: None,
                 pool_msg_tx: None,
                 events_msg_tx: None,

@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PseudoEvent {}
@@ -19,17 +20,17 @@ pub struct UncaughtException {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+pub struct LogEvent {
+    pub msg: String,
+    pub level: LogLevel,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 pub enum LogLevel {
     Debug,
     Info,
     Warning,
     Error,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct LogEvent {
-    pub msg: String,
-    pub level: LogLevel,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -42,4 +43,16 @@ pub enum WorkerEvents {
     MemoryLimit(PseudoEvent),
     EventLoopCompleted(PseudoEvent),
     Log(LogEvent),
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct EventMetadata {
+    pub service_path: Option<String>,
+    pub execution_id: Option<Uuid>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct WorkerEventWithMetadata {
+    pub event: WorkerEvents,
+    pub metadata: EventMetadata,
 }

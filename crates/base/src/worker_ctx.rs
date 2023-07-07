@@ -12,7 +12,8 @@ use sb_worker_context::essentials::{
     WorkerRuntimeOpts,
 };
 use sb_worker_context::events::{
-    BootEvent, BootFailure, LogEvent, LogLevel, PseudoEvent, UncaughtException, WorkerEvents,
+    BootEvent, BootFailure, EventMetadata, LogEvent, LogLevel, PseudoEvent, UncaughtException,
+    WorkerEventWithMetadata, WorkerEvents,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -30,7 +31,6 @@ pub struct WorkerRequestMsg {
 #[derive(Debug, Clone)]
 pub struct UserWorkerProfile {
     worker_event_tx: mpsc::UnboundedSender<WorkerRequestMsg>,
-    event_manager_tx: Option<mpsc::UnboundedSender<WorkerEvents>>,
 }
 
 async fn handle_request(
@@ -150,9 +150,24 @@ fn create_supervisor(
     Ok(cputimer)
 }
 
+fn get_event_metadata(conf: &WorkerRuntimeOpts) -> EventMetadata {
+    let mut event_metadata = EventMetadata {
+        service_path: None,
+        execution_id: None,
+    };
+    if conf.is_user_worker() {
+        let conf = conf.as_user_worker().unwrap();
+        event_metadata = EventMetadata {
+            service_path: conf.service_path.clone(),
+            execution_id: conf.execution_id,
+        };
+    }
+
+    event_metadata
+}
+
 pub async fn create_worker(
     init_opts: WorkerContextInitOpts,
-    event_manager_opts: Option<EventWorkerRuntimeOpts>,
 ) -> Result<mpsc::UnboundedSender<WorkerRequestMsg>, Error> {
     let service_path = init_opts.service_path.clone();
 
@@ -163,7 +178,7 @@ pub async fn create_worker(
     let (worker_boot_result_tx, worker_boot_result_rx) = oneshot::channel::<Result<(), Error>>();
     let (unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
 
-    let (worker_key, pool_msg_tx, event_msg_tx, thread_name) = match &init_opts.conf {
+    let (worker_key, pool_msg_tx, events_msg_tx, thread_name) = match &init_opts.conf {
         WorkerRuntimeOpts::UserWorker(worker_opts) => (
             worker_opts.key,
             worker_opts.pool_msg_tx.clone(),
@@ -174,9 +189,14 @@ pub async fn create_worker(
                 .unwrap_or("isolate-worker-unknown".to_string()),
         ),
         WorkerRuntimeOpts::MainWorker(_) => (None, None, None, "main-worker".to_string()),
-        WorkerRuntimeOpts::EventsWorker => (None, None, None, "events-worker".to_string()),
+        WorkerRuntimeOpts::EventsWorker(_) => (None, None, None, "events-worker".to_string()),
     };
 
+    let event_metadata = get_event_metadata(&init_opts.conf);
+
+    let worker_boot_start_time = Instant::now();
+    let events_msg_tx_clone = events_msg_tx.clone();
+    let event_metadata_clone = event_metadata.clone();
     // spawn a thread to run the worker
     let _handle: thread::JoinHandle<Result<(), Error>> = thread::Builder::new()
         .name(thread_name)
@@ -189,8 +209,9 @@ pub async fn create_worker(
 
             let mut start_time = 0;
             let result: Result<WorkerEvents, Error> = local.block_on(&runtime, async {
-                match DenoRuntime::new(init_opts, event_manager_opts).await {
+                match DenoRuntime::new(init_opts).await {
                     Err(err) => {
+                        println!("{}", err);
                         let _ = worker_boot_result_tx.send(Err(anyhow!("worker boot error")));
                         Ok(WorkerEvents::BootFailure(BootFailure {
                             msg: err.to_string(),
@@ -235,18 +256,23 @@ pub async fn create_worker(
 
             match result {
                 Ok(event) => {
-                    send_event_if_event_manager_available(event_msg_tx.clone(), event);
+                    send_event_if_event_manager_available(
+                        events_msg_tx_clone.clone(),
+                        event,
+                        event_metadata_clone.clone(),
+                    );
                 }
                 Err(err) => error!("unexpected worker error {}", err),
             };
 
             let end_time = get_thread_time()?;
             send_event_if_event_manager_available(
-                event_msg_tx.clone(),
+                events_msg_tx_clone.clone(),
                 WorkerEvents::Log(LogEvent {
                     msg: format!("CPU time used: {:?}ms", (end_time - start_time) / 1_000_000),
                     level: LogLevel::Info,
                 }),
+                event_metadata_clone.clone(),
             );
 
             // remove the worker from pool
@@ -292,7 +318,17 @@ pub async fn create_worker(
             worker_req_handle.abort();
             bail!(err)
         }
-        Ok(_) => Ok(worker_req_tx),
+        Ok(_) => {
+            let elapsed = worker_boot_start_time.elapsed().as_millis();
+            send_event_if_event_manager_available(
+                events_msg_tx,
+                WorkerEvents::Boot(BootEvent {
+                    boot_time: elapsed as usize,
+                }),
+                event_metadata,
+            );
+            Ok(worker_req_tx)
+        }
     }
 }
 
@@ -314,30 +350,28 @@ async fn send_user_worker_request(
     Ok(res)
 }
 
-pub async fn create_event_worker(
-    event_worker_path: PathBuf,
+pub async fn create_events_worker(
+    events_worker_path: PathBuf,
     import_map_path: Option<String>,
     no_module_cache: bool,
-) -> Result<mpsc::UnboundedSender<WorkerEvents>, Error> {
-    let (event_tx, event_rx) = mpsc::unbounded_channel::<WorkerEvents>();
+) -> Result<mpsc::UnboundedSender<WorkerEventWithMetadata>, Error> {
+    let (events_tx, events_rx) = mpsc::unbounded_channel::<WorkerEventWithMetadata>();
 
-    let _ = create_worker(
-        WorkerContextInitOpts {
-            service_path: event_worker_path,
-            no_module_cache,
-            import_map_path,
-            env_vars: std::env::vars().collect(),
-            conf: WorkerRuntimeOpts::EventsWorker,
-        },
-        Some(EventWorkerRuntimeOpts { event_rx }),
-    )
+    let _ = create_worker(WorkerContextInitOpts {
+        service_path: events_worker_path,
+        no_module_cache,
+        import_map_path,
+        env_vars: std::env::vars().collect(),
+        events_rx: Some(events_rx),
+        conf: WorkerRuntimeOpts::EventsWorker(EventWorkerRuntimeOpts {}),
+    })
     .await?;
 
-    Ok(event_tx)
+    Ok(events_tx)
 }
 
 pub async fn create_user_worker_pool(
-    worker_event_sender: Option<mpsc::UnboundedSender<WorkerEvents>>,
+    worker_event_sender: Option<mpsc::UnboundedSender<WorkerEventWithMetadata>>,
 ) -> Result<mpsc::UnboundedSender<UserWorkerMsgs>, Error> {
     let (user_worker_msgs_tx, mut user_worker_msgs_rx) =
         mpsc::unbounded_channel::<UserWorkerMsgs>();
@@ -376,30 +410,20 @@ pub async fn create_user_worker_pool(
                         }
                     }
 
+                    user_worker_rt_opts.service_path = Some(service_path.to_string());
                     user_worker_rt_opts.key = Some(key);
+                    user_worker_rt_opts.execution_id = Some(uuid::Uuid::new_v4());
                     user_worker_rt_opts.pool_msg_tx = Some(user_worker_msgs_tx_clone.clone());
                     user_worker_rt_opts.events_msg_tx = worker_event_sender.clone();
                     worker_options.conf = WorkerRuntimeOpts::UserWorker(user_worker_rt_opts);
-                    let now = Instant::now();
-                    let result = create_worker(worker_options, None).await;
-                    let elapsed = now.elapsed().as_secs();
-
-                    let event_manager = worker_event_sender.clone();
+                    let result = create_worker(worker_options).await;
 
                     match result {
                         Ok(user_worker_req_tx) => {
-                            send_event_if_event_manager_available(
-                                event_manager.clone(),
-                                WorkerEvents::Boot(BootEvent {
-                                    boot_time: elapsed as usize,
-                                }),
-                            );
-
                             user_workers.insert(
                                 key,
                                 UserWorkerProfile {
                                     worker_event_tx: user_worker_req_tx,
-                                    event_manager_tx: event_manager,
                                 },
                             );
                             if tx.send(Ok(CreateUserWorkerResult { key })).is_err() {
@@ -423,11 +447,9 @@ pub async fn create_user_worker_pool(
                                 let result = match req {
                                     Ok(rep) => Ok(rep),
                                     Err(err) => {
-                                        send_event_if_event_manager_available(
-                                            profile.event_manager_tx,
-                                            WorkerEvents::UncaughtException(UncaughtException {
-                                                exception: err.to_string(),
-                                            }),
+                                        error!(
+                                            "failed to send request to user worker: {}",
+                                            err.to_string()
                                         );
                                         Err(err)
                                     }

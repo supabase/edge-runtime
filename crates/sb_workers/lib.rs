@@ -94,6 +94,7 @@ pub async fn op_user_worker_create(
             no_module_cache,
             import_map_path,
             env_vars: env_vars_map,
+            events_rx: None,
             conf: WorkerRuntimeOpts::UserWorker(UserWorkerRuntimeOpts {
                 memory_limit_mb,
                 low_memory_multiplier,
@@ -107,6 +108,8 @@ pub async fn op_user_worker_create(
                 key: None,
                 pool_msg_tx: None,
                 events_msg_tx: None,
+                service_path: None,
+                execution_id: None,
             }),
         };
 

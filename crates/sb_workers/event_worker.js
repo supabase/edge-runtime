@@ -11,11 +11,12 @@ class SupabaseEventListener {
 			let value = undefined;
 			if (!done) {
 				const rawEvent = reqEvt['Event'];
-				const eventType = Object.keys(rawEvent)[0];
+				const eventType = Object.keys(rawEvent.event)[0];
 				value = {
 					timestamp: new Date().toISOString(),
 					event_type: eventType,
-					event: rawEvent[eventType],
+					event: rawEvent.event[eventType],
+					metadata: rawEvent.metadata,
 				};
 			}
 

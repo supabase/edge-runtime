@@ -12,6 +12,7 @@ use deno_core::{
 use hyper::body::HttpBody;
 use hyper::header::{HeaderName, HeaderValue};
 use hyper::{Body, Request, Response};
+use log::error;
 use sb_worker_context::essentials::{
     CreateUserWorkerResult, UserWorkerMsgs, UserWorkerRuntimeOpts, WorkerContextInitOpts,
     WorkerRuntimeOpts,
@@ -158,7 +159,7 @@ pub fn op_user_worker_log(state: &mut OpState, msg: &str, is_err: bool) -> Resul
             metadata: event_metadata,
         })?;
     } else {
-        println!("[{:?}] {}", level, msg);
+        error!("[{:?}] {}", level, msg);
     }
     Ok(())
 }

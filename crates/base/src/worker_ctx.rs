@@ -266,14 +266,20 @@ pub async fn create_worker(
             };
 
             let end_time = get_thread_time()?;
-            send_event_if_event_manager_available(
-                events_msg_tx_clone.clone(),
-                WorkerEvents::Log(LogEvent {
-                    msg: format!("CPU time used: {:?}ms", (end_time - start_time) / 1_000_000),
-                    level: LogLevel::Info,
-                }),
-                event_metadata_clone.clone(),
-            );
+            let cpu_time_msg =
+                format!("CPU time used: {:?}ms", (end_time - start_time) / 1_000_000);
+            if events_msg_tx_clone.is_some() {
+                send_event_if_event_manager_available(
+                    events_msg_tx_clone.clone(),
+                    WorkerEvents::Log(LogEvent {
+                        msg: cpu_time_msg,
+                        level: LogLevel::Info,
+                    }),
+                    event_metadata_clone.clone(),
+                );
+            } else {
+                error!("{}", cpu_time_msg);
+            }
 
             // remove the worker from pool
             if worker_key.is_some() {

@@ -26,7 +26,7 @@ use sb_core::runtime::sb_core_runtime;
 use sb_core::sb_core_main_js;
 use sb_env::sb_env as sb_env_op;
 use sb_worker_context::essentials::{UserWorkerMsgs, WorkerContextInitOpts, WorkerRuntimeOpts};
-use sb_worker_context::events::WorkerEventWithMetadata;
+use sb_worker_context::events::{EventMetadata, WorkerEventWithMetadata};
 use sb_workers::events::sb_user_event_worker;
 use sb_workers::sb_user_workers;
 
@@ -231,8 +231,13 @@ impl DenoRuntime {
             }
 
             if conf.is_user_worker() {
-                if let Some(events_msg_tx) = conf.as_user_worker().unwrap().events_msg_tx.clone() {
+                let conf = conf.as_user_worker().unwrap();
+                if let Some(events_msg_tx) = conf.events_msg_tx.clone() {
                     op_state.put::<mpsc::UnboundedSender<WorkerEventWithMetadata>>(events_msg_tx);
+                    op_state.put::<EventMetadata>(EventMetadata {
+                        service_path: conf.service_path.clone(),
+                        execution_id: conf.execution_id,
+                    });
                 }
             }
         }

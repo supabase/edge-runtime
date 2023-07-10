@@ -45,7 +45,7 @@ pub enum WorkerEvents {
     Log(LogEvent),
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Default, Debug, Clone)]
 pub struct EventMetadata {
     pub service_path: Option<String>,
     pub execution_id: Option<Uuid>,

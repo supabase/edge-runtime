@@ -9,7 +9,7 @@ use import_map::{parse_from_json, ImportMap, ImportMapDiagnostic};
 use log::{debug, warn};
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Duration;
 use std::{fmt, fs};
@@ -25,10 +25,8 @@ use sb_core::permissions::{sb_core_permissions, Permissions, RuntimeNodeEnv};
 use sb_core::runtime::sb_core_runtime;
 use sb_core::sb_core_main_js;
 use sb_env::sb_env as sb_env_op;
-use sb_worker_context::essentials::{
-    EventWorkerRuntimeOpts, UserWorkerMsgs, WorkerContextInitOpts, WorkerRuntimeOpts,
-};
-use sb_worker_context::events::WorkerEvents;
+use sb_worker_context::essentials::{UserWorkerMsgs, WorkerContextInitOpts, WorkerRuntimeOpts};
+use sb_worker_context::events::{EventMetadata, WorkerEventWithMetadata};
 use sb_workers::events::sb_user_event_worker;
 use sb_workers::sb_user_workers;
 
@@ -115,32 +113,21 @@ pub struct DenoRuntime {
 }
 
 impl DenoRuntime {
-    pub async fn new(
-        opts: WorkerContextInitOpts,
-        event_manager_opts: Option<EventWorkerRuntimeOpts>, // TODO: refactor this be part of opts
-    ) -> Result<Self, Error> {
-        let mut maybe_events_msg_tx: Option<mpsc::UnboundedSender<WorkerEvents>> = None;
-
+    pub async fn new(opts: WorkerContextInitOpts) -> Result<Self, Error> {
         let WorkerContextInitOpts {
             service_path,
             no_module_cache,
             import_map_path,
             env_vars,
+            events_rx,
             conf,
         } = opts;
-
-        if conf.is_user_worker() {
-            if let Some(events_msg_tx) = conf.as_user_worker().unwrap().events_msg_tx.clone() {
-                maybe_events_msg_tx = Some(events_msg_tx)
-            }
-        }
 
         set_v8_flags();
 
         let user_agent = "supabase-edge-runtime".to_string();
-        let base_url =
-            Url::from_directory_path(std::env::current_dir().map(|p| p.join(&service_path))?)
-                .unwrap();
+        let base_dir_path = std::env::current_dir().map(|p| p.join(&service_path))?;
+        let base_url = Url::from_directory_path(&base_dir_path).unwrap();
         // TODO: check for other potential main paths (eg: index.js, index.tsx)
         let main_module_url = base_url.join("index.ts")?;
 
@@ -183,7 +170,21 @@ impl DenoRuntime {
         ];
 
         let import_map = load_import_map(import_map_path)?;
-        let module_loader = DefaultModuleLoader::new(import_map, no_module_cache)?;
+        let mut allow_remote_modules = true;
+        let mut module_root_path = base_dir_path.clone();
+        if conf.is_user_worker() {
+            let user_conf = conf.as_user_worker().unwrap();
+            allow_remote_modules = user_conf.allow_remote_modules;
+            if let Some(custom_module_root) = &user_conf.custom_module_root {
+                module_root_path = PathBuf::from(custom_module_root);
+            }
+        }
+        let module_loader = DefaultModuleLoader::new(
+            module_root_path,
+            import_map,
+            no_module_cache,
+            allow_remote_modules,
+        )?;
 
         let mut js_runtime = JsRuntime::new(RuntimeOptions {
             extensions,
@@ -226,17 +227,19 @@ impl DenoRuntime {
             op_state.put::<sb_env::EnvVars>(env_vars);
 
             if conf.is_events_worker() {
-                if let WorkerRuntimeOpts::EventsWorker = conf.clone() {
-                    // We unwrap because event_manager_opts must always be present when type is `EventsWorker`
-                    op_state.put::<mpsc::UnboundedReceiver<WorkerEvents>>(
-                        event_manager_opts.unwrap().event_rx,
-                    );
-                }
+                // if worker is an events worker, assert events_rx is to be available
+                op_state
+                    .put::<mpsc::UnboundedReceiver<WorkerEventWithMetadata>>(events_rx.unwrap());
             }
 
             if conf.is_user_worker() {
-                if let Some(events_msg_tx) = maybe_events_msg_tx.clone() {
-                    op_state.put::<mpsc::UnboundedSender<WorkerEvents>>(events_msg_tx);
+                let conf = conf.as_user_worker().unwrap();
+                if let Some(events_msg_tx) = conf.events_msg_tx.clone() {
+                    op_state.put::<mpsc::UnboundedSender<WorkerEventWithMetadata>>(events_msg_tx);
+                    op_state.put::<EventMetadata>(EventMetadata {
+                        service_path: conf.service_path.clone(),
+                        execution_id: conf.execution_id,
+                    });
                 }
             }
         }
@@ -249,13 +252,6 @@ impl DenoRuntime {
             env_vars,
             conf,
         })
-    }
-
-    pub fn event_sender(&self) -> Option<mpsc::UnboundedSender<WorkerEvents>> {
-        self.conf
-            .as_user_worker()
-            .map(|c| c.events_msg_tx.clone())
-            .unwrap()
     }
 
     pub async fn run(
@@ -342,22 +338,20 @@ mod test {
     ) -> DenoRuntime {
         let (worker_pool_tx, _) = mpsc::unbounded_channel::<UserWorkerMsgs>();
 
-        DenoRuntime::new(
-            WorkerContextInitOpts {
-                service_path: path.unwrap_or(PathBuf::from("./test_cases/main")),
-                no_module_cache: false,
-                import_map_path: None,
-                env_vars: env_vars.unwrap_or(Default::default()),
-                conf: {
-                    if let Some(uc) = user_conf {
-                        uc
-                    } else {
-                        WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts { worker_pool_tx })
-                    }
-                },
+        DenoRuntime::new(WorkerContextInitOpts {
+            service_path: path.unwrap_or(PathBuf::from("./test_cases/main")),
+            no_module_cache: false,
+            import_map_path: None,
+            env_vars: env_vars.unwrap_or(Default::default()),
+            events_rx: None,
+            conf: {
+                if let Some(uc) = user_conf {
+                    uc
+                } else {
+                    WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts { worker_pool_tx })
+                }
             },
-            None,
-        )
+        })
         .await
         .unwrap()
     }
@@ -633,9 +627,13 @@ mod test {
                 max_cpu_bursts: 10,
                 low_memory_multiplier: 5,
                 force_create: true,
+                allow_remote_modules: true,
+                custom_module_root: None,
                 key: None,
                 pool_msg_tx: None,
                 events_msg_tx: None,
+                execution_id: None,
+                service_path: None,
             })),
         )
         .await

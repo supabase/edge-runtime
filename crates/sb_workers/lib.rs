@@ -16,7 +16,9 @@ use sb_worker_context::essentials::{
     CreateUserWorkerResult, UserWorkerMsgs, UserWorkerRuntimeOpts, WorkerContextInitOpts,
     WorkerRuntimeOpts,
 };
-use sb_worker_context::events::{LogEvent, LogLevel, WorkerEvents};
+use sb_worker_context::events::{
+    EventMetadata, LogEvent, LogLevel, WorkerEventWithMetadata, WorkerEvents,
+};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::cell::RefCell;
@@ -46,6 +48,8 @@ pub struct UserWorkerCreateOptions {
     import_map_path: Option<String>,
     env_vars: Vec<(String, String)>,
     force_create: bool,
+    allow_remote_modules: bool,
+    custom_module_root: Option<String>,
 
     memory_limit_mb: u64,
     low_memory_multiplier: u64,
@@ -71,6 +75,8 @@ pub async fn op_user_worker_create(
             import_map_path,
             env_vars,
             force_create,
+            allow_remote_modules,
+            custom_module_root,
 
             memory_limit_mb,
             low_memory_multiplier,
@@ -90,6 +96,7 @@ pub async fn op_user_worker_create(
             no_module_cache,
             import_map_path,
             env_vars: env_vars_map,
+            events_rx: None,
             conf: WorkerRuntimeOpts::UserWorker(UserWorkerRuntimeOpts {
                 memory_limit_mb,
                 low_memory_multiplier,
@@ -98,9 +105,13 @@ pub async fn op_user_worker_create(
                 max_cpu_bursts,
                 cpu_burst_interval_ms,
                 force_create,
+                allow_remote_modules,
+                custom_module_root,
                 key: None,
                 pool_msg_tx: None,
                 events_msg_tx: None,
+                service_path: None,
+                execution_id: None,
             }),
         };
 
@@ -129,16 +140,23 @@ pub async fn op_user_worker_create(
 
 #[op]
 pub fn op_user_worker_log(state: &mut OpState, msg: &str, is_err: bool) -> Result<(), AnyError> {
-    let maybe_tx = state.try_borrow::<mpsc::UnboundedSender<WorkerEvents>>();
+    let maybe_tx = state.try_borrow::<mpsc::UnboundedSender<WorkerEventWithMetadata>>();
     let mut level = LogLevel::Info;
     if is_err {
         level = LogLevel::Error;
     }
     if maybe_tx.is_some() {
-        maybe_tx.unwrap().send(WorkerEvents::Log(LogEvent {
-            msg: msg.to_string(),
-            level,
-        }))?;
+        let event_metadata = state
+            .try_borrow::<EventMetadata>()
+            .unwrap_or(&EventMetadata::default())
+            .clone();
+        maybe_tx.unwrap().send(WorkerEventWithMetadata {
+            event: WorkerEvents::Log(LogEvent {
+                msg: msg.to_string(),
+                level,
+            }),
+            metadata: event_metadata,
+        })?;
     } else {
         println!("[{:?}] {}", level, msg);
     }

@@ -16,7 +16,7 @@ use module_fetcher::cache::{
 use module_fetcher::emit::emit_parsed_source;
 use module_fetcher::file_fetcher::{CacheSetting, FileFetcher};
 use module_fetcher::http_util::HttpClient;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use url::Url;
 
@@ -53,7 +53,12 @@ pub struct DefaultModuleLoader {
 }
 
 impl DefaultModuleLoader {
-    pub fn new(maybe_import_map: Option<ImportMap>, no_cache: bool) -> Result<Self, AnyError> {
+    pub fn new(
+        root_path: PathBuf,
+        maybe_import_map: Option<ImportMap>,
+        no_cache: bool,
+        allow_remote: bool,
+    ) -> Result<Self, AnyError> {
         // Note: we are reusing Deno dependency cache path
         let deno_dir = DenoDir::new(None)?;
         let deps_cache_location = deno_dir.deps_folder_path();
@@ -64,7 +69,6 @@ impl DefaultModuleLoader {
         } else {
             CacheSetting::Use
         };
-        let allow_remote = true;
         let http_client = make_http_client()?;
         let blob_store = deno_web::BlobStore::default();
         let file_fetcher = FileFetcher::new(
@@ -74,7 +78,7 @@ impl DefaultModuleLoader {
             http_client,
             blob_store,
         );
-        let permissions = module_fetcher::permissions::Permissions::default();
+        let permissions = module_fetcher::permissions::Permissions::new(root_path);
         let emit_cache = EmitCache::new(deno_dir.gen_cache.clone());
         let caches_def = caches::Caches::default();
         let parsed_source_cache = ParsedSourceCache::new(caches_def.dep_analysis_db(&deno_dir));

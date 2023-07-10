@@ -17,9 +17,10 @@ async fn test_import_map_file_path() {
         no_module_cache: false,
         import_map_path: Some("./test_cases/with_import_map/import_map.json".to_string()),
         env_vars: HashMap::new(),
+        events_rx: None,
         conf: WorkerRuntimeOpts::UserWorker(user_rt_opts),
     };
-    let worker_req_tx = create_worker(opts, None).await.unwrap();
+    let worker_req_tx = create_worker(opts).await.unwrap();
     let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
 
     let req = Request::builder()
@@ -64,9 +65,10 @@ async fn test_import_map_inline() {
         no_module_cache: false,
         import_map_path: Some(inline_import_map),
         env_vars: HashMap::new(),
+        events_rx: None,
         conf: WorkerRuntimeOpts::UserWorker(user_rt_opts),
     };
-    let worker_req_tx = create_worker(opts, None).await.unwrap();
+    let worker_req_tx = create_worker(opts).await.unwrap();
     let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
 
     let req = Request::builder()

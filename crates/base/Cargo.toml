@@ -42,6 +42,7 @@ sb_os = { version = "0.1.0", path = "../sb_os" }
 sb_node = { version = "0.1.0", path = "../node" }
 deno_flash.workspace = true
 urlencoding = { version = "2.1.2" }
+uuid = { workspace = true }
 
 [dev-dependencies]
 futures-util = { version = "0.3.28" }

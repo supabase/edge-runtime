@@ -1,17 +1,20 @@
-use crate::events::WorkerEvents;
+use crate::events::WorkerEventWithMetadata;
 use anyhow::Error;
 use enum_as_inner::EnumAsInner;
 use hyper::{Body, Request, Response};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use tokio::sync::{mpsc, oneshot};
+use uuid::Uuid;
 
 #[derive(Debug, Clone)]
 pub struct UserWorkerRuntimeOpts {
-    pub key: Option<u64>,
+    pub service_path: Option<String>,
+    pub key: Option<u64>, // unique worker key based on service path hash
+    pub execution_id: Option<Uuid>,
 
     pub pool_msg_tx: Option<mpsc::UnboundedSender<UserWorkerMsgs>>,
-    pub events_msg_tx: Option<mpsc::UnboundedSender<WorkerEvents>>,
+    pub events_msg_tx: Option<mpsc::UnboundedSender<WorkerEventWithMetadata>>,
 
     pub memory_limit_mb: u64,
     pub low_memory_multiplier: u64,
@@ -23,32 +26,8 @@ pub struct UserWorkerRuntimeOpts {
     pub max_cpu_bursts: u64,
 
     pub force_create: bool,
-}
-
-#[derive(Debug, Clone)]
-pub struct MainWorkerRuntimeOpts {
-    pub worker_pool_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
-}
-
-#[derive(Debug)]
-pub struct EventWorkerRuntimeOpts {
-    pub event_rx: mpsc::UnboundedReceiver<WorkerEvents>,
-}
-
-#[derive(Debug, Clone, EnumAsInner)]
-pub enum WorkerRuntimeOpts {
-    UserWorker(UserWorkerRuntimeOpts),
-    MainWorker(MainWorkerRuntimeOpts),
-    EventsWorker,
-}
-
-#[derive(Debug, Clone)]
-pub struct WorkerContextInitOpts {
-    pub service_path: PathBuf,
-    pub no_module_cache: bool,
-    pub import_map_path: Option<String>,
-    pub env_vars: HashMap<String, String>,
-    pub conf: WorkerRuntimeOpts,
+    pub allow_remote_modules: bool,
+    pub custom_module_root: Option<String>,
 }
 
 impl Default for UserWorkerRuntimeOpts {
@@ -65,8 +44,37 @@ impl Default for UserWorkerRuntimeOpts {
             key: None,
             pool_msg_tx: None,
             events_msg_tx: None,
+            allow_remote_modules: true,
+            custom_module_root: None,
+            service_path: None,
+            execution_id: None,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct MainWorkerRuntimeOpts {
+    pub worker_pool_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
+}
+
+#[derive(Debug, Clone)]
+pub struct EventWorkerRuntimeOpts {}
+
+#[derive(Debug, Clone, EnumAsInner)]
+pub enum WorkerRuntimeOpts {
+    UserWorker(UserWorkerRuntimeOpts),
+    MainWorker(MainWorkerRuntimeOpts),
+    EventsWorker(EventWorkerRuntimeOpts),
+}
+
+#[derive(Debug)]
+pub struct WorkerContextInitOpts {
+    pub service_path: PathBuf,
+    pub no_module_cache: bool,
+    pub import_map_path: Option<String>,
+    pub env_vars: HashMap<String, String>,
+    pub events_rx: Option<mpsc::UnboundedReceiver<WorkerEventWithMetadata>>,
+    pub conf: WorkerRuntimeOpts,
 }
 
 #[derive(Debug)]

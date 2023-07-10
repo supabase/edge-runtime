@@ -16,7 +16,9 @@ use sb_worker_context::essentials::{
     CreateUserWorkerResult, UserWorkerMsgs, UserWorkerRuntimeOpts, WorkerContextInitOpts,
     WorkerRuntimeOpts,
 };
-use sb_worker_context::events::{LogEvent, LogLevel, WorkerEvents};
+use sb_worker_context::events::{
+    EventMetadata, LogEvent, LogLevel, WorkerEventWithMetadata, WorkerEvents,
+};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::cell::RefCell;
@@ -138,16 +140,23 @@ pub async fn op_user_worker_create(
 
 #[op]
 pub fn op_user_worker_log(state: &mut OpState, msg: &str, is_err: bool) -> Result<(), AnyError> {
-    let maybe_tx = state.try_borrow::<mpsc::UnboundedSender<WorkerEvents>>();
+    let maybe_tx = state.try_borrow::<mpsc::UnboundedSender<WorkerEventWithMetadata>>();
     let mut level = LogLevel::Info;
     if is_err {
         level = LogLevel::Error;
     }
     if maybe_tx.is_some() {
-        maybe_tx.unwrap().send(WorkerEvents::Log(LogEvent {
-            msg: msg.to_string(),
-            level,
-        }))?;
+        let event_metadata = state
+            .try_borrow::<EventMetadata>()
+            .unwrap_or(&EventMetadata::default())
+            .clone();
+        maybe_tx.unwrap().send(WorkerEventWithMetadata {
+            event: WorkerEvents::Log(LogEvent {
+                msg: msg.to_string(),
+                level,
+            }),
+            metadata: event_metadata,
+        })?;
     } else {
         println!("[{:?}] {}", level, msg);
     }

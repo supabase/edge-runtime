@@ -1,7 +1,7 @@
 use anyhow::{bail, Error};
 use deno_core::op;
 use deno_core::OpState;
-use sb_worker_context::events::WorkerEvents;
+use sb_worker_context::events::WorkerEventWithMetadata;
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -9,7 +9,7 @@ use tokio::sync::mpsc;
 
 #[derive(Serialize, Deserialize)]
 pub enum RawEvent {
-    Event(WorkerEvents),
+    Event(WorkerEventWithMetadata),
     Done,
 }
 
@@ -25,7 +25,7 @@ pub struct IncomingEvent {
 async fn op_event_accept(state: Rc<RefCell<OpState>>) -> Result<RawEvent, Error> {
     let rx = {
         let mut op_state = state.borrow_mut();
-        op_state.try_take::<mpsc::UnboundedReceiver<WorkerEvents>>()
+        op_state.try_take::<mpsc::UnboundedReceiver<WorkerEventWithMetadata>>()
     };
     if rx.is_none() {
         bail!("events worker receiver not available")
@@ -35,7 +35,7 @@ async fn op_event_accept(state: Rc<RefCell<OpState>>) -> Result<RawEvent, Error>
     let data = rx.recv().await;
 
     let mut op_state = state.borrow_mut();
-    op_state.put::<mpsc::UnboundedReceiver<WorkerEvents>>(rx);
+    op_state.put::<mpsc::UnboundedReceiver<WorkerEventWithMetadata>>(rx);
 
     match data {
         Some(event) => Ok(RawEvent::Event(event)),

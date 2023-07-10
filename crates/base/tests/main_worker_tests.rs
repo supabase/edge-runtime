@@ -15,11 +15,12 @@ async fn test_main_worker_options_request() {
         no_module_cache: false,
         import_map_path: None,
         env_vars: HashMap::new(),
+        events_rx: None,
         conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
             worker_pool_tx: user_worker_msgs_tx,
         }),
     };
-    let worker_req_tx = create_worker(opts, None).await.unwrap();
+    let worker_req_tx = create_worker(opts).await.unwrap();
     let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
 
     let req = Request::builder()
@@ -53,11 +54,12 @@ async fn test_main_worker_post_request() {
         no_module_cache: false,
         import_map_path: None,
         env_vars: HashMap::new(),
+        events_rx: None,
         conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
             worker_pool_tx: user_worker_msgs_tx,
         }),
     };
-    let worker_req_tx = create_worker(opts, None).await.unwrap();
+    let worker_req_tx = create_worker(opts).await.unwrap();
     let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
 
     let body_chunk = "{ \"name\": \"bar\"}";
@@ -95,11 +97,12 @@ async fn test_main_worker_boot_error() {
         no_module_cache: false,
         import_map_path: Some("./non-existing-import-map.json".to_string()),
         env_vars: HashMap::new(),
+        events_rx: None,
         conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
             worker_pool_tx: user_worker_msgs_tx,
         }),
     };
-    let result = create_worker(opts, None).await;
+    let result = create_worker(opts).await;
 
     assert!(result.is_err());
     assert_eq!(result.unwrap_err().to_string(), "worker boot error");

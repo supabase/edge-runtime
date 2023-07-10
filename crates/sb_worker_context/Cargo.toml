@@ -11,9 +11,9 @@ license = "MIT"
 path = "lib.rs"
 
 [dependencies]
-hyper.workspace = true
-tokio.workspace = true
-uuid.workspace = true
-serde.workspace = true
 anyhow = { workspace = true }
 enum-as-inner = "0.6.0"
+hyper.workspace = true
+serde.workspace = true
+tokio.workspace = true
+uuid.workspace = true

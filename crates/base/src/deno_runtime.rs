@@ -25,10 +25,8 @@ use sb_core::permissions::{sb_core_permissions, Permissions};
 use sb_core::runtime::sb_core_runtime;
 use sb_core::sb_core_main_js;
 use sb_env::sb_env as sb_env_op;
-use sb_worker_context::essentials::{
-    EventWorkerRuntimeOpts, UserWorkerMsgs, WorkerContextInitOpts, WorkerRuntimeOpts,
-};
-use sb_worker_context::events::WorkerEvents;
+use sb_worker_context::essentials::{UserWorkerMsgs, WorkerContextInitOpts, WorkerRuntimeOpts};
+use sb_worker_context::events::WorkerEventWithMetadata;
 use sb_workers::events::sb_user_event_worker;
 use sb_workers::sb_user_workers;
 
@@ -115,25 +113,15 @@ pub struct DenoRuntime {
 }
 
 impl DenoRuntime {
-    pub async fn new(
-        opts: WorkerContextInitOpts,
-        event_manager_opts: Option<EventWorkerRuntimeOpts>, // TODO: refactor this be part of opts
-    ) -> Result<Self, Error> {
-        let mut maybe_events_msg_tx: Option<mpsc::UnboundedSender<WorkerEvents>> = None;
-
+    pub async fn new(opts: WorkerContextInitOpts) -> Result<Self, Error> {
         let WorkerContextInitOpts {
             service_path,
             no_module_cache,
             import_map_path,
             env_vars,
+            events_rx,
             conf,
         } = opts;
-
-        if conf.is_user_worker() {
-            if let Some(events_msg_tx) = conf.as_user_worker().unwrap().events_msg_tx.clone() {
-                maybe_events_msg_tx = Some(events_msg_tx)
-            }
-        }
 
         set_v8_flags();
 
@@ -237,17 +225,14 @@ impl DenoRuntime {
             op_state.put::<sb_env::EnvVars>(env_vars);
 
             if conf.is_events_worker() {
-                if let WorkerRuntimeOpts::EventsWorker = conf.clone() {
-                    // We unwrap because event_manager_opts must always be present when type is `EventsWorker`
-                    op_state.put::<mpsc::UnboundedReceiver<WorkerEvents>>(
-                        event_manager_opts.unwrap().event_rx,
-                    );
-                }
+                // if worker is an events worker, assert events_rx is to be available
+                op_state
+                    .put::<mpsc::UnboundedReceiver<WorkerEventWithMetadata>>(events_rx.unwrap());
             }
 
             if conf.is_user_worker() {
-                if let Some(events_msg_tx) = maybe_events_msg_tx.clone() {
-                    op_state.put::<mpsc::UnboundedSender<WorkerEvents>>(events_msg_tx);
+                if let Some(events_msg_tx) = conf.as_user_worker().unwrap().events_msg_tx.clone() {
+                    op_state.put::<mpsc::UnboundedSender<WorkerEventWithMetadata>>(events_msg_tx);
                 }
             }
         }
@@ -260,13 +245,6 @@ impl DenoRuntime {
             env_vars,
             conf,
         })
-    }
-
-    pub fn event_sender(&self) -> Option<mpsc::UnboundedSender<WorkerEvents>> {
-        self.conf
-            .as_user_worker()
-            .map(|c| c.events_msg_tx.clone())
-            .unwrap()
     }
 
     pub async fn run(
@@ -353,22 +331,20 @@ mod test {
     ) -> DenoRuntime {
         let (worker_pool_tx, _) = mpsc::unbounded_channel::<UserWorkerMsgs>();
 
-        DenoRuntime::new(
-            WorkerContextInitOpts {
-                service_path: path.unwrap_or(PathBuf::from("./test_cases/main")),
-                no_module_cache: false,
-                import_map_path: None,
-                env_vars: env_vars.unwrap_or(Default::default()),
-                conf: {
-                    if let Some(uc) = user_conf {
-                        uc
-                    } else {
-                        WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts { worker_pool_tx })
-                    }
-                },
+        DenoRuntime::new(WorkerContextInitOpts {
+            service_path: path.unwrap_or(PathBuf::from("./test_cases/main")),
+            no_module_cache: false,
+            import_map_path: None,
+            env_vars: env_vars.unwrap_or(Default::default()),
+            events_rx: None,
+            conf: {
+                if let Some(uc) = user_conf {
+                    uc
+                } else {
+                    WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts { worker_pool_tx })
+                }
             },
-            None,
-        )
+        })
         .await
         .unwrap()
     }
@@ -624,6 +600,8 @@ mod test {
                 key: None,
                 pool_msg_tx: None,
                 events_msg_tx: None,
+                execution_id: None,
+                service_path: None,
             })),
         )
         .await

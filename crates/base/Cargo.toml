@@ -41,6 +41,7 @@ sb_env = { version = "0.1.0", path = "../sb_env" }
 sb_core = { version = "0.1.0", path = "../sb_core" }
 sb_os = { version = "0.1.0", path = "../sb_os" }
 urlencoding = { version = "2.1.2" }
+uuid = { workspace = true }
 
 [dev-dependencies]
 futures-util = { version = "0.3.28" }

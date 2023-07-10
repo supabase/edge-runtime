@@ -3427,6 +3427,7 @@ dependencies = [
  "deno_core",
  "deno_http",
  "hyper",
+ "log",
  "sb_worker_context",
  "serde",
  "tokio",

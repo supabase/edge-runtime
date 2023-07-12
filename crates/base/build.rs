@@ -207,7 +207,7 @@ mod supabase_startup_snapshot {
             sb_core_main_js::init_ops_and_esm(),
             sb_core_net::init_ops_and_esm(),
             sb_core_http::init_ops_and_esm(),
-            sb_node::deno_node::init_ops_and_esm::<RuntimeNodeEnv>(None),
+            // sb_node::deno_node::init_ops_and_esm::<RuntimeNodeEnv>(None),
             sb_core_runtime::init_ops_and_esm(None),
         ];
 

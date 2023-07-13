@@ -6,7 +6,7 @@ use deno_core::error::AnyError;
 use deno_core::url::Url;
 use deno_core::{located_script_name, serde_v8, JsRuntime, ModuleId, RuntimeOptions};
 use import_map::{parse_from_json, ImportMap, ImportMapDiagnostic};
-use log::{debug, warn};
+use log::{error, warn};
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -99,7 +99,7 @@ fn set_v8_flags() {
     }
 
     vec.append(&mut v8_flags.split(' ').collect());
-    debug!(
+    error!(
         "v8 flags unrecognized {:?}",
         deno_core::v8_set_flags(vec.iter().map(|v| v.to_string()).collect())
     );
@@ -275,13 +275,13 @@ impl DenoRuntime {
             match js_runtime.run_event_loop(false).await {
                 Err(err) => {
                     // usually this happens because isolate is terminated
-                    debug!("event loop error: {}", err);
+                    error!("event loop error: {}", err);
                     Err(anyhow!("event loop error: {}", err))
                 }
                 Ok(_) => match mod_result_rx.await {
                     Err(_) => Err(anyhow!("mod result sender dropped")),
                     Ok(Err(err)) => {
-                        debug!("{}", err.to_string());
+                        error!("{}", err.to_string());
                         Err(err)
                     }
                     Ok(Ok(_)) => Ok(()),

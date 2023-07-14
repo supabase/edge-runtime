@@ -12,11 +12,12 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Duration;
-use std::{fmt, fs};
+use std::{env, fmt, fs};
 use tokio::net::UnixStream;
 use tokio::sync::mpsc;
 use urlencoding::decode;
 
+use crate::certs::resolve_cert_store;
 use crate::{errors_rt, snapshot};
 use module_loader::DefaultModuleLoader;
 use sb_core::http_start::sb_core_http;
@@ -132,7 +133,12 @@ impl DenoRuntime {
         let main_module_url = base_url.join("index.ts")?;
 
         // Note: this will load Mozilla's CAs (we may also need to support system certs)
-        let root_cert_store = deno_tls::create_default_root_cert_store();
+        let cert_content = env_vars.get("DENO_CERT").map(|content| content.as_bytes().to_vec());
+
+        let root_cert_store = resolve_cert_store(cert_content).unwrap_or_else(|e| {
+            println!("Unable to read certificate {}", e.to_string());
+            deno_tls::create_default_root_cert_store()
+        });
 
         let extensions = vec![
             sb_core_permissions::init_ops(),

@@ -24,3 +24,5 @@ hyper.workspace = true
 serde.workspace = true
 bytes.workspace = true
 sb_worker_context = { version = "0.1.0", path = "../sb_worker_context" }
+sb_node = { version = "0.1.0", path = "../node" }
+deno_flash.workspace = true

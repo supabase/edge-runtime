@@ -12,7 +12,6 @@ path = "lib.rs"
 
 [dependencies]
 deno_core.workspace = true
-deno_node.workspace = true
 libc.workspace = true
 serde.workspace = true
 sb_core = { version = "0.1.0", path = "../sb_core" }

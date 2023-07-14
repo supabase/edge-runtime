@@ -116,6 +116,11 @@ impl ModuleLoader for DefaultModuleLoader {
                 .resolve(specifier, &referrer_url)
                 .map_err(|err| err.into())
         } else {
+            // Built-in Node modules
+            if let Some(module_name) = specifier.strip_prefix("node:") {
+                return module_fetcher::node::resolve_builtin_node_module(module_name);
+            }
+
             deno_core::resolve_import(specifier, referrer).map_err(|err| err.into())
         }
     }

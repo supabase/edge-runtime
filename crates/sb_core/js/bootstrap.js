@@ -204,9 +204,6 @@ function runtimeStart(runtimeOptions, source) {
   registerErrors();
 }
 
-delete globalThis.__bootstrap;
-delete globalThis.bootstrap;
-
 ObjectDefineProperties(globalThis, globalScope);
 
 const globalProperties = {
@@ -231,6 +228,12 @@ const deleteDenoApis = (apis) => {
 }
 
 globalThis.bootstrapSBEdge = (opts, isUserWorker, isEventsWorker) => {
+
+  // We should delete this after initialization,
+  // Deleting it during bootstrapping can backfire
+  delete globalThis.__bootstrap;
+  delete globalThis.bootstrap;
+
   runtimeStart({
     denoVersion: "NA",
     v8Version: "NA",

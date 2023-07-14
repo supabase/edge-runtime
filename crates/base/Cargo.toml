@@ -19,7 +19,6 @@ deno_crypto =  { workspace = true }
 deno_fetch = { workspace = true }
 deno_http =  { workspace = true }
 deno_net = { workspace = true }
-deno_node = { workspace = true }
 deno_url = { workspace = true }
 deno_tls = { workspace = true }
 deno_webidl = { workspace = true }
@@ -40,6 +39,8 @@ sb_workers = { version = "0.1.0", path = "../sb_workers" }
 sb_env = { version = "0.1.0", path = "../sb_env" }
 sb_core = { version = "0.1.0", path = "../sb_core" }
 sb_os = { version = "0.1.0", path = "../sb_os" }
+sb_node = { version = "0.1.0", path = "../node" }
+deno_flash.workspace = true
 urlencoding = { version = "2.1.2" }
 uuid = { workspace = true }
 
@@ -59,7 +60,6 @@ deno_crypto =  { workspace = true }
 deno_fetch = { workspace = true }
 deno_http =  { workspace = true }
 deno_net = { workspace = true }
-deno_node = { workspace = true }
 deno_url = { workspace = true }
 deno_tls = { workspace = true }
 deno_webidl = { workspace = true }
@@ -80,3 +80,5 @@ sb_workers = { version = "0.1.0", path = "../sb_workers" }
 sb_env = { version = "0.1.0", path = "../sb_env" }
 sb_core = { version = "0.1.0", path = "../sb_core" }
 sb_os = { version = "0.1.0", path = "../sb_os" }
+sb_node = { version = "0.1.0", path = "../node" }
+deno_flash.workspace = true

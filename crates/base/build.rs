@@ -60,7 +60,7 @@ mod supabase_startup_snapshot {
     }
 
     #[derive(Clone)]
-    struct Permissions;
+    pub struct Permissions;
 
     impl deno_net::NetPermissions for Permissions {
         fn check_net<T: AsRef<str>>(
@@ -153,6 +153,28 @@ mod supabase_startup_snapshot {
         }
     }
 
+    impl sb_node::NodePermissions for Permissions {
+        fn check_read(&mut self, _path: &Path) -> Result<(), AnyError> {
+            Ok(())
+        }
+    }
+
+    impl deno_flash::FlashPermissions for Permissions {
+        fn check_net<T: AsRef<str>>(
+            &mut self,
+            _host: &(T, Option<u16>),
+            _api_name: &str,
+        ) -> Result<(), AnyError> {
+            Ok(())
+        }
+    }
+
+    pub struct RuntimeNodeEnv;
+    impl sb_node::NodeEnv for RuntimeNodeEnv {
+        type P = Permissions;
+        type Fs = sb_node::RealFs;
+    }
+
     pub fn create_runtime_snapshot(snapshot_path: PathBuf) {
         let user_agent = String::from("supabase");
         let extensions: Vec<Extension> = vec![
@@ -177,6 +199,7 @@ mod supabase_startup_snapshot {
             deno_http::deno_http::init_ops_and_esm(),
             deno_io::deno_io::init_ops_and_esm(Default::default()),
             deno_fs::deno_fs::init_ops_and_esm::<Permissions>(false),
+            deno_flash::deno_flash::init_ops_and_esm::<Permissions>(false),
             sb_env::init_ops_and_esm(),
             sb_os::sb_os::init_ops_and_esm(),
             sb_user_workers::init_ops_and_esm(),
@@ -184,6 +207,7 @@ mod supabase_startup_snapshot {
             sb_core_main_js::init_ops_and_esm(),
             sb_core_net::init_ops_and_esm(),
             sb_core_http::init_ops_and_esm(),
+            // sb_node::deno_node::init_ops_and_esm::<RuntimeNodeEnv>(None),
             sb_core_runtime::init_ops_and_esm(None),
         ];
 

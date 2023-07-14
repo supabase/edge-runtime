@@ -2,8 +2,8 @@ use deno_core::error::AnyError;
 use deno_core::error::{not_supported, type_error};
 use deno_core::op;
 use deno_core::OpState;
-use deno_node::NODE_ENV_VAR_ALLOWLIST;
 use sb_core::permissions::Permissions;
+use sb_node::NODE_ENV_VAR_ALLOWLIST;
 use std::collections::HashMap;
 
 pub type EnvVars = HashMap<String, String>;

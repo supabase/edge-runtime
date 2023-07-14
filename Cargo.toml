@@ -9,6 +9,7 @@ members = [
   "./crates/sb_core",
   "./crates/flaky_test",
   "./crates/sb_os",
+  "./crates/node",
   "./crates/cpu_timer"
 ]
 resolver = "2"
@@ -27,7 +28,6 @@ deno_io = "0.7.0"
 deno_graph = "=0.45.0"
 deno_http =  { version = "0.92.0" }
 deno_net = { version = "0.89.0" }
-deno_node = { version = "0.34.0" }
 deno_url = { version = "0.97.0" }
 deno_tls = { version = "0.84.0"}
 deno_webidl = { version = "0.97.0" }
@@ -48,6 +48,8 @@ regex = "^1.7.0"
 fs3 = "0.5.0"
 tokio-util = "0.7.4"
 uuid = { version = "1.1.2", features = ["v4"] }
+rsa = { version = "0.7.0", default-features = false, features = ["std", "pem", "hazmat"] }
+deno_flash = "0.33.0"
 
 [profile.release]
 lto = true

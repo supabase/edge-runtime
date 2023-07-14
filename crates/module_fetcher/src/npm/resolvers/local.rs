@@ -18,9 +18,9 @@ use deno_core::anyhow::Context;
 use deno_core::error::AnyError;
 use deno_core::futures;
 use deno_core::url::Url;
-use deno_node::NodePermissions;
-use deno_node::NodeResolutionMode;
-use deno_node::PackageJson;
+use sb_node::NodePermissions;
+use sb_node::NodeResolutionMode;
+use sb_node::PackageJson;
 use tokio::task::JoinHandle;
 
 use crate::npm::cache::mixed_case_package_name_encode;
@@ -145,7 +145,7 @@ impl NpmPackageFsResolver for LocalNpmPackageResolver {
             if sub_dir.is_dir() {
                 // if doing types resolution, only resolve the package if it specifies a types property
                 if mode.is_types() && !name.starts_with("@types/") {
-                    let package_json = PackageJson::load_skip_read_permission::<deno_node::RealFs>(
+                    let package_json = PackageJson::load_skip_read_permission::<sb_node::RealFs>(
                         sub_dir.join("package.json"),
                     )?;
                     if package_json.types.is_some() {

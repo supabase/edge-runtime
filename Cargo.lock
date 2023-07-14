@@ -275,11 +275,11 @@ dependencies = [
  "deno_core",
  "deno_crypto",
  "deno_fetch",
+ "deno_flash",
  "deno_fs",
  "deno_http",
  "deno_io",
  "deno_net",
- "deno_node",
  "deno_tls",
  "deno_url",
  "deno_web",
@@ -296,6 +296,7 @@ dependencies = [
  "reqwest",
  "sb_core",
  "sb_env",
+ "sb_node",
  "sb_os",
  "sb_worker_context",
  "sb_workers",
@@ -985,6 +986,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "deno_flash"
+version = "0.33.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7680b86dcf0cc24d895261c14bc9dafc8cd066d460515566f4aec66305f28dfa"
+dependencies = [
+ "deno_core",
+ "deno_tls",
+ "deno_websocket",
+ "http",
+ "httparse",
+ "libc",
+ "log",
+ "mio",
+ "rustls",
+ "rustls-pemfile",
+ "serde",
+ "socket2",
+ "tokio",
+]
+
+[[package]]
 name = "deno_fs"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1089,42 +1111,6 @@ dependencies = [
  "tokio",
  "trust-dns-proto",
  "trust-dns-resolver",
-]
-
-[[package]]
-name = "deno_node"
-version = "0.34.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ffd2289db1e0b2719718718a0f30087c6c46f605732d67b8e9bcaada956eb643"
-dependencies = [
- "aes",
- "cbc",
- "deno_core",
- "digest 0.10.6",
- "ecb",
- "hex",
- "idna 0.3.0",
- "indexmap",
- "libz-sys",
- "md-5",
- "md4",
- "num-bigint",
- "num-integer",
- "num-traits",
- "once_cell",
- "path-clean",
- "pbkdf2",
- "rand",
- "regex",
- "ripemd",
- "rsa",
- "serde",
- "sha-1 0.10.0",
- "sha2",
- "sha3",
- "signature",
- "tokio",
- "typenum",
 ]
 
 [[package]]
@@ -2463,7 +2449,6 @@ dependencies = [
  "deno_fetch",
  "deno_graph",
  "deno_lockfile",
- "deno_node",
  "deno_tls",
  "deno_web",
  "deno_webstorage",
@@ -2481,6 +2466,7 @@ dependencies = [
  "pretty_assertions",
  "regex",
  "ring",
+ "sb_node",
  "serde",
  "tar",
  "thiserror",
@@ -3375,12 +3361,14 @@ dependencies = [
  "bytes",
  "deno_core",
  "deno_fetch",
+ "deno_flash",
  "deno_fs",
  "deno_http",
  "deno_net",
  "deno_web",
  "deno_websocket",
  "hyper",
+ "sb_node",
  "sb_worker_context",
  "serde",
  "tokio",
@@ -3391,8 +3379,41 @@ name = "sb_env"
 version = "0.1.0"
 dependencies = [
  "deno_core",
- "deno_node",
  "sb_core",
+ "sb_node",
+]
+
+[[package]]
+name = "sb_node"
+version = "0.1.0"
+dependencies = [
+ "aes",
+ "cbc",
+ "deno_core",
+ "digest 0.10.6",
+ "ecb",
+ "hex",
+ "idna 0.3.0",
+ "indexmap",
+ "libz-sys",
+ "md-5",
+ "md4",
+ "num-bigint",
+ "num-integer",
+ "num-traits",
+ "once_cell",
+ "path-clean",
+ "pbkdf2",
+ "rand",
+ "regex",
+ "ripemd",
+ "rsa",
+ "serde",
+ "sha-1 0.10.0",
+ "sha2",
+ "sha3",
+ "signature",
+ "tokio",
 ]
 
 [[package]]
@@ -3400,7 +3421,6 @@ name = "sb_os"
 version = "0.1.0"
 dependencies = [
  "deno_core",
- "deno_node",
  "libc",
  "sb_core",
  "serde",

@@ -157,6 +157,7 @@ impl DenoRuntime {
             deno_http::deno_http::init_ops(),
             deno_io::deno_io::init_ops(Some(Default::default())),
             deno_fs::deno_fs::init_ops::<Permissions>(false),
+            deno_flash::deno_flash::init_ops::<Permissions>(false),
             sb_env_op::init_ops(),
             sb_os::sb_os::init_ops(),
             sb_user_workers::init_ops(),
@@ -164,6 +165,7 @@ impl DenoRuntime {
             sb_core_main_js::init_ops(),
             sb_core_net::init_ops(),
             sb_core_http::init_ops(),
+            // sb_node::deno_node::init_ops::<RuntimeNodeEnv>(None),
             sb_core_runtime::init_ops(Some(main_module_url.clone())),
         ];
 
@@ -418,6 +420,31 @@ mod test {
         );
     }
 
+    // #[tokio::test]
+    // async fn test_node_builtin_imports() {
+    //     let mut main_rt = create_runtime(
+    //         Some(PathBuf::from("./test_cases/node-built-in")),
+    //         Some(std::env::vars().collect()),
+    //         None,
+    //     )
+    //     .await;
+    //     let mod_evaluate = main_rt.js_runtime.mod_evaluate(main_rt.main_module_id);
+    //     let _ = main_rt.js_runtime.run_event_loop(false).await;
+    //     let global_value_deno_read_file_script = main_rt
+    //         .js_runtime
+    //         .execute_script(
+    //             "<anon>",
+    //             r#"
+    //         globalThis.basename('/Users/Refsnes/demo_path.js');
+    //     "#,
+    //         )
+    //         .unwrap();
+    //     let fs_read_result =
+    //         main_rt.to_value::<deno_core::serde_json::Value>(&global_value_deno_read_file_script);
+    //     assert_eq!(fs_read_result.unwrap().as_str().unwrap(), "demo_path.js");
+    //     std::mem::drop(mod_evaluate);
+    // }
+
     #[tokio::test]
     async fn test_os_ops() {
         let mut user_rt = create_runtime(
@@ -614,7 +641,7 @@ mod test {
 
     #[tokio::test]
     async fn test_read_file_user_rt() {
-        let user_rt = create_basic_user_runtime("./test_cases/readFile", 5, 1000).await;
+        let user_rt = create_basic_user_runtime("./test_cases/readFile", 10, 1000).await;
         let (_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
         let result = user_rt.run(unix_stream_rx).await;
         match result {

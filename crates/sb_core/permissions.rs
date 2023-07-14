@@ -111,3 +111,25 @@ impl deno_fs::FsPermissions for Permissions {
         Ok(())
     }
 }
+
+impl sb_node::NodePermissions for Permissions {
+    fn check_read(&mut self, _path: &Path) -> Result<(), AnyError> {
+        Ok(())
+    }
+}
+
+impl deno_flash::FlashPermissions for Permissions {
+    fn check_net<T: AsRef<str>>(
+        &mut self,
+        _host: &(T, Option<u16>),
+        _api_name: &str,
+    ) -> Result<(), AnyError> {
+        Ok(())
+    }
+}
+
+pub struct RuntimeNodeEnv;
+impl sb_node::NodeEnv for RuntimeNodeEnv {
+    type P = Permissions;
+    type Fs = sb_node::RealFs;
+}

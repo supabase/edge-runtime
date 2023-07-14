@@ -6,7 +6,7 @@ use deno_core::error::AnyError;
 pub use deno_core::normalize_path;
 use deno_core::ModuleSpecifier;
 use deno_crypto::rand;
-use deno_node::PathClean;
+use sb_node::PathClean;
 use std::borrow::Cow;
 use std::env::current_dir;
 use std::fs::OpenOptions;

@@ -5,21 +5,22 @@ use crate::utils::units::bytes_to_display;
 use anyhow::{anyhow, bail, Error};
 use cityhash::cityhash_1_1_1::city_hash_64;
 use cpu_timer::{get_thread_time, CPUAlarmVal, CPUTimer};
+use event_manager::events::{
+    BootEvent, BootFailure, EventMetadata, LogEvent, LogLevel, PseudoEvent, UncaughtException,
+    WorkerEventWithMetadata, WorkerEvents,
+};
 use hyper::{Body, Request, Response};
 use log::{debug, error};
 use sb_worker_context::essentials::{
     CreateUserWorkerResult, EventWorkerRuntimeOpts, UserWorkerMsgs, WorkerContextInitOpts,
     WorkerRuntimeOpts,
 };
-use sb_worker_context::events::{
-    BootEvent, BootFailure, EventMetadata, LogEvent, LogLevel, PseudoEvent, UncaughtException,
-    WorkerEventWithMetadata, WorkerEvents,
-};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::net::UnixStream;
+use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::{mpsc, oneshot};
 
 #[derive(Debug)]
@@ -166,19 +167,20 @@ fn get_event_metadata(conf: &WorkerRuntimeOpts) -> EventMetadata {
     event_metadata
 }
 
-pub async fn create_worker(
-    init_opts: WorkerContextInitOpts,
-) -> Result<mpsc::UnboundedSender<WorkerRequestMsg>, Error> {
-    let service_path = init_opts.service_path.clone();
-
-    if !service_path.exists() {
-        bail!("service does not exist {:?}", &service_path)
-    }
-
-    let (worker_boot_result_tx, worker_boot_result_rx) = oneshot::channel::<Result<(), Error>>();
-    let (unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
-
-    let (worker_key, pool_msg_tx, events_msg_tx, thread_name) = match &init_opts.conf {
+pub fn parse_worker_conf(
+    conf: &WorkerRuntimeOpts,
+) -> (
+    Option<u64>,
+    Option<UnboundedSender<UserWorkerMsgs>>,
+    Option<UnboundedSender<WorkerEventWithMetadata>>,
+    String,
+) {
+    let worker_core: (
+        Option<u64>,
+        Option<UnboundedSender<UserWorkerMsgs>>,
+        Option<UnboundedSender<WorkerEventWithMetadata>>,
+        String,
+    ) = match conf {
         WorkerRuntimeOpts::UserWorker(worker_opts) => (
             worker_opts.key,
             worker_opts.pool_msg_tx.clone(),
@@ -192,8 +194,22 @@ pub async fn create_worker(
         WorkerRuntimeOpts::EventsWorker(_) => (None, None, None, "events-worker".to_string()),
     };
 
-    let event_metadata = get_event_metadata(&init_opts.conf);
+    worker_core
+}
 
+pub async fn create_worker(
+    init_opts: WorkerContextInitOpts,
+) -> Result<mpsc::UnboundedSender<WorkerRequestMsg>, Error> {
+    let service_path = init_opts.service_path.clone();
+
+    if !service_path.exists() {
+        bail!("service does not exist {:?}", &service_path)
+    }
+
+    let (worker_boot_result_tx, worker_boot_result_rx) = oneshot::channel::<Result<(), Error>>();
+    let (unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
+    let (worker_key, pool_msg_tx, events_msg_tx, thread_name) = parse_worker_conf(&init_opts.conf);
+    let event_metadata = get_event_metadata(&init_opts.conf);
     let worker_boot_start_time = Instant::now();
     let events_msg_tx_clone = events_msg_tx.clone();
     let event_metadata_clone = event_metadata.clone();
@@ -268,33 +284,27 @@ pub async fn create_worker(
             let end_time = get_thread_time()?;
             let cpu_time_msg =
                 format!("CPU time used: {:?}ms", (end_time - start_time) / 1_000_000);
-            if events_msg_tx_clone.is_some() {
-                send_event_if_event_manager_available(
-                    events_msg_tx_clone.clone(),
-                    WorkerEvents::Log(LogEvent {
-                        msg: cpu_time_msg,
-                        level: LogLevel::Info,
-                    }),
-                    event_metadata_clone.clone(),
-                );
-            } else {
-                error!("{}", cpu_time_msg);
-            }
 
-            // remove the worker from pool
-            if worker_key.is_some() {
-                if let Some(worker_key_unwrapped) = worker_key {
-                    if let Some(tx) = pool_msg_tx {
-                        let res = tx.send(UserWorkerMsgs::Shutdown(worker_key_unwrapped));
-                        if res.is_err() {
-                            error!(
-                                "failed to send the shutdown signal to user worker pool: {:?}",
-                                res.unwrap_err()
-                            );
-                        }
+            debug!("{}", cpu_time_msg);
+            send_event_if_event_manager_available(
+                events_msg_tx_clone.clone(),
+                WorkerEvents::Log(LogEvent {
+                    msg: cpu_time_msg,
+                    level: LogLevel::Info,
+                }),
+                event_metadata_clone.clone(),
+            );
+
+            worker_key.and_then(|worker_key_unwrapped| {
+                pool_msg_tx.map(|tx| {
+                    if let Err(err) = tx.send(UserWorkerMsgs::Shutdown(worker_key_unwrapped)) {
+                        error!(
+                            "failed to send the shutdown signal to user worker pool: {:?}",
+                            err
+                        );
                     }
-                }
-            }
+                })
+            });
 
             Ok(())
         })

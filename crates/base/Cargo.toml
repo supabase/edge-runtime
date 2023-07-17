@@ -34,6 +34,7 @@ reqwest = { version = "0.11.13" }
 serde = { version = "1.0.149", features = ["derive"] }
 tokio = { workspace = true }
 url = { version = "2.3.1" }
+event_manager = { version = "0.1.0", path = "../event_manager" }
 sb_worker_context = { version = "0.1.0", path = "../sb_worker_context" }
 sb_workers = { version = "0.1.0", path = "../sb_workers" }
 sb_env = { version = "0.1.0", path = "../sb_env" }
@@ -75,6 +76,7 @@ reqwest = { version = "0.11.13" }
 serde = { version = "1.0.149", features = ["derive"] }
 tokio.workspace = true
 url = { version = "2.3.1" }
+event_manager = { version = "0.1.0", path = "../event_manager" }
 sb_worker_context = { version = "0.1.0", path = "../sb_worker_context" }
 sb_workers = { version = "0.1.0", path = "../sb_workers" }
 sb_env = { version = "0.1.0", path = "../sb_env" }

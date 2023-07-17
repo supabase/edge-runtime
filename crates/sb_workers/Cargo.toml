@@ -21,3 +21,4 @@ serde.workspace = true
 bytes.workspace = true
 log.workspace = true
 sb_worker_context = { version = "0.1.0", path = "../sb_worker_context" }
+event_manager = { version = "0.1.0", path = "../event_manager" }

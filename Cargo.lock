@@ -285,6 +285,7 @@ dependencies = [
  "deno_web",
  "deno_webidl",
  "deno_websocket",
+ "event_manager",
  "flaky_test",
  "futures-util",
  "http",
@@ -1430,6 +1431,18 @@ checksum = "aa68f1b12764fab894d2755d2518754e71b4fd80ecfb822714a1206c2aab39bf"
 dependencies = [
  "cc",
  "libc",
+]
+
+[[package]]
+name = "event_manager"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "deno_core",
+ "log",
+ "serde",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -3432,6 +3445,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "enum-as-inner 0.6.0",
+ "event_manager",
  "hyper",
  "serde",
  "tokio",
@@ -3446,6 +3460,7 @@ dependencies = [
  "bytes",
  "deno_core",
  "deno_http",
+ "event_manager",
  "hyper",
  "log",
  "sb_worker_context",

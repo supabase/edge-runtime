@@ -56,3 +56,17 @@ pub struct WorkerEventWithMetadata {
     pub event: WorkerEvents,
     pub metadata: EventMetadata,
 }
+
+#[derive(Serialize, Deserialize)]
+pub enum RawEvent {
+    Event(WorkerEventWithMetadata),
+    Done,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IncomingEvent {
+    event_type: Option<String>,
+    data: Option<Vec<u8>>,
+    done: bool,
+}

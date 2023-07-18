@@ -10,7 +10,6 @@ use deno_core::{
 use hyper::body::HttpBody;
 use hyper::header::{HeaderName, HeaderValue};
 use hyper::{Body, Request, Response};
-use log::error;
 use sb_worker_context::essentials::{
     CreateUserWorkerResult, UserWorkerMsgs, UserWorkerRuntimeOpts, WorkerContextInitOpts,
     WorkerRuntimeOpts,

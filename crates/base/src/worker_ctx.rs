@@ -3,7 +3,6 @@ use crate::utils::send_event_if_event_manager_available;
 use crate::utils::units::bytes_to_display;
 
 use anyhow::{anyhow, bail, Error};
-use cityhash::cityhash_1_1_1::city_hash_64;
 use cpu_timer::{get_thread_time, CPUAlarmVal, CPUTimer};
 use event_manager::events::{
     BootEvent, BootFailure, EventMetadata, LogEvent, LogLevel, PseudoEvent, UncaughtException,
@@ -12,16 +11,16 @@ use event_manager::events::{
 use hyper::{Body, Request, Response};
 use log::{debug, error};
 use sb_worker_context::essentials::{
-    CreateUserWorkerResult, EventWorkerRuntimeOpts, UserWorkerMsgs, WorkerContextInitOpts,
+    EventWorkerRuntimeOpts, UserWorkerMsgs, WorkerContextInitOpts,
     WorkerRuntimeOpts,
 };
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::thread;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 use tokio::net::UnixStream;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::{mpsc, oneshot};
+use crate::worker_pool::{WorkerPool};
 
 #[derive(Debug)]
 pub struct WorkerRequestMsg {
@@ -31,7 +30,7 @@ pub struct WorkerRequestMsg {
 
 #[derive(Debug, Clone)]
 pub struct UserWorkerProfile {
-    worker_event_tx: mpsc::UnboundedSender<WorkerRequestMsg>,
+    pub(crate) worker_event_tx: mpsc::UnboundedSender<WorkerRequestMsg>,
 }
 
 async fn handle_request(
@@ -167,20 +166,17 @@ fn get_event_metadata(conf: &WorkerRuntimeOpts) -> EventMetadata {
     event_metadata
 }
 
-pub fn parse_worker_conf(
-    conf: &WorkerRuntimeOpts,
-) -> (
+type WorkerCoreConfig = (
     Option<u64>,
     Option<UnboundedSender<UserWorkerMsgs>>,
     Option<UnboundedSender<WorkerEventWithMetadata>>,
     String,
-) {
-    let worker_core: (
-        Option<u64>,
-        Option<UnboundedSender<UserWorkerMsgs>>,
-        Option<UnboundedSender<WorkerEventWithMetadata>>,
-        String,
-    ) = match conf {
+);
+
+pub fn parse_worker_conf(
+    conf: &WorkerRuntimeOpts,
+) -> WorkerCoreConfig {
+    let worker_core: WorkerCoreConfig = match conf {
         WorkerRuntimeOpts::UserWorker(worker_opts) => (
             worker_opts.key,
             worker_opts.pool_msg_tx.clone(),
@@ -348,7 +344,7 @@ pub async fn create_worker(
     }
 }
 
-async fn send_user_worker_request(
+pub async fn send_user_worker_request(
     worker_channel: mpsc::UnboundedSender<WorkerRequestMsg>,
     req: Request<Body>,
 ) -> Result<Response<Body>, Error> {
@@ -393,99 +389,21 @@ pub async fn create_user_worker_pool(
         mpsc::unbounded_channel::<UserWorkerMsgs>();
 
     let user_worker_msgs_tx_clone = user_worker_msgs_tx.clone();
+
     let _handle: tokio::task::JoinHandle<Result<(), Error>> = tokio::spawn(async move {
-        let mut user_workers: HashMap<u64, UserWorkerProfile> = HashMap::new();
+        let mut worker_pool = WorkerPool::new(worker_event_sender, user_worker_msgs_tx_clone);
 
         loop {
             match user_worker_msgs_rx.recv().await {
                 None => break,
-                Some(UserWorkerMsgs::Create(mut worker_options, tx)) => {
-                    let mut user_worker_rt_opts = match worker_options.conf {
-                        WorkerRuntimeOpts::UserWorker(opts) => opts,
-                        _ => unreachable!(),
-                    };
-
-                    // derive worker key from service path
-                    // if force create is set, add current epoch mili seconds to randomize
-                    let service_path = worker_options.service_path.to_str().unwrap_or("");
-                    let mut key_input = service_path.to_string();
-                    if user_worker_rt_opts.force_create {
-                        let cur_epoch_time = SystemTime::now().duration_since(UNIX_EPOCH)?;
-                        key_input = format!("{}-{}", key_input, cur_epoch_time.as_millis());
-                    }
-                    let key = city_hash_64(key_input.as_bytes());
-
-                    // do not recreate the worker if it already exists
-                    // unless force_create option is set
-                    if !user_worker_rt_opts.force_create {
-                        if let Some(_worker) = user_workers.get(&key) {
-                            if tx.send(Ok(CreateUserWorkerResult { key })).is_err() {
-                                bail!("main worker receiver dropped")
-                            }
-                            continue;
-                        }
-                    }
-
-                    user_worker_rt_opts.service_path = Some(service_path.to_string());
-                    user_worker_rt_opts.key = Some(key);
-                    user_worker_rt_opts.execution_id = Some(uuid::Uuid::new_v4());
-                    user_worker_rt_opts.pool_msg_tx = Some(user_worker_msgs_tx_clone.clone());
-                    user_worker_rt_opts.events_msg_tx = worker_event_sender.clone();
-                    worker_options.conf = WorkerRuntimeOpts::UserWorker(user_worker_rt_opts);
-                    let result = create_worker(worker_options).await;
-
-                    match result {
-                        Ok(user_worker_req_tx) => {
-                            user_workers.insert(
-                                key,
-                                UserWorkerProfile {
-                                    worker_event_tx: user_worker_req_tx,
-                                },
-                            );
-                            if tx.send(Ok(CreateUserWorkerResult { key })).is_err() {
-                                bail!("main worker receiver dropped")
-                            };
-                        }
-                        Err(e) => {
-                            if tx.send(Err(e)).is_err() {
-                                bail!("main worker receiver dropped")
-                            };
-                        }
-                    }
+                Some(UserWorkerMsgs::Create(worker_options, tx)) => {
+                    let _ = worker_pool.create_worker(worker_options, tx).await;
                 }
                 Some(UserWorkerMsgs::SendRequest(key, req, tx)) => {
-                    match user_workers.get(&key) {
-                        Some(worker) => {
-                            let profile = worker.clone();
-                            tokio::task::spawn(async move {
-                                let req =
-                                    send_user_worker_request(profile.worker_event_tx, req).await;
-                                let result = match req {
-                                    Ok(rep) => Ok(rep),
-                                    Err(err) => {
-                                        error!(
-                                            "failed to send request to user worker: {}",
-                                            err.to_string()
-                                        );
-                                        Err(err)
-                                    }
-                                };
-
-                                if tx.send(result).is_err() {
-                                    error!("main worker receiver dropped")
-                                }
-                            });
-                        }
-
-                        None => {
-                            if tx.send(Err(anyhow!("user worker not available"))).is_err() {
-                                bail!("main worker receiver dropped")
-                            }
-                        }
-                    };
+                    worker_pool.send_request(key, req, tx);
                 }
                 Some(UserWorkerMsgs::Shutdown(key)) => {
-                    user_workers.remove(&key);
+                    worker_pool.shutdown(key);
                 }
             }
         }

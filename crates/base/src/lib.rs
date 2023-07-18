@@ -9,3 +9,4 @@ pub mod server;
 pub mod snapshot;
 pub mod utils;
 pub mod worker_ctx;
+pub mod worker_pool;

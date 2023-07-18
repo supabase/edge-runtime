@@ -2,7 +2,6 @@ use crate::events::{RawEvent, WorkerEventWithMetadata};
 use anyhow::{bail, Error};
 use deno_core::op;
 use deno_core::OpState;
-use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::rc::Rc;
 use tokio::sync::mpsc;

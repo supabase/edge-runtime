@@ -1,47 +1,57 @@
-use std::collections::HashMap;
-use std::path::{Path};
-use std::time::{SystemTime, UNIX_EPOCH};
-use tokio::sync::{mpsc};
-use event_manager::events::WorkerEventWithMetadata;
-use sb_worker_context::essentials::{CreateUserWorkerResult, UserWorkerMsgs, WorkerContextInitOpts, WorkerRuntimeOpts};
+use crate::rt_worker::worker_ctx::{create_worker, send_user_worker_request, UserWorkerProfile};
 use anyhow::{anyhow, bail, Error};
 use cityhash::cityhash_1::city_hash_64;
+use event_manager::events::WorkerEventWithMetadata;
 use http::{Request, Response};
 use hyper::Body;
 use log::error;
+use sb_worker_context::essentials::{
+    CreateUserWorkerResult, UserWorkerMsgs, WorkerContextInitOpts, WorkerRuntimeOpts,
+};
+use std::collections::HashMap;
+use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
+use tokio::sync::mpsc;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::oneshot::Sender;
-use crate::worker_ctx::{create_worker, send_user_worker_request, UserWorkerProfile};
 
 pub struct WorkerPool {
     pub worker_event_sender: Option<mpsc::UnboundedSender<WorkerEventWithMetadata>>,
     pub user_workers: HashMap<u64, UserWorkerProfile>,
-    pub user_worker_msg_tx: mpsc::UnboundedSender<UserWorkerMsgs>
+    pub user_worker_msg_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
 }
 
 pub enum CreationCodes {
     AlreadyExistent,
-    Unknown
+    Unknown,
 }
 
 impl WorkerPool {
-
-    pub(crate) fn new(worker_event_sender: Option<UnboundedSender<WorkerEventWithMetadata>>,
-                      user_worker_msg_tx: mpsc::UnboundedSender<UserWorkerMsgs>) -> Self {
+    pub(crate) fn new(
+        worker_event_sender: Option<UnboundedSender<WorkerEventWithMetadata>>,
+        user_worker_msg_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
+    ) -> Self {
         Self {
             worker_event_sender,
             user_workers: HashMap::new(),
-            user_worker_msg_tx
+            user_worker_msg_tx,
         }
     }
 
-    pub async fn create_worker(&mut self, mut worker_options: WorkerContextInitOpts, tx: Sender<Result<CreateUserWorkerResult, Error>>) -> Result<CreationCodes, Error> {
+    pub async fn create_worker(
+        &mut self,
+        mut worker_options: WorkerContextInitOpts,
+        tx: Sender<Result<CreateUserWorkerResult, Error>>,
+    ) -> Result<CreationCodes, Error> {
         let mut user_worker_rt_opts = match worker_options.conf {
             WorkerRuntimeOpts::UserWorker(opts) => opts,
             _ => unreachable!(),
         };
 
-        let (key, service_path) = self.derive_worker_key(&worker_options.service_path, user_worker_rt_opts.force_create);
+        let (key, service_path) = self.derive_worker_key(
+            &worker_options.service_path,
+            user_worker_rt_opts.force_create,
+        );
 
         if self.worker_already_exists(key, user_worker_rt_opts.force_create) {
             if tx.send(Ok(CreateUserWorkerResult { key })).is_err() {
@@ -83,7 +93,12 @@ impl WorkerPool {
         }
     }
 
-    pub fn send_request(&self, key: u64, req: Request<Body>, tx: Sender<Result<Response<Body>, Error>>) {
+    pub fn send_request(
+        &self,
+        key: u64,
+        req: Request<Body>,
+        tx: Sender<Result<Response<Body>, Error>>,
+    ) {
         let _: Result<(), Error> = match self.user_workers.get(&key) {
             Some(worker) => {
                 let profile = worker.clone();
@@ -133,12 +148,7 @@ impl WorkerPool {
         (city_hash_64(key_input.as_bytes()), key_input)
     }
 
-    fn worker_already_exists(
-        &self,
-        key: u64,
-        force_create: bool,
-    ) -> bool {
+    fn worker_already_exists(&self, key: u64, force_create: bool) -> bool {
         !force_create && self.user_workers.contains_key(&key)
     }
 }
-

@@ -2,6 +2,9 @@ use crate::deno_runtime::DenoRuntime;
 use crate::utils::send_event_if_event_manager_available;
 use crate::utils::units::bytes_to_display;
 
+use crate::rt_worker::implementation::default_handler;
+use crate::rt_worker::worker::{Worker, WorkerHandler};
+use crate::rt_worker::worker_pool::WorkerPool;
 use anyhow::{anyhow, bail, Error};
 use cpu_timer::{get_thread_time, CPUAlarmVal, CPUTimer};
 use event_manager::events::{
@@ -11,16 +14,15 @@ use event_manager::events::{
 use hyper::{Body, Request, Response};
 use log::{debug, error};
 use sb_worker_context::essentials::{
-    EventWorkerRuntimeOpts, UserWorkerMsgs, WorkerContextInitOpts,
-    WorkerRuntimeOpts,
+    EventWorkerRuntimeOpts, UserWorkerMsgs, WorkerContextInitOpts, WorkerRuntimeOpts,
 };
+use std::any::Any;
 use std::path::PathBuf;
 use std::thread;
 use std::time::{Duration, Instant};
 use tokio::net::UnixStream;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::{mpsc, oneshot};
-use crate::worker_pool::{WorkerPool};
 
 #[derive(Debug)]
 pub struct WorkerRequestMsg {
@@ -59,7 +61,7 @@ async fn handle_request(
     Ok(())
 }
 
-fn create_supervisor(
+pub fn create_supervisor(
     key: u64,
     worker_runtime: &mut DenoRuntime,
     termination_event_tx: oneshot::Sender<WorkerEvents>,
@@ -150,197 +152,65 @@ fn create_supervisor(
     Ok(cputimer)
 }
 
-fn get_event_metadata(conf: &WorkerRuntimeOpts) -> EventMetadata {
-    let mut event_metadata = EventMetadata {
-        service_path: None,
-        execution_id: None,
-    };
-    if conf.is_user_worker() {
-        let conf = conf.as_user_worker().unwrap();
-        event_metadata = EventMetadata {
-            service_path: conf.service_path.clone(),
-            execution_id: conf.execution_id,
-        };
-    }
-
-    event_metadata
-}
-
-type WorkerCoreConfig = (
-    Option<u64>,
-    Option<UnboundedSender<UserWorkerMsgs>>,
-    Option<UnboundedSender<WorkerEventWithMetadata>>,
-    String,
-);
-
-pub fn parse_worker_conf(
-    conf: &WorkerRuntimeOpts,
-) -> WorkerCoreConfig {
-    let worker_core: WorkerCoreConfig = match conf {
-        WorkerRuntimeOpts::UserWorker(worker_opts) => (
-            worker_opts.key,
-            worker_opts.pool_msg_tx.clone(),
-            worker_opts.events_msg_tx.clone(),
-            worker_opts
-                .key
-                .map(|k| format!("sb-iso-{:?}", k))
-                .unwrap_or("isolate-worker-unknown".to_string()),
-        ),
-        WorkerRuntimeOpts::MainWorker(_) => (None, None, None, "main-worker".to_string()),
-        WorkerRuntimeOpts::EventsWorker(_) => (None, None, None, "events-worker".to_string()),
-    };
-
-    worker_core
-}
-
 pub async fn create_worker(
     init_opts: WorkerContextInitOpts,
 ) -> Result<mpsc::UnboundedSender<WorkerRequestMsg>, Error> {
-    let service_path = init_opts.service_path.clone();
-
-    if !service_path.exists() {
-        bail!("service does not exist {:?}", &service_path)
-    }
-
     let (worker_boot_result_tx, worker_boot_result_rx) = oneshot::channel::<Result<(), Error>>();
     let (unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
-    let (worker_key, pool_msg_tx, events_msg_tx, thread_name) = parse_worker_conf(&init_opts.conf);
-    let event_metadata = get_event_metadata(&init_opts.conf);
-    let worker_boot_start_time = Instant::now();
-    let events_msg_tx_clone = events_msg_tx.clone();
-    let event_metadata_clone = event_metadata.clone();
-    // spawn a thread to run the worker
-    let _handle: thread::JoinHandle<Result<(), Error>> = thread::Builder::new()
-        .name(thread_name)
-        .spawn(move || {
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap();
-            let local = tokio::task::LocalSet::new();
+    let worker_init = Worker::new(&init_opts);
 
-            let mut start_time = 0;
-            let result: Result<WorkerEvents, Error> = local.block_on(&runtime, async {
-                match DenoRuntime::new(init_opts).await {
-                    Err(err) => {
-                        println!("{}", err);
-                        let _ = worker_boot_result_tx.send(Err(anyhow!("worker boot error")));
-                        Ok(WorkerEvents::BootFailure(BootFailure {
-                            msg: err.to_string(),
-                        }))
-                    }
-                    Ok(mut worker_runtime) => {
-                        let _ = worker_boot_result_tx.send(Ok(()));
+    if let Err(e) = worker_init {
+        return Err(e);
+    }
 
-                        let (termination_event_tx, termination_event_rx) =
-                            oneshot::channel::<WorkerEvents>();
-                        let _cputimer;
-                        if worker_runtime.conf.is_user_worker() {
-                            start_time = get_thread_time()?;
+    let worker: Box<dyn WorkerHandler> = Box::new(worker_init.unwrap());
 
-                            // cputimer is returned from supervisor and assigned here to keep it in scope.
-                            _cputimer = create_supervisor(
-                                worker_key.unwrap_or(0),
-                                &mut worker_runtime,
-                                termination_event_tx,
-                            )?;
+    // Downcast to call the method in MyStruct
+    let downcast_reference = worker.as_any().downcast_ref::<Worker>();
+    if let Some(worker_struct_ref) = downcast_reference {
+        worker_struct_ref.start(init_opts, unix_stream_rx, worker_boot_result_tx);
+
+        // create an async task waiting for requests for worker
+        let (worker_req_tx, mut worker_req_rx) = mpsc::unbounded_channel::<WorkerRequestMsg>();
+
+        let worker_req_handle: tokio::task::JoinHandle<Result<(), Error>> =
+            tokio::task::spawn(async move {
+                while let Some(msg) = worker_req_rx.recv().await {
+                    let unix_stream_tx_clone = unix_stream_tx.clone();
+                    tokio::task::spawn(async move {
+                        if let Err(err) = handle_request(unix_stream_tx_clone, msg).await {
+                            error!("worker failed to handle request: {:?}", err);
                         }
-
-                        match worker_runtime.run(unix_stream_rx).await {
-                            // if the error is execution terminated, check termination event reason
-                            Err(err) => {
-                                let err_string = err.to_string();
-                                if err_string.ends_with("execution terminated")
-                                    || err_string.ends_with("wall clock duration reached")
-                                {
-                                    Ok(termination_event_rx.await?)
-                                } else {
-                                    Ok(WorkerEvents::UncaughtException(UncaughtException {
-                                        exception: err_string,
-                                    }))
-                                }
-                            }
-                            Ok(()) => Ok(WorkerEvents::EventLoopCompleted(PseudoEvent {})),
-                        }
-                    }
+                    });
                 }
+
+                Ok(())
             });
 
-            match result {
-                Ok(event) => {
-                    send_event_if_event_manager_available(
-                        events_msg_tx_clone.clone(),
-                        event,
-                        event_metadata_clone.clone(),
-                    );
-                }
-                Err(err) => error!("unexpected worker error {}", err),
-            };
-
-            let end_time = get_thread_time()?;
-            let cpu_time_msg =
-                format!("CPU time used: {:?}ms", (end_time - start_time) / 1_000_000);
-
-            debug!("{}", cpu_time_msg);
-            send_event_if_event_manager_available(
-                events_msg_tx_clone.clone(),
-                WorkerEvents::Log(LogEvent {
-                    msg: cpu_time_msg,
-                    level: LogLevel::Info,
-                }),
-                event_metadata_clone.clone(),
-            );
-
-            worker_key.and_then(|worker_key_unwrapped| {
-                pool_msg_tx.map(|tx| {
-                    if let Err(err) = tx.send(UserWorkerMsgs::Shutdown(worker_key_unwrapped)) {
-                        error!(
-                            "failed to send the shutdown signal to user worker pool: {:?}",
-                            err
-                        );
-                    }
-                })
-            });
-
-            Ok(())
-        })
-        .unwrap();
-
-    // create an async task waiting for requests for worker
-    let (worker_req_tx, mut worker_req_rx) = mpsc::unbounded_channel::<WorkerRequestMsg>();
-
-    let worker_req_handle: tokio::task::JoinHandle<Result<(), Error>> =
-        tokio::task::spawn(async move {
-            while let Some(msg) = worker_req_rx.recv().await {
-                let unix_stream_tx_clone = unix_stream_tx.clone();
-                tokio::task::spawn(async move {
-                    if let Err(err) = handle_request(unix_stream_tx_clone, msg).await {
-                        error!("worker failed to handle request: {:?}", err);
-                    }
-                });
+        // wait for worker to be successfully booted
+        let worker_boot_result = worker_boot_result_rx.await?;
+        match worker_boot_result {
+            Err(err) => {
+                worker_req_handle.abort();
+                bail!(err)
             }
-
-            Ok(())
-        });
-
-    // wait for worker to be successfully booted
-    let worker_boot_result = worker_boot_result_rx.await?;
-    match worker_boot_result {
-        Err(err) => {
-            worker_req_handle.abort();
-            bail!(err)
+            Ok(_) => {
+                let elapsed = worker_struct_ref
+                    .worker_boot_start_time
+                    .elapsed()
+                    .as_millis();
+                send_event_if_event_manager_available(
+                    worker_struct_ref.events_msg_tx.clone(),
+                    WorkerEvents::Boot(BootEvent {
+                        boot_time: elapsed as usize,
+                    }),
+                    worker_struct_ref.event_metadata.clone(),
+                );
+                Ok(worker_req_tx)
+            }
         }
-        Ok(_) => {
-            let elapsed = worker_boot_start_time.elapsed().as_millis();
-            send_event_if_event_manager_available(
-                events_msg_tx,
-                WorkerEvents::Boot(BootEvent {
-                    boot_time: elapsed as usize,
-                }),
-                event_metadata,
-            );
-            Ok(worker_req_tx)
-        }
+    } else {
+        bail!("Unknown")
     }
 }
 

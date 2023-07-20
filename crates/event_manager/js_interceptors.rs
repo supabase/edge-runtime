@@ -1,12 +1,10 @@
 use crate::events::{EventMetadata, LogEvent, LogLevel, WorkerEvents};
 use crate::WorkerEventWithMetadata;
-use deno_core::error::{AnyError};
+use deno_core::error::AnyError;
 use deno_core::op;
-use deno_core::{
-    OpState,
-};
+use deno_core::OpState;
 use log::error;
-use tokio::sync::{mpsc};
+use tokio::sync::mpsc;
 
 #[op]
 pub fn op_user_worker_log(state: &mut OpState, msg: &str, is_err: bool) -> Result<(), AnyError> {

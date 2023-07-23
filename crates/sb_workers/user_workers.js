@@ -70,7 +70,7 @@ class UserWorker {
 			importMapPath: null,
 			envVars: [],
 			forceCreate: false,
-			allowRemoteModules: true,
+			netAccessDisabled: false,
 			customModuleRoot: null,
 			...opts,
 		};

@@ -161,7 +161,7 @@ impl Server {
                              if let Err(e) = conn_fut.await {
                                  // Most common cause for these errors are when the client closes the connection before
                                  // we could send a response
-                                 error!("client connection error: {:?}", e);
+                                 error!("client connection error ({:?})", e);
                              }
                            });
                        }

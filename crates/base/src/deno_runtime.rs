@@ -135,7 +135,7 @@ impl DenoRuntime {
         let root_cert_store = deno_tls::create_default_root_cert_store();
 
         let extensions = vec![
-            sb_core_permissions::init_ops(),
+            sb_core_permissions::init_ops(true),
             deno_webidl::deno_webidl::init_ops(),
             deno_console::deno_console::init_ops(),
             deno_url::deno_url::init_ops(),

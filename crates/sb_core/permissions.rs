@@ -1,18 +1,22 @@
-use deno_core::error::AnyError;
+use deno_core::error::{custom_error, AnyError};
 use deno_core::url::Url;
 use std::path::Path;
 
-pub struct Permissions;
+pub struct Permissions {
+    net_access_disabled: bool,
+}
 
 impl Default for Permissions {
     fn default() -> Self {
-        Self::new()
+        Self::new(false)
     }
 }
 
 impl Permissions {
-    pub fn new() -> Self {
-        Self
+    pub fn new(net_access_disabled: bool) -> Self {
+        Self {
+            net_access_disabled,
+        }
     }
 
     pub fn check_env(&mut self, _var: &str) -> Result<(), AnyError> {
@@ -35,8 +39,9 @@ impl Permissions {
 
 deno_core::extension!(
     sb_core_permissions,
-    state = |state| {
-        state.put::<Permissions>(Permissions::new());
+    options = { net_access_disabled: bool },
+    state = |state, options| {
+        state.put::<Permissions>(Permissions::new(options.net_access_disabled));
     }
 );
 
@@ -50,6 +55,12 @@ impl deno_web::TimersPermission for Permissions {
 
 impl deno_fetch::FetchPermissions for Permissions {
     fn check_net_url(&mut self, _url: &Url, _api_name: &str) -> Result<(), AnyError> {
+        if self.net_access_disabled {
+            return Err(custom_error(
+                "PermissionDenied",
+                "net access disabled for the user worker",
+            ));
+        }
         Ok(())
     }
 
@@ -64,6 +75,12 @@ impl deno_net::NetPermissions for Permissions {
         _host: &(T, Option<u16>),
         _api_name: &str,
     ) -> Result<(), AnyError> {
+        if self.net_access_disabled {
+            return Err(custom_error(
+                "PermissionDenied",
+                "net access disabled for the user worker",
+            ));
+        }
         Ok(())
     }
 
@@ -78,6 +95,13 @@ impl deno_net::NetPermissions for Permissions {
 
 impl deno_websocket::WebSocketPermissions for Permissions {
     fn check_net_url(&mut self, _url: &Url, _api_name: &str) -> Result<(), AnyError> {
+        if self.net_access_disabled {
+            return Err(custom_error(
+                "PermissionDenied",
+                "net access disabled for the user worker",
+            ));
+        }
+
         Ok(())
     }
 }
@@ -124,6 +148,12 @@ impl deno_flash::FlashPermissions for Permissions {
         _host: &(T, Option<u16>),
         _api_name: &str,
     ) -> Result<(), AnyError> {
+        if self.net_access_disabled {
+            return Err(custom_error(
+                "PermissionDenied",
+                "net access disabled for the user worker",
+            ));
+        }
         Ok(())
     }
 }

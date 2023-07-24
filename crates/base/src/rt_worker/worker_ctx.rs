@@ -6,10 +6,7 @@ use crate::rt_worker::worker::{Worker, WorkerHandler};
 use crate::rt_worker::worker_pool::WorkerPool;
 use anyhow::{bail, Error};
 use cpu_timer::{CPUAlarmVal, CPUTimer};
-use event_manager::events::{
-    BootEvent, PseudoEvent,
-    WorkerEventWithMetadata, WorkerEvents,
-};
+use event_manager::events::{BootEvent, PseudoEvent, WorkerEventWithMetadata, WorkerEvents};
 use hyper::{Body, Request, Response};
 use log::{debug, error};
 use sb_worker_context::essentials::{
@@ -155,7 +152,6 @@ pub async fn create_worker(
     let (worker_boot_result_tx, worker_boot_result_rx) = oneshot::channel::<Result<(), Error>>();
     let (unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
     let worker_init = Worker::new(&init_opts)?;
-
 
     let worker: Box<dyn WorkerHandler> = Box::new(worker_init);
 

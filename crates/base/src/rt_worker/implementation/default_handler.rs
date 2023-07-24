@@ -1,12 +1,12 @@
 use crate::deno_runtime::DenoRuntime;
 use crate::rt_worker::worker::{HandleCreationType, Worker, WorkerHandler};
 use crate::rt_worker::worker_ctx::create_supervisor;
-use anyhow::{Error};
+use anyhow::Error;
 use event_manager::events::{BootFailure, PseudoEvent, UncaughtException, WorkerEvents};
 use std::any::Any;
 use tokio::net::UnixStream;
-use tokio::sync::mpsc::{UnboundedReceiver};
-use tokio::sync::{oneshot};
+use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::oneshot;
 
 impl WorkerHandler for Worker {
     fn handle_error(&self, error: Error) -> Result<WorkerEvents, Error> {

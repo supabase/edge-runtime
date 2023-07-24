@@ -4,8 +4,7 @@ use crate::utils::send_event_if_event_manager_available;
 use anyhow::{anyhow, bail, Error};
 use cpu_timer::get_thread_time;
 use event_manager::events::{
-    EventMetadata, LogEvent, LogLevel,
-    WorkerEventWithMetadata, WorkerEvents,
+    EventMetadata, LogEvent, LogLevel, WorkerEventWithMetadata, WorkerEvents,
 };
 use log::{debug, error};
 use sb_worker_context::essentials::{UserWorkerMsgs, WorkerContextInitOpts};
@@ -15,7 +14,7 @@ use std::pin::Pin;
 use std::thread;
 use tokio::net::UnixStream;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
-use tokio::sync::oneshot::{Sender};
+use tokio::sync::oneshot::Sender;
 use tokio::time::Instant;
 
 #[derive(Clone)]

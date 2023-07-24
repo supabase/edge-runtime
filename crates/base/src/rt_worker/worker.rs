@@ -1,24 +1,21 @@
 use crate::deno_runtime::DenoRuntime;
 use crate::rt_worker::utils::{get_event_metadata, parse_worker_conf};
-use crate::rt_worker::worker_ctx::create_supervisor;
 use crate::utils::send_event_if_event_manager_available;
 use anyhow::{anyhow, bail, Error};
 use cpu_timer::get_thread_time;
 use event_manager::events::{
-    BootFailure, EventMetadata, LogEvent, LogLevel, PseudoEvent, UncaughtException,
+    EventMetadata, LogEvent, LogLevel,
     WorkerEventWithMetadata, WorkerEvents,
 };
 use log::{debug, error};
-use sb_worker_context::essentials::{UserWorkerMsgs, WorkerContextInitOpts, WorkerRuntimeOpts};
+use sb_worker_context::essentials::{UserWorkerMsgs, WorkerContextInitOpts};
 use std::any::Any;
 use std::future::Future;
 use std::pin::Pin;
 use std::thread;
 use tokio::net::UnixStream;
-use tokio::runtime::Runtime;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
-use tokio::sync::oneshot::{Receiver, Sender};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::oneshot::{Sender};
 use tokio::time::Instant;
 
 #[derive(Clone)]
@@ -47,7 +44,6 @@ impl Worker {
     pub fn new(init_opts: &WorkerContextInitOpts) -> Result<Self, Error> {
         let service_path = init_opts.service_path.clone();
 
-        let (unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
         let (worker_key, pool_msg_tx, events_msg_tx, thread_name) =
             parse_worker_conf(&init_opts.conf);
         let event_metadata = get_event_metadata(&init_opts.conf);
@@ -60,9 +56,9 @@ impl Worker {
 
         Ok(Self {
             worker_boot_start_time,
-            events_msg_tx: events_msg_tx.clone(),
+            events_msg_tx,
             pool_msg_tx,
-            event_metadata: event_metadata.clone(),
+            event_metadata,
             worker_key,
             thread_name,
         })
@@ -77,7 +73,7 @@ impl Worker {
         let thread_name = self.thread_name.clone();
         let events_msg_tx = self.events_msg_tx.clone();
         let event_metadata = self.event_metadata.clone();
-        let worker_key = self.worker_key.clone();
+        let worker_key = self.worker_key;
         let pool_msg_tx = self.pool_msg_tx.clone();
         let method_cloner = self.clone();
 
@@ -94,12 +90,12 @@ impl Worker {
 
                 let result: Result<WorkerEvents, Error> = local.block_on(&runtime, async {
                     match DenoRuntime::new(opts).await {
-                        Ok(mut new_runtime) => {
+                        Ok(new_runtime) => {
                             let _ = booter_signal.send(Ok(()));
                             // TODO: Should we handle it gracefully?
+                            start_time = get_thread_time()?;
                             let data = method_cloner.handle_creation(new_runtime, unix_channel_rx);
-                            let resolve = data.await;
-                            resolve
+                            data.await
                         }
                         Err(err) => {
                             let _ = booter_signal.send(Err(anyhow!("worker boot error")));
@@ -110,10 +106,9 @@ impl Worker {
 
                 match result {
                     Ok(event) => {
-                        let lived_event = event.clone();
                         send_event_if_event_manager_available(
                             events_msg_tx.clone(),
-                            lived_event,
+                            event,
                             event_metadata.clone(),
                         );
                     }

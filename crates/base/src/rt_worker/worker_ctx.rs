@@ -2,13 +2,12 @@ use crate::deno_runtime::DenoRuntime;
 use crate::utils::send_event_if_event_manager_available;
 use crate::utils::units::bytes_to_display;
 
-use crate::rt_worker::implementation::default_handler;
 use crate::rt_worker::worker::{Worker, WorkerHandler};
 use crate::rt_worker::worker_pool::WorkerPool;
-use anyhow::{anyhow, bail, Error};
-use cpu_timer::{get_thread_time, CPUAlarmVal, CPUTimer};
+use anyhow::{bail, Error};
+use cpu_timer::{CPUAlarmVal, CPUTimer};
 use event_manager::events::{
-    BootEvent, BootFailure, EventMetadata, LogEvent, LogLevel, PseudoEvent, UncaughtException,
+    BootEvent, PseudoEvent,
     WorkerEventWithMetadata, WorkerEvents,
 };
 use hyper::{Body, Request, Response};
@@ -16,12 +15,10 @@ use log::{debug, error};
 use sb_worker_context::essentials::{
     EventWorkerRuntimeOpts, UserWorkerMsgs, WorkerContextInitOpts, WorkerRuntimeOpts,
 };
-use std::any::Any;
 use std::path::PathBuf;
 use std::thread;
 use std::time::{Duration, Instant};
 use tokio::net::UnixStream;
-use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::{mpsc, oneshot};
 
 #[derive(Debug)]
@@ -157,13 +154,10 @@ pub async fn create_worker(
 ) -> Result<mpsc::UnboundedSender<WorkerRequestMsg>, Error> {
     let (worker_boot_result_tx, worker_boot_result_rx) = oneshot::channel::<Result<(), Error>>();
     let (unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
-    let worker_init = Worker::new(&init_opts);
+    let worker_init = Worker::new(&init_opts)?;
 
-    if let Err(e) = worker_init {
-        return Err(e);
-    }
 
-    let worker: Box<dyn WorkerHandler> = Box::new(worker_init.unwrap());
+    let worker: Box<dyn WorkerHandler> = Box::new(worker_init);
 
     // Downcast to call the method in MyStruct
     let downcast_reference = worker.as_any().downcast_ref::<Worker>();

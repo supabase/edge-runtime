@@ -1,24 +1,12 @@
 use crate::deno_runtime::DenoRuntime;
 use crate::rt_worker::worker::{HandleCreationType, Worker, WorkerHandler};
 use crate::rt_worker::worker_ctx::create_supervisor;
-use anyhow::{bail, Error};
-use cpu_timer::get_thread_time;
+use anyhow::{Error};
 use event_manager::events::{BootFailure, PseudoEvent, UncaughtException, WorkerEvents};
 use std::any::Any;
 use tokio::net::UnixStream;
-use tokio::runtime::{Handle, Runtime};
-use tokio::sync::mpsc::{Receiver, UnboundedReceiver};
-use tokio::sync::{mpsc, oneshot};
-
-fn get_runtime_handle() -> (Handle, Option<Runtime>) {
-    match Handle::try_current() {
-        Ok(h) => (h, None),
-        Err(_) => {
-            let rt = Runtime::new().unwrap();
-            (rt.handle().clone(), Some(rt))
-        }
-    }
-}
+use tokio::sync::mpsc::{UnboundedReceiver};
+use tokio::sync::{oneshot};
 
 impl WorkerHandler for Worker {
     fn handle_error(&self, error: Error) -> Result<WorkerEvents, Error> {
@@ -38,8 +26,6 @@ impl WorkerHandler for Worker {
         let _cputimer;
 
         let user_supervisor_factory = if created_rt.conf.is_user_worker() {
-            // start_time = get_thread_time()?;
-
             // cputimer is returned from supervisor and assigned here to keep it in scope.
             _cputimer = create_supervisor(
                 self.worker_key.unwrap_or(0),
@@ -56,6 +42,7 @@ impl WorkerHandler for Worker {
         };
 
         let run_worker_rt = async {
+            user_supervisor_factory?;
             match created_rt.run(unix_stream_rx).await {
                 // if the error is execution terminated, check termination event reason
                 Err(err) => {

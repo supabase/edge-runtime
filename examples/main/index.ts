@@ -45,6 +45,7 @@ serve(async (req: Request) => {
 		const envVarsObj = Deno.env.toObject();
 		const envVars = Object.keys(envVarsObj).map((k) => [k, envVarsObj[k]]);
 		const forceCreate = false;
+		const netAccessDisabled = false;
 
 		return await EdgeRuntime.userWorkers.create({
 			servicePath,

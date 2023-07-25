@@ -18,6 +18,9 @@ use tokio::sync::mpsc;
 use urlencoding::decode;
 
 use crate::{errors_rt, snapshot};
+use event_manager::events::{EventMetadata, WorkerEventWithMetadata};
+use event_manager::js_interceptors::sb_events_js_interceptors;
+use event_manager::sb_user_event_worker;
 use module_loader::DefaultModuleLoader;
 use sb_core::http_start::sb_core_http;
 use sb_core::net::sb_core_net;
@@ -26,8 +29,6 @@ use sb_core::runtime::sb_core_runtime;
 use sb_core::sb_core_main_js;
 use sb_env::sb_env as sb_env_op;
 use sb_worker_context::essentials::{UserWorkerMsgs, WorkerContextInitOpts, WorkerRuntimeOpts};
-use sb_worker_context::events::{EventMetadata, WorkerEventWithMetadata};
-use sb_workers::events::sb_user_event_worker;
 use sb_workers::sb_user_workers;
 
 fn load_import_map(maybe_path: Option<String>) -> Result<Option<ImportMap>, Error> {
@@ -172,6 +173,7 @@ impl DenoRuntime {
             sb_os::sb_os::init_ops(),
             sb_user_workers::init_ops(),
             sb_user_event_worker::init_ops(),
+            sb_events_js_interceptors::init_ops(),
             sb_core_main_js::init_ops(),
             sb_core_net::init_ops(),
             sb_core_http::init_ops(),

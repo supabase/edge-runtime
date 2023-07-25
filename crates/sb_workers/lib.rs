@@ -1,5 +1,3 @@
-pub mod events;
-
 use anyhow::Error;
 use deno_core::error::{custom_error, type_error, AnyError};
 use deno_core::futures::stream::Peekable;
@@ -12,13 +10,9 @@ use deno_core::{
 use hyper::body::HttpBody;
 use hyper::header::{HeaderName, HeaderValue};
 use hyper::{Body, Request, Response};
-use log::error;
 use sb_worker_context::essentials::{
     CreateUserWorkerResult, UserWorkerMsgs, UserWorkerRuntimeOpts, WorkerContextInitOpts,
     WorkerRuntimeOpts,
-};
-use sb_worker_context::events::{
-    EventMetadata, LogEvent, LogLevel, WorkerEventWithMetadata, WorkerEvents,
 };
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
@@ -36,7 +30,6 @@ deno_core::extension!(
         op_user_worker_create,
         op_user_worker_fetch_build,
         op_user_worker_fetch_send,
-        op_user_worker_log,
     ],
     esm = ["user_workers.js"]
 );
@@ -137,31 +130,6 @@ pub async fn op_user_worker_create(
         ));
     }
     Ok(result.unwrap().key.to_string())
-}
-
-#[op]
-pub fn op_user_worker_log(state: &mut OpState, msg: &str, is_err: bool) -> Result<(), AnyError> {
-    let maybe_tx = state.try_borrow::<mpsc::UnboundedSender<WorkerEventWithMetadata>>();
-    let mut level = LogLevel::Info;
-    if is_err {
-        level = LogLevel::Error;
-    }
-    if maybe_tx.is_some() {
-        let event_metadata = state
-            .try_borrow::<EventMetadata>()
-            .unwrap_or(&EventMetadata::default())
-            .clone();
-        maybe_tx.unwrap().send(WorkerEventWithMetadata {
-            event: WorkerEvents::Log(LogEvent {
-                msg: msg.to_string(),
-                level,
-            }),
-            metadata: event_metadata,
-        })?;
-    } else {
-        error!("[{:?}] {}", level, msg);
-    }
-    Ok(())
 }
 
 #[derive(Deserialize, Debug)]

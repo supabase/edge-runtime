@@ -1,7 +1,7 @@
 use crate::rt_worker::worker_ctx::{create_worker, send_user_worker_request, UserWorkerProfile};
 use anyhow::{anyhow, bail, Error};
 use cityhash::cityhash_1::city_hash_64;
-use event_manager::events::WorkerEventWithMetadata;
+use event_worker::events::WorkerEventWithMetadata;
 use http::{Request, Response};
 use hyper::Body;
 use log::error;
@@ -22,7 +22,7 @@ pub struct WorkerPool {
 }
 
 pub enum CreationCodes {
-    AlreadyExistent,
+    AlreadyExist,
     Unknown,
 }
 
@@ -57,7 +57,7 @@ impl WorkerPool {
             if tx.send(Ok(CreateUserWorkerResult { key })).is_err() {
                 bail!("main worker receiver dropped")
             }
-            return Ok(CreationCodes::AlreadyExistent);
+            return Ok(CreationCodes::AlreadyExist);
         }
 
         user_worker_rt_opts.service_path = Some(service_path);

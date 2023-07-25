@@ -6,7 +6,7 @@ use crate::rt_worker::worker::{Worker, WorkerHandler};
 use crate::rt_worker::worker_pool::WorkerPool;
 use anyhow::{bail, Error};
 use cpu_timer::{CPUAlarmVal, CPUTimer};
-use event_manager::events::{BootEvent, PseudoEvent, WorkerEventWithMetadata, WorkerEvents};
+use event_worker::events::{BootEvent, PseudoEvent, WorkerEventWithMetadata, WorkerEvents};
 use hyper::{Body, Request, Response};
 use log::{debug, error};
 use sb_worker_context::essentials::{
@@ -155,7 +155,9 @@ pub async fn create_worker(
 
     let worker: Box<dyn WorkerHandler> = Box::new(worker_init);
 
-    // Downcast to call the method in MyStruct
+    // Downcast to call the method in "Worker" since the implementation might be of worker
+    // But at the end we are using the trait itself.
+    // Downcasting it to Worker will give us access to its parent implementation
     let downcast_reference = worker.as_any().downcast_ref::<Worker>();
     if let Some(worker_struct_ref) = downcast_reference {
         worker_struct_ref.start(init_opts, unix_stream_rx, worker_boot_result_tx);

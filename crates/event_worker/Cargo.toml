@@ -1,5 +1,5 @@
 [package]
-name = "event_manager"
+name = "event_worker"
 version = "0.1.0"
 authors = ["Supabase <team@supabase.com>"]
 edition = "2021"

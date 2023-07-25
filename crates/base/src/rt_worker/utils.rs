@@ -1,4 +1,4 @@
-use event_manager::events::{EventMetadata, WorkerEventWithMetadata};
+use event_worker::events::{EventMetadata, WorkerEventWithMetadata};
 use sb_worker_context::essentials::{UserWorkerMsgs, WorkerRuntimeOpts};
 use tokio::sync::mpsc::UnboundedSender;
 

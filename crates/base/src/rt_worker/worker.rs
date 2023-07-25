@@ -3,7 +3,7 @@ use crate::rt_worker::utils::{get_event_metadata, parse_worker_conf};
 use crate::utils::send_event_if_event_manager_available;
 use anyhow::{anyhow, bail, Error};
 use cpu_timer::get_thread_time;
-use event_manager::events::{
+use event_worker::events::{
     EventMetadata, LogEvent, LogLevel, WorkerEventWithMetadata, WorkerEvents,
 };
 use log::{debug, error};

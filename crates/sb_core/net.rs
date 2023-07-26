@@ -91,10 +91,15 @@ async fn op_net_accept(
     // we do not want to keep the op_state locked,
     // so we take the channel receiver from it and release op state.
     // we need to add it back later after processing a message.
-    let mut rx = {
+    let rx = {
         let mut op_state = state.borrow_mut();
-        op_state.take::<mpsc::UnboundedReceiver<tokio::net::UnixStream>>()
+        op_state.try_take::<mpsc::UnboundedReceiver<tokio::net::UnixStream>>()
     };
+
+    if rx.is_none() {
+        return Err(bad_resource("unix channel receiver is already used"));
+    }
+    let mut rx = rx.unwrap();
 
     let unix_stream = rx.recv().await;
     if unix_stream.is_none() {

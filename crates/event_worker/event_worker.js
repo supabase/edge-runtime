@@ -2,7 +2,7 @@ const primordials = globalThis.__bootstrap.primordials;
 const { SymbolAsyncIterator } = primordials;
 const core = globalThis.Deno.core;
 
-class SupabaseEventListener {
+class EventWorker {
 	async nextEvent() {
 		try {
 			const reqEvt = await core.opAsync('op_event_accept');
@@ -38,4 +38,4 @@ class SupabaseEventListener {
 	}
 }
 
-export { SupabaseEventListener };
+export { EventWorker };

@@ -1,10 +1,10 @@
 use crate::deno_runtime::DenoRuntime;
-use crate::utils::send_event_if_event_manager_available;
+use crate::utils::send_event_if_event_worker_available;
 use crate::utils::units::bytes_to_display;
 
 use anyhow::{anyhow, bail, Error};
 use cpu_timer::{get_thread_time, CPUAlarmVal, CPUTimer};
-use event_manager::events::{
+use event_worker::events::{
     BootEvent, BootFailure, EventMetadata, LogEvent, LogLevel, PseudoEvent, UncaughtException,
     WorkerEventWithMetadata, WorkerEvents,
 };
@@ -268,7 +268,7 @@ pub async fn create_worker(
 
             match result {
                 Ok(event) => {
-                    send_event_if_event_manager_available(
+                    send_event_if_event_worker_available(
                         events_msg_tx_clone.clone(),
                         event,
                         event_metadata_clone.clone(),
@@ -282,7 +282,7 @@ pub async fn create_worker(
                 format!("CPU time used: {:?}ms", (end_time - start_time) / 1_000_000);
 
             debug!("{}", cpu_time_msg);
-            send_event_if_event_manager_available(
+            send_event_if_event_worker_available(
                 events_msg_tx_clone.clone(),
                 WorkerEvents::Log(LogEvent {
                     msg: cpu_time_msg,
@@ -332,7 +332,7 @@ pub async fn create_worker(
         }
         Ok(_) => {
             let elapsed = worker_boot_start_time.elapsed().as_millis();
-            send_event_if_event_manager_available(
+            send_event_if_event_worker_available(
                 events_msg_tx,
                 WorkerEvents::Boot(BootEvent {
                     boot_time: elapsed as usize,

@@ -18,9 +18,9 @@ use tokio::sync::mpsc;
 use urlencoding::decode;
 
 use crate::{errors_rt, snapshot};
-use event_manager::events::{EventMetadata, WorkerEventWithMetadata};
-use event_manager::js_interceptors::sb_events_js_interceptors;
-use event_manager::sb_user_event_worker;
+use event_worker::events::{EventMetadata, WorkerEventWithMetadata};
+use event_worker::js_interceptors::sb_events_js_interceptors;
+use event_worker::sb_user_event_worker;
 use module_loader::DefaultModuleLoader;
 use sb_core::http_start::sb_core_http;
 use sb_core::net::sb_core_net;

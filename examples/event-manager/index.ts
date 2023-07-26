@@ -1,6 +1,6 @@
-const eventManager = new globalThis.EventManager();
+const eventManager = new globalThis.EventWorker();
 
-console.log('event manager running');
+console.log('event worker running');
 
 for await (const data of eventManager) {
 	if (data) {

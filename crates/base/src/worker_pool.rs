@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::{mpsc};
-use event_manager::events::WorkerEventWithMetadata;
+use event_worker::events::WorkerEventWithMetadata;
 use sb_worker_context::essentials::{CreateUserWorkerResult, UserWorkerMsgs, WorkerContextInitOpts, WorkerRuntimeOpts};
 use anyhow::{anyhow, bail, Error};
 use cityhash::cityhash_1::city_hash_64;

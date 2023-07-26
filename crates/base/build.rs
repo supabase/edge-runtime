@@ -12,8 +12,8 @@ mod supabase_startup_snapshot {
     use deno_core::Extension;
     use deno_core::ExtensionFileSource;
     use deno_core::ModuleCode;
-    use event_manager::js_interceptors::sb_events_js_interceptors;
-    use event_manager::sb_user_event_worker;
+    use event_worker::js_interceptors::sb_events_js_interceptors;
+    use event_worker::sb_user_event_worker;
     use sb_core::http_start::sb_core_http;
     use sb_core::net::sb_core_net;
     use sb_core::permissions::sb_core_permissions;

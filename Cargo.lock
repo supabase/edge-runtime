@@ -285,7 +285,7 @@ dependencies = [
  "deno_web",
  "deno_webidl",
  "deno_websocket",
- "event_manager",
+ "event_worker",
  "flaky_test",
  "futures-util",
  "http",
@@ -1434,7 +1434,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "event_manager"
+name = "event_worker"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -3445,7 +3445,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "enum-as-inner 0.6.0",
- "event_manager",
+ "event_worker",
  "hyper",
  "serde",
  "tokio",
@@ -3460,7 +3460,7 @@ dependencies = [
  "bytes",
  "deno_core",
  "deno_http",
- "event_manager",
+ "event_worker",
  "hyper",
  "log",
  "sb_worker_context",

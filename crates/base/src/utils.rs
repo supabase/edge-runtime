@@ -1,4 +1,4 @@
-use event_manager::events::{EventMetadata, WorkerEventWithMetadata, WorkerEvents};
+use sb_worker_context::events::{EventMetadata, WorkerEventWithMetadata, WorkerEvents};
 use tokio::sync::mpsc;
 
 pub mod units;

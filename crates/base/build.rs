@@ -12,14 +12,13 @@ mod supabase_startup_snapshot {
     use deno_core::Extension;
     use deno_core::ExtensionFileSource;
     use deno_core::ModuleCode;
-    use event_manager::js_interceptors::sb_events_js_interceptors;
-    use event_manager::sb_user_event_worker;
     use sb_core::http_start::sb_core_http;
     use sb_core::net::sb_core_net;
     use sb_core::permissions::sb_core_permissions;
     use sb_core::runtime::sb_core_runtime;
     use sb_core::sb_core_main_js;
     use sb_env::sb_env;
+    use sb_workers::events::sb_user_event_worker;
     use sb_workers::sb_user_workers;
     use std::path::Path;
 
@@ -205,7 +204,6 @@ mod supabase_startup_snapshot {
             sb_os::sb_os::init_ops_and_esm(),
             sb_user_workers::init_ops_and_esm(),
             sb_user_event_worker::init_ops_and_esm(),
-            sb_events_js_interceptors::init_ops_and_esm(),
             sb_core_main_js::init_ops_and_esm(),
             sb_core_net::init_ops_and_esm(),
             sb_core_http::init_ops_and_esm(),

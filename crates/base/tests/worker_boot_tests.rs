@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use base::rt_worker::worker_ctx::create_worker;
+use base::worker_ctx::create_worker;
 use sb_worker_context::essentials::{
     UserWorkerRuntimeOpts, WorkerContextInitOpts, WorkerRuntimeOpts,
 };

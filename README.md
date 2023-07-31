@@ -49,8 +49,8 @@ To run with a different entry point, you can pass a different main service like 
 using Docker:
 
 ```
-docker build -t edge-runtime .
-docker run -it --rm -p 9000:9000 -v /path/to/supabase/functions:/functions supabase/edge-runtime start --main-service /functions/main
+docker build -t supabase/edge-runtime .
+docker run -it --rm -p 9000:9000 -v ./examples/:/examples supabase/edge-runtime start --main-service /examples/main
 ```
 
 ## How to run tests

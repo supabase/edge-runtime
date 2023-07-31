@@ -18,9 +18,6 @@ use sb_worker_context::essentials::{
     CreateUserWorkerResult, UserWorkerMsgs, UserWorkerRuntimeOpts, WorkerContextInitOpts,
     WorkerRuntimeOpts,
 };
-use sb_worker_context::events::{
-    EventMetadata, LogEvent, LogLevel, WorkerEventWithMetadata, WorkerEvents,
-};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::cell::RefCell;

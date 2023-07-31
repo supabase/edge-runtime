@@ -7,6 +7,7 @@ use std::any::Any;
 use tokio::net::UnixStream;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::oneshot;
+use tokio::sync::oneshot::Receiver;
 
 impl WorkerHandler for Worker {
     fn handle_error(&self, error: Error) -> Result<WorkerEvents, Error> {
@@ -20,29 +21,9 @@ impl WorkerHandler for Worker {
         &self,
         mut created_rt: DenoRuntime,
         unix_stream_rx: UnboundedReceiver<UnixStream>,
+        termination_event_rx: Receiver<WorkerEvents>
     ) -> HandleCreationType {
-        let (termination_event_tx, termination_event_rx) = oneshot::channel::<WorkerEvents>();
-
-        let _cputimer;
-
-        let user_supervisor_factory = if created_rt.conf.is_user_worker() {
-            // cputimer is returned from supervisor and assigned here to keep it in scope.
-            _cputimer = create_supervisor(
-                self.worker_key.unwrap_or(0),
-                &mut created_rt,
-                termination_event_tx,
-            );
-            if let Err(e) = _cputimer {
-                Err(e)
-            } else {
-                Ok(())
-            }
-        } else {
-            Ok(())
-        };
-
         let run_worker_rt = async {
-            user_supervisor_factory?;
             match created_rt.run(unix_stream_rx).await {
                 // if the error is execution terminated, check termination event reason
                 Err(err) => {

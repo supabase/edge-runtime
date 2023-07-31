@@ -14,8 +14,10 @@ use std::pin::Pin;
 use std::thread;
 use tokio::net::UnixStream;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
-use tokio::sync::oneshot::Sender;
+use tokio::sync::oneshot;
+use tokio::sync::oneshot::{Receiver, Sender};
 use tokio::time::Instant;
+use crate::rt_worker::worker_ctx::create_supervisor;
 
 #[derive(Clone)]
 pub struct Worker {
@@ -35,6 +37,7 @@ pub trait WorkerHandler: Send {
         &self,
         created_rt: DenoRuntime,
         unix_stream_rx: UnboundedReceiver<UnixStream>,
+        termination_event_rx: Receiver<WorkerEvents>
     ) -> HandleCreationType;
     fn as_any(&self) -> &dyn Any;
 }
@@ -89,11 +92,28 @@ impl Worker {
 
                 let result: Result<WorkerEvents, Error> = local.block_on(&runtime, async {
                     match DenoRuntime::new(opts).await {
-                        Ok(new_runtime) => {
+                        Ok(mut new_runtime) => {
                             let _ = booter_signal.send(Ok(()));
+
+                            // CPU TIMER
+                            let (termination_event_tx, termination_event_rx) = oneshot::channel::<WorkerEvents>();
+                            let _cputimer;
+
+                            // TODO: Allow customization of supervisor
+                            if new_runtime.conf.is_user_worker() {
+                                start_time = get_thread_time()?;
+
+                                // cputimer is returned from supervisor and assigned here to keep it in scope.
+                                _cputimer = create_supervisor(
+                                    worker_key.unwrap_or(0),
+                                    &mut new_runtime,
+                                    termination_event_tx,
+                                )?;
+                            }
+
                             // TODO: Should we handle it gracefully?
                             start_time = get_thread_time()?;
-                            let data = method_cloner.handle_creation(new_runtime, unix_channel_rx);
+                            let data = method_cloner.handle_creation(new_runtime, unix_channel_rx, termination_event_rx);
                             data.await
                         }
                         Err(err) => {

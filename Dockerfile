@@ -14,5 +14,6 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,id=${TARGETPLATFORM} --m
 
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y libssl-dev && rm -rf /var/lib/apt/lists/*
+RUN apt-get remove -y perl && apt-get autoremove -y
 COPY --from=builder /root/edge-runtime /usr/local/bin/edge-runtime
 ENTRYPOINT ["edge-runtime"]

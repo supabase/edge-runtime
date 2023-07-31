@@ -26,7 +26,7 @@ pub struct UserWorkerRuntimeOpts {
     pub max_cpu_bursts: u64,
 
     pub force_create: bool,
-    pub allow_remote_modules: bool,
+    pub net_access_disabled: bool,
     pub custom_module_root: Option<String>,
 }
 
@@ -44,7 +44,7 @@ impl Default for UserWorkerRuntimeOpts {
             key: None,
             pool_msg_tx: None,
             events_msg_tx: None,
-            allow_remote_modules: true,
+            net_access_disabled: false,
             custom_module_root: None,
             service_path: None,
             execution_id: None,

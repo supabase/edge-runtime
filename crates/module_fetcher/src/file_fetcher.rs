@@ -30,7 +30,6 @@ use deno_fetch::reqwest::header::IF_NONE_MATCH;
 use deno_fetch::reqwest::StatusCode;
 use deno_web::BlobStore;
 use log::debug;
-use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
@@ -324,14 +323,12 @@ impl FileFetcher {
             ));
         }
 
-        let blob = {
-            let blob_store = self.blob_store.borrow();
-            blob_store
-                .get_object_url(specifier.clone())
-                .ok_or_else(|| {
-                    custom_error("NotFound", format!("Blob URL not found: \"{specifier}\"."))
-                })?
-        };
+        let blob = self
+            .blob_store
+            .get_object_url(specifier.clone())
+            .ok_or_else(|| {
+                custom_error("NotFound", format!("Blob URL not found: \"{specifier}\"."))
+            })?;
 
         let content_type = blob.media_type.clone();
         let bytes = blob.read_all().await?;

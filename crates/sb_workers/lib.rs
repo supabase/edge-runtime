@@ -10,9 +10,13 @@ use deno_core::{
 use hyper::body::HttpBody;
 use hyper::header::{HeaderName, HeaderValue};
 use hyper::{Body, Request, Response};
+use log::error;
 use sb_worker_context::essentials::{
     CreateUserWorkerResult, UserWorkerMsgs, UserWorkerRuntimeOpts, WorkerContextInitOpts,
     WorkerRuntimeOpts,
+};
+use sb_worker_context::events::{
+    EventMetadata, LogEvent, LogLevel, WorkerEventWithMetadata, WorkerEvents,
 };
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
@@ -23,6 +27,7 @@ use std::pin::Pin;
 use std::rc::Rc;
 use std::task::{Context, Poll};
 use tokio::sync::{mpsc, oneshot};
+use event_worker::events::{EventMetadata, LogEvent, LogLevel, WorkerEvents, WorkerEventWithMetadata};
 
 deno_core::extension!(
     sb_user_workers,
@@ -30,6 +35,7 @@ deno_core::extension!(
         op_user_worker_create,
         op_user_worker_fetch_build,
         op_user_worker_fetch_send,
+        op_user_worker_log,
     ],
     esm = ["user_workers.js"]
 );
@@ -42,7 +48,7 @@ pub struct UserWorkerCreateOptions {
     import_map_path: Option<String>,
     env_vars: Vec<(String, String)>,
     force_create: bool,
-    allow_remote_modules: bool,
+    net_access_disabled: bool,
     custom_module_root: Option<String>,
 
     memory_limit_mb: u64,
@@ -69,7 +75,7 @@ pub async fn op_user_worker_create(
             import_map_path,
             env_vars,
             force_create,
-            allow_remote_modules,
+            net_access_disabled,
             custom_module_root,
 
             memory_limit_mb,
@@ -99,7 +105,7 @@ pub async fn op_user_worker_create(
                 max_cpu_bursts,
                 cpu_burst_interval_ms,
                 force_create,
-                allow_remote_modules,
+                net_access_disabled,
                 custom_module_root,
                 key: None,
                 pool_msg_tx: None,
@@ -130,6 +136,31 @@ pub async fn op_user_worker_create(
         ));
     }
     Ok(result.unwrap().key.to_string())
+}
+
+#[op]
+pub fn op_user_worker_log(state: &mut OpState, msg: &str, is_err: bool) -> Result<(), AnyError> {
+    let maybe_tx = state.try_borrow::<mpsc::UnboundedSender<WorkerEventWithMetadata>>();
+    let mut level = LogLevel::Info;
+    if is_err {
+        level = LogLevel::Error;
+    }
+    if maybe_tx.is_some() {
+        let event_metadata = state
+            .try_borrow::<EventMetadata>()
+            .unwrap_or(&EventMetadata::default())
+            .clone();
+        maybe_tx.unwrap().send(WorkerEventWithMetadata {
+            event: WorkerEvents::Log(LogEvent {
+                msg: msg.to_string(),
+                level,
+            }),
+            metadata: event_metadata,
+        })?;
+    } else {
+        error!("[{:?}] {}", level, msg);
+    }
+    Ok(())
 }
 
 #[derive(Deserialize, Debug)]

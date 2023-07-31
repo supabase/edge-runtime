@@ -21,6 +21,11 @@ fn cli() -> Command {
                 .global(true)
                 .action(ArgAction::SetTrue),
         )
+        .arg(
+            arg!(--"log-source" "Include source file and line in log messages")
+                .global(true)
+                .action(ArgAction::SetTrue),
+        )
         .subcommand(
             Command::new("start")
                 .about("Start the server")
@@ -60,7 +65,8 @@ fn main() -> Result<(), anyhow::Error> {
 
         if !matches.get_flag("quiet") {
             let verbose = matches.get_flag("verbose");
-            logger::init(verbose);
+            let include_source = matches.get_flag("log-source");
+            logger::init(verbose, include_source);
         }
 
         #[allow(clippy::single_match)]

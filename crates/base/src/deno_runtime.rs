@@ -135,8 +135,18 @@ impl DenoRuntime {
         // Note: this will load Mozilla's CAs (we may also need to support system certs)
         let root_cert_store = deno_tls::create_default_root_cert_store();
 
+        let mut net_access_disabled = false;
+        let mut module_root_path = base_dir_path.clone();
+        if conf.is_user_worker() {
+            let user_conf = conf.as_user_worker().unwrap();
+            if let Some(custom_module_root) = &user_conf.custom_module_root {
+                module_root_path = PathBuf::from(custom_module_root);
+            }
+            net_access_disabled = user_conf.net_access_disabled
+        }
+
         let extensions = vec![
-            sb_core_permissions::init_ops(),
+            sb_core_permissions::init_ops(net_access_disabled),
             deno_webidl::deno_webidl::init_ops(),
             deno_console::deno_console::init_ops(),
             deno_url::deno_url::init_ops(),
@@ -172,20 +182,11 @@ impl DenoRuntime {
         ];
 
         let import_map = load_import_map(import_map_path)?;
-        let mut allow_remote_modules = true;
-        let mut module_root_path = base_dir_path.clone();
-        if conf.is_user_worker() {
-            let user_conf = conf.as_user_worker().unwrap();
-            allow_remote_modules = user_conf.allow_remote_modules;
-            if let Some(custom_module_root) = &user_conf.custom_module_root {
-                module_root_path = PathBuf::from(custom_module_root);
-            }
-        }
         let module_loader = DefaultModuleLoader::new(
             module_root_path,
             import_map,
             no_module_cache,
-            allow_remote_modules,
+            true, //allow_remote_modules
         )?;
 
         let mut js_runtime = JsRuntime::new(RuntimeOptions {
@@ -629,7 +630,7 @@ mod test {
                 max_cpu_bursts: 10,
                 low_memory_multiplier: 5,
                 force_create: true,
-                allow_remote_modules: true,
+                net_access_disabled: false,
                 custom_module_root: None,
                 key: None,
                 pool_msg_tx: None,

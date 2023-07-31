@@ -28,7 +28,7 @@ The edge runtime can be divided into two runtimes with different purposes.
 ## How to run locally
 To serve all functions in the examples folder on port 9000, you can do this with the [example main service](./examples/main/index.ts) provided with this repo
 ```sh
-./scripts/run.sh start --main-service ./examples/main -p 9000
+./scripts/run.sh
 ```
 
 Test by calling the [hello world function](./examples/hello-world/index.ts)
@@ -49,8 +49,8 @@ To run with a different entry point, you can pass a different main service like 
 using Docker:
 
 ```
-docker build -t edge-runtime .
-docker run -it --rm -p 9000:9000 -v /path/to/supabase/functions:/functions supabase/edge-runtime start --main-service /functions/main
+docker build -t supabase/edge-runtime .
+docker run -it --rm -p 9000:9000 -v ./examples/:/examples supabase/edge-runtime start --main-service /examples/main
 ```
 
 ## How to run tests

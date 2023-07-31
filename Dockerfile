@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.4
-FROM rust:1.68.2-bullseye as builder
+FROM rust:1.71.0-bookworm as builder
 ARG TARGETPLATFORM
 RUN apt-get update && apt-get install -y llvm-dev libclang-dev clang
 WORKDIR /usr/src/edge-runtime
@@ -12,7 +12,8 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,id=${TARGETPLATFORM} --m
     mv /usr/src/edge-runtime/target/release/edge-runtime /root
 
 
-FROM debian:bullseye-slim
+FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y libssl-dev && rm -rf /var/lib/apt/lists/*
+RUN apt-get remove -y perl && apt-get autoremove -y
 COPY --from=builder /root/edge-runtime /usr/local/bin/edge-runtime
 ENTRYPOINT ["edge-runtime"]

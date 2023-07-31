@@ -179,7 +179,7 @@ mod supabase_startup_snapshot {
     pub fn create_runtime_snapshot(snapshot_path: PathBuf) {
         let user_agent = String::from("supabase");
         let extensions: Vec<Extension> = vec![
-            sb_core_permissions::init_ops_and_esm(),
+            sb_core_permissions::init_ops_and_esm(false),
             deno_webidl::deno_webidl::init_ops_and_esm(),
             deno_console::deno_console::init_ops_and_esm(),
             deno_url::deno_url::init_ops_and_esm(),

@@ -1,5 +1,6 @@
 use crate::deno_runtime::DenoRuntime;
 use crate::rt_worker::utils::{get_event_metadata, parse_worker_conf};
+use crate::rt_worker::worker_ctx::create_supervisor;
 use crate::utils::send_event_if_event_manager_available;
 use anyhow::{anyhow, bail, Error};
 use cpu_timer::get_thread_time;
@@ -17,7 +18,6 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::{Receiver, Sender};
 use tokio::time::Instant;
-use crate::rt_worker::worker_ctx::create_supervisor;
 
 #[derive(Clone)]
 pub struct Worker {
@@ -37,7 +37,7 @@ pub trait WorkerHandler: Send {
         &self,
         created_rt: DenoRuntime,
         unix_stream_rx: UnboundedReceiver<UnixStream>,
-        termination_event_rx: Receiver<WorkerEvents>
+        termination_event_rx: Receiver<WorkerEvents>,
     ) -> HandleCreationType;
     fn as_any(&self) -> &dyn Any;
 }
@@ -96,7 +96,8 @@ impl Worker {
                             let _ = booter_signal.send(Ok(()));
 
                             // CPU TIMER
-                            let (termination_event_tx, termination_event_rx) = oneshot::channel::<WorkerEvents>();
+                            let (termination_event_tx, termination_event_rx) =
+                                oneshot::channel::<WorkerEvents>();
                             let _cputimer;
 
                             // TODO: Allow customization of supervisor
@@ -113,7 +114,11 @@ impl Worker {
 
                             // TODO: Should we handle it gracefully?
                             start_time = get_thread_time()?;
-                            let data = method_cloner.handle_creation(new_runtime, unix_channel_rx, termination_event_rx);
+                            let data = method_cloner.handle_creation(
+                                new_runtime,
+                                unix_channel_rx,
+                                termination_event_rx,
+                            );
                             data.await
                         }
                         Err(err) => {

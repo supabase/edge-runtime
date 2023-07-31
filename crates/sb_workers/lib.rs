@@ -7,6 +7,9 @@ use deno_core::{
     AsyncRefCell, AsyncResult, BufView, ByteString, CancelFuture, CancelHandle, CancelTryFuture,
     OpState, RcRef, Resource, ResourceId, WriteOutcome,
 };
+use event_worker::events::{
+    EventMetadata, LogEvent, LogLevel, WorkerEventWithMetadata, WorkerEvents,
+};
 use hyper::body::HttpBody;
 use hyper::header::{HeaderName, HeaderValue};
 use hyper::{Body, Request, Response};
@@ -27,7 +30,6 @@ use std::pin::Pin;
 use std::rc::Rc;
 use std::task::{Context, Poll};
 use tokio::sync::{mpsc, oneshot};
-use event_worker::events::{EventMetadata, LogEvent, LogLevel, WorkerEvents, WorkerEventWithMetadata};
 
 deno_core::extension!(
     sb_user_workers,

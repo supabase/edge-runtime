@@ -21,7 +21,7 @@ impl WorkerHandler for Worker {
         &self,
         mut created_rt: DenoRuntime,
         unix_stream_rx: UnboundedReceiver<UnixStream>,
-        termination_event_rx: Receiver<WorkerEvents>
+        termination_event_rx: Receiver<WorkerEvents>,
     ) -> HandleCreationType {
         let run_worker_rt = async {
             match created_rt.run(unix_stream_rx).await {

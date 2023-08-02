@@ -6,7 +6,7 @@ use deno_core::error::AnyError;
 use deno_core::url::Url;
 use deno_core::{located_script_name, serde_v8, JsRuntime, ModuleId, RuntimeOptions};
 use import_map::{parse_from_json, ImportMap};
-use log::{error};
+use log::error;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

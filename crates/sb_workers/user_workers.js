@@ -71,7 +71,7 @@ class UserWorker {
 			envVars: [],
 			forceCreate: false,
 			netAccessDisabled: false,
-			customModuleRoot: null,
+			customModuleRoot: '',
 			...opts,
 		};
 

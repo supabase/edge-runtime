@@ -263,7 +263,9 @@ globalThis.bootstrapSBEdge = (opts, isUserWorker, isEventsWorker) => {
 
     // override console
     ObjectDefineProperties(globalThis, { console: nonEnumerable(
-      new console.Console((msg, level) => ops.op_user_worker_log(msg, level > 1)),
+      new console.Console((msg, level) => {
+        return ops.op_user_worker_log(msg, level > 1, ops.op_runtime_memory_usage())
+      }),
     )});
 
     deleteDenoApis(Object.keys(fsVars));

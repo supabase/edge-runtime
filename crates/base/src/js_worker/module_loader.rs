@@ -22,7 +22,9 @@ use url::Url;
 
 fn get_module_type(media_type: MediaType) -> Result<ModuleType, Error> {
     let module_type = match media_type {
-        MediaType::JavaScript | MediaType::Mjs | MediaType::Cjs => ModuleType::JavaScript,
+        MediaType::JavaScript | MediaType::Mjs | MediaType::Cjs | MediaType::Unknown => {
+            ModuleType::JavaScript
+        }
         MediaType::Jsx => ModuleType::JavaScript,
         MediaType::TypeScript
         | MediaType::Mts

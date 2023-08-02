@@ -1,6 +1,6 @@
-use crate::events::WorkerEventWithMetadata;
 use anyhow::Error;
 use enum_as_inner::EnumAsInner;
+use event_worker::events::WorkerEventWithMetadata;
 use hyper::{Body, Request, Response};
 use std::collections::HashMap;
 use std::path::PathBuf;

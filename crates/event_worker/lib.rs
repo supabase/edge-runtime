@@ -1,25 +1,13 @@
+use crate::events::{RawEvent, WorkerEventWithMetadata};
 use anyhow::{bail, Error};
 use deno_core::op;
 use deno_core::OpState;
-use sb_worker_context::events::WorkerEventWithMetadata;
-use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::rc::Rc;
 use tokio::sync::mpsc;
 
-#[derive(Serialize, Deserialize)]
-pub enum RawEvent {
-    Event(WorkerEventWithMetadata),
-    Done,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct IncomingEvent {
-    event_type: Option<String>,
-    data: Option<Vec<u8>>,
-    done: bool,
-}
+pub mod events;
+pub mod js_interceptors;
 
 #[op]
 async fn op_event_accept(state: Rc<RefCell<OpState>>) -> Result<RawEvent, Error> {

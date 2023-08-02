@@ -5,8 +5,6 @@ use deno_core::error::AnyError;
 use deno_core::serde_json;
 use deno_core::url::Url;
 use import_map::ImportMap;
-use import_map::ImportMapDiagnostic;
-use log::warn;
 
 use crate::file_fetcher::get_source_from_data_url;
 use crate::file_fetcher::FileFetcher;

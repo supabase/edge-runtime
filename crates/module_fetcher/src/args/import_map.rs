@@ -11,6 +11,7 @@ use log::warn;
 use crate::file_fetcher::get_source_from_data_url;
 use crate::file_fetcher::FileFetcher;
 use crate::permissions::Permissions;
+use crate::util::print_import_map_diagnostics;
 
 pub async fn resolve_import_map_from_specifier(
     specifier: &Url,
@@ -48,17 +49,4 @@ fn import_map_from_value(
     let result = import_map::parse_from_value(specifier, json_value)?;
     print_import_map_diagnostics(&result.diagnostics);
     Ok(result.import_map)
-}
-
-fn print_import_map_diagnostics(diagnostics: &[ImportMapDiagnostic]) {
-    if !diagnostics.is_empty() {
-        warn!(
-            "Import map diagnostics:\n{}",
-            diagnostics
-                .iter()
-                .map(|d| format!("  - {d}"))
-                .collect::<Vec<_>>()
-                .join("\n")
-        );
-    }
 }

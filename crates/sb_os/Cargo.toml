@@ -14,4 +14,5 @@ path = "lib.rs"
 deno_core.workspace = true
 libc.workspace = true
 serde.workspace = true
+sb_worker_context = { version = "0.1.0", path = "../sb_worker_context" }
 sb_core = { version = "0.1.0", path = "../sb_core" }

@@ -45,10 +45,19 @@ pub enum WorkerEvents {
     Log(LogEvent),
 }
 
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkerMemoryUsage {
+    pub heap_total: usize,
+    pub heap_used: usize,
+    pub external: usize,
+}
+
 #[derive(Serialize, Deserialize, Default, Debug, Clone)]
 pub struct EventMetadata {
     pub service_path: Option<String>,
     pub execution_id: Option<Uuid>,
+    pub v8_heap_stats: Option<WorkerMemoryUsage>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

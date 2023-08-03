@@ -3436,6 +3436,7 @@ dependencies = [
  "deno_core",
  "libc",
  "sb_core",
+ "sb_worker_context",
  "serde",
 ]
 

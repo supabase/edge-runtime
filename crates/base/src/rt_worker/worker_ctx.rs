@@ -1,5 +1,5 @@
 use crate::deno_runtime::DenoRuntime;
-use crate::utils::send_event_if_event_manager_available;
+use crate::utils::send_event_if_event_worker_available;
 use crate::utils::units::bytes_to_display;
 
 use crate::rt_worker::worker::{Worker, WorkerHandler};
@@ -191,7 +191,7 @@ pub async fn create_worker(
                     .worker_boot_start_time
                     .elapsed()
                     .as_millis();
-                send_event_if_event_manager_available(
+                send_event_if_event_worker_available(
                     worker_struct_ref.events_msg_tx.clone(),
                     WorkerEvents::Boot(BootEvent {
                         boot_time: elapsed as usize,

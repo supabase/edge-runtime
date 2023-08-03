@@ -5,8 +5,8 @@ use anyhow::{anyhow, Error};
 use deno_core::error::AnyError;
 use deno_core::url::Url;
 use deno_core::{located_script_name, serde_v8, JsRuntime, ModuleId, RuntimeOptions};
-use import_map::{parse_from_json, ImportMap, ImportMapDiagnostic};
-use log::{error, warn};
+use import_map::{parse_from_json, ImportMap};
+use log::error;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -21,6 +21,7 @@ use crate::{errors_rt, snapshot};
 use event_worker::events::{EventMetadata, WorkerEventWithMetadata};
 use event_worker::js_interceptors::sb_events_js_interceptors;
 use event_worker::sb_user_event_worker;
+use module_fetcher::util::print_import_map_diagnostics;
 use module_loader::DefaultModuleLoader;
 use sb_core::http_start::sb_core_http;
 use sb_core::net::sb_core_net;
@@ -58,19 +59,6 @@ fn load_import_map(maybe_path: Option<String>) -> Result<Option<ImportMap>, Erro
         Ok(Some(result.import_map))
     } else {
         Ok(None)
-    }
-}
-
-fn print_import_map_diagnostics(diagnostics: &[ImportMapDiagnostic]) {
-    if !diagnostics.is_empty() {
-        warn!(
-            "Import map diagnostics:\n{}",
-            diagnostics
-                .iter()
-                .map(|d| format!("  - {d}"))
-                .collect::<Vec<_>>()
-                .join("\n")
-        );
     }
 }
 

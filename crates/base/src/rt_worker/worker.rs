@@ -1,7 +1,7 @@
 use crate::deno_runtime::DenoRuntime;
 use crate::rt_worker::utils::{get_event_metadata, parse_worker_conf};
 use crate::rt_worker::worker_ctx::create_supervisor;
-use crate::utils::send_event_if_event_manager_available;
+use crate::utils::send_event_if_event_worker_available;
 use anyhow::{anyhow, bail, Error};
 use cpu_timer::get_thread_time;
 use event_worker::events::{
@@ -130,7 +130,7 @@ impl Worker {
 
                 match result {
                     Ok(event) => {
-                        send_event_if_event_manager_available(
+                        send_event_if_event_worker_available(
                             events_msg_tx.clone(),
                             event,
                             event_metadata.clone(),
@@ -144,7 +144,7 @@ impl Worker {
                     format!("CPU time used: {:?}ms", (end_time - start_time) / 1_000_000);
 
                 debug!("{}", cpu_time_msg);
-                send_event_if_event_manager_available(
+                send_event_if_event_worker_available(
                     events_msg_tx,
                     WorkerEvents::Log(LogEvent {
                         msg: cpu_time_msg,

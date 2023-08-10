@@ -20,6 +20,7 @@ mod supabase_startup_snapshot {
     use sb_core::runtime::sb_core_runtime;
     use sb_core::sb_core_main_js;
     use sb_env::sb_env;
+    use sb_eszip::sb_eszip;
     use sb_workers::sb_user_workers;
     use std::path::Path;
 
@@ -206,6 +207,7 @@ mod supabase_startup_snapshot {
             sb_user_workers::init_ops_and_esm(),
             sb_user_event_worker::init_ops_and_esm(),
             sb_events_js_interceptors::init_ops_and_esm(),
+            sb_eszip::init_ops_and_esm(),
             sb_core_main_js::init_ops_and_esm(),
             sb_core_net::init_ops_and_esm(),
             sb_core_http::init_ops_and_esm(),

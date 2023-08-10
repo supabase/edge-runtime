@@ -41,6 +41,7 @@ sb_env = { version = "0.1.0", path = "../sb_env" }
 sb_core = { version = "0.1.0", path = "../sb_core" }
 sb_os = { version = "0.1.0", path = "../sb_os" }
 sb_node = { version = "0.1.0", path = "../node" }
+sb_eszip = { version = "0.1.0", path = "../sb_eszip" }
 deno_flash.workspace = true
 urlencoding = { version = "2.1.2" }
 uuid = { workspace = true }
@@ -83,4 +84,5 @@ sb_env = { version = "0.1.0", path = "../sb_env" }
 sb_core = { version = "0.1.0", path = "../sb_core" }
 sb_os = { version = "0.1.0", path = "../sb_os" }
 sb_node = { version = "0.1.0", path = "../node" }
+sb_eszip = { version = "0.1.0", path = "../sb_eszip" }
 deno_flash.workspace = true

@@ -25,12 +25,12 @@ deno_webidl = { workspace = true }
 deno_web = { workspace = true }
 deno_websocket = { workspace = true }
 httparse = { version = "1.8.0" }
-hyper = { version = "0.14.25", features = ["full"] }
+hyper = { version = "0.14.26", features = ["full"] }
 http = { version = "0.2" }
 import_map = { version = "0.15.0" }
 log = { workspace = true }
 module_fetcher = { path = "../module_fetcher" }
-reqwest = { version = "0.11.13" }
+reqwest.workspace = true
 serde = { version = "1.0.149", features = ["derive"] }
 tokio = { workspace = true }
 url = { version = "2.3.1" }
@@ -40,10 +40,10 @@ sb_workers = { version = "0.1.0", path = "../sb_workers" }
 sb_env = { version = "0.1.0", path = "../sb_env" }
 sb_core = { version = "0.1.0", path = "../sb_core" }
 sb_os = { version = "0.1.0", path = "../sb_os" }
-sb_node = { version = "0.1.0", path = "../node" }
-deno_flash.workspace = true
 urlencoding = { version = "2.1.2" }
 uuid = { workspace = true }
+deno_broadcast_channel.workspace = true
+sb_node = { version = "0.1.0", path = "../node" }
 
 [dev-dependencies]
 futures-util = { version = "0.3.28" }
@@ -67,12 +67,12 @@ deno_webidl = { workspace = true }
 deno_web = { workspace = true }
 deno_websocket = { workspace = true }
 httparse = { version = "1.8.0" }
-hyper = { version = "0.14.25", features = ["full"] }
+hyper = { version = "0.14.26", features = ["full"] }
 http = { version = "0.2" }
 import_map = { version = "0.15.0" }
 log = { workspace = true }
 module_fetcher = { path = "../module_fetcher" }
-reqwest = { version = "0.11.13" }
+reqwest.workspace = true
 serde = { version = "1.0.149", features = ["derive"] }
 tokio.workspace = true
 url = { version = "2.3.1" }
@@ -83,4 +83,4 @@ sb_env = { version = "0.1.0", path = "../sb_env" }
 sb_core = { version = "0.1.0", path = "../sb_core" }
 sb_os = { version = "0.1.0", path = "../sb_os" }
 sb_node = { version = "0.1.0", path = "../node" }
-deno_flash.workspace = true
+deno_broadcast_channel.workspace = true

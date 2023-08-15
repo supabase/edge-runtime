@@ -4,24 +4,29 @@ use crate::js_worker::module_loader;
 use anyhow::{anyhow, Error};
 use deno_core::error::AnyError;
 use deno_core::url::Url;
-use deno_core::{located_script_name, serde_v8, JsRuntime, ModuleId, RuntimeOptions};
+use deno_core::{located_script_name, serde_v8, JsRuntime, ModuleCode, ModuleId, RuntimeOptions};
+use deno_http::DefaultHttpPropertyExtractor;
+use deno_tls::RootCertStoreProvider;
 use import_map::{parse_from_json, ImportMap};
 use log::error;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::Duration;
 use std::{fmt, fs};
 use tokio::net::UnixStream;
 use tokio::sync::mpsc;
 use urlencoding::decode;
 
+use crate::cert::ValueRootCertStoreProvider;
+use crate::js_worker::emitter::EmitterFactory;
 use crate::{errors_rt, snapshot};
 use event_worker::events::{EventMetadata, WorkerEventWithMetadata};
 use event_worker::js_interceptors::sb_events_js_interceptors;
 use event_worker::sb_user_event_worker;
-use module_fetcher::util::print_import_map_diagnostics;
+use module_fetcher::util::diagnostic::print_import_map_diagnostics;
 use module_loader::DefaultModuleLoader;
 use sb_core::http_start::sb_core_http;
 use sb_core::net::sb_core_net;
@@ -29,6 +34,7 @@ use sb_core::permissions::{sb_core_permissions, Permissions};
 use sb_core::runtime::sb_core_runtime;
 use sb_core::sb_core_main_js;
 use sb_env::sb_env as sb_env_op;
+use sb_node::deno_node;
 use sb_worker_context::essentials::{UserWorkerMsgs, WorkerContextInitOpts, WorkerRuntimeOpts};
 use sb_workers::sb_user_workers;
 
@@ -133,30 +139,44 @@ impl DenoRuntime {
             net_access_disabled = user_conf.net_access_disabled
         }
 
+        let root_cert_store_provider: Arc<dyn RootCertStoreProvider> =
+            Arc::new(ValueRootCertStoreProvider::new(root_cert_store.clone()));
+
+        let fs = Arc::new(deno_fs::RealFs);
         let extensions = vec![
             sb_core_permissions::init_ops(net_access_disabled),
             deno_webidl::deno_webidl::init_ops(),
             deno_console::deno_console::init_ops(),
             deno_url::deno_url::init_ops(),
-            deno_web::deno_web::init_ops::<Permissions>(deno_web::BlobStore::default(), None),
+            deno_web::deno_web::init_ops::<Permissions>(
+                Arc::new(deno_web::BlobStore::default()),
+                None,
+            ),
             deno_fetch::deno_fetch::init_ops::<Permissions>(deno_fetch::Options {
                 user_agent: user_agent.clone(),
-                root_cert_store: Some(root_cert_store.clone()),
+                root_cert_store_provider: Some(root_cert_store_provider.clone()),
                 ..Default::default()
             }),
             deno_websocket::deno_websocket::init_ops::<Permissions>(
                 user_agent,
-                Some(root_cert_store.clone()),
+                Some(root_cert_store_provider.clone()),
                 None,
             ),
             // TODO: support providing a custom seed for crypto
             deno_crypto::deno_crypto::init_ops(None),
-            deno_net::deno_net::init_ops::<Permissions>(Some(root_cert_store), false, None),
+            deno_broadcast_channel::deno_broadcast_channel::init_ops(
+                deno_broadcast_channel::InMemoryBroadcastChannel::default(),
+                false,
+            ),
+            deno_net::deno_net::init_ops::<Permissions>(
+                Some(root_cert_store_provider),
+                false,
+                None,
+            ),
             deno_tls::deno_tls::init_ops(),
-            deno_http::deno_http::init_ops(),
+            deno_http::deno_http::init_ops::<DefaultHttpPropertyExtractor>(),
             deno_io::deno_io::init_ops(Some(Default::default())),
-            deno_fs::deno_fs::init_ops::<Permissions>(false),
-            deno_flash::deno_flash::init_ops::<Permissions>(false),
+            deno_fs::deno_fs::init_ops::<Permissions>(false, fs.clone()),
             sb_env_op::init_ops(),
             sb_os::sb_os::init_ops(),
             sb_user_workers::init_ops(),
@@ -165,14 +185,16 @@ impl DenoRuntime {
             sb_core_main_js::init_ops(),
             sb_core_net::init_ops(),
             sb_core_http::init_ops(),
-            // sb_node::deno_node::init_ops::<RuntimeNodeEnv>(None),
+            deno_node::init_ops::<Permissions>(None, fs),
             sb_core_runtime::init_ops(Some(main_module_url.clone())),
         ];
 
         let import_map = load_import_map(import_map_path)?;
+        let emitter = EmitterFactory::new();
         let module_loader = DefaultModuleLoader::new(
             module_root_path,
             import_map,
+            emitter.emitter().unwrap().clone(),
             no_module_cache,
             true, //allow_remote_modules
         )?;
@@ -207,7 +229,7 @@ impl DenoRuntime {
         );
 
         js_runtime
-            .execute_script::<String>(located_script_name!(), script)
+            .execute_script(located_script_name!(), ModuleCode::from(script))
             .expect("Failed to execute bootstrap script");
 
         {
@@ -314,6 +336,7 @@ impl DenoRuntime {
 #[cfg(test)]
 mod test {
     use crate::deno_runtime::DenoRuntime;
+    use deno_core::ModuleCode;
     use sb_worker_context::essentials::{
         MainWorkerRuntimeOpts, UserWorkerMsgs, UserWorkerRuntimeOpts, WorkerContextInitOpts,
         WorkerRuntimeOpts,
@@ -399,9 +422,12 @@ mod test {
             .js_runtime
             .execute_script(
                 "<anon>",
-                r#"
+                ModuleCode::from(
+                    r#"
             Deno.readTextFileSync("./test_cases/readFile/hello_world.json");
-        "#,
+        "#
+                    .to_string(),
+                ),
             )
             .unwrap();
         let fs_read_result =
@@ -450,7 +476,8 @@ mod test {
             .js_runtime
             .execute_script(
                 "<anon>",
-                r#"
+                ModuleCode::from(
+                    r#"
             // Should not be able to set
             const data = {
                 gid: Deno.gid(),
@@ -465,7 +492,9 @@ mod test {
                 networkInterfaces: Deno.networkInterfaces()
             };
             data;
-        "#,
+        "#
+                    .to_string(),
+                ),
             )
             .unwrap();
         let serde_deno_env = user_rt
@@ -532,10 +561,13 @@ mod test {
 
         let user_rt_execute_scripts = user_rt.js_runtime.execute_script(
             "<anon>",
-            r#"
+            ModuleCode::from(
+                r#"
             let cmd = new Deno.Command("", {});
             cmd.outputSync();
-        "#,
+        "#
+                .to_string(),
+            ),
         );
         assert!(user_rt_execute_scripts.is_err());
         assert!(user_rt_execute_scripts
@@ -561,10 +593,13 @@ mod test {
             .js_runtime
             .execute_script(
                 "<anon>",
-                r#"
+                ModuleCode::from(
+                    r#"
             // Should not be able to set
             Deno.env.set("Supa_Test", "Supa_Value");
-        "#,
+        "#
+                    .to_string(),
+                ),
             )
             .err()
             .unwrap();
@@ -576,10 +611,13 @@ mod test {
             .js_runtime
             .execute_script(
                 "<anon>",
-                r#"
+                ModuleCode::from(
+                    r#"
             // Should not be able to set
             Deno.env.get("Supa_Test");
-        "#,
+        "#
+                    .to_string(),
+                ),
             )
             .unwrap();
         let serde_deno_env =
@@ -592,10 +630,13 @@ mod test {
             .js_runtime
             .execute_script(
                 "<anon>",
-                r#"
+                ModuleCode::from(
+                    r#"
             // Should not be able to set
             Deno.env.get("Supa_Test");
-        "#,
+        "#
+                    .to_string(),
+                ),
             )
             .unwrap();
         let user_serde_deno_env =
@@ -633,7 +674,7 @@ mod test {
 
     #[tokio::test]
     async fn test_read_file_user_rt() {
-        let user_rt = create_basic_user_runtime("./test_cases/readFile", 10, 1000).await;
+        let user_rt = create_basic_user_runtime("./test_cases/readFile", 20, 1000).await;
         let (_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
         let result = user_rt.run(unix_stream_rx).await;
         match result {

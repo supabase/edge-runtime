@@ -1,9 +1,8 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 // Copyright Joyent, Inc. and Node.js contributors. All rights reserved. MIT license.
 
-// @ts-ignore
-const kHandle = Symbol("kHandle");
-// @ts-ignore
-const kKeyObject = Symbol("kKeyObject");
+// TODO(petamoriken): enable prefer-primordials for node polyfills
+// deno-lint-ignore-file prefer-primordials
 
-export { kHandle, kKeyObject }
+export const kHandle = Symbol("kHandle");
+export const kKeyObject = Symbol("kKeyObject");

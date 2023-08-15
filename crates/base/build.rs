@@ -12,6 +12,8 @@ mod supabase_startup_snapshot {
     use deno_core::Extension;
     use deno_core::ExtensionFileSource;
     use deno_core::ModuleCode;
+    use deno_fs::OpenOptions;
+    use deno_http::DefaultHttpPropertyExtractor;
     use event_worker::js_interceptors::sb_events_js_interceptors;
     use event_worker::sb_user_event_worker;
     use sb_core::http_start::sb_core_http;
@@ -20,13 +22,21 @@ mod supabase_startup_snapshot {
     use sb_core::runtime::sb_core_runtime;
     use sb_core::sb_core_main_js;
     use sb_env::sb_env;
+    use sb_node::deno_node;
     use sb_workers::sb_user_workers;
     use std::path::Path;
+    use std::rc::Rc;
+    use std::sync::Arc;
+    use url::Url;
 
     fn transpile_ts_for_snapshotting(
         file_source: &ExtensionFileSource,
     ) -> Result<ModuleCode, AnyError> {
-        let media_type = MediaType::from_path(Path::new(&file_source.specifier));
+        let media_type = if file_source.specifier.starts_with("node:") {
+            MediaType::TypeScript
+        } else {
+            MediaType::from_path(Path::new(&file_source.specifier))
+        };
 
         let should_transpile = match media_type {
             MediaType::JavaScript => false,
@@ -45,7 +55,7 @@ mod supabase_startup_snapshot {
 
         let parsed = deno_ast::parse_module(ParseParams {
             specifier: file_source.specifier.to_string(),
-            text_info: SourceTextInfo::from_string(code.take_as_string()),
+            text_info: SourceTextInfo::from_string(code.as_str().to_owned()),
             media_type,
             capture_tokens: false,
             scope_analysis: false,
@@ -149,58 +159,76 @@ mod supabase_startup_snapshot {
             unreachable!("snapshotting!")
         }
 
+        fn check_write_partial(&mut self, path: &Path, api_name: &str) -> Result<(), AnyError> {
+            unreachable!("snapshotting!")
+        }
+
         fn check_write_all(&mut self, _api_name: &str) -> Result<(), AnyError> {
+            unreachable!("snapshotting!")
+        }
+
+        fn check_write_blind(
+            &mut self,
+            p: &Path,
+            display: &str,
+            api_name: &str,
+        ) -> Result<(), AnyError> {
+            unreachable!("snapshotting!")
+        }
+
+        fn check(
+            &mut self,
+            open_options: &OpenOptions,
+            path: &Path,
+            api_name: &str,
+        ) -> Result<(), AnyError> {
             unreachable!("snapshotting!")
         }
     }
 
     impl sb_node::NodePermissions for Permissions {
-        fn check_read(&mut self, _path: &Path) -> Result<(), AnyError> {
-            Ok(())
+        fn check_net_url(&mut self, url: &Url, api_name: &str) -> Result<(), AnyError> {
+            unreachable!("snapshotting!")
         }
-    }
 
-    impl deno_flash::FlashPermissions for Permissions {
-        fn check_net<T: AsRef<str>>(
-            &mut self,
-            _host: &(T, Option<u16>),
-            _api_name: &str,
-        ) -> Result<(), AnyError> {
-            Ok(())
+        fn check_read(&self, _path: &Path) -> Result<(), AnyError> {
+            unreachable!("snapshotting!")
         }
-    }
 
-    pub struct RuntimeNodeEnv;
-    impl sb_node::NodeEnv for RuntimeNodeEnv {
-        type P = Permissions;
-        type Fs = sb_node::RealFs;
+        fn check_sys(&self, kind: &str, api_name: &str) -> Result<(), AnyError> {
+            unreachable!("snapshotting!")
+        }
     }
 
     pub fn create_runtime_snapshot(snapshot_path: PathBuf) {
         let user_agent = String::from("supabase");
+        let fs = Arc::new(deno_fs::RealFs);
         let extensions: Vec<Extension> = vec![
             sb_core_permissions::init_ops_and_esm(false),
             deno_webidl::deno_webidl::init_ops_and_esm(),
             deno_console::deno_console::init_ops_and_esm(),
             deno_url::deno_url::init_ops_and_esm(),
             deno_web::deno_web::init_ops_and_esm::<Permissions>(
-                deno_web::BlobStore::default(),
+                Arc::new(deno_web::BlobStore::default()),
                 None,
             ),
             deno_fetch::deno_fetch::init_ops_and_esm::<Permissions>(deno_fetch::Options {
                 user_agent: user_agent.clone(),
-                root_cert_store: None,
+                root_cert_store_provider: None,
                 ..Default::default()
             }),
             deno_websocket::deno_websocket::init_ops_and_esm::<Permissions>(user_agent, None, None),
             // TODO: support providing a custom seed for crypto
             deno_crypto::deno_crypto::init_ops_and_esm(None),
+            deno_broadcast_channel::deno_broadcast_channel::init_ops_and_esm(
+                deno_broadcast_channel::InMemoryBroadcastChannel::default(),
+                false,
+            ),
             deno_net::deno_net::init_ops_and_esm::<Permissions>(None, false, None),
             deno_tls::deno_tls::init_ops_and_esm(),
-            deno_http::deno_http::init_ops_and_esm(),
+            deno_http::deno_http::init_ops_and_esm::<DefaultHttpPropertyExtractor>(),
             deno_io::deno_io::init_ops_and_esm(Default::default()),
-            deno_fs::deno_fs::init_ops_and_esm::<Permissions>(false),
-            deno_flash::deno_flash::init_ops_and_esm::<Permissions>(false),
+            deno_fs::deno_fs::init_ops_and_esm::<Permissions>(false, fs.clone()),
             sb_env::init_ops_and_esm(),
             sb_os::sb_os::init_ops_and_esm(),
             sb_user_workers::init_ops_and_esm(),
@@ -209,17 +237,18 @@ mod supabase_startup_snapshot {
             sb_core_main_js::init_ops_and_esm(),
             sb_core_net::init_ops_and_esm(),
             sb_core_http::init_ops_and_esm(),
-            // sb_node::deno_node::init_ops_and_esm::<RuntimeNodeEnv>(None),
+            deno_node::init_ops_and_esm::<Permissions>(None, fs.clone()),
             sb_core_runtime::init_ops_and_esm(None),
         ];
 
-        create_snapshot(CreateSnapshotOptions {
+        let _ = create_snapshot(CreateSnapshotOptions {
             cargo_manifest_dir: env!("CARGO_MANIFEST_DIR"),
             snapshot_path,
             startup_snapshot: None,
             extensions,
             compression_cb: None,
             snapshot_module_load_cb: Some(Box::new(transpile_ts_for_snapshotting)),
+            with_runtime_cb: None,
         });
     }
 }

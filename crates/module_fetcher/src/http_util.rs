@@ -8,13 +8,16 @@ use deno_core::anyhow::bail;
 use deno_core::error::custom_error;
 use deno_core::error::generic_error;
 use deno_core::error::AnyError;
+use deno_core::futures::StreamExt;
 use deno_core::url::Url;
 use deno_fetch::create_http_client;
 use deno_fetch::reqwest;
 use deno_fetch::reqwest::header::LOCATION;
 use deno_fetch::reqwest::Response;
-use deno_tls::rustls::RootCertStore;
+use deno_fetch::CreateHttpClientOptions;
+use deno_tls::RootCertStoreProvider;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 use std::time::SystemTime;
 
@@ -208,31 +211,67 @@ impl CacheSemantics {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct HttpClient(reqwest::Client);
+pub struct HttpClient {
+    options: CreateHttpClientOptions,
+    root_cert_store_provider: Option<Arc<dyn RootCertStoreProvider>>,
+    cell: once_cell::sync::OnceCell<reqwest::Client>,
+}
+
+impl std::fmt::Debug for HttpClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HttpClient")
+            .field("options", &self.options)
+            .finish()
+    }
+}
 
 impl HttpClient {
     pub fn new(
-        root_cert_store: Option<RootCertStore>,
+        root_cert_store_provider: Option<Arc<dyn RootCertStoreProvider>>,
         unsafely_ignore_certificate_errors: Option<Vec<String>>,
-    ) -> Result<Self, AnyError> {
-        Ok(HttpClient::from_client(create_http_client(
-            get_user_agent(),
-            root_cert_store,
-            vec![],
-            None,
-            unsafely_ignore_certificate_errors,
-            None,
-        )?))
+    ) -> Self {
+        Self {
+            options: CreateHttpClientOptions {
+                unsafely_ignore_certificate_errors,
+                ..Default::default()
+            },
+            root_cert_store_provider,
+            cell: Default::default(),
+        }
     }
 
+    #[cfg(test)]
     pub fn from_client(client: reqwest::Client) -> Self {
-        Self(client)
+        let result = Self {
+            options: Default::default(),
+            root_cert_store_provider: Default::default(),
+            cell: Default::default(),
+        };
+        result.cell.set(client).unwrap();
+        result
+    }
+
+    fn client(&self) -> Result<&reqwest::Client, AnyError> {
+        self.cell.get_or_try_init(|| {
+            create_http_client(
+                get_user_agent(),
+                CreateHttpClientOptions {
+                    root_cert_store: match &self.root_cert_store_provider {
+                        Some(provider) => Some(provider.get_or_try_init()?.clone()),
+                        None => None,
+                    },
+                    ..self.options.clone()
+                },
+            )
+        })
     }
 
     /// Do a GET request without following redirects.
-    pub fn get_no_redirect<U: reqwest::IntoUrl>(&self, url: U) -> reqwest::RequestBuilder {
-        self.0.get(url)
+    pub fn get_no_redirect<U: reqwest::IntoUrl>(
+        &self,
+        url: U,
+    ) -> Result<reqwest::RequestBuilder, AnyError> {
+        Ok(self.client()?.get(url))
     }
 
     pub async fn download_text<U: reqwest::IntoUrl>(&self, url: U) -> Result<String, AnyError> {
@@ -284,12 +323,12 @@ impl HttpClient {
         url: U,
     ) -> Result<Response, AnyError> {
         let mut url = url.into_url()?;
-        let mut response = self.get_no_redirect(url.clone()).send().await?;
+        let mut response = self.get_no_redirect(url.clone())?.send().await?;
         let status = response.status();
         if status.is_redirection() {
             for _ in 0..5 {
                 let new_url = resolve_redirect_from_response(&url, &response)?;
-                let new_response = self.get_no_redirect(new_url.clone()).send().await?;
+                let new_response = self.get_no_redirect(new_url.clone())?.send().await?;
                 let status = new_response.status();
                 if status.is_redirection() {
                     response = new_response;

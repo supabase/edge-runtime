@@ -2,16 +2,13 @@
 
 // Note: Only add code in this folder that has no application specific logic
 pub mod checksum;
-pub mod console;
-pub mod diff;
+pub mod diagnostic;
 pub mod display;
-pub mod draw_thread;
-pub mod file_watcher;
+pub mod errors;
 pub mod fs;
 pub mod glob;
 pub mod logger;
 pub mod path;
-pub mod progress_bar;
 pub mod sync;
 pub mod text_encoding;
 pub mod time;

@@ -9,39 +9,39 @@ members = [
   "./crates/sb_core",
   "./crates/flaky_test",
   "./crates/sb_os",
-  "./crates/node",
   "./crates/cpu_timer",
   "./crates/event_worker"
 ]
 resolver = "2"
 
 [workspace.dependencies]
-log = "0.4.17"
+log = "0.4.19"
 anyhow = { version = "1.0.57" }
 libc = { version = "0.2.144" }
-deno_ast = { version = "0.25.0", features = [ "cjs", "transpiling" ] }
-deno_core = { version = "0.179.0" }
-deno_console = { version = "0.97.0" }
-deno_crypto =  { version = "0.111.0" }
-deno_fetch = { version = "0.121.0" }
-deno_fs = "0.7.0"
-deno_io = "0.7.0"
-deno_graph = "=0.45.0"
-deno_http =  { version = "0.92.0" }
-deno_net = { version = "0.89.0" }
-deno_url = { version = "0.97.0" }
-deno_tls = { version = "0.84.0"}
-deno_webidl = { version = "0.97.0" }
-deno_web = { version = "0.128.0" }
-deno_websocket = { version = "0.102.0" }
-deno_webstorage = { version = "0.92.0" }
+deno_ast = { version = "0.27.3", features = [ "cjs", "transpiling" ] }
+deno_core = { version = "0.199.0" }
+deno_console = { version = "0.114.0" }
+deno_crypto =  { version = "0.128.0" }
+deno_fetch = { version = "0.138.0" }
+deno_broadcast_channel = { version = "0.108.0" }
+deno_fs = "0.24.0"
+deno_io = "0.24.0"
+deno_graph = "=0.50.0"
+deno_http =  { version = "0.109.0" }
+deno_net = { version = "0.106.0" }
+deno_url = { version = "0.114.0" }
+deno_tls = { version = "0.101.0"}
+deno_webidl = { version = "0.114.0" }
+deno_web = { version = "0.145.0" }
+deno_websocket = { version = "0.119.0" }
+deno_webstorage = { version = "0.109.0" }
 serde = { version = "1.0.149", features = ["derive"] }
-hyper = "0.14.18"
-tokio = { version = "=1.25.0", features = ["full"] }
+hyper = "0.14.26"
+tokio = { version = "1.28.1", features = ["full"] }
 bytes = { version = "1.4.0" }
 once_cell = "1.17.1"
-thiserror = "=1.0.38"
-deno_lockfile = "0.13.0"
+thiserror = "=1.0.40"
+deno_lockfile = "0.14.1"
 indexmap = { version = "1.9.2", features = ["serde"] }
 flate2 = "=1.0.24"
 tar = "=0.4.38"
@@ -50,7 +50,11 @@ fs3 = "0.5.0"
 tokio-util = "0.7.4"
 uuid = { version = "1.1.2", features = ["v4"] }
 rsa = { version = "0.7.0", default-features = false, features = ["std", "pem", "hazmat"] }
-deno_flash = "0.33.0"
+deno_media_type = { version = "0.1.0", features = ["module_specifier"] }
+deno_npm = "0.11.0"
+deno_semver = "0.3.0"
+reqwest = { version = "0.11.18", default-features = false, features = ["rustls-tls", "stream", "gzip", "brotli", "socks"] }
+ring = "=0.16.20"
 
 [profile.release]
 lto = true

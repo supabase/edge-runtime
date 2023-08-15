@@ -1,4 +1,4 @@
-import * as console from "ext:deno_console/02_console.js";
+import * as console from "ext:deno_console/01_console.js";
 
 const {
     ObjectPrototypeIsPrototypeOf,

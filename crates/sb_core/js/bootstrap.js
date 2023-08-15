@@ -1,6 +1,6 @@
 import * as abortSignal from "ext:deno_web/03_abort_signal.js";
 import * as base64 from "ext:deno_web/05_base64.js";
-import * as console from "ext:deno_console/02_console.js";
+import * as console from "ext:deno_console/01_console.js";
 import * as crypto from "ext:deno_crypto/00_crypto.js";
 import DOMException from "ext:deno_web/01_dom_exception.js";
 import * as encoding from "ext:deno_web/08_text_encoding.js";
@@ -9,7 +9,6 @@ import * as fetch from "ext:deno_fetch/26_fetch.js";
 import * as file from "ext:deno_web/09_file.js";
 import * as fileReader from "ext:deno_web/10_filereader.js";
 import * as formData from "ext:deno_fetch/21_formdata.js";
-import * as colors from "ext:deno_console/01_colors.js";
 import * as headers from "ext:deno_fetch/20_headers.js";
 import * as streams from "ext:deno_web/06_streams.js";
 import * as timers from "ext:deno_web/02_timers.js";
@@ -37,6 +36,9 @@ import { fsVars, denoOverrides } from "ext:sb_core_main_js/js/denoOverrides.js";
 import * as performance from "ext:deno_web/15_performance.js";
 import * as messagePort from "ext:deno_web/13_message_port.js";
 import { SupabaseEventListener } from "ext:sb_user_event_worker/event_worker.js";
+import * as MainWorker from "ext:sb_core_main_js/js/main_worker.js";
+import * as DenoWebCompression from "ext:deno_web/14_compression.js";
+import * as DenoWSStream from "ext:deno_websocket/02_websocketstream.js";
 
 const core = globalThis.Deno.core;
 const ops = core.ops;
@@ -196,7 +198,6 @@ function runtimeStart(runtimeOptions, source) {
   ops.op_set_format_exception_callback(formatException);
 
   setBuildInfo(runtimeOptions.target);
-  colors.setNoColor(runtimeOptions.noColor || !runtimeOptions.isTty);
 
   // deno-lint-ignore prefer-primordials
   Error.prepareStackTrace = core.prepareStackTrace;

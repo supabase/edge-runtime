@@ -4,10 +4,20 @@
 // deno-lint-ignore-file prefer-primordials
 
 import { Console } from "ext:deno_node/internal/console/constructor.mjs";
-import { windowOrWorkerGlobalScope } from "ext:runtime/98_global_scope.js";
+import * as DenoConsole from "ext:deno_console/01_console.js";
+import {
+  nonEnumerable,
+} from "ext:sb_core_main_js/js/fieldUtils.js";
+
+const core = globalThis.Deno.core;
+const ops = core.ops;
+
 // Don't rely on global `console` because during bootstrapping, it is pointing
 // to native `console` object provided by V8.
-const console = windowOrWorkerGlobalScope.console.value;
+const _intConsole = nonEnumerable(
+    new DenoConsole.Console((msg, level) => core.print(msg, level > 1)),
+);
+const console = _intConsole.value;
 
 export default Object.assign({}, console, { Console });
 

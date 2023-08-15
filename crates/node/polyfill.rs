@@ -2,9 +2,9 @@
 
 /// e.g. `is_builtin_node_module("assert")`
 pub fn is_builtin_node_module(module_name: &str) -> bool {
-  SUPPORTED_BUILTIN_NODE_MODULES
-    .iter()
-    .any(|m| *m == module_name)
+    SUPPORTED_BUILTIN_NODE_MODULES
+        .iter()
+        .any(|m| *m == module_name)
 }
 
 macro_rules! generate_builtin_node_module_lists {

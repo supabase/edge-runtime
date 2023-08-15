@@ -41,7 +41,9 @@ import {
 } from "ext:deno_node/_next_tick.ts";
 import { isWindows } from "ext:deno_node/_util/os.ts";
 import * as io from "ext:deno_io/12_io.js";
-import { Command } from "ext:runtime/40_process.js";
+import { osCalls } from "ext:sb_os/os.js"
+
+const Command = osCalls.Command;
 
 // TODO(kt3k): This should be set at start up time
 export let arch = "";

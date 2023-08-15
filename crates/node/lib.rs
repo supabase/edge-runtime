@@ -47,111 +47,99 @@ use crate::global::global_object_middleware;
 use crate::global::global_template_middleware;
 
 pub trait NodePermissions {
-  fn check_net_url(
-    &mut self,
-    url: &Url,
-    api_name: &str,
-  ) -> Result<(), AnyError>;
-  fn check_read(&self, path: &Path) -> Result<(), AnyError>;
-  fn check_sys(&self, kind: &str, api_name: &str) -> Result<(), AnyError>;
+    fn check_net_url(&mut self, url: &Url, api_name: &str) -> Result<(), AnyError>;
+    fn check_read(&self, path: &Path) -> Result<(), AnyError>;
+    fn check_sys(&self, kind: &str, api_name: &str) -> Result<(), AnyError>;
 }
 
 pub(crate) struct AllowAllNodePermissions;
 
 impl NodePermissions for AllowAllNodePermissions {
-  fn check_net_url(
-    &mut self,
-    _url: &Url,
-    _api_name: &str,
-  ) -> Result<(), AnyError> {
-    Ok(())
-  }
-  fn check_read(&self, _path: &Path) -> Result<(), AnyError> {
-    Ok(())
-  }
-  fn check_sys(&self, _kind: &str, _api_name: &str) -> Result<(), AnyError> {
-    Ok(())
-  }
+    fn check_net_url(&mut self, _url: &Url, _api_name: &str) -> Result<(), AnyError> {
+        Ok(())
+    }
+    fn check_read(&self, _path: &Path) -> Result<(), AnyError> {
+        Ok(())
+    }
+    fn check_sys(&self, _kind: &str, _api_name: &str) -> Result<(), AnyError> {
+        Ok(())
+    }
 }
 
 #[allow(clippy::disallowed_types)]
 pub type NpmResolverRc = deno_fs::sync::MaybeArc<dyn NpmResolver>;
 
 pub trait NpmResolver: std::fmt::Debug + MaybeSend + MaybeSync {
-  /// Resolves an npm package folder path from an npm package referrer.
-  fn resolve_package_folder_from_package(
-    &self,
-    specifier: &str,
-    referrer: &ModuleSpecifier,
-    mode: NodeResolutionMode,
-  ) -> Result<PathBuf, AnyError>;
+    /// Resolves an npm package folder path from an npm package referrer.
+    fn resolve_package_folder_from_package(
+        &self,
+        specifier: &str,
+        referrer: &ModuleSpecifier,
+        mode: NodeResolutionMode,
+    ) -> Result<PathBuf, AnyError>;
 
-  /// Resolves the npm package folder path from the specified path.
-  fn resolve_package_folder_from_path(
-    &self,
-    path: &Path,
-  ) -> Result<Option<PathBuf>, AnyError>;
+    /// Resolves the npm package folder path from the specified path.
+    fn resolve_package_folder_from_path(&self, path: &Path) -> Result<Option<PathBuf>, AnyError>;
 
-  /// Resolves an npm package folder path from a Deno module.
-  fn resolve_package_folder_from_deno_module(
-    &self,
-    pkg_nv: &NpmPackageNv,
-  ) -> Result<PathBuf, AnyError>;
+    /// Resolves an npm package folder path from a Deno module.
+    fn resolve_package_folder_from_deno_module(
+        &self,
+        pkg_nv: &NpmPackageNv,
+    ) -> Result<PathBuf, AnyError>;
 
-  fn resolve_pkg_id_from_pkg_req(
-    &self,
-    req: &NpmPackageReq,
-  ) -> Result<NpmPackageId, PackageReqNotFoundError>;
+    fn resolve_pkg_id_from_pkg_req(
+        &self,
+        req: &NpmPackageReq,
+    ) -> Result<NpmPackageId, PackageReqNotFoundError>;
 
-  fn in_npm_package(&self, specifier: &ModuleSpecifier) -> bool;
+    fn in_npm_package(&self, specifier: &ModuleSpecifier) -> bool;
 
-  fn in_npm_package_at_path(&self, path: &Path) -> bool {
-    let specifier =
-      match ModuleSpecifier::from_file_path(path.to_path_buf().clean()) {
-        Ok(p) => p,
-        Err(_) => return false,
-      };
-    self.in_npm_package(&specifier)
-  }
+    fn in_npm_package_at_path(&self, path: &Path) -> bool {
+        let specifier = match ModuleSpecifier::from_file_path(path.to_path_buf().clean()) {
+            Ok(p) => p,
+            Err(_) => return false,
+        };
+        self.in_npm_package(&specifier)
+    }
 
-  fn ensure_read_permission(
-    &self,
-    permissions: &dyn NodePermissions,
-    path: &Path,
-  ) -> Result<(), AnyError>;
+    fn ensure_read_permission(
+        &self,
+        permissions: &dyn NodePermissions,
+        path: &Path,
+    ) -> Result<(), AnyError>;
 }
 
 pub static NODE_ENV_VAR_ALLOWLIST: Lazy<HashSet<String>> = Lazy::new(|| {
-  // The full list of environment variables supported by Node.js is available
-  // at https://nodejs.org/api/cli.html#environment-variables
-  let mut set = HashSet::new();
-  set.insert("NODE_DEBUG".to_string());
-  set.insert("NODE_OPTIONS".to_string());
-  set
+    // The full list of environment variables supported by Node.js is available
+    // at https://nodejs.org/api/cli.html#environment-variables
+    let mut set = HashSet::new();
+    set.insert("NODE_DEBUG".to_string());
+    set.insert("NODE_OPTIONS".to_string());
+    set
 });
 
 #[op]
 fn op_node_build_os() -> String {
-  std::env::var("TARGET")
-    .unwrap()
-    .split('-')
-    .nth(2)
-    .unwrap()
-    .to_string()
+    std::env::var("TARGET")
+        .unwrap()
+        .split('-')
+        .nth(2)
+        .unwrap()
+        .to_string()
 }
 
 #[op(fast)]
 fn op_is_any_arraybuffer(value: serde_v8::Value) -> bool {
-  value.v8_value.is_array_buffer() || value.v8_value.is_shared_array_buffer()
+    value.v8_value.is_array_buffer() || value.v8_value.is_shared_array_buffer()
 }
 
 #[op(fast)]
 fn op_node_is_promise_rejected(value: serde_v8::Value) -> bool {
-  let Ok(promise) = v8::Local::<v8::Promise>::try_from(value.v8_value) else {
+    let Ok(promise) = v8::Local::<v8::Promise>::try_from(value.v8_value) else {
     return false;
   };
 
-  promise.state() == v8::PromiseState::Rejected
+    promise.state() == v8::PromiseState::Rejected
 }
 
 deno_core::extension!(deno_node,
@@ -564,48 +552,48 @@ deno_core::extension!(deno_node,
 );
 
 pub fn initialize_runtime(
-  js_runtime: &mut JsRuntime,
-  uses_local_node_modules_dir: bool,
-  maybe_binary_command_name: Option<&str>,
+    js_runtime: &mut JsRuntime,
+    uses_local_node_modules_dir: bool,
+    maybe_binary_command_name: Option<&str>,
 ) -> Result<(), AnyError> {
-  let argv0 = if let Some(binary_command_name) = maybe_binary_command_name {
-    serde_json::to_string(binary_command_name)?
-  } else {
-    "undefined".to_string()
-  };
-  let source_code = format!(
-    r#"(function loadBuiltinNodeModules(usesLocalNodeModulesDir, argv0) {{
+    let argv0 = if let Some(binary_command_name) = maybe_binary_command_name {
+        serde_json::to_string(binary_command_name)?
+    } else {
+        "undefined".to_string()
+    };
+    let source_code = format!(
+        r#"(function loadBuiltinNodeModules(usesLocalNodeModulesDir, argv0) {{
       Deno[Deno.internal].node.initialize(
         usesLocalNodeModulesDir,
         argv0
       );
     }})({uses_local_node_modules_dir}, {argv0});"#,
-  );
+    );
 
-  js_runtime.execute_script(located_script_name!(), source_code.into())?;
-  Ok(())
+    js_runtime.execute_script(located_script_name!(), source_code.into())?;
+    Ok(())
 }
 
 pub fn load_cjs_module(
-  js_runtime: &mut JsRuntime,
-  module: &str,
-  main: bool,
-  inspect_brk: bool,
+    js_runtime: &mut JsRuntime,
+    module: &str,
+    main: bool,
+    inspect_brk: bool,
 ) -> Result<(), AnyError> {
-  fn escape_for_single_quote_string(text: &str) -> String {
-    text.replace('\\', r"\\").replace('\'', r"\'")
-  }
+    fn escape_for_single_quote_string(text: &str) -> String {
+        text.replace('\\', r"\\").replace('\'', r"\'")
+    }
 
-  let source_code = format!(
-    r#"(function loadCjsModule(moduleName, isMain, inspectBrk) {{
+    let source_code = format!(
+        r#"(function loadCjsModule(moduleName, isMain, inspectBrk) {{
       Deno[Deno.internal].node.loadCjsModule(moduleName, isMain, inspectBrk);
     }})('{module}', {main}, {inspect_brk});"#,
-    main = main,
-    module = escape_for_single_quote_string(module),
-    inspect_brk = inspect_brk,
-  )
-  .into();
+        main = main,
+        module = escape_for_single_quote_string(module),
+        inspect_brk = inspect_brk,
+    )
+    .into();
 
-  js_runtime.execute_script(located_script_name!(), source_code)?;
-  Ok(())
+    js_runtime.execute_script(located_script_name!(), source_code)?;
+    Ok(())
 }

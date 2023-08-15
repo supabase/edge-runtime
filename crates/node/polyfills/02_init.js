@@ -6,6 +6,7 @@ const internals = globalThis.__bootstrap.internals;
 const requireImpl = internals.requireImpl;
 import { nodeGlobals } from "ext:deno_node/00_globals.js";
 import "node:module";
+import * as DenoBroadcast from "ext:deno_broadcast_channel/01_broadcast_channel.js";
 
 let initialized = false;
 

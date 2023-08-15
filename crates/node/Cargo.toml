@@ -1,22 +1,19 @@
-# Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-
 [package]
-name = "deno_node"
-version = "0.51.0"
-authors.workspace = true
-edition.workspace = true
-license.workspace = true
-readme = "README.md"
-repository.workspace = true
-description = "Node compatibility for Deno"
+name = "sb_node"
+version = "0.1.0"
+authors = ["Supabase <team@supabase.com>"]
+edition = "2021"
+resolver = "2"
+description = "We'll take care of this later"
+license = "MIT"
 
 [lib]
 path = "lib.rs"
 
 [dependencies]
-aes.workspace = true
-brotli.workspace = true
-cbc.workspace = true
+aes = "=0.8.2"
+brotli = "3.3.4"
+cbc = { version = "=0.1.2", features = ["alloc"] }
 data-encoding = "2.3.3"
 deno_core.workspace = true
 deno_fetch.workspace = true
@@ -26,29 +23,29 @@ deno_npm.workspace = true
 deno_semver.workspace = true
 digest = { version = "0.10.5", features = ["core-api", "std"] }
 dsa = "0.6.1"
-ecb.workspace = true
-elliptic-curve.workspace = true
+ecb = "=0.1.1"
+elliptic-curve = { version = "0.13.4", features = ["alloc", "arithmetic", "ecdh", "std", "pem"] }
 errno = "0.2.8"
-hex.workspace = true
-hkdf.workspace = true
+hex = "0.4"
+hkdf = "0.12.3"
 idna = "0.3.0"
 indexmap.workspace = true
-lazy-regex.workspace = true
+lazy-regex = "2.5.0"
 libc.workspace = true
 libz-sys = { version = "1.1.8", features = ["static"] }
 md-5 = "0.10.5"
 md4 = "0.10.2"
-num-bigint.workspace = true
+num-bigint = { version = "0.4", features = ["rand"] }
 num-bigint-dig = "0.8.2"
 num-integer = "0.1.45"
 num-traits = "0.2.14"
 once_cell.workspace = true
-p224.workspace = true
-p256.workspace = true
-p384.workspace = true
+p224 = { version = "0.13.0", features = ["ecdh"] }
+p256 = { version = "0.13.2", features = ["ecdh"] }
+p384 = { version = "0.13.0", features = ["ecdh"] }
 path-clean = "=0.1.0"
 pbkdf2 = "0.12.1"
-rand.workspace = true
+rand = "0.8.5"
 regex.workspace = true
 reqwest.workspace = true
 ring.workspace = true
@@ -58,12 +55,12 @@ scrypt = "0.11.0"
 secp256k1 = { version = "0.27.0", features = ["rand-std"] }
 serde = "1.0.149"
 sha-1 = "0.10.0"
-sha2.workspace = true
-signature.workspace = true
+sha2 = { version = "0.10.6", features = ["oid"] }
+signature = "=1.6.4"
 tokio.workspace = true
 typenum = "1.15.0"
 whoami = "1.4.0"
-winapi.workspace = true
+winapi = "=0.3.9"
 # https://github.com/dalek-cryptography/x25519-dalek/pull/89
 x25519-dalek = "2.0.0-pre.1"
 x509-parser = "0.15.0"

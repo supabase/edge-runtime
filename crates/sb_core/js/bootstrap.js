@@ -205,6 +205,7 @@ function runtimeStart(runtimeOptions, source) {
   registerErrors();
 }
 
+delete globalThis.console;
 ObjectDefineProperties(globalThis, globalScope);
 
 const globalProperties = {

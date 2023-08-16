@@ -514,11 +514,10 @@ impl Drop for LaxSingleProcessFsFlagInner {
 pub struct LaxSingleProcessFsFlag(Option<LaxSingleProcessFsFlagInner>);
 
 impl LaxSingleProcessFsFlag {
-    pub async fn lock(file_path: PathBuf, long_wait_message: &str) -> Self {
+    pub async fn lock(file_path: PathBuf, _long_wait_message: &str) -> Self {
         log::debug!("Acquiring file lock at {}", file_path.display());
         use fs3::FileExt;
         let last_updated_path = file_path.with_extension("lock.poll");
-        let start_instant = std::time::Instant::now();
         let open_result = std::fs::OpenOptions::new()
             .read(true)
             .write(true)

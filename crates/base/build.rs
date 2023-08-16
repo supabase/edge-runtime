@@ -25,7 +25,6 @@ mod supabase_startup_snapshot {
     use sb_node::deno_node;
     use sb_workers::sb_user_workers;
     use std::path::Path;
-    use std::rc::Rc;
     use std::sync::Arc;
     use url::Url;
 
@@ -159,7 +158,7 @@ mod supabase_startup_snapshot {
             unreachable!("snapshotting!")
         }
 
-        fn check_write_partial(&mut self, path: &Path, api_name: &str) -> Result<(), AnyError> {
+        fn check_write_partial(&mut self, _path: &Path, _api_name: &str) -> Result<(), AnyError> {
             unreachable!("snapshotting!")
         }
 
@@ -169,25 +168,25 @@ mod supabase_startup_snapshot {
 
         fn check_write_blind(
             &mut self,
-            p: &Path,
-            display: &str,
-            api_name: &str,
+            _p: &Path,
+            _display: &str,
+            _api_name: &str,
         ) -> Result<(), AnyError> {
             unreachable!("snapshotting!")
         }
 
         fn check(
             &mut self,
-            open_options: &OpenOptions,
-            path: &Path,
-            api_name: &str,
+            _open_options: &OpenOptions,
+            _path: &Path,
+            _api_name: &str,
         ) -> Result<(), AnyError> {
             unreachable!("snapshotting!")
         }
     }
 
     impl sb_node::NodePermissions for Permissions {
-        fn check_net_url(&mut self, url: &Url, api_name: &str) -> Result<(), AnyError> {
+        fn check_net_url(&mut self, _url: &Url, _api_name: &str) -> Result<(), AnyError> {
             unreachable!("snapshotting!")
         }
 
@@ -195,7 +194,7 @@ mod supabase_startup_snapshot {
             unreachable!("snapshotting!")
         }
 
-        fn check_sys(&self, kind: &str, api_name: &str) -> Result<(), AnyError> {
+        fn check_sys(&self, _kind: &str, _api_name: &str) -> Result<(), AnyError> {
             unreachable!("snapshotting!")
         }
     }
@@ -237,7 +236,7 @@ mod supabase_startup_snapshot {
             sb_core_main_js::init_ops_and_esm(),
             sb_core_net::init_ops_and_esm(),
             sb_core_http::init_ops_and_esm(),
-            deno_node::init_ops_and_esm::<Permissions>(None, fs.clone()),
+            deno_node::init_ops_and_esm::<Permissions>(None, fs),
             sb_core_runtime::init_ops_and_esm(None),
         ];
 

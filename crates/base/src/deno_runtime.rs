@@ -194,7 +194,7 @@ impl DenoRuntime {
         let module_loader = DefaultModuleLoader::new(
             module_root_path,
             import_map,
-            emitter.emitter().unwrap().clone(),
+            emitter.emitter().unwrap(),
             no_module_cache,
             true, //allow_remote_modules
         )?;

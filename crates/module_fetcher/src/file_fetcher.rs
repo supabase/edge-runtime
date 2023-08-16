@@ -376,7 +376,7 @@ impl FileFetcher {
 
         async move {
             let mut retried = false;
-            let result = loop {
+            loop {
                 let result = match fetch_once(
                     &client,
                     FetchOnceArgs {
@@ -425,9 +425,7 @@ impl FileFetcher {
                     }
                 };
                 break result;
-            };
-
-            result
+            }
         }
         .boxed()
     }

@@ -178,7 +178,7 @@ impl LocalHttpCache {
             }
         }
 
-        return Ok(false);
+        Ok(false)
     }
 
     fn get_url_metadata_checking_global_cache(
@@ -498,7 +498,7 @@ impl LocalCacheManifest {
             if data.get(&url) == Some(&new_data) {
                 false
             } else {
-                data.insert(url.clone(), &sub_path, new_data);
+                data.insert(url, &sub_path, new_data);
                 true
             }
         };

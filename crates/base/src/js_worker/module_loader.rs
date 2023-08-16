@@ -1,5 +1,4 @@
 use anyhow::{anyhow, bail, Error};
-use deno_ast::EmitOptions;
 use deno_ast::MediaType;
 use deno_core::error::AnyError;
 use deno_core::futures::FutureExt;
@@ -10,9 +9,7 @@ use deno_core::ModuleSpecifier;
 use deno_core::ModuleType;
 use deno_core::ResolutionKind;
 use import_map::ImportMap;
-use module_fetcher::cache::{
-    DenoDir, EmitCache, FastInsecureHasher, GlobalHttpCache, HttpCache, ParsedSourceCache,
-};
+use module_fetcher::cache::{DenoDir, GlobalHttpCache, HttpCache};
 use module_fetcher::emit::Emitter;
 use module_fetcher::file_fetcher::{CacheSetting, FileFetcher};
 use module_fetcher::http_util::HttpClient;
@@ -53,7 +50,6 @@ fn make_http_client() -> Result<HttpClient, AnyError> {
 pub struct DefaultModuleLoader {
     file_fetcher: FileFetcher,
     permissions: module_fetcher::permissions::Permissions,
-    emit_cache: EmitCache,
     emitter: Arc<Emitter>,
     maybe_import_map: Option<ImportMap>,
 }
@@ -88,12 +84,10 @@ impl DefaultModuleLoader {
             blob_store,
         );
         let permissions = module_fetcher::permissions::Permissions::new(root_path);
-        let emit_cache = EmitCache::new(deno_dir.gen_cache.clone());
 
         Ok(Self {
             file_fetcher,
             permissions,
-            emit_cache,
             maybe_import_map,
             emitter,
         })

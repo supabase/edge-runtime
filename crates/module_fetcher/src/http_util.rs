@@ -8,7 +8,6 @@ use deno_core::anyhow::bail;
 use deno_core::error::custom_error;
 use deno_core::error::generic_error;
 use deno_core::error::AnyError;
-use deno_core::futures::StreamExt;
 use deno_core::url::Url;
 use deno_fetch::create_http_client;
 use deno_fetch::reqwest;

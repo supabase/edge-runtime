@@ -132,33 +132,6 @@ impl CacheDB {
         new
     }
 
-    /// Useful for testing: re-create this cache DB with a different current version.
-    #[cfg(test)]
-    pub(crate) fn recreate_with_version(mut self, version: &'static str) -> Self {
-        // By taking the lock, we know there are no initialization threads alive
-        drop(self.conn.lock());
-
-        let arc = std::mem::take(&mut self.conn);
-        let conn = match Arc::try_unwrap(arc) {
-            Err(_) => panic!("Failed to unwrap connection"),
-            Ok(conn) => match conn.into_inner().into_inner() {
-                Some(ConnectionState::Connected(conn)) => conn,
-                _ => panic!("Connection had failed and cannot be unwrapped"),
-            },
-        };
-
-        Self::initialize_connection(self.config, &conn, version).unwrap();
-
-        let cell = OnceCell::new();
-        _ = cell.set(ConnectionState::Connected(conn));
-        Self {
-            conn: Arc::new(Mutex::new(cell)),
-            path: self.path.clone(),
-            config: self.config,
-            version,
-        }
-    }
-
     fn spawn_eager_init_thread(&self) {
         let clone = self.clone();
         debug_assert!(tokio::runtime::Handle::try_current().is_ok());

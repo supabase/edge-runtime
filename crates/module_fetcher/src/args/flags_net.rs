@@ -1,6 +1,6 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
-use deno_core::anyhow::{anyhow, bail};
+use deno_core::anyhow::bail;
 use deno_core::error::AnyError;
 use deno_core::url::Url;
 use std::net::IpAddr;
@@ -54,9 +54,11 @@ pub fn parse(paths: Vec<String>) -> Result<Vec<String>, AnyError> {
             for host in ["0.0.0.0", "127.0.0.1", "localhost"].iter() {
                 out.push(format!("{}:{}", host, port.0));
             }
-        } else {
-            return bail!("Bad host:port pair");
         }
     }
-    Ok(out)
+    if out.is_empty() {
+        bail!("Bad host:port pair")
+    } else {
+        Ok(out)
+    }
 }

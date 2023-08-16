@@ -205,6 +205,10 @@ function runtimeStart(runtimeOptions, source) {
   registerErrors();
 }
 
+// We need to delete globalThis.console
+// Before setting up a new one
+// This is because v8 sets a console that can't be easily overriden
+// and collides with globalScope.console
 delete globalThis.console;
 ObjectDefineProperties(globalThis, globalScope);
 

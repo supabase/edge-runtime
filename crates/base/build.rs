@@ -226,7 +226,7 @@ mod supabase_startup_snapshot {
             deno_net::deno_net::init_ops_and_esm::<Permissions>(None, false, None),
             deno_tls::deno_tls::init_ops_and_esm(),
             deno_http::deno_http::init_ops_and_esm::<DefaultHttpPropertyExtractor>(),
-            deno_io::deno_io::init_ops_and_esm(Default::default()),
+            deno_io::deno_io::init_ops_and_esm(Some(Default::default())),
             deno_fs::deno_fs::init_ops_and_esm::<Permissions>(false, fs.clone()),
             sb_env::init_ops_and_esm(),
             sb_os::sb_os::init_ops_and_esm(),

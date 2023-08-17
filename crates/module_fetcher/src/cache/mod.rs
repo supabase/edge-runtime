@@ -12,10 +12,11 @@ use deno_graph::source::LoadFuture;
 use deno_graph::source::LoadResponse;
 use deno_graph::source::Loader;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 
-pub mod cache_db;
-pub mod caches;
+mod cache_db;
+mod caches;
 mod check;
 mod common;
 mod deno_dir;
@@ -30,10 +31,14 @@ pub use caches::Caches;
 pub use check::TypeCheckCache;
 pub use common::FastInsecureHasher;
 pub use deno_dir::DenoDir;
+pub use deno_dir::DenoDirProvider;
 pub use disk_cache::DiskCache;
 pub use emit::EmitCache;
 pub use http_cache::CachedUrlMetadata;
+pub use http_cache::GlobalHttpCache;
 pub use http_cache::HttpCache;
+pub use http_cache::LocalHttpCache;
+pub use http_cache::LocalLspHttpCache;
 pub use incremental::IncrementalCache;
 pub use node::NodeAnalysisCache;
 pub use parsed_source::ParsedSourceCache;
@@ -45,10 +50,10 @@ pub const CACHE_PERM: u32 = 0o644;
 /// a concise interface to the DENO_DIR when building module graphs.
 pub struct FetchCacher {
     emit_cache: EmitCache,
-    dynamic_permissions: Permissions,
     file_fetcher: Arc<FileFetcher>,
     file_header_overrides: HashMap<ModuleSpecifier, HashMap<String, String>>,
-    root_permissions: Permissions,
+    global_http_cache: Arc<GlobalHttpCache>,
+    permissions: Permissions,
     cache_info_enabled: bool,
     maybe_local_node_modules_url: Option<ModuleSpecifier>,
 }
@@ -58,16 +63,16 @@ impl FetchCacher {
         emit_cache: EmitCache,
         file_fetcher: Arc<FileFetcher>,
         file_header_overrides: HashMap<ModuleSpecifier, HashMap<String, String>>,
-        root_permissions: Permissions,
-        dynamic_permissions: Permissions,
+        global_http_cache: Arc<GlobalHttpCache>,
+        permissions: Permissions,
         maybe_local_node_modules_url: Option<ModuleSpecifier>,
     ) -> Self {
         Self {
             emit_cache,
-            dynamic_permissions,
             file_fetcher,
             file_header_overrides,
-            root_permissions,
+            global_http_cache,
+            permissions,
             cache_info_enabled: false,
             maybe_local_node_modules_url,
         }
@@ -78,6 +83,30 @@ impl FetchCacher {
     pub fn enable_loading_cache_info(&mut self) {
         self.cache_info_enabled = true;
     }
+
+    // DEPRECATED: Where the file is stored and how it's stored should be an implementation
+    // detail of the cache.
+    //
+    // todo(dsheret): remove once implementing
+    //  * https://github.com/denoland/deno/issues/17707
+    //  * https://github.com/denoland/deno/issues/17703
+    #[deprecated(
+        note = "There should not be a way to do this because the file may not be cached at a local path in the future."
+    )]
+    fn get_local_path(&self, specifier: &ModuleSpecifier) -> Option<PathBuf> {
+        // TODO(@kitsonk) fix when deno_graph does not query cache for synthetic
+        // modules
+        if specifier.scheme() == "flags" {
+            None
+        } else if specifier.scheme() == "file" {
+            specifier.to_file_path().ok()
+        } else {
+            #[allow(deprecated)]
+            self.global_http_cache
+                .get_global_cache_filepath(specifier)
+                .ok()
+        }
+    }
 }
 
 impl Loader for FetchCacher {
@@ -86,7 +115,8 @@ impl Loader for FetchCacher {
             return None;
         }
 
-        let local = self.file_fetcher.get_local_path(specifier)?;
+        #[allow(deprecated)]
+        let local = self.get_local_path(specifier)?;
         if local.is_file() {
             let emit = self
                 .emit_cache
@@ -102,7 +132,7 @@ impl Loader for FetchCacher {
         }
     }
 
-    fn load(&mut self, specifier: &ModuleSpecifier, is_dynamic: bool) -> LoadFuture {
+    fn load(&mut self, specifier: &ModuleSpecifier, _is_dynamic: bool) -> LoadFuture {
         if let Some(node_modules_url) = self.maybe_local_node_modules_url.as_ref() {
             // The specifier might be in a completely different symlinked tree than
             // what the resolved node_modules_url is in (ex. `/my-project-1/node_modules`
@@ -119,11 +149,7 @@ impl Loader for FetchCacher {
             }
         }
 
-        let permissions = if is_dynamic {
-            self.dynamic_permissions.clone()
-        } else {
-            self.root_permissions.clone()
-        };
+        let permissions = self.permissions.clone();
         let file_fetcher = self.file_fetcher.clone();
         let file_header_overrides = self.file_header_overrides.clone();
         let specifier = specifier.clone();

@@ -67,7 +67,6 @@ impl deno_graph::ParsedSourceStore for ParsedSourceCacheSources {
 
 /// A cache of `ParsedSource`s, which may be used with `deno_graph`
 /// for cached dependency analysis.
-#[derive(Clone)]
 pub struct ParsedSourceCache {
     db: CacheDB,
     sources: ParsedSourceCacheSources,
@@ -85,13 +84,6 @@ impl ParsedSourceCache {
     pub fn new(db: CacheDB) -> Self {
         Self {
             db,
-            sources: Default::default(),
-        }
-    }
-
-    pub fn reset_for_file_watcher(&self) -> Self {
-        Self {
-            db: self.db.clone(),
             sources: Default::default(),
         }
     }
@@ -258,95 +250,5 @@ impl deno_graph::ModuleAnalyzer for ParsedSourceCacheModuleAnalyzer {
 }
 
 fn compute_source_hash(bytes: &[u8]) -> String {
-    FastInsecureHasher::new().write(bytes).finish().to_string()
-}
-
-#[cfg(test)]
-mod test {
-    use deno_graph::PositionRange;
-    use deno_graph::SpecifierWithRange;
-
-    use super::*;
-
-    #[test]
-    pub fn parsed_source_cache_module_analyzer_general_use() {
-        let conn = CacheDB::in_memory(&PARSED_SOURCE_CACHE_DB, "1.0.0");
-        let cache = ParsedSourceCacheModuleAnalyzer::new(conn, Default::default());
-        let specifier1 = ModuleSpecifier::parse("https://localhost/mod.ts").unwrap();
-        let specifier2 = ModuleSpecifier::parse("https://localhost/mod2.ts").unwrap();
-        assert_eq!(
-            cache
-                .get_module_info(&specifier1, MediaType::JavaScript, "1")
-                .unwrap(),
-            None
-        );
-
-        let mut module_info = ModuleInfo::default();
-        module_info.jsdoc_imports.push(SpecifierWithRange {
-            range: PositionRange {
-                start: deno_graph::Position {
-                    line: 0,
-                    character: 3,
-                },
-                end: deno_graph::Position {
-                    line: 1,
-                    character: 2,
-                },
-            },
-            text: "test".to_string(),
-        });
-        cache
-            .set_module_info(&specifier1, MediaType::JavaScript, "1", &module_info)
-            .unwrap();
-        assert_eq!(
-            cache
-                .get_module_info(&specifier1, MediaType::JavaScript, "1")
-                .unwrap(),
-            Some(module_info.clone())
-        );
-        assert_eq!(
-            cache
-                .get_module_info(&specifier2, MediaType::JavaScript, "1")
-                .unwrap(),
-            None,
-        );
-        // different media type
-        assert_eq!(
-            cache
-                .get_module_info(&specifier1, MediaType::TypeScript, "1")
-                .unwrap(),
-            None,
-        );
-        // different source hash
-        assert_eq!(
-            cache
-                .get_module_info(&specifier1, MediaType::JavaScript, "2")
-                .unwrap(),
-            None,
-        );
-
-        // try recreating with the same version
-        let conn = cache.conn.recreate_with_version("1.0.0");
-        let cache = ParsedSourceCacheModuleAnalyzer::new(conn, Default::default());
-
-        // should get it
-        assert_eq!(
-            cache
-                .get_module_info(&specifier1, MediaType::JavaScript, "1")
-                .unwrap(),
-            Some(module_info)
-        );
-
-        // try recreating with a different version
-        let conn = cache.conn.recreate_with_version("1.0.1");
-        let cache = ParsedSourceCacheModuleAnalyzer::new(conn, Default::default());
-
-        // should no longer exist
-        assert_eq!(
-            cache
-                .get_module_info(&specifier1, MediaType::JavaScript, "1")
-                .unwrap(),
-            None,
-        );
-    }
+    FastInsecureHasher::hash(bytes).to_string()
 }

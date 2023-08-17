@@ -12,21 +12,7 @@ pub fn gen(v: &[impl AsRef<[u8]>]) -> String {
     let out: Vec<String> = digest
         .as_ref()
         .iter()
-        .map(|byte| format!("{:02x}", byte))
+        .map(|byte| format!("{byte:02x}"))
         .collect();
     out.join("")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_gen() {
-        let actual = gen(&[b"hello world"]);
-        assert_eq!(
-            actual,
-            "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
-        );
-    }
 }

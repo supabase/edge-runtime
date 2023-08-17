@@ -4,6 +4,7 @@ use crate::args::config_file::FilesConfig;
 use deno_core::anyhow::Context;
 use deno_core::error::AnyError;
 pub use deno_core::normalize_path;
+use deno_core::task::spawn_blocking;
 use deno_core::ModuleSpecifier;
 use deno_crypto::rand;
 use sb_node::PathClean;
@@ -21,19 +22,72 @@ use walkdir::WalkDir;
 
 use super::path::specifier_to_file_path;
 
+/// Writes the file to the file system at a temporary path, then
+/// renames it to the destination in a single sys call in order
+/// to never leave the file system in a corrupted state.
+///
+/// This also handles creating the directory if a NotFound error
+/// occurs.
 pub fn atomic_write_file<T: AsRef<[u8]>>(
-    filename: &Path,
+    file_path: &Path,
     data: T,
     mode: u32,
 ) -> std::io::Result<()> {
-    let rand: String = (0..4)
-        .map(|_| format!("{:02x}", rand::random::<u8>()))
-        .collect();
-    let extension = format!("{rand}.tmp");
-    let tmp_file = filename.with_extension(extension);
-    write_file(&tmp_file, data, mode)?;
-    std::fs::rename(tmp_file, filename)?;
-    Ok(())
+    fn atomic_write_file_raw(
+        temp_file_path: &Path,
+        file_path: &Path,
+        data: &[u8],
+        mode: u32,
+    ) -> std::io::Result<()> {
+        write_file(temp_file_path, data, mode)?;
+        std::fs::rename(temp_file_path, file_path)?;
+        Ok(())
+    }
+
+    fn add_file_context(file_path: &Path, err: Error) -> Error {
+        Error::new(
+            err.kind(),
+            format!("{:#} (for '{}')", err, file_path.display()),
+        )
+    }
+
+    fn inner(file_path: &Path, data: &[u8], mode: u32) -> std::io::Result<()> {
+        let temp_file_path = {
+            let rand: String = (0..4)
+                .map(|_| format!("{:02x}", rand::random::<u8>()))
+                .collect();
+            let extension = format!("{rand}.tmp");
+            file_path.with_extension(extension)
+        };
+
+        if let Err(write_err) = atomic_write_file_raw(&temp_file_path, file_path, data, mode) {
+            if write_err.kind() == ErrorKind::NotFound {
+                let parent_dir_path = file_path.parent().unwrap();
+                match std::fs::create_dir_all(parent_dir_path) {
+                    Ok(()) => {
+                        return atomic_write_file_raw(&temp_file_path, file_path, data, mode)
+                            .map_err(|err| add_file_context(file_path, err));
+                    }
+                    Err(create_err) => {
+                        if !parent_dir_path.exists() {
+                            return Err(Error::new(
+                                create_err.kind(),
+                                format!(
+                                    "{:#} (for '{}')\nCheck the permission of the directory.",
+                                    create_err,
+                                    parent_dir_path.display()
+                                ),
+                            ));
+                        }
+                    }
+                }
+            }
+            return Err(add_file_context(file_path, write_err));
+        }
+        Ok(())
+    }
+
+    inner(file_path, data.as_ref(), mode)
 }
 
 pub fn write_file<T: AsRef<[u8]>>(filename: &Path, data: T, mode: u32) -> std::io::Result<()> {
@@ -73,11 +127,7 @@ pub fn write_file_2<T: AsRef<[u8]>>(
 
 /// Similar to `std::fs::canonicalize()` but strips UNC prefixes on Windows.
 pub fn canonicalize_path(path: &Path) -> Result<PathBuf, Error> {
-    let path = path.canonicalize()?;
-    #[cfg(windows)]
-    return Ok(strip_unc_prefix(path));
-    #[cfg(not(windows))]
-    return Ok(path);
+    Ok(deno_core::strip_unc_prefix(path.canonicalize()?))
 }
 
 /// Canonicalizes a path which might be non-existent by going up the
@@ -87,11 +137,18 @@ pub fn canonicalize_path(path: &Path) -> Result<PathBuf, Error> {
 /// Note: When using this, you should be aware that a symlink may
 /// subsequently be created along this path by some other code.
 pub fn canonicalize_path_maybe_not_exists(path: &Path) -> Result<PathBuf, Error> {
+    canonicalize_path_maybe_not_exists_with_fs(path, canonicalize_path)
+}
+
+pub fn canonicalize_path_maybe_not_exists_with_fs(
+    path: &Path,
+    canonicalize: impl Fn(&Path) -> Result<PathBuf, Error>,
+) -> Result<PathBuf, Error> {
     let path = path.to_path_buf().clean();
     let mut path = path.as_path();
     let mut names_stack = Vec::new();
     loop {
-        match canonicalize_path(path) {
+        match canonicalize(path) {
             Ok(mut canonicalized_path) => {
                 for name in names_stack.into_iter().rev() {
                     canonicalized_path = canonicalized_path.join(name);
@@ -104,47 +161,6 @@ pub fn canonicalize_path_maybe_not_exists(path: &Path) -> Result<PathBuf, Error>
             }
             Err(err) => return Err(err),
         }
-    }
-}
-
-#[cfg(windows)]
-fn strip_unc_prefix(path: PathBuf) -> PathBuf {
-    use std::path::Component;
-    use std::path::Prefix;
-
-    let mut components = path.components();
-    match components.next() {
-        Some(Component::Prefix(prefix)) => {
-            match prefix.kind() {
-                // \\?\device
-                Prefix::Verbatim(device) => {
-                    let mut path = PathBuf::new();
-                    path.push(format!(r"\\{}\", device.to_string_lossy()));
-                    path.extend(components.filter(|c| !matches!(c, Component::RootDir)));
-                    path
-                }
-                // \\?\c:\path
-                Prefix::VerbatimDisk(_) => {
-                    let mut path = PathBuf::new();
-                    path.push(prefix.as_os_str().to_string_lossy().replace(r"\\?\", ""));
-                    path.extend(components);
-                    path
-                }
-                // \\?\UNC\hostname\share_name\path
-                Prefix::VerbatimUNC(hostname, share_name) => {
-                    let mut path = PathBuf::new();
-                    path.push(format!(
-                        r"\\{}\{}\",
-                        hostname.to_string_lossy(),
-                        share_name.to_string_lossy()
-                    ));
-                    path.extend(components.filter(|c| !matches!(c, Component::RootDir)));
-                    path
-                }
-                _ => path,
-            }
-        }
-        _ => path,
     }
 }
 
@@ -166,6 +182,7 @@ pub struct FileCollector<TFilter: Fn(&Path) -> bool> {
     file_filter: TFilter,
     ignore_git_folder: bool,
     ignore_node_modules: bool,
+    ignore_deno_modules: bool,
 }
 
 impl<TFilter: Fn(&Path) -> bool> FileCollector<TFilter> {
@@ -175,6 +192,7 @@ impl<TFilter: Fn(&Path) -> bool> FileCollector<TFilter> {
             file_filter,
             ignore_git_folder: false,
             ignore_node_modules: false,
+            ignore_deno_modules: false,
         }
     }
 
@@ -187,6 +205,11 @@ impl<TFilter: Fn(&Path) -> bool> FileCollector<TFilter> {
 
     pub fn ignore_node_modules(mut self) -> Self {
         self.ignore_node_modules = true;
+        self
+    }
+
+    pub fn ignore_deno_modules(mut self) -> Self {
+        self.ignore_deno_modules = true;
         self
     }
 
@@ -225,9 +248,12 @@ impl<TFilter: Fn(&Path) -> bool> FileCollector<TFilter> {
                                 .file_name()
                                 .map(|dir_name| {
                                     let dir_name = dir_name.to_string_lossy().to_lowercase();
-                                    let is_ignored_file = self.ignore_node_modules
-                                        && dir_name == "node_modules"
-                                        || self.ignore_git_folder && dir_name == ".git";
+                                    let is_ignored_file = match dir_name.as_str() {
+                                        "node_modules" => self.ignore_node_modules,
+                                        "deno_modules" => self.ignore_deno_modules,
+                                        ".git" => self.ignore_git_folder,
+                                        _ => false,
+                                    };
                                     // allow the user to opt out of ignoring by explicitly specifying the dir
                                     file != c && is_ignored_file
                                 })
@@ -260,7 +286,8 @@ pub fn collect_specifiers(
     let file_collector = FileCollector::new(predicate)
         .add_ignore_paths(&files.exclude)
         .ignore_git_folder()
-        .ignore_node_modules();
+        .ignore_node_modules()
+        .ignore_deno_modules();
 
     let root_path = current_dir()?;
     let include_files = if files.include.is_empty() {
@@ -518,7 +545,7 @@ impl LaxSingleProcessFsFlag {
                             // This uses a blocking task because we use a single threaded
                             // runtime and this is time sensitive so we don't want it to update
                             // at the whims of of whatever is occurring on the runtime thread.
-                            tokio::task::spawn_blocking({
+                            spawn_blocking({
                                 let token = token.clone();
                                 let last_updated_path = last_updated_path.clone();
                                 move || {

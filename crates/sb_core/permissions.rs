@@ -1,5 +1,6 @@
 use deno_core::error::{custom_error, AnyError};
 use deno_core::url::Url;
+use deno_fs::OpenOptions;
 use std::path::Path;
 
 pub struct Permissions {
@@ -131,35 +132,43 @@ impl deno_fs::FsPermissions for Permissions {
         Ok(())
     }
 
+    fn check_write_partial(&mut self, _path: &Path, _api_name: &str) -> Result<(), AnyError> {
+        Ok(())
+    }
+
     fn check_write_all(&mut self, _api_name: &str) -> Result<(), AnyError> {
+        Ok(())
+    }
+
+    fn check_write_blind(
+        &mut self,
+        _p: &Path,
+        _display: &str,
+        _api_name: &str,
+    ) -> Result<(), AnyError> {
+        Ok(())
+    }
+
+    fn check(
+        &mut self,
+        _open_options: &OpenOptions,
+        _path: &Path,
+        _api_name: &str,
+    ) -> Result<(), AnyError> {
         Ok(())
     }
 }
 
 impl sb_node::NodePermissions for Permissions {
-    fn check_read(&mut self, _path: &Path) -> Result<(), AnyError> {
+    fn check_net_url(&mut self, _url: &Url, _api_name: &str) -> Result<(), AnyError> {
         Ok(())
     }
-}
 
-impl deno_flash::FlashPermissions for Permissions {
-    fn check_net<T: AsRef<str>>(
-        &mut self,
-        _host: &(T, Option<u16>),
-        _api_name: &str,
-    ) -> Result<(), AnyError> {
-        if self.net_access_disabled {
-            return Err(custom_error(
-                "PermissionDenied",
-                "net access disabled for the user worker",
-            ));
-        }
+    fn check_read(&self, _path: &Path) -> Result<(), AnyError> {
         Ok(())
     }
-}
 
-pub struct RuntimeNodeEnv;
-impl sb_node::NodeEnv for RuntimeNodeEnv {
-    type P = Permissions;
-    type Fs = sb_node::RealFs;
+    fn check_sys(&self, _kind: &str, _api_name: &str) -> Result<(), AnyError> {
+        Ok(())
+    }
 }

@@ -1,9 +1,12 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
+use deno_core::ModuleCode;
 use encoding_rs::*;
 use std::borrow::Cow;
 use std::io::Error;
 use std::io::ErrorKind;
+
+pub const BOM_CHAR: char = '\u{FEFF}';
 
 /// Attempts to detect the character encoding of the provided bytes.
 ///
@@ -34,7 +37,45 @@ pub fn convert_to_utf8<'a>(bytes: &'a [u8], charset: &'_ str) -> Result<Cow<'a, 
             .ok_or_else(|| ErrorKind::InvalidData.into()),
         None => Err(Error::new(
             ErrorKind::InvalidInput,
-            format!("Unsupported charset: {}", charset),
+            format!("Unsupported charset: {charset}"),
         )),
     }
+}
+
+/// Strips the byte order mark from the provided text if it exists.
+pub fn strip_bom(text: &str) -> &str {
+    if text.starts_with(BOM_CHAR) {
+        &text[BOM_CHAR.len_utf8()..]
+    } else {
+        text
+    }
+}
+
+static SOURCE_MAP_PREFIX: &[u8] = b"//# sourceMappingURL=data:application/json;base64,";
+
+pub fn source_map_from_code(code: &ModuleCode) -> Option<Vec<u8>> {
+    let bytes = code.as_bytes();
+    let last_line = bytes.rsplit(|u| *u == b'\n').next()?;
+    if last_line.starts_with(SOURCE_MAP_PREFIX) {
+        let input = last_line.split_at(SOURCE_MAP_PREFIX.len()).1;
+        let decoded_map =
+            base64::decode(input).expect("Unable to decode source map from emitted file.");
+        Some(decoded_map)
+    } else {
+        None
+    }
+}
+
+/// Truncate the source code before the source map.
+pub fn code_without_source_map(mut code: ModuleCode) -> ModuleCode {
+    let bytes = code.as_bytes();
+    for i in (0..bytes.len()).rev() {
+        if bytes[i] == b'\n' {
+            if bytes[i + 1..].starts_with(SOURCE_MAP_PREFIX) {
+                code.truncate(i + 1);
+            }
+            return code;
+        }
+    }
+    code
 }

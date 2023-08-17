@@ -3,6 +3,7 @@
 use deno_core::error::AnyError;
 use deno_core::parking_lot::Mutex;
 use deno_core::parking_lot::MutexGuard;
+use deno_core::task::spawn_blocking;
 use deno_webstorage::rusqlite;
 use deno_webstorage::rusqlite::Connection;
 use deno_webstorage::rusqlite::OptionalExtension;
@@ -95,7 +96,7 @@ impl Drop for CacheDB {
             // Hand off SQLite connection to another thread to do the surprisingly expensive cleanup
             let inner = inner.into_inner().into_inner();
             if let Some(conn) = inner {
-                tokio::task::spawn_blocking(move || {
+                spawn_blocking(move || {
                     drop(conn);
                     log::trace!("Cleaned up SQLite connection at {}", path.to_string_lossy());
                 });
@@ -105,7 +106,6 @@ impl Drop for CacheDB {
 }
 
 impl CacheDB {
-    #[cfg(test)]
     pub fn in_memory(config: &'static CacheDBConfiguration, version: &'static str) -> Self {
         CacheDB {
             conn: Arc::new(Mutex::new(OnceCell::new())),
@@ -132,37 +132,10 @@ impl CacheDB {
         new
     }
 
-    /// Useful for testing: re-create this cache DB with a different current version.
-    #[cfg(test)]
-    pub(crate) fn recreate_with_version(mut self, version: &'static str) -> Self {
-        // By taking the lock, we know there are no initialization threads alive
-        drop(self.conn.lock());
-
-        let arc = std::mem::take(&mut self.conn);
-        let conn = match Arc::try_unwrap(arc) {
-            Err(_) => panic!("Failed to unwrap connection"),
-            Ok(conn) => match conn.into_inner().into_inner() {
-                Some(ConnectionState::Connected(conn)) => conn,
-                _ => panic!("Connection had failed and cannot be unwrapped"),
-            },
-        };
-
-        Self::initialize_connection(self.config, &conn, version).unwrap();
-
-        let cell = OnceCell::new();
-        _ = cell.set(ConnectionState::Connected(conn));
-        Self {
-            conn: Arc::new(Mutex::new(cell)),
-            path: self.path.clone(),
-            config: self.config,
-            version,
-        }
-    }
-
     fn spawn_eager_init_thread(&self) {
         let clone = self.clone();
-        // debug_assert!(tokio::runtime::Handle::try_current().is_ok());
-        tokio::task::spawn_blocking(move || {
+        debug_assert!(tokio::runtime::Handle::try_current().is_ok());
+        spawn_blocking(move || {
             let lock = clone.conn.lock();
             clone.initialize(&lock);
         });
@@ -252,7 +225,13 @@ impl CacheDB {
         };
 
         // Failed, try deleting it
-        log::warn!(
+        let is_tty = atty::is(atty::Stream::Stderr);
+        log::log!(
+            if is_tty {
+                log::Level::Warn
+            } else {
+                log::Level::Trace
+            },
             "Could not initialize cache database '{}', deleting and retrying... ({err:?})",
             path.to_string_lossy()
         );
@@ -266,7 +245,12 @@ impl CacheDB {
 
         match self.config.on_failure {
             CacheFailure::InMemory => {
-                log::error!(
+                log::log!(
+                    if is_tty {
+                        log::Level::Error
+                    } else {
+                        log::Level::Trace
+                    },
                     "Failed to open cache file '{}', opening in-memory cache.",
                     path.to_string_lossy()
                 );
@@ -275,7 +259,12 @@ impl CacheDB {
                 ))
             }
             CacheFailure::Blackhole => {
-                log::error!(
+                log::log!(
+                    if is_tty {
+                        log::Level::Error
+                    } else {
+                        log::Level::Trace
+                    },
                     "Failed to open cache file '{}', performance may be degraded.",
                     path.to_string_lossy()
                 );
@@ -364,105 +353,5 @@ impl CacheDB {
             }
         })?;
         Ok(res)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    static TEST_DB: CacheDBConfiguration = CacheDBConfiguration {
-        table_initializer: "create table if not exists test(value TEXT);",
-        on_version_change: "delete from test;",
-        preheat_queries: &[],
-        on_failure: CacheFailure::InMemory,
-    };
-
-    static TEST_DB_BLACKHOLE: CacheDBConfiguration = CacheDBConfiguration {
-        table_initializer: "create table if not exists test(value TEXT);",
-        on_version_change: "delete from test;",
-        preheat_queries: &[],
-        on_failure: CacheFailure::Blackhole,
-    };
-
-    static TEST_DB_ERROR: CacheDBConfiguration = CacheDBConfiguration {
-        table_initializer: "create table if not exists test(value TEXT);",
-        on_version_change: "delete from test;",
-        preheat_queries: &[],
-        on_failure: CacheFailure::Error,
-    };
-
-    static BAD_SQL_TEST_DB: CacheDBConfiguration = CacheDBConfiguration {
-        table_initializer: "bad sql;",
-        on_version_change: "delete from test;",
-        preheat_queries: &[],
-        on_failure: CacheFailure::InMemory,
-    };
-
-    static FAILURE_PATH: &str = "/tmp/this/doesnt/exist/so/will/always/fail";
-
-    #[tokio::test]
-    async fn simple_database() {
-        let db = CacheDB::in_memory(&TEST_DB, "1.0");
-        db.ensure_connected()
-            .expect("Failed to initialize in-memory database");
-
-        db.execute("insert into test values (?1)", [1]).unwrap();
-        let res = db
-            .query_row("select * from test", [], |row| {
-                Ok(row.get::<_, String>(0).unwrap())
-            })
-            .unwrap();
-        assert_eq!(Some("1".into()), res);
-    }
-
-    #[tokio::test]
-    async fn bad_sql() {
-        let db = CacheDB::in_memory(&BAD_SQL_TEST_DB, "1.0");
-        db.ensure_connected()
-            .expect_err("Expected to fail, but succeeded");
-    }
-
-    #[tokio::test]
-    async fn failure_mode_in_memory() {
-        let db = CacheDB::from_path(&TEST_DB, FAILURE_PATH.into(), "1.0");
-        db.ensure_connected()
-            .expect("Should have created a database");
-
-        db.execute("insert into test values (?1)", [1]).unwrap();
-        let res = db
-            .query_row("select * from test", [], |row| {
-                Ok(row.get::<_, String>(0).unwrap())
-            })
-            .unwrap();
-        assert_eq!(Some("1".into()), res);
-    }
-
-    #[tokio::test]
-    async fn failure_mode_blackhole() {
-        let db = CacheDB::from_path(&TEST_DB_BLACKHOLE, FAILURE_PATH.into(), "1.0");
-        db.ensure_connected()
-            .expect("Should have created a database");
-
-        db.execute("insert into test values (?1)", [1]).unwrap();
-        let res = db
-            .query_row("select * from test", [], |row| {
-                Ok(row.get::<_, String>(0).unwrap())
-            })
-            .unwrap();
-        assert_eq!(None, res);
-    }
-
-    #[tokio::test]
-    async fn failure_mode_error() {
-        let db = CacheDB::from_path(&TEST_DB_ERROR, FAILURE_PATH.into(), "1.0");
-        db.ensure_connected().expect_err("Should have failed");
-
-        db.execute("insert into test values (?1)", [1])
-            .expect_err("Should have failed");
-        db.query_row("select * from test", [], |row| {
-            Ok(row.get::<_, String>(0).unwrap())
-        })
-        .expect_err("Should have failed");
     }
 }

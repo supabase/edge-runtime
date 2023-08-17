@@ -12,6 +12,6 @@ path = "lib.rs"
 [dependencies]
 anyhow.workspace = true
 deno_core.workspace = true
-eszip = "0.40.0"
+eszip = "0.49.0"
 tokio.workspace = true
 serde.workspace = true

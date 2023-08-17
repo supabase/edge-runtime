@@ -1,10 +1,9 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
-use crate::util::fs::canonicalize_path;
 use crate::util::path::specifier_parent;
 use crate::util::path::specifier_to_file_path;
 
-use crate::args::flags::Flags;
+use crate::args::ConfigFlag;
 use deno_core::anyhow::anyhow;
 use deno_core::anyhow::bail;
 use deno_core::anyhow::Context;
@@ -17,6 +16,7 @@ use deno_core::serde_json::json;
 use deno_core::serde_json::Value;
 use deno_core::ModuleSpecifier;
 use indexmap::IndexMap;
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -26,10 +26,19 @@ use std::path::PathBuf;
 
 pub type MaybeImportsResult = Result<Vec<deno_graph::ReferrerImports>, AnyError>;
 
-#[derive(Hash)]
+#[derive(Debug, Clone, Hash)]
 pub struct JsxImportSourceConfig {
     pub default_specifier: Option<String>,
     pub module: String,
+    pub base_url: ModuleSpecifier,
+}
+
+impl JsxImportSourceConfig {
+    pub fn maybe_specifier_text(&self) -> Option<String> {
+        self.default_specifier
+            .as_ref()
+            .map(|default_specifier| format!("{}/{}", default_specifier, self.module))
+    }
 }
 
 /// The transpile options that are significant out of a user provided tsconfig
@@ -276,7 +285,7 @@ impl Serialize for TsConfig {
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct LintRulesConfig {
     pub tags: Option<Vec<String>>,
@@ -284,7 +293,7 @@ pub struct LintRulesConfig {
     pub exclude: Option<Vec<String>>,
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 struct SerializedFilesConfig {
     pub include: Vec<String>,
@@ -296,25 +305,23 @@ impl SerializedFilesConfig {
         self,
         config_file_specifier: &ModuleSpecifier,
     ) -> Result<FilesConfig, AnyError> {
-        let config_dir = specifier_parent(config_file_specifier);
+        let config_dir = specifier_to_file_path(&specifier_parent(config_file_specifier))?;
         Ok(FilesConfig {
             include: self
                 .include
                 .into_iter()
-                .map(|p| {
-                    let url = config_dir.join(&p)?;
-                    specifier_to_file_path(&url)
-                })
-                .collect::<Result<Vec<_>, _>>()?,
+                .map(|p| config_dir.join(p))
+                .collect::<Vec<_>>(),
             exclude: self
                 .exclude
                 .into_iter()
-                .map(|p| {
-                    let url = config_dir.join(&p)?;
-                    specifier_to_file_path(&url)
-                })
-                .collect::<Result<Vec<_>, _>>()?,
+                .map(|p| config_dir.join(p))
+                .collect::<Vec<_>>(),
         })
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.include.is_empty() && self.exclude.is_empty()
     }
 }
 
@@ -340,13 +347,65 @@ impl FilesConfig {
         // Ignore files not in the include list if it's not empty.
         self.include.is_empty() || self.include.iter().any(|i| file_path.starts_with(i))
     }
+
+    fn extend(self, rhs: Self) -> Self {
+        Self {
+            include: [self.include, rhs.include].concat(),
+            exclude: [self.exclude, rhs.exclude].concat(),
+        }
+    }
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
+/// Choose between flat and nested files configuration.
+///
+/// `files` has precedence over `deprecated_files`.
+/// when `deprecated_files` is present, a warning is logged.
+///
+/// caveat: due to default values, it's not possible to distinguish between
+/// an empty configuration and a configuration with default values.
+/// `{ "files": {} }` is equivalent to `{ "files": { "include": [], "exclude": [] } }`
+/// and it wouldn't be able to emit warning for `{ "files": {}, "exclude": [] }`.
+///
+/// # Arguments
+///
+/// * `files` - Flat configuration.
+/// * `deprecated_files` - Nested configuration. ("Files")
+fn choose_files(
+    files: SerializedFilesConfig,
+    deprecated_files: SerializedFilesConfig,
+) -> SerializedFilesConfig {
+    const DEPRECATED_FILES: &str = "Warning: \"files\" configuration is deprecated";
+    const FLAT_CONFIG: &str = "\"include\" and \"exclude\"";
+
+    let (files_nonempty, deprecated_files_nonempty) =
+        (!files.is_empty(), !deprecated_files.is_empty());
+
+    match (files_nonempty, deprecated_files_nonempty) {
+        (true, true) => {
+            log::warn!("{DEPRECATED_FILES} and ignored by {FLAT_CONFIG}.");
+            files
+        }
+        (true, false) => files,
+        (false, true) => {
+            log::warn!("{DEPRECATED_FILES}. Please use {FLAT_CONFIG} instead.");
+            deprecated_files
+        }
+        (false, false) => SerializedFilesConfig::default(),
+    }
+}
+
+/// `lint` config representation for serde
+///
+/// fields `include` and `exclude` are expanded from [SerializedFilesConfig].
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 struct SerializedLintConfig {
     pub rules: LintRulesConfig,
-    pub files: SerializedFilesConfig,
+    pub include: Vec<String>,
+    pub exclude: Vec<String>,
+
+    #[serde(rename = "files")]
+    pub deprecated_files: SerializedFilesConfig,
     pub report: Option<String>,
 }
 
@@ -355,22 +414,33 @@ impl SerializedLintConfig {
         self,
         config_file_specifier: &ModuleSpecifier,
     ) -> Result<LintConfig, AnyError> {
+        let (include, exclude) = (self.include, self.exclude);
+        let files = SerializedFilesConfig { include, exclude };
+
         Ok(LintConfig {
             rules: self.rules,
-            files: self.files.into_resolved(config_file_specifier)?,
+            files: choose_files(files, self.deprecated_files)
+                .into_resolved(config_file_specifier)?,
             report: self.report,
         })
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct LintConfig {
     pub rules: LintRulesConfig,
     pub files: FilesConfig,
     pub report: Option<String>,
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+impl LintConfig {
+    pub fn with_files(self, files: FilesConfig) -> Self {
+        let files = self.files.extend(files);
+        Self { files, ..self }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub enum ProseWrap {
     Always,
@@ -378,7 +448,7 @@ pub enum ProseWrap {
     Preserve,
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields, rename_all = "camelCase")]
 pub struct FmtOptionsConfig {
     pub use_tabs: Option<bool>,
@@ -389,11 +459,74 @@ pub struct FmtOptionsConfig {
     pub semi_colons: Option<bool>,
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+impl FmtOptionsConfig {
+    pub fn is_empty(&self) -> bool {
+        self.use_tabs.is_none()
+            && self.line_width.is_none()
+            && self.indent_width.is_none()
+            && self.single_quote.is_none()
+            && self.prose_wrap.is_none()
+            && self.semi_colons.is_none()
+    }
+}
+
+/// Choose between flat and nested fmt options.
+///
+/// `options` has precedence over `deprecated_options`.
+/// when `deprecated_options` is present, a warning is logged.
+///
+/// caveat: due to default values, it's not possible to distinguish between
+/// an empty configuration and a configuration with default values.
+/// `{ "fmt": {} } is equivalent to `{ "fmt": { "options": {} } }`
+/// and it wouldn't be able to emit warning for `{ "fmt": { "options": {}, "semiColons": "false" } }`.
+///
+/// # Arguments
+///
+/// * `options` - Flat options.
+/// * `deprecated_options` - Nested files configuration ("option").
+fn choose_fmt_options(
+    options: FmtOptionsConfig,
+    deprecated_options: FmtOptionsConfig,
+) -> FmtOptionsConfig {
+    const DEPRECATED_OPTIONS: &str = "Warning: \"options\" configuration is deprecated";
+    const FLAT_OPTION: &str = "\"flat\" options";
+
+    let (options_nonempty, deprecated_options_nonempty) =
+        (!options.is_empty(), !deprecated_options.is_empty());
+
+    match (options_nonempty, deprecated_options_nonempty) {
+        (true, true) => {
+            log::warn!("{DEPRECATED_OPTIONS} and ignored by {FLAT_OPTION}.");
+            options
+        }
+        (true, false) => options,
+        (false, true) => {
+            log::warn!("{DEPRECATED_OPTIONS}. Please use {FLAT_OPTION} instead.");
+            deprecated_options
+        }
+        (false, false) => FmtOptionsConfig::default(),
+    }
+}
+
+/// `fmt` config representation for serde
+///
+/// fields from `use_tabs`..`semi_colons` are expanded from [FmtOptionsConfig].
+/// fields `include` and `exclude` are expanded from [SerializedFilesConfig].
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields, rename_all = "camelCase")]
 struct SerializedFmtConfig {
-    pub options: FmtOptionsConfig,
-    pub files: SerializedFilesConfig,
+    pub use_tabs: Option<bool>,
+    pub line_width: Option<u32>,
+    pub indent_width: Option<u8>,
+    pub single_quote: Option<bool>,
+    pub prose_wrap: Option<ProseWrap>,
+    pub semi_colons: Option<bool>,
+    #[serde(rename = "options")]
+    pub deprecated_options: FmtOptionsConfig,
+    pub include: Vec<String>,
+    pub exclude: Vec<String>,
+    #[serde(rename = "files")]
+    pub deprecated_files: SerializedFilesConfig,
 }
 
 impl SerializedFmtConfig {
@@ -401,23 +534,48 @@ impl SerializedFmtConfig {
         self,
         config_file_specifier: &ModuleSpecifier,
     ) -> Result<FmtConfig, AnyError> {
+        let (include, exclude) = (self.include, self.exclude);
+        let files = SerializedFilesConfig { include, exclude };
+        let options = FmtOptionsConfig {
+            use_tabs: self.use_tabs,
+            line_width: self.line_width,
+            indent_width: self.indent_width,
+            single_quote: self.single_quote,
+            prose_wrap: self.prose_wrap,
+            semi_colons: self.semi_colons,
+        };
+
         Ok(FmtConfig {
-            options: self.options,
-            files: self.files.into_resolved(config_file_specifier)?,
+            options: choose_fmt_options(options, self.deprecated_options),
+            files: choose_files(files, self.deprecated_files)
+                .into_resolved(config_file_specifier)?,
         })
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct FmtConfig {
     pub options: FmtOptionsConfig,
     pub files: FilesConfig,
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
+impl FmtConfig {
+    pub fn with_files(self, files: FilesConfig) -> Self {
+        let files = self.files.extend(files);
+        Self { files, ..self }
+    }
+}
+
+/// `test` config representation for serde
+///
+/// fields `include` and `exclude` are expanded from [SerializedFilesConfig].
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 struct SerializedTestConfig {
-    pub files: SerializedFilesConfig,
+    pub include: Vec<String>,
+    pub exclude: Vec<String>,
+    #[serde(rename = "files")]
+    pub deprecated_files: SerializedFilesConfig,
 }
 
 impl SerializedTestConfig {
@@ -425,21 +583,38 @@ impl SerializedTestConfig {
         self,
         config_file_specifier: &ModuleSpecifier,
     ) -> Result<TestConfig, AnyError> {
+        let (include, exclude) = (self.include, self.exclude);
+        let files = SerializedFilesConfig { include, exclude };
+
         Ok(TestConfig {
-            files: self.files.into_resolved(config_file_specifier)?,
+            files: choose_files(files, self.deprecated_files)
+                .into_resolved(config_file_specifier)?,
         })
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct TestConfig {
     pub files: FilesConfig,
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
+impl TestConfig {
+    pub fn with_files(self, files: FilesConfig) -> Self {
+        let files = self.files.extend(files);
+        Self { files }
+    }
+}
+
+/// `bench` config representation for serde
+///
+/// fields `include` and `exclude` are expanded from [SerializedFilesConfig].
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 struct SerializedBenchConfig {
-    pub files: SerializedFilesConfig,
+    pub include: Vec<String>,
+    pub exclude: Vec<String>,
+    #[serde(rename = "files")]
+    pub deprecated_files: SerializedFilesConfig,
 }
 
 impl SerializedBenchConfig {
@@ -447,18 +622,29 @@ impl SerializedBenchConfig {
         self,
         config_file_specifier: &ModuleSpecifier,
     ) -> Result<BenchConfig, AnyError> {
+        let (include, exclude) = (self.include, self.exclude);
+        let files = SerializedFilesConfig { include, exclude };
+
         Ok(BenchConfig {
-            files: self.files.into_resolved(config_file_specifier)?,
+            files: choose_files(files, self.deprecated_files)
+                .into_resolved(config_file_specifier)?,
         })
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct BenchConfig {
     pub files: FilesConfig,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+impl BenchConfig {
+    pub fn with_files(self, files: FilesConfig) -> Self {
+        let files = self.files.extend(files);
+        Self { files }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(untagged)]
 pub enum LockConfig {
     Bool(bool),
@@ -478,23 +664,100 @@ pub struct ConfigFileJson {
     pub test: Option<Value>,
     pub bench: Option<Value>,
     pub lock: Option<Value>,
+    pub exclude: Option<Value>,
+    pub node_modules_dir: Option<bool>,
+    pub deno_modules_dir: Option<bool>,
 }
 
 #[derive(Clone, Debug)]
 pub struct ConfigFile {
     pub specifier: ModuleSpecifier,
-    pub json: ConfigFileJson,
+    json: ConfigFileJson,
 }
 
 impl ConfigFile {
-    pub fn discover(_flags: &Flags, _cwd: &Path) -> Result<Option<ConfigFile>, AnyError> {
-        Ok(None)
+    pub fn discover(flags: ConfigFlag, cwd: &Path) -> Result<Option<ConfigFile>, AnyError> {
+        match flags {
+            ConfigFlag::Disabled => Ok(None),
+            ConfigFlag::Path(config_path) => {
+                let config_path = PathBuf::from(config_path);
+                let config_path = if config_path.is_absolute() {
+                    config_path
+                } else {
+                    cwd.join(config_path)
+                };
+                Ok(Some(ConfigFile::read(&config_path)?))
+            }
+            ConfigFlag::Discover => {
+                Ok(None)
+                // if let Some(config_path_args) = flags.config_path_args(cwd) {
+                //     let mut checked = HashSet::new();
+                //     for f in config_path_args {
+                //         if let Some(cf) = Self::discover_from(&f, &mut checked)? {
+                //             return Ok(Some(cf));
+                //         }
+                //     }
+                //     // From CWD walk up to root looking for deno.json or deno.jsonc
+                //     Self::discover_from(cwd, &mut checked)
+                // } else {
+                //     Ok(None)
+                // }
+            }
+        }
     }
 
     pub fn discover_from(
-        _start: &Path,
-        _checked: &mut HashSet<PathBuf>,
+        start: &Path,
+        checked: &mut HashSet<PathBuf>,
     ) -> Result<Option<ConfigFile>, AnyError> {
+        fn is_skippable_err(e: &AnyError) -> bool {
+            if let Some(ioerr) = e.downcast_ref::<std::io::Error>() {
+                use std::io::ErrorKind::*;
+                match ioerr.kind() {
+                    InvalidInput | PermissionDenied | NotFound => {
+                        // ok keep going
+                        true
+                    }
+                    _ => {
+                        const NOT_A_DIRECTORY: i32 = 20;
+                        cfg!(unix) && ioerr.raw_os_error() == Some(NOT_A_DIRECTORY)
+                    }
+                }
+            } else {
+                false
+            }
+        }
+
+        /// Filenames that Deno will recognize when discovering config.
+        const CONFIG_FILE_NAMES: [&str; 2] = ["deno.json", "deno.jsonc"];
+
+        // todo(dsherret): in the future, we should force all callers
+        // to provide a resolved path
+        let start = if start.is_absolute() {
+            Cow::Borrowed(start)
+        } else {
+            Cow::Owned(std::env::current_dir()?.join(start))
+        };
+
+        for ancestor in start.ancestors() {
+            if checked.insert(ancestor.to_path_buf()) {
+                for config_filename in CONFIG_FILE_NAMES {
+                    let f = ancestor.join(config_filename);
+                    match ConfigFile::read(&f) {
+                        Ok(cf) => {
+                            log::debug!("Config file found at '{}'", f.display());
+                            return Ok(Some(cf));
+                        }
+                        Err(e) if is_skippable_err(&e) => {
+                            // ok, keep going
+                        }
+                        Err(e) => {
+                            return Err(e);
+                        }
+                    }
+                }
+            }
+        }
         // No config file found.
         Ok(None)
     }
@@ -502,50 +765,31 @@ impl ConfigFile {
     pub fn read(config_path: &Path) -> Result<Self, AnyError> {
         debug_assert!(config_path.is_absolute());
 
-        // perf: Check if the config file exists before canonicalizing path.
-        if !config_path.exists() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                format!(
-                    "Could not find the config file: {}",
-                    config_path.to_string_lossy()
-                ),
-            )
-            .into());
-        }
-
-        let config_path = canonicalize_path(config_path).map_err(|_| {
-            std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                format!(
-                    "Could not find the config file: {}",
-                    config_path.to_string_lossy()
-                ),
-            )
-        })?;
-        let config_specifier = ModuleSpecifier::from_file_path(&config_path).map_err(|_| {
+        let specifier = ModuleSpecifier::from_file_path(config_path).map_err(|_| {
             anyhow!(
-                "Could not convert path to specifier. Path: {}",
+                "Could not convert config file path to specifier. Path: {}",
                 config_path.display()
             )
         })?;
-        Self::from_specifier(&config_specifier)
+        Self::from_specifier_and_path(specifier, config_path)
     }
 
-    pub fn from_specifier(specifier: &ModuleSpecifier) -> Result<Self, AnyError> {
-        let config_path = specifier_to_file_path(specifier)?;
-        let config_text = match std::fs::read_to_string(config_path) {
-            Ok(text) => text,
-            Err(err) => bail!(
-                "Error reading config file {}: {}",
-                specifier,
-                err.to_string()
-            ),
-        };
-        Self::new(&config_text, specifier)
+    pub fn from_specifier(specifier: ModuleSpecifier) -> Result<Self, AnyError> {
+        let config_path = specifier_to_file_path(&specifier)
+            .with_context(|| format!("Invalid config file path for '{}'.", specifier))?;
+        Self::from_specifier_and_path(specifier, &config_path)
     }
 
-    pub fn new(text: &str, specifier: &ModuleSpecifier) -> Result<Self, AnyError> {
+    fn from_specifier_and_path(
+        specifier: ModuleSpecifier,
+        config_path: &Path,
+    ) -> Result<Self, AnyError> {
+        let text = std::fs::read_to_string(config_path)
+            .with_context(|| format!("Error reading config file '{}'.", specifier))?;
+        Self::new(&text, specifier)
+    }
+
+    pub fn new(text: &str, specifier: ModuleSpecifier) -> Result<Self, AnyError> {
         let jsonc = match jsonc_parser::parse_to_serde_value(text, &Default::default()) {
             Ok(None) => json!({}),
             Ok(Some(value)) if value.is_object() => value,
@@ -565,10 +809,7 @@ impl ConfigFile {
         };
         let json: ConfigFileJson = serde_json::from_value(jsonc)?;
 
-        Ok(Self {
-            specifier: specifier.to_owned(),
-            json,
-        })
+        Ok(Self { specifier, json })
     }
 
     /// Returns true if the configuration indicates that JavaScript should be
@@ -597,6 +838,29 @@ impl ConfigFile {
         self.json.import_map.clone()
     }
 
+    pub fn node_modules_dir(&self) -> Option<bool> {
+        self.json.node_modules_dir
+    }
+
+    pub fn deno_modules_dir(&self) -> Option<bool> {
+        self.json.deno_modules_dir
+    }
+
+    pub fn deno_modules_dir_path(&self) -> Option<PathBuf> {
+        if self.json.deno_modules_dir == Some(true) {
+            Some(
+                self.specifier
+                    .to_file_path()
+                    .unwrap()
+                    .parent()
+                    .unwrap()
+                    .join("deno_modules"),
+            )
+        } else {
+            None
+        }
+    }
+
     pub fn to_import_map_value(&self) -> Value {
         let mut value = serde_json::Map::with_capacity(2);
         if let Some(imports) = &self.json.imports {
@@ -612,44 +876,106 @@ impl ConfigFile {
         self.json.imports.is_some() || self.json.scopes.is_some()
     }
 
-    pub fn to_fmt_config(&self) -> Result<Option<FmtConfig>, AnyError> {
-        if let Some(config) = self.json.fmt.clone() {
-            let fmt_config: SerializedFmtConfig =
-                serde_json::from_value(config).context("Failed to parse \"fmt\" configuration")?;
-            Ok(Some(fmt_config.into_resolved(&self.specifier)?))
+    pub fn to_files_config(&self) -> Result<Option<FilesConfig>, AnyError> {
+        let mut exclude: Vec<String> = if let Some(exclude) = self.json.exclude.clone() {
+            serde_json::from_value(exclude).context("Failed to parse \"exclude\" configuration")?
         } else {
-            Ok(None)
+            Vec::new()
+        };
+
+        if self.deno_modules_dir() == Some(true) {
+            exclude.push("deno_modules".to_string());
         }
+
+        let raw_files_config = SerializedFilesConfig {
+            exclude,
+            ..Default::default()
+        };
+        Ok(Some(raw_files_config.into_resolved(&self.specifier)?))
+    }
+
+    pub fn to_fmt_config(&self) -> Result<Option<FmtConfig>, AnyError> {
+        let files_config = self.to_files_config()?;
+        let fmt_config = match self.json.fmt.clone() {
+            Some(config) => {
+                let fmt_config: SerializedFmtConfig = serde_json::from_value(config)
+                    .context("Failed to parse \"fmt\" configuration")?;
+                Some(fmt_config.into_resolved(&self.specifier)?)
+            }
+            None => None,
+        };
+
+        if files_config.is_none() && fmt_config.is_none() {
+            return Ok(None);
+        }
+
+        let fmt_config = fmt_config.unwrap_or_default();
+        let files_config = files_config.unwrap_or_default();
+
+        Ok(Some(fmt_config.with_files(files_config)))
     }
 
     pub fn to_lint_config(&self) -> Result<Option<LintConfig>, AnyError> {
-        if let Some(config) = self.json.lint.clone() {
-            let lint_config: SerializedLintConfig =
-                serde_json::from_value(config).context("Failed to parse \"lint\" configuration")?;
-            Ok(Some(lint_config.into_resolved(&self.specifier)?))
-        } else {
-            Ok(None)
+        let files_config = self.to_files_config()?;
+        let lint_config = match self.json.lint.clone() {
+            Some(config) => {
+                let lint_config: SerializedLintConfig = serde_json::from_value(config)
+                    .context("Failed to parse \"lint\" configuration")?;
+                Some(lint_config.into_resolved(&self.specifier)?)
+            }
+            None => None,
+        };
+
+        if files_config.is_none() && lint_config.is_none() {
+            return Ok(None);
         }
+
+        let lint_config = lint_config.unwrap_or_default();
+        let files_config = files_config.unwrap_or_default();
+
+        Ok(Some(lint_config.with_files(files_config)))
     }
 
     pub fn to_test_config(&self) -> Result<Option<TestConfig>, AnyError> {
-        if let Some(config) = self.json.test.clone() {
-            let test_config: SerializedTestConfig =
-                serde_json::from_value(config).context("Failed to parse \"test\" configuration")?;
-            Ok(Some(test_config.into_resolved(&self.specifier)?))
-        } else {
-            Ok(None)
+        let files_config = self.to_files_config()?;
+        let test_config = match self.json.test.clone() {
+            Some(config) => {
+                let test_config: SerializedTestConfig = serde_json::from_value(config)
+                    .context("Failed to parse \"test\" configuration")?;
+                Some(test_config.into_resolved(&self.specifier)?)
+            }
+            None => None,
+        };
+
+        if files_config.is_none() && test_config.is_none() {
+            return Ok(None);
         }
+
+        let test_config = test_config.unwrap_or_default();
+        let files_config = files_config.unwrap_or_default();
+
+        Ok(Some(test_config.with_files(files_config)))
     }
 
     pub fn to_bench_config(&self) -> Result<Option<BenchConfig>, AnyError> {
-        if let Some(config) = self.json.bench.clone() {
-            let bench_config: SerializedBenchConfig = serde_json::from_value(config)
-                .context("Failed to parse \"bench\" configuration")?;
-            Ok(Some(bench_config.into_resolved(&self.specifier)?))
-        } else {
-            Ok(None)
+        let files_config = self.to_files_config()?;
+        let bench_config = match self.json.bench.clone() {
+            Some(config) => {
+                let bench_config: SerializedBenchConfig = serde_json::from_value(config)
+                    .context("Failed to parse \"bench\" configuration")?;
+                Some(bench_config.into_resolved(&self.specifier)?)
+            }
+            None => None,
+        };
+
+        if files_config.is_none() && bench_config.is_none() {
+            return Ok(None);
         }
+
+        let bench_config = bench_config.unwrap_or_default();
+        let files_config = files_config.unwrap_or_default();
+
+        Ok(Some(bench_config.with_files(files_config)))
     }
 
     /// Return any tasks that are defined in the configuration file as a sequence
@@ -705,19 +1031,39 @@ impl ConfigFile {
 
     /// Based on the compiler options in the configuration file, return the
     /// JSX import source configuration.
-    pub fn to_maybe_jsx_import_source_config(&self) -> Option<JsxImportSourceConfig> {
-        let compiler_options_value = self.json.compiler_options.as_ref()?;
-        let compiler_options: CompilerOptions =
-            serde_json::from_value(compiler_options_value.clone()).ok()?;
+    pub fn to_maybe_jsx_import_source_config(
+        &self,
+    ) -> Result<Option<JsxImportSourceConfig>, AnyError> {
+        let Some(compiler_options_value) = self.json.compiler_options.as_ref() else {
+      return Ok(None);
+    };
+        let Some(compiler_options) =
+      serde_json::from_value::<CompilerOptions>(compiler_options_value.clone()).ok() else {
+        return Ok(None);
+      };
         let module = match compiler_options.jsx.as_deref() {
-            Some("react-jsx") => Some("jsx-runtime".to_string()),
-            Some("react-jsxdev") => Some("jsx-dev-runtime".to_string()),
-            _ => None,
-        };
-        module.map(|module| JsxImportSourceConfig {
+      Some("react-jsx") => "jsx-runtime".to_string(),
+      Some("react-jsxdev") => "jsx-dev-runtime".to_string(),
+      Some("react") | None => {
+        if compiler_options.jsx_import_source.is_some() {
+          bail!(
+            "'jsxImportSource' is only supported when 'jsx' is set to 'react-jsx' or 'react-jsxdev'.\n  at {}",
+            self.specifier,
+          );
+        }
+        return Ok(None);
+      }
+      Some(setting) => bail!(
+        "Unsupported 'jsx' compiler option value '{}'. Supported: 'react-jsx', 'react-jsxdev', 'react'\n  at {}",
+        setting,
+        self.specifier,
+      ),
+    };
+        Ok(Some(JsxImportSourceConfig {
             default_specifier: compiler_options.jsx_import_source,
             module,
-        })
+            base_url: self.specifier.clone(),
+        }))
     }
 
     pub fn resolve_tasks_config(&self) -> Result<IndexMap<String, String>, AnyError> {
@@ -745,6 +1091,25 @@ impl ConfigFile {
             Ok(Some(lock_config))
         } else {
             Ok(None)
+        }
+    }
+
+    pub fn resolve_lockfile_path(&self) -> Result<Option<PathBuf>, AnyError> {
+        match self.to_lock_config()? {
+            Some(LockConfig::Bool(lock)) if !lock => Ok(None),
+            Some(LockConfig::PathBuf(lock)) => Ok(Some(
+                self.specifier
+                    .to_file_path()
+                    .unwrap()
+                    .parent()
+                    .unwrap()
+                    .join(lock),
+            )),
+            _ => {
+                let mut path = self.specifier.to_file_path().unwrap();
+                path.set_file_name("deno.lock");
+                Ok(Some(path))
+            }
         }
     }
 }

@@ -16,7 +16,7 @@ const {
   ArrayPrototypeSplice,
   ObjectGetOwnPropertyDescriptor,
   ObjectGetPrototypeOf,
-  ObjectPrototypeHasOwnProperty,
+  ObjectHasOwn,
   ObjectSetPrototypeOf,
   ObjectKeys,
   ObjectEntries,
@@ -40,7 +40,8 @@ const {
   Error,
   TypeError,
 } = primordials;
-import { nodeGlobalThis } from "ext:deno_node/00_globals.js";
+import { nodeGlobals } from "ext:deno_node/00_globals.js";
+
 import _httpAgent from "ext:deno_node/_http_agent.mjs";
 import _httpOutgoing from "ext:deno_node/_http_outgoing.ts";
 import _streamDuplex from "ext:deno_node/internal/streams/duplex.mjs";
@@ -48,26 +49,26 @@ import _streamPassthrough from "ext:deno_node/internal/streams/passthrough.mjs";
 import _streamReadable from "ext:deno_node/internal/streams/readable.mjs";
 import _streamTransform from "ext:deno_node/internal/streams/transform.mjs";
 import _streamWritable from "ext:deno_node/internal/streams/writable.mjs";
-import assert from "ext:deno_node/assert.ts";
-import assertStrict from "ext:deno_node/assert/strict.ts";
-import asyncHooks from "ext:deno_node/async_hooks.ts";
-import buffer from "ext:deno_node/buffer.ts";
-import childProcess from "ext:deno_node/child_process.ts";
-import cluster from "ext:deno_node/cluster.ts";
-import console from "ext:deno_node/console.ts";
-import constants from "ext:deno_node/constants.ts";
-import crypto from "ext:deno_node/crypto.ts";
-import dgram from "ext:deno_node/dgram.ts";
-import diagnosticsChannel from "ext:deno_node/diagnostics_channel.ts";
-import dns from "ext:deno_node/dns.ts";
-import dnsPromises from "ext:deno_node/dns/promises.ts";
-import domain from "ext:deno_node/domain.ts";
-import events from "ext:deno_node/events.ts";
-import fs from "ext:deno_node/fs.ts";
-import fsPromises from "ext:deno_node/fs/promises.ts";
-import http from "ext:deno_node/http.ts";
-import http2 from "ext:deno_node/http2.ts";
-import https from "ext:deno_node/https.ts";
+import assert from "node:assert";
+import assertStrict from "node:assert/strict";
+import asyncHooks from "node:async_hooks";
+import buffer from "node:buffer";
+import childProcess from "node:child_process";
+import cluster from "node:cluster";
+import console from "node:console";
+import constants from "node:constants";
+import crypto from "node:crypto";
+import dgram from "node:dgram";
+import diagnosticsChannel from "node:diagnostics_channel";
+import dns from "node:dns";
+import dnsPromises from "node:dns/promises";
+import domain from "node:domain";
+import events from "node:events";
+import fs from "node:fs";
+import fsPromises from "node:fs/promises";
+import http from "node:http";
+import http2 from "node:http2";
+import https from "node:https";
 import inspector from "ext:deno_node/inspector.ts";
 import internalCp from "ext:deno_node/internal/child_process.ts";
 import internalCryptoCertificate from "ext:deno_node/internal/crypto/certificate.ts";
@@ -98,40 +99,42 @@ import internalTestBinding from "ext:deno_node/internal/test/binding.ts";
 import internalTimers from "ext:deno_node/internal/timers.mjs";
 import internalUtil from "ext:deno_node/internal/util.mjs";
 import internalUtilInspect from "ext:deno_node/internal/util/inspect.mjs";
-import net from "ext:deno_node/net.ts";
-import os from "ext:deno_node/os.ts";
-import pathPosix from "ext:deno_node/path/posix.ts";
-import pathWin32 from "ext:deno_node/path/win32.ts";
-import path from "ext:deno_node/path.ts";
-import perfHooks from "ext:deno_node/perf_hooks.ts";
-import punycode from "ext:deno_node/punycode.ts";
-import process from "ext:deno_node/process.ts";
-import querystring from "ext:deno_node/querystring.ts";
-import readline from "ext:deno_node/readline.ts";
+import net from "node:net";
+import os from "node:os";
+import pathPosix from "node:path/posix";
+import pathWin32 from "node:path/win32";
+import path from "node:path";
+import perfHooks from "node:perf_hooks";
+import punycode from "node:punycode";
+import process from "node:process";
+import querystring from "node:querystring";
+import readline from "node:readline";
 import readlinePromises from "ext:deno_node/readline/promises.ts";
 import repl from "ext:deno_node/repl.ts";
-import stream from "ext:deno_node/stream.ts";
-import streamConsumers from "ext:deno_node/stream/consumers.mjs";
-import streamPromises from "ext:deno_node/stream/promises.mjs";
-import streamWeb from "ext:deno_node/stream/web.ts";
-import stringDecoder from "ext:deno_node/string_decoder.ts";
-import sys from "ext:deno_node/sys.ts";
-import timers from "ext:deno_node/timers.ts";
-import timersPromises from "ext:deno_node/timers/promises.ts";
-import tls from "ext:deno_node/tls.ts";
-import tty from "ext:deno_node/tty.ts";
-import url from "ext:deno_node/url.ts";
-import utilTypes from "ext:deno_node/util/types.ts";
-import util from "ext:deno_node/util.ts";
-import v8 from "ext:deno_node/v8.ts";
-import vm from "ext:deno_node/vm.ts";
-import workerThreads from "ext:deno_node/worker_threads.ts";
+import stream from "node:stream";
+import streamConsumers from "node:stream/consumers";
+import streamPromises from "node:stream/promises";
+import streamWeb from "node:stream/web";
+import stringDecoder from "node:string_decoder";
+import sys from "node:sys";
+import test from "node:test";
+import timers from "node:timers";
+import timersPromises from "node:timers/promises";
+import tls from "node:tls";
+import tty from "node:tty";
+import url from "node:url";
+import utilTypes from "node:util/types";
+import util from "node:util";
+import v8 from "node:v8";
+import vm from "node:vm";
+import workerThreads from "node:worker_threads";
 import wasi from "ext:deno_node/wasi.ts";
-import zlib from "ext:deno_node/zlib.ts";
+import zlib from "node:zlib";
 
 const nativeModuleExports = ObjectCreate(null);
 const builtinModules = [];
 
+// NOTE(bartlomieju): keep this list in sync with `ext/node/polyfill.rs`
 function setupBuiltinModules() {
   const nodeModules = {
     "_http_agent": _httpAgent,
@@ -200,10 +203,10 @@ function setupBuiltinModules() {
     process,
     get punycode() {
       process.emitWarning(
-          "The `punycode` module is deprecated. Please use a userland " +
+        "The `punycode` module is deprecated. Please use a userland " +
           "alternative instead.",
-          "DeprecationWarning",
-          "DEP0040",
+        "DeprecationWarning",
+        "DEP0040",
       );
       return punycode;
     },
@@ -217,6 +220,7 @@ function setupBuiltinModules() {
     "stream/web": streamWeb,
     string_decoder: stringDecoder,
     sys,
+    test,
     timers,
     "timers/promises": timersPromises,
     tls,
@@ -301,51 +305,51 @@ function tryFile(requestPath, _isMain) {
 
 function tryPackage(requestPath, exts, isMain, originalPath) {
   const packageJsonPath = pathResolve(
-      requestPath,
-      "package.json",
+    requestPath,
+    "package.json",
   );
   const pkg = ops.op_require_read_package_scope(packageJsonPath)?.main;
   if (!pkg) {
     return tryExtensions(
-        pathResolve(requestPath, "index"),
-        exts,
-        isMain,
+      pathResolve(requestPath, "index"),
+      exts,
+      isMain,
     );
   }
 
   const filename = pathResolve(requestPath, pkg);
   let actual = tryFile(filename, isMain) ||
-      tryExtensions(filename, exts, isMain) ||
-      tryExtensions(
-          pathResolve(filename, "index"),
-          exts,
-          isMain,
-      );
+    tryExtensions(filename, exts, isMain) ||
+    tryExtensions(
+      pathResolve(filename, "index"),
+      exts,
+      isMain,
+    );
   if (actual === false) {
     actual = tryExtensions(
-        pathResolve(requestPath, "index"),
-        exts,
-        isMain,
+      pathResolve(requestPath, "index"),
+      exts,
+      isMain,
     );
     if (!actual) {
       // eslint-disable-next-line no-restricted-syntax
       const err = new Error(
-          `Cannot find module '${filename}'. ` +
+        `Cannot find module '${filename}'. ` +
           'Please verify that the package.json has a valid "main" entry',
       );
       err.code = "MODULE_NOT_FOUND";
       err.path = pathResolve(
-          requestPath,
-          "package.json",
+        requestPath,
+        "package.json",
       );
       err.requestPath = originalPath;
       throw err;
     } else {
-      nodeGlobalThis.process.emitWarning(
-          `Invalid 'main' field in '${packageJsonPath}' of '${pkg}'. ` +
+      process.emitWarning(
+        `Invalid 'main' field in '${packageJsonPath}' of '${pkg}'. ` +
           "Please either fix that or report it to the module author",
-          "DeprecationWarning",
-          "DEP0128",
+        "DeprecationWarning",
+        "DEP0128",
       );
     }
   }
@@ -394,18 +398,18 @@ function findLongestRegisteredExtension(filename) {
 
 function getExportsForCircularRequire(module) {
   if (
-      module.exports &&
-      ObjectGetPrototypeOf(module.exports) === ObjectPrototype &&
-      // Exclude transpiled ES6 modules / TypeScript code because those may
-      // employ unusual patterns for accessing 'module.exports'. That should
-      // be okay because ES6 modules have a different approach to circular
-      // dependencies anyway.
-      !module.exports.__esModule
+    module.exports &&
+    ObjectGetPrototypeOf(module.exports) === ObjectPrototype &&
+    // Exclude transpiled ES6 modules / TypeScript code because those may
+    // employ unusual patterns for accessing 'module.exports'. That should
+    // be okay because ES6 modules have a different approach to circular
+    // dependencies anyway.
+    !module.exports.__esModule
   ) {
     // This is later unset once the module is done loading.
     ObjectSetPrototypeOf(
-        module.exports,
-        CircularRequirePrototypeWarningProxy,
+      module.exports,
+      CircularRequirePrototypeWarningProxy,
     );
   }
 
@@ -413,8 +417,8 @@ function getExportsForCircularRequire(module) {
 }
 
 function emitCircularRequireWarning(prop) {
-  nodeGlobalThis.process.emitWarning(
-      `Accessing non-existent property '${String(prop)}' of module exports ` +
+  process.emitWarning(
+    `Accessing non-existent property '${String(prop)}' of module exports ` +
       "inside circular dependency",
   );
 }
@@ -433,7 +437,7 @@ const CircularRequirePrototypeWarningProxy = new Proxy({}, {
 
   getOwnPropertyDescriptor(target, prop) {
     if (
-        ObjectPrototypeHasOwnProperty(target, prop) || prop === "__esModule"
+      ObjectHasOwn(target, prop) || prop === "__esModule"
     ) {
       return ObjectGetOwnPropertyDescriptor(target, prop);
     }
@@ -467,15 +471,15 @@ const TRAILING_SLASH_REGEX = /(?:^|\/)\.?\.$/;
 const encodedSepRegEx = /%2F|%2C/i;
 
 function finalizeEsmResolution(
-    resolved,
-    parentPath,
-    pkgPath,
+  resolved,
+  parentPath,
+  pkgPath,
 ) {
   if (RegExpPrototypeTest(encodedSepRegEx, resolved)) {
     throw new ERR_INVALID_MODULE_SPECIFIER(
-        resolved,
-        'must not include encoded "/" or "\\" characters',
-        parentPath,
+      resolved,
+      'must not include encoded "/" or "\\" characters',
+      parentPath,
     );
   }
   // const filename = fileURLToPath(resolved);
@@ -485,8 +489,8 @@ function finalizeEsmResolution(
     return actual;
   }
   throw new ERR_MODULE_NOT_FOUND(
-      filename,
-      path.resolve(pkgPath, "package.json"),
+    filename,
+    path.resolve(pkgPath, "package.json"),
   );
 }
 
@@ -495,25 +499,29 @@ function finalizeEsmResolution(
 // 2. @scope/name/.*
 const EXPORTS_PATTERN = /^((?:@[^/\\%]+\/)?[^./\\%][^/\\%]*)(\/.*)?$/;
 function resolveExports(
-    modulesPath,
-    request,
-    parentPath,
-    usesLocalNodeModulesDir,
+  modulesPath,
+  request,
+  parentPath,
+  usesLocalNodeModulesDir,
 ) {
   // The implementation's behavior is meant to mirror resolution in ESM.
   const [, name, expansion = ""] =
-  StringPrototypeMatch(request, EXPORTS_PATTERN) || [];
+    StringPrototypeMatch(request, EXPORTS_PATTERN) || [];
   if (!name) {
     return;
   }
 
+  if (!parentPath) {
+    return false;
+  }
+
   return ops.op_require_resolve_exports(
-      usesLocalNodeModulesDir,
-      modulesPath,
-      request,
-      name,
-      expansion,
-      parentPath,
+    usesLocalNodeModulesDir,
+    modulesPath,
+    request,
+    name,
+    expansion,
+    parentPath,
   ) ?? false;
 }
 
@@ -533,7 +541,7 @@ Module._findPath = function (request, paths, isMain, parentPath) {
 
   let exts;
   let trailingSlash = request.length > 0 &&
-      StringPrototypeCharCodeAt(request, request.length - 1) ===
+    StringPrototypeCharCodeAt(request, request.length - 1) ===
       CHAR_FORWARD_SLASH;
   if (!trailingSlash) {
     trailingSlash = RegExpPrototypeTest(TRAILING_SLASH_REGEX, request);
@@ -547,25 +555,31 @@ Module._findPath = function (request, paths, isMain, parentPath) {
 
     if (!absoluteRequest) {
       const exportsResolved = resolveExports(
-          curPath,
-          request,
-          parentPath,
-          usesLocalNodeModulesDir,
+        curPath,
+        request,
+        parentPath,
+        usesLocalNodeModulesDir,
       );
       if (exportsResolved) {
         return exportsResolved;
       }
     }
 
-    const isDenoDirPackage = ops.op_require_is_deno_dir_package(
+    let basePath;
+
+    if (usesLocalNodeModulesDir) {
+      basePath = pathResolve(curPath, request);
+    } else {
+      const isDenoDirPackage = ops.op_require_is_deno_dir_package(
         curPath,
-    );
-    const isRelative = ops.op_require_is_request_relative(
+      );
+      const isRelative = ops.op_require_is_request_relative(
         request,
-    );
-    const basePath = (isDenoDirPackage && !isRelative)
+      );
+      basePath = (isDenoDirPackage && !isRelative)
         ? pathResolve(curPath, packageSpecifierSubPath(request))
         : pathResolve(curPath, request);
+    }
     let filename;
 
     const rc = stat(basePath);
@@ -600,6 +614,11 @@ Module._findPath = function (request, paths, isMain, parentPath) {
   return false;
 };
 
+/**
+ * Get a list of potential module directories
+ * @param {string} fromPath The directory name of the module
+ * @returns {string[]} List of module directories
+ */
 Module._nodeModulePaths = function (fromPath) {
   return ops.op_require_node_module_paths(fromPath);
 };
@@ -609,25 +628,27 @@ Module._resolveLookupPaths = function (request, parent) {
 
   if (ops.op_require_is_request_relative(request)) {
     ArrayPrototypePush(
-        paths,
-        parent?.filename ? ops.op_require_path_dirname(parent.filename) : ".",
+      paths,
+      parent?.filename ? ops.op_require_path_dirname(parent.filename) : ".",
     );
     return paths;
   }
 
-  if (parent?.filename && parent.filename.length > 0) {
+  if (
+    !usesLocalNodeModulesDir && parent?.filename && parent.filename.length > 0
+  ) {
     const denoDirPath = ops.op_require_resolve_deno_dir(
-        request,
-        parent.filename,
+      request,
+      parent.filename,
     );
     if (denoDirPath) {
       ArrayPrototypePush(paths, denoDirPath);
     }
   }
   const lookupPathsResult = ops.op_require_resolve_lookup_paths(
-      request,
-      parent?.paths,
-      parent?.filename ?? "",
+    request,
+    parent?.paths,
+    parent?.filename ?? "",
   );
   if (lookupPathsResult) {
     ArrayPrototypePush(paths, ...new SafeArrayIterator(lookupPathsResult));
@@ -682,7 +703,7 @@ Module._load = function (request, parent, isMain) {
 
   const mod = loadNativeModule(filename, request);
   if (
-      mod
+    mod
   ) {
     return mod.exports;
   }
@@ -690,7 +711,7 @@ Module._load = function (request, parent, isMain) {
   const module = cachedModule || new Module(filename, parent);
 
   if (isMain) {
-    nodeGlobalThis.process.mainModule = module;
+    process.mainModule = module;
     mainModule = module;
     module.id = ".";
   }
@@ -718,8 +739,8 @@ Module._load = function (request, parent, isMain) {
         }
       }
     } else if (
-        module.exports &&
-        ObjectGetPrototypeOf(module.exports) ===
+      module.exports &&
+      ObjectGetPrototypeOf(module.exports) ===
         CircularRequirePrototypeWarningProxy
     ) {
       ObjectSetPrototypeOf(module.exports, ObjectPrototype);
@@ -730,14 +751,14 @@ Module._load = function (request, parent, isMain) {
 };
 
 Module._resolveFilename = function (
-    request,
-    parent,
-    isMain,
-    options,
+  request,
+  parent,
+  isMain,
+  options,
 ) {
   if (
-      StringPrototypeStartsWith(request, "node:") ||
-      nativeModuleCanBeRequiredByUsers(request)
+    StringPrototypeStartsWith(request, "node:") ||
+    nativeModuleCanBeRequiredByUsers(request)
   ) {
     return request;
   }
@@ -747,7 +768,7 @@ Module._resolveFilename = function (
   if (typeof options === "object" && options !== null) {
     if (ArrayIsArray(options.paths)) {
       const isRelative = ops.op_require_is_request_relative(
-          request,
+        request,
       );
 
       if (isRelative) {
@@ -782,8 +803,8 @@ Module._resolveFilename = function (
   if (parent?.filename) {
     if (request[0] === "#") {
       const maybeResolved = ops.op_require_package_imports_resolve(
-          parent.filename,
-          request,
+        parent.filename,
+        request,
       );
       if (maybeResolved) {
         return maybeResolved;
@@ -793,24 +814,24 @@ Module._resolveFilename = function (
 
   // Try module self resolution first
   const parentPath = ops.op_require_try_self_parent_path(
-      !!parent,
-      parent?.filename,
-      parent?.id,
+    !!parent,
+    parent?.filename,
+    parent?.id,
   );
   const selfResolved = ops.op_require_try_self(parentPath, request);
   if (selfResolved) {
     const cacheKey = request + "\x00" +
-        (paths.length === 1 ? paths[0] : ArrayPrototypeJoin(paths, "\x00"));
+      (paths.length === 1 ? paths[0] : ArrayPrototypeJoin(paths, "\x00"));
     Module._pathCache[cacheKey] = selfResolved;
     return selfResolved;
   }
 
   // Look up the filename first, since that's the cache key.
   const filename = Module._findPath(
-      request,
-      paths,
-      isMain,
-      parentPath,
+    request,
+    paths,
+    isMain,
+    parentPath,
   );
   if (filename) return filename;
   const requireStack = [];
@@ -820,7 +841,7 @@ Module._resolveFilename = function (
   let message = `Cannot find module '${request}'`;
   if (requireStack.length > 0) {
     message = message + "\nRequire stack:\n- " +
-        ArrayPrototypeJoin(requireStack, "\n- ");
+      ArrayPrototypeJoin(requireStack, "\n- ");
   }
   // eslint-disable-next-line no-restricted-syntax
   const err = new Error(message);
@@ -853,17 +874,21 @@ Module.prototype.load = function (filename) {
     throw Error("Module already loaded");
   }
 
-  this.filename = filename;
+  // Canonicalize the path so it's not pointing to the symlinked directory
+  // in `node_modules` directory of the referrer.
+  this.filename = ops.op_require_real_path(filename);
   this.paths = Module._nodeModulePaths(
-      pathDirname(filename),
+    pathDirname(this.filename),
   );
   const extension = findLongestRegisteredExtension(filename);
-  // allow .mjs to be overriden
+  // allow .mjs to be overridden
   if (
-      StringPrototypeEndsWith(filename, ".mjs") && !Module._extensions[".mjs"]
+    StringPrototypeEndsWith(filename, ".mjs") && !Module._extensions[".mjs"]
   ) {
-    // TODO: use proper error class
-    throw new Error("require ESM", filename);
+    throw createRequireEsmError(
+      filename,
+      moduleParentCache.get(this)?.filename,
+    );
   }
 
   Module._extensions[extension](this, filename);
@@ -894,46 +919,59 @@ Module.prototype.require = function (id) {
   }
 };
 
+// The module wrapper looks slightly different to Node. Instead of using one
+// wrapper function, we use two. The first one exists to performance optimize
+// access to magic node globals, like `Buffer` or `process`. The second one
+// is the actual wrapper function we run the users code in.
+// The only observable difference is that in Deno `arguments.callee` is not
+// null.
 Module.wrapper = [
-  // We provide the non-standard APIs in the CommonJS wrapper
-  // to avoid exposing them in global namespace.
-  "(function (exports, require, module, __filename, __dirname, globalThis) { const { Buffer, clearImmediate, clearInterval, clearTimeout, console, global, process, setImmediate, setInterval, setTimeout} = globalThis; var window = undefined; (function () {",
-  "\n}).call(this); })",
+  "(function (exports, require, module, __filename, __dirname, Buffer, clearImmediate, clearInterval, clearTimeout, console, global, process, setImmediate, setInterval, setTimeout, performance) { (function (exports, require, module, __filename, __dirname) {",
+  "\n}).call(this, exports, require, module, __filename, __dirname); })",
 ];
 Module.wrap = function (script) {
   script = script.replace(/^#!.*?\n/, "");
   return `${Module.wrapper[0]}${script}${Module.wrapper[1]}`;
 };
 
+function isEsmSyntaxError(error) {
+  return error instanceof SyntaxError && (
+    StringPrototypeIncludes(
+      error.message,
+      "Cannot use import statement outside a module",
+    ) ||
+    StringPrototypeIncludes(error.message, "Unexpected token 'export'")
+  );
+}
+
 function enrichCJSError(error) {
-  if (error instanceof SyntaxError) {
-    if (
-        StringPrototypeIncludes(
-            error.message,
-            "Cannot use import statement outside a module",
-        ) ||
-        StringPrototypeIncludes(error.message, "Unexpected token 'export'")
-    ) {
-      console.error(
-          'To load an ES module, set "type": "module" in the package.json or use ' +
-          "the .mjs extension.",
-      );
-    }
+  if (isEsmSyntaxError(error)) {
+    console.error(
+      'To load an ES module, set "type": "module" in the package.json or use ' +
+        "the .mjs extension.",
+    );
   }
 }
 
 function wrapSafe(
-    filename,
-    content,
-    cjsModuleInstance,
+  filename,
+  content,
+  cjsModuleInstance,
 ) {
   const wrapper = Module.wrap(content);
   const [f, err] = core.evalContext(wrapper, `file://${filename}`);
   if (err) {
-    if (nodeGlobalThis.process.mainModule === cjsModuleInstance) {
+    if (process.mainModule === cjsModuleInstance) {
       enrichCJSError(err.thrown);
     }
-    throw err.thrown;
+    if (isEsmSyntaxError(err.thrown)) {
+      throw createRequireEsmError(
+        filename,
+        moduleParentCache.get(cjsModuleInstance)?.filename,
+      );
+    } else {
+      throw err.thrown;
+    }
   }
   return f;
 }
@@ -945,7 +983,6 @@ Module.prototype._compile = function (content, filename) {
   const require = makeRequireFunction(this);
   const exports = this.exports;
   const thisValue = exports;
-  const module = this;
   if (requireDepth === 0) {
     statCache = new SafeMap();
   }
@@ -955,14 +992,38 @@ Module.prototype._compile = function (content, filename) {
     ops.op_require_break_on_next_statement();
   }
 
+  const {
+    Buffer,
+    clearImmediate,
+    clearInterval,
+    clearTimeout,
+    console,
+    global,
+    process,
+    setImmediate,
+    setInterval,
+    setTimeout,
+    performance,
+  } = nodeGlobals;
+
   const result = compiledWrapper.call(
-      thisValue,
-      exports,
-      require,
-      this,
-      filename,
-      dirname,
-      nodeGlobalThis,
+    thisValue,
+    exports,
+    require,
+    this,
+    filename,
+    dirname,
+    Buffer,
+    clearImmediate,
+    clearInterval,
+    clearTimeout,
+    console,
+    global,
+    process,
+    setImmediate,
+    setInterval,
+    setTimeout,
+    performance,
   );
   if (requireDepth === 0) {
     statCache = null;
@@ -974,22 +1035,31 @@ Module._extensions[".js"] = function (module, filename) {
   const content = ops.op_require_read_file(filename);
 
   if (StringPrototypeEndsWith(filename, ".js")) {
-    const pkg = ops.op_require_read_package_scope(filename);
-    if (pkg && pkg.exists && pkg.typ == "module") {
-      let message = `Trying to import ESM module: ${filename}`;
-
-      if (module.parent) {
-        message += ` from ${module.parent.filename}`;
-      }
-
-      message += ` using require()`;
-
-      throw new Error(message);
+    const pkg = ops.op_require_read_closest_package_json(filename);
+    if (pkg && pkg.exists && pkg.typ === "module") {
+      throw createRequireEsmError(
+        filename,
+        moduleParentCache.get(module)?.filename,
+      );
     }
   }
 
   module._compile(content, filename);
 };
+
+function createRequireEsmError(filename, parent) {
+  let message = `require() of ES Module ${filename}`;
+
+  if (parent) {
+    message += ` from ${parent}`;
+  }
+
+  message +=
+    ` not supported. Instead change the require to a dynamic import() which is available in all CommonJS modules.`;
+  const err = new Error(message);
+  err.code = "ERR_REQUIRE_ESM";
+  return err;
+}
 
 function stripBOM(content) {
   if (StringPrototypeCharCodeAt(content, 0) === 0xfeff) {
@@ -1015,7 +1085,7 @@ Module._extensions[".node"] = function (module, filename) {
   if (filename.endsWith("fsevents.node")) {
     throw new Error("Using fsevents module is currently not supported");
   }
-  module.exports = ops.op_napi_open(filename, nodeGlobalThis);
+  module.exports = ops.op_napi_open(filename, globalThis);
 };
 
 function createRequireFromPath(filename) {
@@ -1066,20 +1136,20 @@ function createRequire(filenameOrUrl) {
   if (filenameOrUrl instanceof URL) {
     if (filenameOrUrl.protocol !== "file:") {
       throw new Error(
-          `The argument 'filename' must be a file URL object, file URL string, or absolute path string. Received ${filenameOrUrl}`,
+        `The argument 'filename' must be a file URL object, file URL string, or absolute path string. Received ${filenameOrUrl}`,
       );
     }
     fileUrlStr = filenameOrUrl.toString();
   } else if (typeof filenameOrUrl === "string") {
     if (!filenameOrUrl.startsWith("file:") && !isAbsolute(filenameOrUrl)) {
       throw new Error(
-          `The argument 'filename' must be a file URL object, file URL string, or absolute path string. Received ${filenameOrUrl}`,
+        `The argument 'filename' must be a file URL object, file URL string, or absolute path string. Received ${filenameOrUrl}`,
       );
     }
     fileUrlStr = filenameOrUrl;
   } else {
     throw new Error(
-        `The argument 'filename' must be a file URL object, file URL string, or absolute path string. Received ${filenameOrUrl}`,
+      `The argument 'filename' must be a file URL object, file URL string, or absolute path string. Received ${filenameOrUrl}`,
     );
   }
   const filename = ops.op_require_as_file_path(fileUrlStr);
@@ -1096,6 +1166,11 @@ Module._initPaths = function () {
 
 Module.syncBuiltinESMExports = function syncBuiltinESMExports() {
   throw new Error("not implemented");
+};
+
+// Mostly used by tools like ts-node.
+Module.runMain = function () {
+  Module._load(process.argv[1], null, true);
 };
 
 Module.Module = Module;

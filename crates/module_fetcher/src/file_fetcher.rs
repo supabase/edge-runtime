@@ -1,5 +1,6 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
+pub use crate::args::CacheSetting;
 use crate::auth_tokens::AuthToken;
 use crate::auth_tokens::AuthTokens;
 use crate::cache::HttpCache;
@@ -11,7 +12,6 @@ use crate::http_util::HttpClient;
 use crate::permissions::Permissions;
 use crate::util::text_encoding;
 
-pub use crate::util::cache_setting::CacheSetting;
 use data_url::DataUrl;
 use deno_ast::MediaType;
 use deno_core::error::custom_error;
@@ -34,7 +34,6 @@ use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::future::Future;
-use std::io::Read;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -45,10 +44,6 @@ pub const SUPPORTED_SCHEMES: [&str; 5] = ["data", "blob", "file", "http", "https
 /// A structure representing a source file.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct File {
-    /// The path to the local version of the source file.  For local files this
-    /// will be the direct path to that file.  For remote files, it will be the
-    /// path to the file in the HTTP cache.
-    pub local: PathBuf,
     /// For remote files, if there was an `X-TypeScript-Type` header, the parsed
     /// out value of that header.
     pub maybe_types: Option<String>,
@@ -85,13 +80,12 @@ fn fetch_local(specifier: &ModuleSpecifier) -> Result<File, AnyError> {
     let local = specifier
         .to_file_path()
         .map_err(|_| uri_error(format!("Invalid file path.\n  Specifier: {specifier}")))?;
-    let bytes = fs::read(&local)?;
+    let bytes = fs::read(local)?;
     let charset = text_encoding::detect_charset(&bytes).to_string();
     let source = get_source_from_bytes(bytes, Some(charset))?;
     let media_type = MediaType::from_specifier(specifier);
 
     Ok(File {
-        local,
         maybe_types: None,
         media_type,
         source: source.into(),
@@ -167,19 +161,19 @@ pub struct FileFetcher {
     allow_remote: bool,
     cache: FileCache,
     cache_setting: CacheSetting,
-    pub http_cache: HttpCache,
-    http_client: HttpClient,
-    blob_store: BlobStore,
+    http_cache: Arc<dyn HttpCache>,
+    http_client: Arc<HttpClient>,
+    blob_store: Arc<BlobStore>,
     download_log_level: log::Level,
 }
 
 impl FileFetcher {
     pub fn new(
-        http_cache: HttpCache,
+        http_cache: Arc<dyn HttpCache>,
         cache_setting: CacheSetting,
         allow_remote: bool,
-        http_client: HttpClient,
-        blob_store: BlobStore,
+        http_client: Arc<HttpClient>,
+        blob_store: Arc<BlobStore>,
     ) -> Self {
         Self {
             auth_tokens: AuthTokens::new(env::var("DENO_AUTH_TOKENS").ok()),
@@ -205,10 +199,6 @@ impl FileFetcher {
         bytes: Vec<u8>,
         headers: &HashMap<String, String>,
     ) -> Result<File, AnyError> {
-        let local = self
-            .http_cache
-            .get_cache_filename(specifier)
-            .ok_or_else(|| generic_error("Cannot convert specifier to cached filename."))?;
         let maybe_content_type = headers.get("content-type");
         let (media_type, maybe_charset) = map_content_type(specifier, maybe_content_type);
         let source = get_source_from_bytes(bytes, maybe_charset)?;
@@ -220,7 +210,6 @@ impl FileFetcher {
         };
 
         Ok(File {
-            local,
             maybe_types,
             media_type,
             source: source.into(),
@@ -242,23 +231,18 @@ impl FileFetcher {
             return Err(custom_error("Http", "Too many redirects."));
         }
 
-        let (mut source_file, headers, _) = match self.http_cache.get(specifier) {
-            Err(err) => {
-                if let Some(err) = err.downcast_ref::<std::io::Error>() {
-                    if err.kind() == std::io::ErrorKind::NotFound {
-                        return Ok(None);
-                    }
-                }
-                return Err(err);
-            }
-            Ok(cache) => cache,
-        };
+        let cache_key = self.http_cache.cache_item_key(specifier)?; // compute this once
+        let Some(metadata) = self.http_cache.read_metadata(&cache_key)? else {
+      return Ok(None);
+    };
+        let headers = metadata.headers;
         if let Some(redirect_to) = headers.get("location") {
             let redirect = deno_core::resolve_import(redirect_to, specifier.as_str())?;
             return self.fetch_cached(&redirect, redirect_limit - 1);
         }
-        let mut bytes = Vec::new();
-        source_file.read_to_end(&mut bytes)?;
+        let Some(bytes) = self.http_cache.read_file_bytes(&cache_key)? else {
+      return Ok(None);
+    };
         let file = self.build_remote_file(specifier, bytes, &headers)?;
 
         Ok(Some(file))
@@ -268,35 +252,11 @@ impl FileFetcher {
     /// invalid.
     fn fetch_data_url(&self, specifier: &ModuleSpecifier) -> Result<File, AnyError> {
         debug!("FileFetcher::fetch_data_url() - specifier: {}", specifier);
-        match self.fetch_cached(specifier, 0) {
-            Ok(Some(file)) => return Ok(file),
-            Ok(None) => {}
-            Err(err) => return Err(err),
-        }
-
-        if self.cache_setting == CacheSetting::Only {
-            return Err(custom_error(
-                "NotCached",
-                format!(
-                    "Specifier not found in cache: \"{specifier}\", --cached-only is specified."
-                ),
-            ));
-        }
-
         let (source, content_type) = get_source_from_data_url(specifier)?;
         let (media_type, _) = map_content_type(specifier, Some(&content_type));
-
-        let local = self
-            .http_cache
-            .get_cache_filename(specifier)
-            .ok_or_else(|| generic_error("Cannot convert specifier to cached filename."))?;
         let mut headers = HashMap::new();
         headers.insert("content-type".to_string(), content_type);
-        self.http_cache
-            .set(specifier, headers.clone(), source.as_bytes())?;
-
         Ok(File {
-            local,
             maybe_types: None,
             media_type,
             source: source.into(),
@@ -308,21 +268,6 @@ impl FileFetcher {
     /// Get a blob URL.
     async fn fetch_blob_url(&self, specifier: &ModuleSpecifier) -> Result<File, AnyError> {
         debug!("FileFetcher::fetch_blob_url() - specifier: {}", specifier);
-        match self.fetch_cached(specifier, 0) {
-            Ok(Some(file)) => return Ok(file),
-            Ok(None) => {}
-            Err(err) => return Err(err),
-        }
-
-        if self.cache_setting == CacheSetting::Only {
-            return Err(custom_error(
-                "NotCached",
-                format!(
-                    "Specifier not found in cache: \"{specifier}\", --cached-only is specified."
-                ),
-            ));
-        }
-
         let blob = self
             .blob_store
             .get_object_url(specifier.clone())
@@ -335,18 +280,10 @@ impl FileFetcher {
 
         let (media_type, maybe_charset) = map_content_type(specifier, Some(&content_type));
         let source = get_source_from_bytes(bytes, maybe_charset)?;
-
-        let local = self
-            .http_cache
-            .get_cache_filename(specifier)
-            .ok_or_else(|| generic_error("Cannot convert specifier to cached filename."))?;
         let mut headers = HashMap::new();
         headers.insert("content-type".to_string(), content_type);
-        self.http_cache
-            .set(specifier, headers.clone(), source.as_bytes())?;
 
         Ok(File {
-            local,
             maybe_types: None,
             media_type,
             source: source.into(),
@@ -398,46 +335,96 @@ impl FileFetcher {
             .boxed();
         }
 
-        log::log!(self.download_log_level, "{} {}", "Download", specifier);
+        log::log!(
+            self.download_log_level,
+            "{} {}",
+            format!("Download"),
+            specifier
+        );
 
-        let maybe_etag = match self.http_cache.get(specifier) {
-            Ok((_, headers, _)) => headers.get("etag").cloned(),
-            _ => None,
-        };
+        let maybe_etag = self
+            .http_cache
+            .cache_item_key(specifier)
+            .ok()
+            .and_then(|key| self.http_cache.read_metadata(&key).ok().flatten())
+            .and_then(|metadata| metadata.headers.get("etag").cloned());
         let maybe_auth_token = self.auth_tokens.get(specifier);
         let specifier = specifier.clone();
         let client = self.http_client.clone();
         let file_fetcher = self.clone();
-        // A single pass of fetch either yields code or yields a redirect.
+        // A single pass of fetch either yields code or yields a redirect, server
+        // error causes a single retry to avoid crashing hard on intermittent failures.
+
+        async fn handle_request_or_server_error(
+            retried: &mut bool,
+            specifier: &Url,
+            err_str: String,
+        ) -> Result<(), AnyError> {
+            // Retry once, and bail otherwise.
+            if !*retried {
+                *retried = true;
+                log::debug!("Import '{}' failed: {}. Retrying...", specifier, err_str);
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                Ok(())
+            } else {
+                Err(generic_error(format!(
+                    "Import '{}' failed: {}",
+                    specifier, err_str
+                )))
+            }
+        }
+
         async move {
-            match fetch_once(
-                &client,
-                FetchOnceArgs {
-                    url: specifier.clone(),
-                    maybe_accept: maybe_accept.clone(),
-                    maybe_etag,
-                    maybe_auth_token,
-                },
-            )
-            .await?
-            {
-                FetchOnceResult::NotModified => {
-                    let file = file_fetcher.fetch_cached(&specifier, 10)?.unwrap();
-                    Ok(file)
-                }
-                FetchOnceResult::Redirect(redirect_url, headers) => {
-                    file_fetcher.http_cache.set(&specifier, headers, &[])?;
-                    file_fetcher
-                        .fetch_remote(&redirect_url, permissions, redirect_limit - 1, maybe_accept)
-                        .await
-                }
-                FetchOnceResult::Code(bytes, headers) => {
-                    file_fetcher
-                        .http_cache
-                        .set(&specifier, headers.clone(), &bytes)?;
-                    let file = file_fetcher.build_remote_file(&specifier, bytes, &headers)?;
-                    Ok(file)
-                }
+            let mut retried = false;
+            loop {
+                let result = match fetch_once(
+                    &client,
+                    FetchOnceArgs {
+                        url: specifier.clone(),
+                        maybe_accept: maybe_accept.clone(),
+                        maybe_etag: maybe_etag.clone(),
+                        maybe_auth_token: maybe_auth_token.clone(),
+                    },
+                )
+                .await?
+                {
+                    FetchOnceResult::NotModified => {
+                        let file = file_fetcher.fetch_cached(&specifier, 10)?.unwrap();
+                        Ok(file)
+                    }
+                    FetchOnceResult::Redirect(redirect_url, headers) => {
+                        file_fetcher.http_cache.set(&specifier, headers, &[])?;
+                        file_fetcher
+                            .fetch_remote(
+                                &redirect_url,
+                                permissions,
+                                redirect_limit - 1,
+                                maybe_accept,
+                            )
+                            .await
+                    }
+                    FetchOnceResult::Code(bytes, headers) => {
+                        file_fetcher
+                            .http_cache
+                            .set(&specifier, headers.clone(), &bytes)?;
+                        let file = file_fetcher.build_remote_file(&specifier, bytes, &headers)?;
+                        Ok(file)
+                    }
+                    FetchOnceResult::RequestError(err) => {
+                        handle_request_or_server_error(&mut retried, &specifier, err).await?;
+                        continue;
+                    }
+                    FetchOnceResult::ServerError(status) => {
+                        handle_request_or_server_error(
+                            &mut retried,
+                            &specifier,
+                            status.to_string(),
+                        )
+                        .await?;
+                        continue;
+                    }
+                };
+                break result;
             }
         }
         .boxed()
@@ -449,13 +436,15 @@ impl FileFetcher {
             CacheSetting::ReloadAll => false,
             CacheSetting::Use | CacheSetting::Only => true,
             CacheSetting::RespectHeaders => {
-                if let Ok((_, headers, cache_time)) = self.http_cache.get(specifier) {
-                    let cache_semantics =
-                        CacheSemantics::new(headers, cache_time, SystemTime::now());
-                    cache_semantics.should_use()
-                } else {
-                    false
-                }
+                let Ok(cache_key) = self.http_cache.cache_item_key(specifier) else {
+          return false;
+        };
+                let Ok(Some(metadata)) = self.http_cache.read_metadata(&cache_key) else {
+          return false;
+        };
+                let cache_semantics =
+                    CacheSemantics::new(metadata.headers, metadata.time, SystemTime::now());
+                cache_semantics.should_use()
             }
             CacheSetting::ReloadSome(list) => {
                 let mut url = specifier.clone();
@@ -503,17 +492,9 @@ impl FileFetcher {
             // disk changing effecting things like workers and dynamic imports.
             fetch_local(specifier)
         } else if scheme == "data" {
-            let result = self.fetch_data_url(specifier);
-            if let Ok(file) = &result {
-                self.cache.insert(specifier.clone(), file.clone());
-            }
-            result
+            self.fetch_data_url(specifier)
         } else if scheme == "blob" {
-            let result = self.fetch_blob_url(specifier).await;
-            if let Ok(file) = &result {
-                self.cache.insert(specifier.clone(), file.clone());
-            }
-            result
+            self.fetch_blob_url(specifier).await
         } else if !self.allow_remote {
             Err(custom_error(
         "NoRemote",
@@ -528,23 +509,6 @@ impl FileFetcher {
             }
             result
         }
-    }
-
-    pub fn get_local_path(&self, specifier: &ModuleSpecifier) -> Option<PathBuf> {
-        // TODO(@kitsonk) fix when deno_graph does not query cache for synthetic
-        // modules
-        if specifier.scheme() == "flags" {
-            None
-        } else if specifier.scheme() == "file" {
-            specifier.to_file_path().ok()
-        } else {
-            self.http_cache.get_cache_filename(specifier)
-        }
-    }
-
-    /// Get the location of the current HTTP cache associated with the fetcher.
-    pub fn get_http_cache_location(&self) -> PathBuf {
-        self.http_cache.location.clone()
     }
 
     /// A synchronous way to retrieve a source file, where if the file has already
@@ -576,6 +540,8 @@ enum FetchOnceResult {
     Code(Vec<u8>, HeadersMap),
     NotModified,
     Redirect(Url, HeadersMap),
+    RequestError(String),
+    ServerError(StatusCode),
 }
 
 #[derive(Debug)]
@@ -595,7 +561,7 @@ async fn fetch_once(
     http_client: &HttpClient,
     args: FetchOnceArgs,
 ) -> Result<FetchOnceResult, AnyError> {
-    let mut request = http_client.get_no_redirect(args.url.clone());
+    let mut request = http_client.get_no_redirect(args.url.clone())?;
 
     if let Some(etag) = args.maybe_etag {
         let if_none_match_val = HeaderValue::from_str(&etag)?;
@@ -609,7 +575,15 @@ async fn fetch_once(
         let accepts_val = HeaderValue::from_str(&accept)?;
         request = request.header(ACCEPT, accepts_val);
     }
-    let response = request.send().await?;
+    let response = match request.send().await {
+        Ok(resp) => resp,
+        Err(err) => {
+            if err.is_connect() || err.is_timeout() {
+                return Ok(FetchOnceResult::RequestError(err.to_string()));
+            }
+            return Err(err.into());
+        }
+    };
 
     if response.status() == StatusCode::NOT_MODIFIED {
         return Ok(FetchOnceResult::NotModified);
@@ -619,7 +593,7 @@ async fn fetch_once(
     let response_headers = response.headers();
 
     if let Some(warning) = response_headers.get("X-Deno-Warning") {
-        log::warn!("{} {}", "Warning", warning.to_str().unwrap());
+        log::warn!("{} {}", format!("Warning"), warning.to_str().unwrap());
     }
 
     for key in response_headers.keys() {
@@ -638,7 +612,13 @@ async fn fetch_once(
         return Ok(FetchOnceResult::Redirect(new_url, result_headers));
     }
 
-    if response.status().is_client_error() || response.status().is_server_error() {
+    let status = response.status();
+
+    if status.is_server_error() {
+        return Ok(FetchOnceResult::ServerError(status));
+    }
+
+    if status.is_client_error() {
         let err = if response.status() == StatusCode::NOT_FOUND {
             custom_error(
                 "NotFound",

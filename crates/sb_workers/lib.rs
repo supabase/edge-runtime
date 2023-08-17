@@ -31,7 +31,8 @@ deno_core::extension!(
         op_user_worker_fetch_build,
         op_user_worker_fetch_send,
     ],
-    esm = ["user_workers.js"]
+    esm_entry_point = "ext:sb_user_workers/user_workers.js",
+    esm = ["user_workers.js",]
 );
 
 #[derive(Deserialize, Default, Debug)]

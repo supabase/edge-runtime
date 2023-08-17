@@ -25,4 +25,9 @@ pub fn op_runtime_memory_usage(scope: &mut v8::HandleScope) -> WorkerMemoryUsage
     }
 }
 
-deno_core::extension!(sb_os, ops = [op_runtime_memory_usage,], esm = ["os.js"]);
+deno_core::extension!(
+    sb_os,
+    ops = [op_runtime_memory_usage,],
+    esm_entry_point = "ext:sb_os/os.js",
+    esm = ["os.js"]
+);

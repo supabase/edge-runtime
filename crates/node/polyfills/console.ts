@@ -1,7 +1,10 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
+// TODO(petamoriken): enable prefer-primordials for node polyfills
+// deno-lint-ignore-file prefer-primordials
+
 import { Console } from "ext:deno_node/internal/console/constructor.mjs";
-import * as DenoConsole from "ext:deno_console/02_console.js";
+import * as DenoConsole from "ext:deno_console/01_console.js";
 import {
   nonEnumerable,
 } from "ext:sb_core_main_js/js/fieldUtils.js";

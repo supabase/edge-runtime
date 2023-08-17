@@ -1,5 +1,6 @@
 extern crate core;
 
+pub mod cert;
 pub mod commands;
 pub mod deno_runtime;
 pub mod errors_rt;

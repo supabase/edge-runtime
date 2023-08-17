@@ -1,5 +1,4 @@
 use anyhow::{anyhow, bail, Error};
-use deno_ast::EmitOptions;
 use deno_ast::MediaType;
 use deno_core::error::AnyError;
 use deno_core::futures::FutureExt;
@@ -10,14 +9,13 @@ use deno_core::ModuleSpecifier;
 use deno_core::ModuleType;
 use deno_core::ResolutionKind;
 use import_map::ImportMap;
-use module_fetcher::cache::{
-    caches, DenoDir, EmitCache, FastInsecureHasher, HttpCache, ParsedSourceCache,
-};
-use module_fetcher::emit::emit_parsed_source;
+use module_fetcher::cache::{DenoDir, GlobalHttpCache, HttpCache};
+use module_fetcher::emit::Emitter;
 use module_fetcher::file_fetcher::{CacheSetting, FileFetcher};
 use module_fetcher::http_util::HttpClient;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
+use std::sync::Arc;
 use url::Url;
 
 fn get_module_type(media_type: MediaType) -> Result<ModuleType, Error> {
@@ -43,14 +41,16 @@ fn get_module_type(media_type: MediaType) -> Result<ModuleType, Error> {
 fn make_http_client() -> Result<HttpClient, AnyError> {
     let root_cert_store = None;
     let unsafely_ignore_certificate_errors = None;
-    HttpClient::new(root_cert_store, unsafely_ignore_certificate_errors)
+    Ok(HttpClient::new(
+        root_cert_store,
+        unsafely_ignore_certificate_errors,
+    ))
 }
 
 pub struct DefaultModuleLoader {
     file_fetcher: FileFetcher,
     permissions: module_fetcher::permissions::Permissions,
-    emit_cache: EmitCache,
-    parsed_source_cache: ParsedSourceCache,
+    emitter: Arc<Emitter>,
     maybe_import_map: Option<ImportMap>,
 }
 
@@ -58,6 +58,7 @@ impl DefaultModuleLoader {
     pub fn new(
         root_path: PathBuf,
         maybe_import_map: Option<ImportMap>,
+        emitter: Arc<Emitter>,
         no_cache: bool,
         allow_remote: bool,
     ) -> Result<Self, AnyError> {
@@ -65,32 +66,30 @@ impl DefaultModuleLoader {
         let deno_dir = DenoDir::new(None)?;
         let deps_cache_location = deno_dir.deps_folder_path();
 
-        let http_cache = HttpCache::new(&deps_cache_location);
         let cache_setting = if no_cache {
             CacheSetting::ReloadAll
         } else {
             CacheSetting::Use
         };
-        let http_client = make_http_client()?;
-        let blob_store = deno_web::BlobStore::default();
+        let http_client = Arc::new(make_http_client()?);
+        let blob_store = Arc::new(deno_web::BlobStore::default());
+
+        let global_cache_struct = GlobalHttpCache::new(deps_cache_location);
+        let global_cache: Arc<dyn HttpCache> = Arc::new(global_cache_struct);
         let file_fetcher = FileFetcher::new(
-            http_cache,
+            global_cache.clone(),
             cache_setting,
             allow_remote,
             http_client,
             blob_store,
         );
         let permissions = module_fetcher::permissions::Permissions::new(root_path);
-        let emit_cache = EmitCache::new(deno_dir.gen_cache.clone());
-        let caches_def = caches::Caches::default();
-        let parsed_source_cache = ParsedSourceCache::new(caches_def.dep_analysis_db(&deno_dir));
 
         Ok(Self {
             file_fetcher,
             permissions,
-            emit_cache,
-            parsed_source_cache,
             maybe_import_map,
+            emitter,
         })
     }
 }
@@ -118,10 +117,10 @@ impl ModuleLoader for DefaultModuleLoader {
                 .resolve(specifier, &referrer_url)
                 .map_err(|err| err.into())
         } else {
-            // Built-in Node modules
-            if let Some(module_name) = specifier.strip_prefix("node:") {
-                return module_fetcher::node::resolve_builtin_node_module(module_name);
-            }
+            // // Built-in Node modules
+            // if let Some(module_name) = specifier.strip_prefix("node:") {
+            //     return module_fetcher::node::resolve_builtin_node_module(module_name);
+            // }
 
             deno_core::resolve_import(specifier, referrer).map_err(|err| err.into())
         }
@@ -131,23 +130,13 @@ impl ModuleLoader for DefaultModuleLoader {
     fn load(
         &self,
         module_specifier: &ModuleSpecifier,
-        _maybe_referrer: Option<ModuleSpecifier>,
+        _maybe_referrer: Option<&ModuleSpecifier>,
         _is_dyn_import: bool,
     ) -> Pin<Box<ModuleSourceFuture>> {
         let file_fetcher = self.file_fetcher.clone();
         let permissions = self.permissions.clone();
         let module_specifier = module_specifier.clone();
-        let emit_cache = self.emit_cache.clone();
-        let parsed_source_cache = self.parsed_source_cache.clone();
-        let emit_options = EmitOptions {
-            inline_source_map: true,
-            inline_sources: true,
-            source_map: true,
-            ..Default::default()
-        };
-        let emit_config_hash = FastInsecureHasher::new()
-            .write_hashable(&emit_options)
-            .finish();
+        let emitter = self.emitter.clone();
 
         async move {
             let fetched_file = file_fetcher
@@ -174,26 +163,21 @@ impl ModuleLoader for DefaultModuleLoader {
                 | MediaType::Mts
                 | MediaType::Cts
                 | MediaType::Jsx
-                | MediaType::Tsx => emit_parsed_source(
-                    &emit_cache,
-                    &parsed_source_cache,
-                    &module_specifier,
-                    fetched_file.media_type,
-                    &code,
-                    &emit_options,
-                    emit_config_hash,
-                )?,
+                | MediaType::Tsx => {
+                    emitter.emit_parsed_source(&module_specifier, fetched_file.media_type, &code)?
+                }
                 MediaType::TsBuildInfo | MediaType::Wasm | MediaType::SourceMap => {
                     panic!("Unexpected media type during import.")
                 }
             };
 
-            let module = ModuleSource {
-                code,
+            let module = ModuleSource::new_with_redirect(
                 module_type,
-                module_url_specified: module_specifier.to_string(),
-                module_url_found: fetched_file.specifier.to_string(),
-            };
+                code,
+                &module_specifier,
+                &fetched_file.specifier,
+            );
+
             Ok(module)
         }
         .boxed_local()

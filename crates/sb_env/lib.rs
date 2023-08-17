@@ -11,6 +11,7 @@ pub type EnvVars = HashMap<String, String>;
 deno_core::extension!(
     sb_env,
     ops = [op_set_env, op_env, op_get_env, op_delete_env],
+    esm_entry_point = "ext:sb_env/env.js",
     esm = ["env.js"]
 );
 

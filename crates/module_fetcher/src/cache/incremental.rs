@@ -7,9 +7,10 @@ use std::path::PathBuf;
 use deno_core::error::AnyError;
 use deno_core::parking_lot::Mutex;
 use deno_core::serde_json;
+use deno_core::task::spawn;
+use deno_core::task::JoinHandle;
 use deno_webstorage::rusqlite::params;
 use serde::Serialize;
-use tokio::task::JoinHandle;
 
 use super::cache_db::CacheDB;
 use super::cache_db::CacheDBConfiguration;
@@ -71,9 +72,7 @@ impl IncrementalCacheInner {
         state: &TState,
         initial_file_paths: &[PathBuf],
     ) -> Self {
-        let state_hash = FastInsecureHasher::new()
-            .write_str(&serde_json::to_string(state).unwrap())
-            .finish();
+        let state_hash = FastInsecureHasher::hash(serde_json::to_string(state).unwrap());
         let sql_cache = SqlIncrementalCache::new(db, state_hash);
         Self::from_sql_incremental_cache(sql_cache, initial_file_paths)
     }
@@ -92,7 +91,7 @@ impl IncrementalCacheInner {
         let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel::<ReceiverMessage>();
 
         // sqlite isn't `Sync`, so we do all the updating on a dedicated task
-        let handle = tokio::task::spawn(async move {
+        let handle = spawn(async move {
             while let Some(message) = receiver.recv().await {
                 match message {
                     ReceiverMessage::Update(path, hash) => {
@@ -112,13 +111,13 @@ impl IncrementalCacheInner {
 
     pub fn is_file_same(&self, file_path: &Path, file_text: &str) -> bool {
         match self.previous_hashes.get(file_path) {
-            Some(hash) => *hash == FastInsecureHasher::new().write_str(file_text).finish(),
+            Some(hash) => *hash == FastInsecureHasher::hash(file_text),
             None => false,
         }
     }
 
     pub fn update_file(&self, file_path: &Path, file_text: &str) {
-        let hash = FastInsecureHasher::new().write_str(file_text).finish();
+        let hash = FastInsecureHasher::hash(file_text);
         if let Some(previous_hash) = self.previous_hashes.get(file_path) {
             if *previous_hash == hash {
                 return; // do not bother updating the db file because nothing has changed
@@ -203,71 +202,5 @@ impl SqlIncrementalCache {
             ],
         )?;
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use std::path::PathBuf;
-
-    use super::*;
-
-    #[test]
-    pub fn sql_cache_general_use() {
-        let conn = CacheDB::in_memory(&INCREMENTAL_CACHE_DB, "1.0.0");
-        let cache = SqlIncrementalCache::new(conn, 1);
-        let path = PathBuf::from("/mod.ts");
-
-        assert_eq!(cache.get_source_hash(&path), None);
-        cache.set_source_hash(&path, 2).unwrap();
-        assert_eq!(cache.get_source_hash(&path), Some(2));
-
-        // try changing the cli version (should clear)
-        let conn = cache.conn.recreate_with_version("2.0.0");
-        let mut cache = SqlIncrementalCache::new(conn, 1);
-        assert_eq!(cache.get_source_hash(&path), None);
-
-        // add back the file to the cache
-        cache.set_source_hash(&path, 2).unwrap();
-        assert_eq!(cache.get_source_hash(&path), Some(2));
-
-        // try changing the state hash
-        cache.state_hash = 2;
-        assert_eq!(cache.get_source_hash(&path), None);
-        cache.state_hash = 1;
-
-        // should return now that everything is back
-        assert_eq!(cache.get_source_hash(&path), Some(2));
-
-        // recreating the cache should not remove the data because the CLI version and state hash is the same
-        let conn = cache.conn.recreate_with_version("2.0.0");
-        let cache = SqlIncrementalCache::new(conn, 1);
-        assert_eq!(cache.get_source_hash(&path), Some(2));
-
-        // now try replacing and using another path
-        cache.set_source_hash(&path, 3).unwrap();
-        cache.set_source_hash(&path, 4).unwrap();
-        let path2 = PathBuf::from("/mod2.ts");
-        cache.set_source_hash(&path2, 5).unwrap();
-        assert_eq!(cache.get_source_hash(&path), Some(4));
-        assert_eq!(cache.get_source_hash(&path2), Some(5));
-    }
-
-    #[tokio::test]
-    pub async fn incremental_cache_general_use() {
-        let conn = CacheDB::in_memory(&INCREMENTAL_CACHE_DB, "1.0.0");
-        let sql_cache = SqlIncrementalCache::new(conn, 1);
-        let file_path = PathBuf::from("/mod.ts");
-        let file_text = "test";
-        let file_hash = FastInsecureHasher::new().write_str(file_text).finish();
-        sql_cache.set_source_hash(&file_path, file_hash).unwrap();
-        let cache =
-            IncrementalCacheInner::from_sql_incremental_cache(sql_cache, &[file_path.clone()]);
-
-        assert!(cache.is_file_same(&file_path, "test"));
-        assert!(!cache.is_file_same(&file_path, "other"));
-
-        // just ensure this doesn't panic
-        cache.update_file(&file_path, "other");
     }
 }

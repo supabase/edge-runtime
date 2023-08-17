@@ -1,4 +1,3 @@
-// Keep this in sync with `deno()` above
 pub fn deno() -> &'static str {
     concat!("Supa:", "0")
 }

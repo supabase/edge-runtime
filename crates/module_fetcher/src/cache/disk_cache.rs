@@ -8,7 +8,6 @@ use deno_core::url::Host;
 use deno_core::url::Url;
 use std::ffi::OsStr;
 use std::fs;
-use std::io;
 use std::path::Component;
 use std::path::Path;
 use std::path::PathBuf;
@@ -20,10 +19,6 @@ pub struct DiskCache {
     pub location: PathBuf,
 }
 
-fn with_io_context<T: AsRef<str>>(e: &std::io::Error, context: T) -> std::io::Error {
-    std::io::Error::new(e.kind(), format!("{} (for '{}')", e, context.as_ref()))
-}
-
 impl DiskCache {
     /// `location` must be an absolute path.
     pub fn new(location: &Path) -> Self {
@@ -31,27 +26,6 @@ impl DiskCache {
         Self {
             location: location.to_owned(),
         }
-    }
-
-    /// Ensures the location of the cache.
-    pub fn ensure_dir_exists(&self, path: &Path) -> io::Result<()> {
-        if path.is_dir() {
-            return Ok(());
-        }
-        fs::create_dir_all(path).map_err(|e| {
-            io::Error::new(
-                e.kind(),
-                format!(
-                    concat!(
-                        "Could not create TypeScript compiler cache location: {}\n",
-                        "Check the permission of the directory.\n",
-                        "{:#}",
-                    ),
-                    path.display(),
-                    e
-                ),
-            )
-        })
     }
 
     fn get_cache_filename(&self, url: &Url) -> Option<PathBuf> {
@@ -75,7 +49,7 @@ impl DiskCache {
                     out.push(path_seg);
                 }
             }
-            "http" | "https" | "data" | "blob" => out = url_to_filename(url)?,
+            "http" | "https" | "data" | "blob" => out = url_to_filename(url).ok()?,
             "file" => {
                 let path = match url.to_file_path() {
                     Ok(path) => path,
@@ -139,11 +113,6 @@ impl DiskCache {
 
     pub fn set(&self, filename: &Path, data: &[u8]) -> std::io::Result<()> {
         let path = self.location.join(filename);
-        match path.parent() {
-            Some(parent) => self.ensure_dir_exists(parent),
-            None => Ok(()),
-        }?;
         atomic_write_file(&path, data, CACHE_PERM)
-            .map_err(|e| with_io_context(&e, format!("{:#?}", &path)))
     }
 }

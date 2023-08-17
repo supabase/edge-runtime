@@ -2,7 +2,7 @@ use anyhow::Error;
 use deno_core::futures::io::{AllowStdIo, BufReader};
 use deno_core::serde_json;
 use deno_core::url::Url;
-use deno_core::{op, ByteString, OpState, ZeroCopyBuf};
+use deno_core::{op, ByteString, JsBuffer, OpState};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -63,7 +63,7 @@ struct ImportMap {
 #[op]
 pub async fn op_eszip_extract(
     _state: Rc<RefCell<OpState>>,
-    bytes: ZeroCopyBuf,
+    bytes: JsBuffer,
     dest_path: ByteString,
 ) -> Result<(), Error> {
     let dest_path = Path::new(std::str::from_utf8(&dest_path)?);

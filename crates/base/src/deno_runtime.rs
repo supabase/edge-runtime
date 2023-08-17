@@ -34,6 +34,7 @@ use sb_core::permissions::{sb_core_permissions, Permissions};
 use sb_core::runtime::sb_core_runtime;
 use sb_core::sb_core_main_js;
 use sb_env::sb_env as sb_env_op;
+use sb_eszip::sb_eszip;
 use sb_node::deno_node;
 use sb_worker_context::essentials::{UserWorkerMsgs, WorkerContextInitOpts, WorkerRuntimeOpts};
 use sb_workers::sb_user_workers;
@@ -182,6 +183,7 @@ impl DenoRuntime {
             sb_user_workers::init_ops(),
             sb_user_event_worker::init_ops(),
             sb_events_js_interceptors::init_ops(),
+            sb_eszip::init_ops(),
             sb_core_main_js::init_ops(),
             sb_core_net::init_ops(),
             sb_core_http::init_ops(),

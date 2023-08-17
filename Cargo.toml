@@ -10,7 +10,8 @@ members = [
   "./crates/flaky_test",
   "./crates/sb_os",
   "./crates/cpu_timer",
-  "./crates/event_worker"
+  "./crates/event_worker",
+  "./crates/sb_eszip"
 ]
 resolver = "2"
 

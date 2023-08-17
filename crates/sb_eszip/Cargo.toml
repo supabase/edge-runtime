@@ -1,0 +1,17 @@
+[package]
+name = "sb_eszip"
+version = "0.1.0"
+authors = ["Supabase <team@supabase.com>"]
+edition = "2021"
+resolver = "2"
+license = "MIT"
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+anyhow.workspace = true
+deno_core.workspace = true
+eszip = "0.49.0"
+tokio.workspace = true
+serde.workspace = true

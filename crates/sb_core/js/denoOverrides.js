@@ -8,6 +8,8 @@ import {
 import { serveHttp } from "ext:sb_core_main_js/js/http.js";
 import * as fs from "ext:deno_fs/30_fs.js";
 import { osCalls } from "ext:sb_os/os.js"
+import * as io from "ext:deno_io/12_io.js";
+
 
 const osCallsVars = {
     gid: osCalls.gid,
@@ -88,6 +90,10 @@ const fsVars = {
     utimeSync: fs.utimeSync,
 }
 
+const ioVars = {
+    stdout: io.stdout,
+}
+
 const denoOverrides = {
     listen: net.listen,
     connect: net.connect,
@@ -101,8 +107,10 @@ const denoOverrides = {
     errors: errors,
     refTimer: timers.refTimer,
     unrefTimer: timers.unrefTimer,
+    isatty: (arg) => false,
+    ...ioVars,
     ...fsVars,
     ...osCallsVars
 }
 
-export { denoOverrides, fsVars, osCallsVars };
+export { denoOverrides, fsVars, osCallsVars, ioVars };

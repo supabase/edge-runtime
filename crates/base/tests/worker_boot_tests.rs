@@ -14,6 +14,8 @@ async fn test_worker_boot_invalid_imports() {
         import_map_path: None,
         env_vars: HashMap::new(),
         events_rx: None,
+        maybe_eszip: None,
+        maybe_entrypoint: None,
         conf: WorkerRuntimeOpts::UserWorker(user_rt_opts),
     };
     let result = create_worker(opts).await;

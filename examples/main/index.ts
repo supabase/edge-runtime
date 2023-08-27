@@ -46,6 +46,9 @@ serve(async (req: Request) => {
 		const forceCreate = false;
 		const netAccessDisabled = false;
 
+		const maybeEszip = await Deno.readFile('./sample.eszip');
+		const maybeEntrypoint = 'file:///src/index.ts';
+
 		return await EdgeRuntime.userWorkers.create({
 			servicePath,
 			memoryLimitMb,
@@ -55,6 +58,8 @@ serve(async (req: Request) => {
 			envVars,
 			forceCreate,
 			netAccessDisabled,
+			maybeEszip,
+			maybeEntrypoint,
 		});
 	};
 

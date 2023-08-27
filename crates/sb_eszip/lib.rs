@@ -11,6 +11,8 @@ use std::rc::Rc;
 
 deno_core::extension!(sb_eszip, ops = [op_eszip_extract], esm = ["eszip.js"]);
 
+pub mod module_loader;
+
 fn module_path_from_specifier(specifier: &str) -> Result<PathBuf, Error> {
     let specifier = Url::parse(specifier)?;
     let hostname = specifier.host_str().unwrap_or("");

@@ -12,9 +12,10 @@ path = "lib.rs"
 
 [dependencies]
 anyhow = { workspace = true }
+deno_core.workspace = true
+event_worker ={ version = "0.1.0", path = "../event_worker" }
 enum-as-inner = "0.6.0"
 hyper.workspace = true
 serde.workspace = true
 tokio.workspace = true
 uuid.workspace = true
-event_worker ={ version = "0.1.0", path = "../event_worker" }

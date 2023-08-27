@@ -72,6 +72,8 @@ class UserWorker {
 			forceCreate: false,
 			netAccessDisabled: false,
 			customModuleRoot: '',
+			maybeEszip: null,
+			maybeEntrypoint: null,
 			...opts,
 		};
 

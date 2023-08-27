@@ -34,7 +34,7 @@ use sb_core::permissions::{sb_core_permissions, Permissions};
 use sb_core::runtime::sb_core_runtime;
 use sb_core::sb_core_main_js;
 use sb_env::sb_env as sb_env_op;
-use sb_eszip::sb_eszip;
+use sb_eszip::module_loader::EszipModuleLoader;
 use sb_node::deno_node;
 use sb_worker_context::essentials::{UserWorkerMsgs, WorkerContextInitOpts, WorkerRuntimeOpts};
 use sb_workers::sb_user_workers;
@@ -117,6 +117,8 @@ impl DenoRuntime {
             env_vars,
             events_rx,
             conf,
+            maybe_eszip,
+            maybe_entrypoint,
         } = opts;
 
         set_v8_flags();
@@ -125,7 +127,11 @@ impl DenoRuntime {
         let base_dir_path = std::env::current_dir().map(|p| p.join(&service_path))?;
         let base_url = Url::from_directory_path(&base_dir_path).unwrap();
         // TODO: check for other potential main paths (eg: index.js, index.tsx)
-        let main_module_url = base_url.join("index.ts")?;
+        let mut main_module_url = base_url.join("index.ts")?;
+
+        if maybe_eszip.is_some() && maybe_entrypoint.is_some() {
+            main_module_url = Url::parse(&maybe_entrypoint.unwrap())?;
+        }
 
         // Note: this will load Mozilla's CAs (we may also need to support system certs)
         let root_cert_store = deno_tls::create_default_root_cert_store();
@@ -183,7 +189,7 @@ impl DenoRuntime {
             sb_user_workers::init_ops(),
             sb_user_event_worker::init_ops(),
             sb_events_js_interceptors::init_ops(),
-            sb_eszip::init_ops(),
+            //sb_eszip::init_ops(),
             sb_core_main_js::init_ops(),
             sb_core_net::init_ops(),
             sb_core_http::init_ops(),
@@ -193,17 +199,9 @@ impl DenoRuntime {
 
         let import_map = load_import_map(import_map_path)?;
         let emitter = EmitterFactory::new();
-        let module_loader = DefaultModuleLoader::new(
-            module_root_path,
-            import_map,
-            emitter.emitter().unwrap(),
-            no_module_cache,
-            true, //allow_remote_modules
-        )?;
 
-        let mut js_runtime = JsRuntime::new(RuntimeOptions {
+        let mut runtime_options = RuntimeOptions {
             extensions,
-            module_loader: Some(Rc::new(module_loader)),
             is_main: true,
             create_params: {
                 if conf.is_user_worker() {
@@ -220,7 +218,22 @@ impl DenoRuntime {
             compiled_wasm_module_store: Default::default(),
             startup_snapshot: Some(snapshot::snapshot()),
             ..Default::default()
-        });
+        };
+        if maybe_eszip.is_some() {
+            let eszip_module_loader =
+                EszipModuleLoader::new(maybe_eszip.unwrap(), import_map).await?;
+            runtime_options.module_loader = Some(Rc::new(eszip_module_loader));
+        } else {
+            let default_module_loader = DefaultModuleLoader::new(
+                module_root_path,
+                import_map,
+                emitter.emitter().unwrap(),
+                no_module_cache,
+                true, //allow_remote_modules
+            )?;
+            runtime_options.module_loader = Some(Rc::new(default_module_loader));
+        }
+        let mut js_runtime = JsRuntime::new(runtime_options);
 
         // Bootstrapping stage
         let script = format!(
@@ -361,6 +374,8 @@ mod test {
             import_map_path: None,
             env_vars: env_vars.unwrap_or(Default::default()),
             events_rx: None,
+            maybe_eszip: None,
+            maybe_entrypoint: None,
             conf: {
                 if let Some(uc) = user_conf {
                     uc

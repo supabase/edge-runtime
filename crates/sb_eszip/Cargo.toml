@@ -13,5 +13,6 @@ path = "lib.rs"
 anyhow.workspace = true
 deno_core.workspace = true
 eszip = "0.49.0"
-tokio.workspace = true
+import_map = { version = "0.15.0" }
 serde.workspace = true
+tokio.workspace = true

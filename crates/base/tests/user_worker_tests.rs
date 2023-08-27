@@ -15,6 +15,8 @@ async fn test_user_worker_json_imports() {
         import_map_path: None,
         env_vars: HashMap::new(),
         events_rx: None,
+        maybe_eszip: None,
+        maybe_entrypoint: None,
         conf: WorkerRuntimeOpts::UserWorker(user_rt_opts),
     };
     let worker_req_tx = create_worker(opts).await.unwrap();

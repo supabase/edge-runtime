@@ -5,7 +5,7 @@ import * as permissions from "ext:sb_core_main_js/js/permissions.js";
 import {
     errors
 } from "ext:sb_core_main_js/js/errors.js";
-import { serveHttp } from "ext:sb_core_main_js/js/http.js";
+import { serveHttp, serve } from "ext:sb_core_main_js/js/http.js";
 import * as fs from "ext:deno_fs/30_fs.js";
 import { osCalls } from "ext:sb_os/os.js"
 import * as io from "ext:deno_io/12_io.js";
@@ -101,6 +101,7 @@ const denoOverrides = {
     startTls: tls.startTls,
     resolveDns: net.resolveDns,
     serveHttp: serveHttp,
+    serve: serve,
     permissions: permissions.permissions,
     Permissions: permissions.Permissions,
     PermissionStatus: permissions.PermissionStatus,

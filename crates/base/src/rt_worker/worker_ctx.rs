@@ -237,6 +237,8 @@ pub async fn create_events_worker(
         import_map_path,
         env_vars: std::env::vars().collect(),
         events_rx: Some(events_rx),
+        maybe_eszip: None,
+        maybe_entrypoint: None,
         conf: WorkerRuntimeOpts::EventsWorker(EventWorkerRuntimeOpts {}),
     })
     .await?;

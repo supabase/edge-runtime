@@ -5,7 +5,7 @@ use deno_core::futures::{Stream, StreamExt};
 use deno_core::op;
 use deno_core::{
     AsyncRefCell, AsyncResult, BufView, ByteString, CancelFuture, CancelHandle, CancelTryFuture,
-    OpState, RcRef, Resource, ResourceId, WriteOutcome,
+    JsBuffer, OpState, RcRef, Resource, ResourceId, WriteOutcome,
 };
 use hyper::body::HttpBody;
 use hyper::header::{HeaderName, HeaderValue};
@@ -45,6 +45,8 @@ pub struct UserWorkerCreateOptions {
     force_create: bool,
     net_access_disabled: bool,
     custom_module_root: Option<String>,
+    maybe_eszip: Option<JsBuffer>,
+    maybe_entrypoint: Option<String>,
 
     memory_limit_mb: u64,
     low_memory_multiplier: u64,
@@ -72,6 +74,8 @@ pub async fn op_user_worker_create(
             force_create,
             net_access_disabled,
             custom_module_root,
+            maybe_eszip,
+            maybe_entrypoint,
 
             memory_limit_mb,
             low_memory_multiplier,
@@ -92,6 +96,8 @@ pub async fn op_user_worker_create(
             import_map_path,
             env_vars: env_vars_map,
             events_rx: None,
+            maybe_eszip,
+            maybe_entrypoint,
             conf: WorkerRuntimeOpts::UserWorker(UserWorkerRuntimeOpts {
                 memory_limit_mb,
                 low_memory_multiplier,

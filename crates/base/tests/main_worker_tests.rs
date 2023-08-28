@@ -16,6 +16,8 @@ async fn test_main_worker_options_request() {
         import_map_path: None,
         env_vars: HashMap::new(),
         events_rx: None,
+        maybe_eszip: None,
+        maybe_entrypoint: None,
         conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
             worker_pool_tx: user_worker_msgs_tx,
         }),
@@ -55,6 +57,8 @@ async fn test_main_worker_post_request() {
         import_map_path: None,
         env_vars: HashMap::new(),
         events_rx: None,
+        maybe_eszip: None,
+        maybe_entrypoint: None,
         conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
             worker_pool_tx: user_worker_msgs_tx,
         }),
@@ -98,6 +102,8 @@ async fn test_main_worker_boot_error() {
         import_map_path: Some("./non-existing-import-map.json".to_string()),
         env_vars: HashMap::new(),
         events_rx: None,
+        maybe_eszip: None,
+        maybe_entrypoint: None,
         conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
             worker_pool_tx: user_worker_msgs_tx,
         }),

@@ -117,6 +117,8 @@ impl Server {
             import_map_path,
             no_module_cache,
             events_rx: None,
+            maybe_eszip: None,
+            maybe_entrypoint: None,
             conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
                 worker_pool_tx: user_worker_msgs_tx,
             }),

@@ -1,4 +1,5 @@
 use anyhow::Error;
+use deno_core::JsBuffer;
 use enum_as_inner::EnumAsInner;
 use event_worker::events::WorkerEventWithMetadata;
 use hyper::{Body, Request, Response};
@@ -75,6 +76,8 @@ pub struct WorkerContextInitOpts {
     pub env_vars: HashMap<String, String>,
     pub events_rx: Option<mpsc::UnboundedReceiver<WorkerEventWithMetadata>>,
     pub conf: WorkerRuntimeOpts,
+    pub maybe_eszip: Option<JsBuffer>,
+    pub maybe_entrypoint: Option<String>,
 }
 
 #[derive(Debug)]

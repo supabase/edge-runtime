@@ -2,7 +2,7 @@ use crate::deno_runtime::DenoRuntime;
 use crate::rt_worker::utils::{get_event_metadata, parse_worker_conf};
 use crate::rt_worker::worker_ctx::create_supervisor;
 use crate::utils::send_event_if_event_worker_available;
-use anyhow::{anyhow, bail, Error};
+use anyhow::{anyhow, Error};
 use cpu_timer::get_thread_time;
 use event_worker::events::{
     EventMetadata, LogEvent, LogLevel, WorkerEventWithMetadata, WorkerEvents,
@@ -44,15 +44,9 @@ pub trait WorkerHandler: Send {
 
 impl Worker {
     pub fn new(init_opts: &WorkerContextInitOpts) -> Result<Self, Error> {
-        let service_path = init_opts.service_path.clone();
-
         let (worker_key, pool_msg_tx, events_msg_tx, thread_name) =
             parse_worker_conf(&init_opts.conf);
         let event_metadata = get_event_metadata(&init_opts.conf);
-
-        if !service_path.exists() {
-            bail!("service does not exist {:?}", &service_path)
-        }
 
         let worker_boot_start_time = Instant::now();
 

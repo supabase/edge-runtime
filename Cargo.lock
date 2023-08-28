@@ -3750,6 +3750,7 @@ dependencies = [
  "deno_core",
  "eszip",
  "import_map",
+ "log",
  "serde",
  "tokio",
 ]

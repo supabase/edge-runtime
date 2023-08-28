@@ -77,9 +77,9 @@ class UserWorker {
 			...opts,
 		};
 
-		const { servicePath } = readyOptions;
+		const { servicePath, maybeEszip } = readyOptions;
 
-		if (!servicePath || servicePath === '') {
+		if (!maybeEszip && (!servicePath || servicePath === '')) {
 			throw new TypeError('service path must be defined');
 		}
 

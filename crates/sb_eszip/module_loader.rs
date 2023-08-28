@@ -8,7 +8,8 @@ use deno_core::ModuleSource;
 use deno_core::ModuleSourceFuture;
 use deno_core::ModuleSpecifier;
 use deno_core::ResolutionKind;
-use import_map::ImportMap;
+use import_map::{parse_from_json, ImportMap};
+use log::warn;
 use std::path::Path;
 use std::pin::Pin;
 
@@ -18,13 +19,38 @@ pub struct EszipModuleLoader {
 }
 
 impl EszipModuleLoader {
-    pub async fn new(bytes: JsBuffer, maybe_import_map: Option<ImportMap>) -> Result<Self, Error> {
+    pub async fn new(bytes: JsBuffer, maybe_import_map_url: Option<String>) -> Result<Self, Error> {
         let bytes = Vec::from(&*bytes);
 
         let bufreader = BufReader::new(AllowStdIo::new(bytes.as_slice()));
         let (eszip, loader) = eszip::EszipV2::parse(bufreader).await?;
 
         loader.await?;
+
+        // load import map
+        let mut maybe_import_map: Option<ImportMap> = None;
+        if maybe_import_map_url.is_some() {
+            let import_map_url = Url::parse(&maybe_import_map_url.unwrap())?;
+
+            if let Some(import_map_module) = eszip.get_import_map(import_map_url.as_str()) {
+                if let Some(source) = import_map_module.source().await {
+                    let source = std::str::from_utf8(&source)?.to_string();
+                    let result = parse_from_json(&import_map_url, &source)?;
+                    if !result.diagnostics.is_empty() {
+                        warn!(
+                            "Import map diagnostics:\n{}",
+                            result
+                                .diagnostics
+                                .iter()
+                                .map(|d| format!("  - {d}"))
+                                .collect::<Vec<_>>()
+                                .join("\n")
+                        );
+                    }
+                    maybe_import_map = Some(result.import_map);
+                }
+            }
+        }
 
         Ok(Self {
             eszip,

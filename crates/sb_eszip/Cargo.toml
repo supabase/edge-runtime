@@ -14,5 +14,6 @@ anyhow.workspace = true
 deno_core.workspace = true
 eszip = "0.49.0"
 import_map = { version = "0.15.0" }
+log = { workspace = true }
 serde.workspace = true
 tokio.workspace = true

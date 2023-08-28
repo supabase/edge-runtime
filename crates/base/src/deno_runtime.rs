@@ -1,7 +1,7 @@
 use crate::utils::units::mib_to_bytes;
 
 use crate::js_worker::module_loader;
-use anyhow::{anyhow, Error};
+use anyhow::{anyhow, bail, Error};
 use deno_core::error::AnyError;
 use deno_core::url::Url;
 use deno_core::{located_script_name, serde_v8, JsRuntime, ModuleCode, ModuleId, RuntimeOptions};
@@ -121,14 +121,19 @@ impl DenoRuntime {
             maybe_entrypoint,
         } = opts;
 
+        // check if the service_path exists
+        if maybe_eszip.is_none() && !service_path.exists() {
+            bail!("service does not exist {:?}", &service_path)
+        }
+
         set_v8_flags();
 
         let user_agent = "supabase-edge-runtime".to_string();
         let base_dir_path = std::env::current_dir().map(|p| p.join(&service_path))?;
         let base_url = Url::from_directory_path(&base_dir_path).unwrap();
+
         // TODO: check for other potential main paths (eg: index.js, index.tsx)
         let mut main_module_url = base_url.join("index.ts")?;
-
         if maybe_eszip.is_some() && maybe_entrypoint.is_some() {
             main_module_url = Url::parse(&maybe_entrypoint.unwrap())?;
         }
@@ -197,9 +202,6 @@ impl DenoRuntime {
             sb_core_runtime::init_ops(Some(main_module_url.clone())),
         ];
 
-        let import_map = load_import_map(import_map_path)?;
-        let emitter = EmitterFactory::new();
-
         let mut runtime_options = RuntimeOptions {
             extensions,
             is_main: true,
@@ -221,9 +223,12 @@ impl DenoRuntime {
         };
         if maybe_eszip.is_some() {
             let eszip_module_loader =
-                EszipModuleLoader::new(maybe_eszip.unwrap(), import_map).await?;
+                EszipModuleLoader::new(maybe_eszip.unwrap(), import_map_path).await?;
             runtime_options.module_loader = Some(Rc::new(eszip_module_loader));
         } else {
+            let import_map = load_import_map(import_map_path)?;
+            let emitter = EmitterFactory::new();
+
             let default_module_loader = DefaultModuleLoader::new(
                 module_root_path,
                 import_map,

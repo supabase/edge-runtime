@@ -194,7 +194,6 @@ impl DenoRuntime {
             sb_user_workers::init_ops(),
             sb_user_event_worker::init_ops(),
             sb_events_js_interceptors::init_ops(),
-            //sb_eszip::init_ops(),
             sb_core_main_js::init_ops(),
             sb_core_net::init_ops(),
             sb_core_http::init_ops(),

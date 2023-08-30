@@ -1567,7 +1567,7 @@ export class ServerImpl extends EventEmitter {
       port,
     } as Deno.NetAddr;
     this.listening = true;
-    nextTick(() => this._serve());
+    this._serve();
 
     return this;
   }
@@ -1600,19 +1600,29 @@ export class ServerImpl extends EventEmitter {
       return;
     }
     this.#ac = ac;
-    this.#server = serve(
-      {
-        handler: handler as Deno.ServeHandler,
-        ...this.#addr,
-        signal: ac.signal,
-        // @ts-ignore Might be any without `--unstable` flag
-        onListen: ({ port }) => {
-          this.#addr!.port = port;
-          this.emit("listening");
-        },
-        ...this._additionalServeOptions?.(),
-      },
-    );
+
+    this.#server = Deno.serve((req) => {
+      return handler(req, {
+        remoteAddr: {
+          hostname: "0.0.0.0",
+          port: 9999
+        }
+      });
+    });
+    //
+    // this.#server = serve(
+    //   {
+    //     handler: handler as Deno.ServeHandler,
+    //     ...this.#addr,
+    //     signal: ac.signal,
+    //     // @ts-ignore Might be any without `--unstable` flag
+    //     onListen: ({ port }) => {
+    //       this.#addr!.port = port;
+    //       this.emit("listening");
+    //     },
+    //     ...this._additionalServeOptions?.(),
+    //   },
+    // );
     if (this.#unref) {
       this.#server.unref();
     }

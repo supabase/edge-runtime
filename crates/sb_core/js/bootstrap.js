@@ -223,13 +223,7 @@ const globalProperties = {
 	navigator: getterOnly(() => navigator),
 	self: getterOnly(() => globalThis),
 };
-
 ObjectDefineProperties(globalThis, globalProperties);
-ObjectSetPrototypeOf(globalThis, Window.prototype);
-event.setEventTargetData(globalThis);
-
-const eventHandlers = ['error', 'load', 'beforeunload', 'unload', 'unhandledrejection'];
-eventHandlers.forEach((handlerName) => event.defineEventHandler(globalThis, handlerName));
 
 const deleteDenoApis = (apis) => {
 	apis.forEach((key) => {
@@ -242,6 +236,13 @@ globalThis.bootstrapSBEdge = (opts, isUserWorker, isEventsWorker) => {
 	// Deleting it during bootstrapping can backfire
 	delete globalThis.__bootstrap;
 	delete globalThis.bootstrap;
+
+	ObjectSetPrototypeOf(globalThis, Window.prototype);
+	event.setEventTargetData(globalThis);
+	event.saveGlobalThisReference(globalThis);
+
+	const eventHandlers = ['error', 'load', 'beforeunload', 'unload', 'unhandledrejection'];
+	eventHandlers.forEach((handlerName) => event.defineEventHandler(globalThis, handlerName));
 
 	runtimeStart({
 		denoVersion: 'NA',

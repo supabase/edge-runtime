@@ -119,6 +119,7 @@ impl Server {
             events_rx: None,
             maybe_eszip: None,
             maybe_entrypoint: None,
+            maybe_module_code: None,
             conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
                 worker_pool_tx: user_worker_msgs_tx,
             }),

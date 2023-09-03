@@ -16,6 +16,7 @@ async fn test_worker_boot_invalid_imports() {
         events_rx: None,
         maybe_eszip: None,
         maybe_entrypoint: None,
+        maybe_module_code: None,
         conf: WorkerRuntimeOpts::UserWorker(user_rt_opts),
     };
     let result = create_worker(opts).await;

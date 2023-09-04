@@ -49,6 +49,8 @@ serve(async (req: Request) => {
 		// load source from an eszip
 		// const maybeEszip = await Deno.readFile('./sample.eszip');
 		// const maybeEntrypoint = 'file:///src/index.ts';
+		// or load module source from an inline module
+		// const maybeModuleCode = 'Deno.serve((req) => new Response("Hello from Module Code"));';
 
 		return await EdgeRuntime.userWorkers.create({
 			servicePath,
@@ -59,8 +61,9 @@ serve(async (req: Request) => {
 			envVars,
 			forceCreate,
 			netAccessDisabled,
-			//maybeEszip,
-			//maybeEntrypoint,
+			// maybeEszip,
+			// maybeEntrypoint,
+			// maybeModuleCode,
 		});
 	};
 

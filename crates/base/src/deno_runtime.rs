@@ -119,10 +119,11 @@ impl DenoRuntime {
             conf,
             maybe_eszip,
             maybe_entrypoint,
+            maybe_module_code,
         } = opts;
 
         // check if the service_path exists
-        if maybe_eszip.is_none() && !service_path.exists() {
+        if maybe_entrypoint.is_none() && !service_path.exists() {
             bail!("service does not exist {:?}", &service_path)
         }
 
@@ -134,7 +135,7 @@ impl DenoRuntime {
 
         // TODO: check for other potential main paths (eg: index.js, index.tsx)
         let mut main_module_url = base_url.join("index.ts")?;
-        if maybe_eszip.is_some() && maybe_entrypoint.is_some() {
+        if maybe_entrypoint.is_some() {
             main_module_url = Url::parse(&maybe_entrypoint.unwrap())?;
         }
 
@@ -277,7 +278,9 @@ impl DenoRuntime {
             }
         }
 
-        let main_module_id = js_runtime.load_main_module(&main_module_url, None).await?;
+        let main_module_id = js_runtime
+            .load_main_module(&main_module_url, maybe_module_code)
+            .await?;
 
         Ok(Self {
             js_runtime,
@@ -380,6 +383,7 @@ mod test {
             events_rx: None,
             maybe_eszip: None,
             maybe_entrypoint: None,
+            maybe_module_code: None,
             conf: {
                 if let Some(uc) = user_conf {
                     uc

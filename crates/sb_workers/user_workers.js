@@ -74,6 +74,7 @@ class UserWorker {
 			customModuleRoot: '',
 			maybeEszip: null,
 			maybeEntrypoint: null,
+			maybeModuleCode: null,
 			...opts,
 		};
 

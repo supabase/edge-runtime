@@ -41,9 +41,9 @@ const osCalls = {
 	consoleSize: () => ({ columns: 80, rows: 24 }),
 	command: DenoCommand,
 	version: {
-		deno: '',
-		'v8': '',
-		typescript: '',
+		deno: "supabase-edge-runtime-1.36.0",
+		v8: "11.6.189.12",
+		typescript: "5.1.6"
 	},
 	networkInterfaces: () => [
 		{

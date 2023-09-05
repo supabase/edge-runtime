@@ -240,12 +240,15 @@ impl DenoRuntime {
         }
         let mut js_runtime = JsRuntime::new(runtime_options);
 
+        let version = option_env!("GIT_V_TAG");
+
         // Bootstrapping stage
         let script = format!(
-            "globalThis.bootstrapSBEdge({}, {}, {})",
+            "globalThis.bootstrapSBEdge({}, {}, {}, '{}')",
             deno_core::serde_json::json!({ "target": env!("TARGET") }),
             conf.is_user_worker(),
-            conf.is_events_worker()
+            conf.is_events_worker(),
+            version.unwrap_or("0.1.0")
         );
 
         js_runtime

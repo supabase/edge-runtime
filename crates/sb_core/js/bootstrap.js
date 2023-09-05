@@ -231,7 +231,7 @@ const deleteDenoApis = (apis) => {
 	});
 };
 
-globalThis.bootstrapSBEdge = (opts, isUserWorker, isEventsWorker) => {
+globalThis.bootstrapSBEdge = (opts, isUserWorker, isEventsWorker, version) => {
 	// We should delete this after initialization,
 	// Deleting it during bootstrapping can backfire
 	delete globalThis.__bootstrap;
@@ -253,6 +253,8 @@ globalThis.bootstrapSBEdge = (opts, isUserWorker, isEventsWorker) => {
 		...opts,
 	});
 
+	ObjectDefineProperty(globalThis, 'SUPABASE_VERSION', readOnly(String(version)));
+
 	// set these overrides after runtimeStart
 	ObjectDefineProperties(denoOverrides, {
 		build: readOnly(build),
@@ -260,6 +262,11 @@ globalThis.bootstrapSBEdge = (opts, isUserWorker, isEventsWorker) => {
 		pid: readOnly(globalThis.__pid),
 		args: readOnly([]), // args are set to be empty
 		mainModule: getterOnly(() => ops.op_main_module()),
+		version: getterOnly(() => ({
+			deno: `supabase-edge-runtime-${globalThis.SUPABASE_VERSION}`,
+			v8: "11.6.189.12",
+			typescript: "5.1.6"
+		}))
 	});
 	ObjectDefineProperty(globalThis, 'Deno', readOnly(denoOverrides));
 

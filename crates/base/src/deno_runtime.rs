@@ -155,6 +155,14 @@ impl DenoRuntime {
         let root_cert_store_provider: Arc<dyn RootCertStoreProvider> =
             Arc::new(ValueRootCertStoreProvider::new(root_cert_store.clone()));
 
+        let mut stdio = Some(Default::default());
+        if conf.is_user_worker() {
+            stdio = Some(deno_io::Stdio {
+                stdin: deno_io::StdioPipe::File(std::fs::File::create("/dev/null")?),
+                stdout: deno_io::StdioPipe::File(std::fs::File::create("/dev/null")?),
+                stderr: deno_io::StdioPipe::File(std::fs::File::create("/dev/null")?),
+            });
+        }
         let fs = Arc::new(deno_fs::RealFs);
         let extensions = vec![
             sb_core_permissions::init_ops(net_access_disabled),
@@ -188,7 +196,7 @@ impl DenoRuntime {
             ),
             deno_tls::deno_tls::init_ops(),
             deno_http::deno_http::init_ops::<DefaultHttpPropertyExtractor>(),
-            deno_io::deno_io::init_ops(Some(Default::default())),
+            deno_io::deno_io::init_ops(stdio),
             deno_fs::deno_fs::init_ops::<Permissions>(false, fs.clone()),
             sb_env_op::init_ops(),
             sb_os::sb_os::init_ops(),

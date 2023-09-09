@@ -109,6 +109,8 @@ pub fn create_supervisor(
                                 bursts += 1;
                                 last_burst = Instant::now();
                             }
+                            // at half way of max cpu burst
+                            // retire the worker
                             if bursts > conf.max_cpu_bursts {
                                 thread_safe_handle.terminate_execution();
                                 error!("CPU time limit reached. isolate: {:?}", key);
@@ -117,13 +119,13 @@ pub fn create_supervisor(
                         }
 
                         // wall-clock limit
+                        // at half way of wall clock limit retire the worker
                         () = &mut sleep => {
                             // use interrupt to capture the heap stats
                             //thread_safe_handle.request_interrupt(callback, std::ptr::null_mut());
                             thread_safe_handle.terminate_execution();
                             error!("wall clock duration reached. isolate: {:?}", key);
                             return WorkerEvents::WallClockTimeLimit(PseudoEvent{});
-
                         }
 
                         // memory usage

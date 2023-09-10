@@ -97,7 +97,7 @@ impl WorkerPool {
         &self,
         key: u64,
         req: Request<Body>,
-        tx: Sender<Result<Response<Body>, Error>>,
+        res_tx: Sender<Result<Response<Body>, Error>>,
     ) {
         let _: Result<(), Error> = match self.user_workers.get(&key) {
             Some(worker) => {
@@ -117,7 +117,7 @@ impl WorkerPool {
 
                 // Spawn the closure as an async task
                 tokio::task::spawn(async move {
-                    if tx.send(request_handler.await).is_err() {
+                    if res_tx.send(request_handler.await).is_err() {
                         error!("main worker receiver dropped")
                     }
                 });
@@ -125,7 +125,10 @@ impl WorkerPool {
                 Ok(())
             }
             None => {
-                if tx.send(Err(anyhow!("user worker not available"))).is_err() {
+                if res_tx
+                    .send(Err(anyhow!("user worker not available")))
+                    .is_err()
+                {
                     error!("main worker receiver dropped")
                 }
 

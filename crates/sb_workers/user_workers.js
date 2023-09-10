@@ -27,35 +27,44 @@ class UserWorker {
 	}
 
 	async fetch(req) {
-		const { method, url, headers, body, bodyUsed } = req;
+		try {
+			const { method, url, headers, body, bodyUsed } = req;
 
-		const headersArray = Array.from(headers.entries());
-		const hasReqBody = !bodyUsed && !!body &&
-			(chunkExpression.test(headers.get('transfer-encoding')) ||
-				Number.parseInt(headers.get('content-length'), 10) > 0);
+			const headersArray = Array.from(headers.entries());
+			const hasReqBody = !bodyUsed && !!body &&
+				(chunkExpression.test(headers.get('transfer-encoding')) ||
+					Number.parseInt(headers.get('content-length'), 10) > 0);
 
-		const userWorkerReq = {
-			method,
-			url,
-			headers: headersArray,
-			hasBody: hasReqBody,
-		};
+			const userWorkerReq = {
+				method,
+				url,
+				headers: headersArray,
+				hasBody: hasReqBody,
+			};
 
-		const { requestRid, requestBodyRid } = await ops.op_user_worker_fetch_build(userWorkerReq);
+			const { requestRid, requestBodyRid } = await ops.op_user_worker_fetch_build(
+				userWorkerReq,
+			);
 
-		// stream the request body
-		if (hasReqBody) {
-			let writableStream = writableStreamForRid(requestBodyRid);
-			body.pipeTo(writableStream);
+			// stream the request body
+			let reqBodyPromise = null;
+			if (hasReqBody) {
+				let writableStream = writableStreamForRid(requestBodyRid);
+				reqBodyPromise = body.pipeTo(writableStream);
+			}
+
+			const resPromise = core.opAsync('op_user_worker_fetch_send', this.key, requestRid);
+			const [, res] = await Promise.all([reqBodyPromise, resPromise]);
+			const bodyStream = readableStreamForRid(res.bodyRid);
+			return new Response(nullBodyStatus(res.status) ? null : bodyStream, {
+				headers: res.headers,
+				status: res.status,
+				statusText: res.statusText,
+			});
+		} catch (e) {
+			console.error('failed to send the request');
+			console.error(e);
 		}
-
-		const res = await core.opAsync('op_user_worker_fetch_send', this.key, requestRid);
-		const bodyStream = readableStreamForRid(res.bodyRid);
-		return new Response(nullBodyStatus(res.status) ? null : bodyStream, {
-			headers: res.headers,
-			status: res.status,
-			statusText: res.statusText,
-		});
 	}
 
 	static async create(opts) {

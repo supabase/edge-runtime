@@ -568,9 +568,9 @@ mod test {
             .as_array()
             .unwrap()
             .to_vec();
-        assert_eq!(deno_version_array.get(0).unwrap().as_str().unwrap(), "");
-        assert_eq!(deno_version_array.get(1).unwrap().as_str().unwrap(), "");
-        assert_eq!(deno_version_array.get(2).unwrap().as_str().unwrap(), "");
+        assert_eq!(deno_version_array.get(0).unwrap().as_str().unwrap(), "supabase-edge-runtime-0.1.0");
+        assert_eq!(deno_version_array.get(1).unwrap().as_str().unwrap(), "11.6.189.12");
+        assert_eq!(deno_version_array.get(2).unwrap().as_str().unwrap(), "5.1.6");
 
         let system_memory_info_map = serde_deno_env
             .get("systemMemoryInfo")

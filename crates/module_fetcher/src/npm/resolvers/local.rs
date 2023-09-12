@@ -105,15 +105,15 @@ impl LocalNpmPackageResolver {
         specifier: &ModuleSpecifier,
     ) -> Result<Option<PathBuf>, AnyError> {
         let Some(relative_url) = self.root_node_modules_url.make_relative(specifier) else {
-      return Ok(None);
-    };
+            return Ok(None);
+        };
         if relative_url.starts_with("../") {
             return Ok(None);
         }
         // it's within the directory, so use it
         let Some(path) = specifier.to_file_path().ok() else {
-      return Ok(None);
-    };
+            return Ok(None);
+        };
         // Canonicalize the path so it's not pointing to the symlinked directory
         // in `node_modules` directory of the referrer.
         canonicalize_path_maybe_not_exists_with_fs(&path, |path| {
@@ -160,8 +160,8 @@ impl NpmPackageFsResolver for LocalNpmPackageResolver {
         mode: NodeResolutionMode,
     ) -> Result<PathBuf, AnyError> {
         let Some(local_path) = self.resolve_folder_for_specifier(referrer)? else {
-      bail!("could not find npm package for '{}'", referrer);
-    };
+            bail!("could not find npm package for '{}'", referrer);
+        };
         let package_root_path = self.resolve_package_root(&local_path);
         let mut current_folder = package_root_path.as_path();
         loop {
@@ -210,8 +210,8 @@ impl NpmPackageFsResolver for LocalNpmPackageResolver {
         specifier: &ModuleSpecifier,
     ) -> Result<Option<PathBuf>, AnyError> {
         let Some(local_path) = self.resolve_folder_for_specifier(specifier)? else {
-      return Ok(None);
-    };
+            return Ok(None);
+        };
         let package_root_path = self.resolve_package_root(&local_path);
         Ok(Some(package_root_path))
     }
@@ -221,8 +221,8 @@ impl NpmPackageFsResolver for LocalNpmPackageResolver {
         specifier: &ModuleSpecifier,
     ) -> Result<Option<NpmPackageCacheFolderId>, AnyError> {
         let Some(folder_path) = self.resolve_package_folder_from_specifier(specifier)? else {
-      return Ok(None);
-    };
+            return Ok(None);
+        };
         let folder_name = folder_path.parent().unwrap().to_string_lossy();
         Ok(get_package_folder_id_from_folder_name(&folder_name))
     }

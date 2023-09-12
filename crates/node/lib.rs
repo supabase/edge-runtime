@@ -136,8 +136,8 @@ fn op_is_any_arraybuffer(value: serde_v8::Value) -> bool {
 #[op(fast)]
 fn op_node_is_promise_rejected(value: serde_v8::Value) -> bool {
     let Ok(promise) = v8::Local::<v8::Promise>::try_from(value.v8_value) else {
-    return false;
-  };
+        return false;
+    };
 
     promise.state() == v8::PromiseState::Rejected
 }

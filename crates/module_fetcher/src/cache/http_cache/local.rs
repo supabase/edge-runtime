@@ -374,8 +374,10 @@ fn url_to_local_sub_path(
     // get the base url
     let port_separator = "_"; // make this shorter with just an underscore
     let Some(mut base_parts) = base_url_to_filename_parts(url, port_separator) else {
-    return Err(UrlToFilenameConversionError { url: url.to_string() });
-  };
+        return Err(UrlToFilenameConversionError {
+            url: url.to_string(),
+        });
+    };
 
     if base_parts[0] == "https" {
         base_parts.remove(0);
@@ -528,8 +530,8 @@ impl LocalCacheManifest {
                 };
 
                 let Ok(metadata) = sub_path.metadata() else {
-          return None;
-        };
+                    return None;
+                };
 
                 Some(CachedUrlMetadata {
                     headers,

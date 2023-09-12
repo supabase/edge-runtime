@@ -264,8 +264,8 @@ pub async fn create_user_worker_pool(
                 Some(UserWorkerMsgs::Create(worker_options, tx)) => {
                     let _ = worker_pool.create_worker(worker_options, tx).await;
                 }
-                Some(UserWorkerMsgs::SendRequest(key, req, tx)) => {
-                    worker_pool.send_request(key, req, tx);
+                Some(UserWorkerMsgs::SendRequest(key, req, res_tx)) => {
+                    worker_pool.send_request(key, req, res_tx);
                 }
                 Some(UserWorkerMsgs::Shutdown(key)) => {
                     worker_pool.shutdown(key);

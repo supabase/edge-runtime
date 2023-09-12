@@ -211,8 +211,10 @@ fn x509name_to_string(
 ) -> Result<String, x509_parser::error::X509Error> {
     // Lifted from https://github.com/rusticata/x509-parser/blob/4d618c2ed6b1fc102df16797545895f7c67ee0fe/src/x509.rs#L543-L566
     // since it's a private function (Copyright 2017 Pierre Chifflier)
+    #[allow(clippy::manual_try_fold)]
     name.iter_rdn().fold(Ok(String::new()), |acc, rdn| {
         acc.and_then(|mut _vec| {
+            #[allow(clippy::manual_try_fold)]
             rdn.iter()
                 .fold(Ok(String::new()), |acc2, attr| {
                     acc2.and_then(|mut _vec2| {

@@ -286,7 +286,8 @@ globalThis.bootstrapSBEdge = (opts, isUserWorker, isEventsWorker, version) => {
 			),
 		});
 
-		deleteDenoApis(Object.keys(fsVars));
+		// remove all fs APIs except Deno.cwd
+		deleteDenoApis(Object.keys(fsVars).filter((k) => k !== 'cwd'));
 	}
 
 	if (isEventsWorker) {

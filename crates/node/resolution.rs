@@ -1018,10 +1018,9 @@ impl NodeResolver {
         let (package_name, package_subpath, _is_scoped) = parse_package_name(specifier, referrer)?;
 
         // ResolveSelf
-        let Some(package_config) =
-      self.get_package_scope_config(referrer, permissions)? else {
-        return Ok(None);
-      };
+        let Some(package_config) = self.get_package_scope_config(referrer, permissions)? else {
+            return Ok(None);
+        };
         if package_config.exists && package_config.name.as_ref() == Some(&package_name) {
             if let Some(exports) = &package_config.exports {
                 return self
@@ -1093,10 +1092,11 @@ impl NodeResolver {
         permissions: &dyn NodePermissions,
     ) -> Result<Option<PackageJson>, AnyError> {
         let Some(root_folder) = self
-      .npm_resolver
-      .resolve_package_folder_from_path(&referrer.to_file_path().unwrap())? else {
-        return Ok(None);
-      };
+            .npm_resolver
+            .resolve_package_folder_from_path(&referrer.to_file_path().unwrap())?
+        else {
+            return Ok(None);
+        };
         let package_json_path = root_folder.join("package.json");
         self.load_package_json(permissions, package_json_path)
             .map(Some)
@@ -1108,8 +1108,8 @@ impl NodeResolver {
         permissions: &dyn NodePermissions,
     ) -> Result<Option<PackageJson>, AnyError> {
         let Some(package_json_path) = self.get_closest_package_json_path(url)? else {
-      return Ok(None);
-    };
+            return Ok(None);
+        };
         self.load_package_json(permissions, package_json_path)
             .map(Some)
     }
@@ -1127,10 +1127,11 @@ impl NodeResolver {
             return Ok(Some(package_json_path));
         }
         let Some(root_pkg_folder) = self
-      .npm_resolver
-      .resolve_package_folder_from_path(current_dir)? else {
-        return Ok(None);
-      };
+            .npm_resolver
+            .resolve_package_folder_from_path(current_dir)?
+        else {
+            return Ok(None);
+        };
         while current_dir.starts_with(&root_pkg_folder) {
             current_dir = current_dir.parent().unwrap();
             let package_json_path = current_dir.join("package.json");

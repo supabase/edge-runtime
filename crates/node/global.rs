@@ -226,8 +226,8 @@ pub fn global_object_middleware<'s>(
 
 fn is_managed_key(scope: &mut v8::HandleScope, key: v8::Local<v8::Name>) -> bool {
     let Ok(str): Result<v8::Local<v8::String>, _> = key.try_into() else {
-    return false;
-  };
+        return false;
+    };
     let len = str.length();
 
     #[allow(clippy::manual_range_contains)]
@@ -247,14 +247,14 @@ fn is_managed_key(scope: &mut v8::HandleScope, key: v8::Local<v8::Name>) -> bool
 
 fn current_mode(scope: &mut v8::HandleScope) -> Mode {
     let Some(v8_string) = v8::StackTrace::current_script_name_or_source_url(scope) else {
-    return Mode::Deno;
-  };
+        return Mode::Deno;
+    };
     let string = v8_string.to_rust_string_lossy(scope);
     let op_state = deno_core::JsRuntime::op_state_from(scope);
     let op_state = op_state.borrow();
     let Some(node_resolver) = op_state.try_borrow::<Rc<NodeResolver>>() else {
-    return Mode::Deno;
-  };
+        return Mode::Deno;
+    };
     if node_resolver.in_npm_package_with_cache(string) {
         Mode::Node
     } else {
@@ -287,12 +287,12 @@ pub fn getter<'s>(
 
     let undefined = v8::undefined(scope);
     let Some(value) = reflect_get.call(
-    scope,
-    undefined.into(),
-    &[inner.into(), key.into(), this.into()],
-  ) else {
-    return;
-  };
+        scope,
+        undefined.into(),
+        &[inner.into(), key.into(), this.into()],
+    ) else {
+        return;
+    };
 
     rv.set(value);
 }
@@ -324,12 +324,12 @@ pub fn setter<'s>(
     let undefined = v8::undefined(scope);
 
     let Some(success) = reflect_set.call(
-    scope,
-    undefined.into(),
-    &[inner.into(), key.into(), value, this.into()],
-  ) else {
-    return;
-  };
+        scope,
+        undefined.into(),
+        &[inner.into(), key.into(), value, this.into()],
+    ) else {
+        return;
+    };
 
     rv.set(success);
 }
@@ -353,12 +353,12 @@ pub fn query<'s>(
     let inner = v8::Local::new(scope, inner);
 
     let Some(true) = inner.has_own_property(scope, key) else {
-    return;
-  };
+        return;
+    };
 
     let Some(attributes) = inner.get_property_attributes(scope, key.into()) else {
-    return;
-  };
+        return;
+    };
 
     rv.set_uint32(attributes.as_u32());
 }
@@ -383,8 +383,8 @@ pub fn deleter<'s>(
     let inner = v8::Local::new(scope, inner);
 
     let Some(success) = inner.delete(scope, key.into()) else {
-    return;
-  };
+        return;
+    };
 
     if args.should_throw_on_error() && !success {
         let message = v8::String::new(scope, "Cannot delete property").unwrap();
@@ -411,8 +411,8 @@ pub fn enumerator<'s>(
     let inner = v8::Local::new(scope, inner);
 
     let Some(array) = inner.get_property_names(scope, GetPropertyNamesArgs::default()) else {
-    return;
-  };
+        return;
+    };
 
     rv.set(array.into());
 }
@@ -438,8 +438,8 @@ pub fn definer<'s>(
     let inner = v8::Local::new(scope, inner);
 
     let Some(success) = inner.define_property(scope, key, descriptor) else {
-    return;
-  };
+        return;
+    };
 
     if args.should_throw_on_error() && !success {
         let message = v8::String::new(scope, "Cannot define property").unwrap();
@@ -473,9 +473,9 @@ pub fn descriptor<'s>(
     let inner = v8::Local::new(scope, inner);
 
     let Some(descriptor) = inner.get_own_property_descriptor(scope, key) else {
-    scope.rethrow().expect("to have caught an exception");
-    return;
-  };
+        scope.rethrow().expect("to have caught an exception");
+        return;
+    };
 
     if descriptor.is_undefined() {
         return;

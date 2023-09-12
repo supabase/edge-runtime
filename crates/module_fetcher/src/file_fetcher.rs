@@ -233,16 +233,16 @@ impl FileFetcher {
 
         let cache_key = self.http_cache.cache_item_key(specifier)?; // compute this once
         let Some(metadata) = self.http_cache.read_metadata(&cache_key)? else {
-      return Ok(None);
-    };
+            return Ok(None);
+        };
         let headers = metadata.headers;
         if let Some(redirect_to) = headers.get("location") {
             let redirect = deno_core::resolve_import(redirect_to, specifier.as_str())?;
             return self.fetch_cached(&redirect, redirect_limit - 1);
         }
         let Some(bytes) = self.http_cache.read_file_bytes(&cache_key)? else {
-      return Ok(None);
-    };
+            return Ok(None);
+        };
         let file = self.build_remote_file(specifier, bytes, &headers)?;
 
         Ok(Some(file))
@@ -437,11 +437,11 @@ impl FileFetcher {
             CacheSetting::Use | CacheSetting::Only => true,
             CacheSetting::RespectHeaders => {
                 let Ok(cache_key) = self.http_cache.cache_item_key(specifier) else {
-          return false;
-        };
+                    return false;
+                };
                 let Ok(Some(metadata)) = self.http_cache.read_metadata(&cache_key) else {
-          return false;
-        };
+                    return false;
+                };
                 let cache_semantics =
                     CacheSemantics::new(metadata.headers, metadata.time, SystemTime::now());
                 cache_semantics.should_use()

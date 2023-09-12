@@ -1035,12 +1035,13 @@ impl ConfigFile {
         &self,
     ) -> Result<Option<JsxImportSourceConfig>, AnyError> {
         let Some(compiler_options_value) = self.json.compiler_options.as_ref() else {
-      return Ok(None);
-    };
+            return Ok(None);
+        };
         let Some(compiler_options) =
-      serde_json::from_value::<CompilerOptions>(compiler_options_value.clone()).ok() else {
-        return Ok(None);
-      };
+            serde_json::from_value::<CompilerOptions>(compiler_options_value.clone()).ok()
+        else {
+            return Ok(None);
+        };
         let module = match compiler_options.jsx.as_deref() {
       Some("react-jsx") => "jsx-runtime".to_string(),
       Some("react-jsxdev") => "jsx-dev-runtime".to_string(),

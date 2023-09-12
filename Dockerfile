@@ -1,13 +1,14 @@
 # syntax=docker/dockerfile:1.4
 FROM rust:1.71.0-bookworm as builder
 ARG TARGETPLATFORM
+ARG GIT_V_VERSION
 RUN apt-get update && apt-get install -y llvm-dev libclang-dev clang
 WORKDIR /usr/src/edge-runtime
 RUN --mount=type=cache,target=/usr/local/cargo/registry,id=${TARGETPLATFORM} \
     cargo install cargo-strip
 COPY . .
 RUN --mount=type=cache,target=/usr/local/cargo/registry,id=${TARGETPLATFORM} --mount=type=cache,target=/usr/src/edge-runtime/target,id=${TARGETPLATFORM} \
-    cargo build --release && \
+    GIT_V_TAG=${GIT_V_VERSION} cargo build --release && \
     cargo strip && \
     mv /usr/src/edge-runtime/target/release/edge-runtime /root
 

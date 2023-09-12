@@ -117,6 +117,55 @@ async fn test_main_worker_boot_error() {
     assert_eq!(result.unwrap_err().to_string(), "worker boot error");
 }
 
+#[tokio::test]
+async fn test_main_worker_abort_request() {
+    // create a user worker pool
+    let user_worker_msgs_tx = create_user_worker_pool(None).await.unwrap();
+    let opts = WorkerContextInitOpts {
+        service_path: "./test_cases/main_with_abort".into(),
+        no_module_cache: false,
+        import_map_path: None,
+        env_vars: HashMap::new(),
+        events_rx: None,
+        maybe_eszip: None,
+        maybe_entrypoint: None,
+        maybe_module_code: None,
+        conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
+            worker_pool_tx: user_worker_msgs_tx,
+        }),
+    };
+    let worker_req_tx = create_worker(opts).await.unwrap();
+    let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
+
+    let body_chunk = "{ \"name\": \"bar\"}";
+
+    let content_length = &body_chunk.len();
+    let chunks: Vec<Result<_, std::io::Error>> = vec![Ok(body_chunk)];
+    let stream = futures_util::stream::iter(chunks);
+    let body = Body::wrap_stream(stream);
+
+    let req = Request::builder()
+        .uri("/std_user_worker")
+        .method("POST")
+        .header("Content-Type", "application/json")
+        .header("Content-Length", content_length.to_string())
+        .body(body)
+        .unwrap();
+
+    let msg = WorkerRequestMsg { req, res_tx };
+    let _ = worker_req_tx.send(msg);
+
+    let res = res_rx.await.unwrap().unwrap();
+    assert!(res.status().as_u16() == 500);
+
+    let body_bytes = hyper::body::to_bytes(res.into_body()).await.unwrap();
+
+    assert_eq!(
+        body_bytes,
+        "{\"msg\":\"AbortError: The signal has been aborted\"}"
+    );
+}
+
 //#[tokio::test]
 //async fn test_main_worker_user_worker_mod_evaluate_exception() {
 //    // create a user worker pool

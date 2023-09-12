@@ -14,6 +14,7 @@ pub fn construct_v8_flags(
     v8_flags: &[String],
     env_v8_flags: Vec<String>,
 ) -> Vec<String> {
+    #[allow(clippy::useless_conversion)]
     std::iter::once("UNUSED_BUT_NECESSARY_ARG0".to_owned())
         .chain(default_v8_flags.iter().cloned())
         .chain(env_v8_flags.into_iter())

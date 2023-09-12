@@ -73,7 +73,13 @@ serve(async (req: Request) => {
 			// it will be reused by default.
 			// Update forceCreate option in createWorker to force create a new worker for each request.
 			const worker = await createWorker();
-			return await worker.fetch(req);
+			const controller = new AbortController();
+
+			const signal = controller.signal;
+			// Optional: abort the request after a timeout
+			//setTimeout(() => controller.abort(), 2 * 60 * 1000);
+
+			return await worker.fetch(req, { signal });
 		} catch (e) {
 			console.error(e);
 			const error = { msg: e.toString() };

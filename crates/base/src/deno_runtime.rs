@@ -109,6 +109,8 @@ pub struct DenoRuntime {
 }
 
 impl DenoRuntime {
+
+    #[allow(clippy::unnecessary_literal_unwrap)]
     pub async fn new(opts: WorkerContextInitOpts) -> Result<Self, Error> {
         let WorkerContextInitOpts {
             service_path,
@@ -248,7 +250,7 @@ impl DenoRuntime {
         }
         let mut js_runtime = JsRuntime::new(runtime_options);
 
-        let version = option_env!("GIT_V_TAG");
+        let version: Option<&str> = option_env!("GIT_V_TAG");
 
         // Bootstrapping stage
         let script = format!(

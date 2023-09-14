@@ -40,11 +40,6 @@ const osCalls = {
 	}),
 	consoleSize: () => ({ columns: 80, rows: 24 }),
 	command: DenoCommand,
-	version: {
-		deno: '',
-		'v8': '',
-		typescript: '',
-	},
 	networkInterfaces: () => [
 		{
 			'family': 'IPv4',

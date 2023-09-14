@@ -60,6 +60,8 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          build-args: |
+            GIT_V_VERSION=${{ steps.semantic.outputs.new_release_version }}
 
   publish_arm:
     needs:

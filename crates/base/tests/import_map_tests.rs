@@ -20,7 +20,6 @@ async fn test_import_map_file_path() {
         events_rx: None,
         maybe_eszip: None,
         maybe_entrypoint: None,
-        maybe_module_code: None,
         conf: WorkerRuntimeOpts::UserWorker(user_rt_opts),
     };
     let worker_req_tx = create_worker(opts).await.unwrap();
@@ -71,7 +70,6 @@ async fn test_import_map_inline() {
         events_rx: None,
         maybe_eszip: None,
         maybe_entrypoint: None,
-        maybe_module_code: None,
         conf: WorkerRuntimeOpts::UserWorker(user_rt_opts),
     };
     let worker_req_tx = create_worker(opts).await.unwrap();

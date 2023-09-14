@@ -47,7 +47,6 @@ pub struct UserWorkerCreateOptions {
     custom_module_root: Option<String>,
     maybe_eszip: Option<JsBuffer>,
     maybe_entrypoint: Option<String>,
-    maybe_module_code: Option<String>,
 
     memory_limit_mb: u64,
     low_memory_multiplier: u64,
@@ -77,7 +76,6 @@ pub async fn op_user_worker_create(
             custom_module_root,
             maybe_eszip,
             maybe_entrypoint,
-            maybe_module_code,
 
             memory_limit_mb,
             low_memory_multiplier,
@@ -100,7 +98,6 @@ pub async fn op_user_worker_create(
             events_rx: None,
             maybe_eszip,
             maybe_entrypoint,
-            maybe_module_code: maybe_module_code.map(|v| v.into()),
             conf: WorkerRuntimeOpts::UserWorker(UserWorkerRuntimeOpts {
                 memory_limit_mb,
                 low_memory_multiplier,

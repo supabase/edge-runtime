@@ -18,7 +18,6 @@ async fn test_main_worker_options_request() {
         events_rx: None,
         maybe_eszip: None,
         maybe_entrypoint: None,
-        maybe_module_code: None,
         conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
             worker_pool_tx: user_worker_msgs_tx,
         }),
@@ -60,7 +59,6 @@ async fn test_main_worker_post_request() {
         events_rx: None,
         maybe_eszip: None,
         maybe_entrypoint: None,
-        maybe_module_code: None,
         conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
             worker_pool_tx: user_worker_msgs_tx,
         }),
@@ -106,7 +104,6 @@ async fn test_main_worker_boot_error() {
         events_rx: None,
         maybe_eszip: None,
         maybe_entrypoint: None,
-        maybe_module_code: None,
         conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
             worker_pool_tx: user_worker_msgs_tx,
         }),

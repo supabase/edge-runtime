@@ -17,7 +17,7 @@ use tokio::sync::oneshot::Sender;
 
 pub struct WorkerPool {
     pub worker_event_sender: Option<mpsc::UnboundedSender<WorkerEventWithMetadata>>,
-    pub user_workers: HashMap<u64, UserWorkerProfile>,
+    active_user_workers: HashMap<u64, UserWorkerProfile>,
     pub user_worker_msg_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
 }
 
@@ -33,7 +33,8 @@ impl WorkerPool {
     ) -> Self {
         Self {
             worker_event_sender,
-            user_workers: HashMap::new(),
+            active_user_workers: HashMap::new(),
+            retired_user_workers: HashMap::new(),
             user_worker_msg_tx,
         }
     }
@@ -71,7 +72,7 @@ impl WorkerPool {
 
         match result {
             Ok(user_worker_req_tx) => {
-                self.user_workers.insert(
+                self.active_user_workers.insert(
                     key,
                     UserWorkerProfile {
                         worker_event_tx: user_worker_req_tx,
@@ -99,7 +100,7 @@ impl WorkerPool {
         req: Request<Body>,
         tx: Sender<Result<Response<Body>, Error>>,
     ) {
-        let _: Result<(), Error> = match self.user_workers.get(&key) {
+        let _: Result<(), Error> = match self.active_user_workers.get(&key) {
             Some(worker) => {
                 let profile = worker.clone();
 
@@ -134,8 +135,13 @@ impl WorkerPool {
         };
     }
 
+    pub fn retire(&mut self, key: u64) {
+        self.active_user_workers.remove(&key);
+    }
+
     pub fn shutdown(&mut self, key: u64) {
-        self.user_workers.remove(&key);
+        // check if the worker is already in retired pool
+        self.active_user_workers.remove(&key);
     }
 
     fn derive_worker_key(&self, service_path: &Path, force_create: bool) -> (u64, String) {
@@ -149,6 +155,6 @@ impl WorkerPool {
     }
 
     fn worker_already_exists(&self, key: u64, force_create: bool) -> bool {
-        !force_create && self.user_workers.contains_key(&key)
+        !force_create && self.active_user_workers.contains_key(&key)
     }
 }

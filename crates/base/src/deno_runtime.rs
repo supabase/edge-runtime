@@ -709,6 +709,7 @@ mod test {
                 low_memory_multiplier: 5,
                 force_create: true,
                 net_access_disabled: false,
+                allow_remote_modules: true,
                 custom_module_root: None,
                 key: None,
                 pool_msg_tx: None,

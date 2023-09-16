@@ -144,13 +144,15 @@ impl DenoRuntime {
         let root_cert_store = deno_tls::create_default_root_cert_store();
 
         let mut net_access_disabled = false;
+        let mut allow_remote_modules = true;
         let mut module_root_path = base_dir_path.clone();
         if conf.is_user_worker() {
             let user_conf = conf.as_user_worker().unwrap();
             if let Some(custom_module_root) = &user_conf.custom_module_root {
                 module_root_path = PathBuf::from(custom_module_root);
             }
-            net_access_disabled = user_conf.net_access_disabled
+            net_access_disabled = user_conf.net_access_disabled;
+            allow_remote_modules = user_conf.allow_remote_modules;
         }
 
         let root_cert_store_provider: Arc<dyn RootCertStoreProvider> =
@@ -243,7 +245,7 @@ impl DenoRuntime {
                 import_map,
                 emitter.emitter().unwrap(),
                 no_module_cache,
-                true, //allow_remote_modules
+                allow_remote_modules,
             )?;
             runtime_options.module_loader = Some(Rc::new(default_module_loader));
         }

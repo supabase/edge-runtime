@@ -107,6 +107,7 @@ class UserWorker {
 			envVars: [],
 			forceCreate: false,
 			netAccessDisabled: false,
+			allowRemoteModules: true,
 			customModuleRoot: '',
 			maybeEszip: null,
 			maybeEntrypoint: null,

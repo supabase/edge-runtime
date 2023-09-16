@@ -181,6 +181,7 @@ pub async fn create_worker(
 
         // wait for worker to be successfully booted
         let worker_boot_result = worker_boot_result_rx.await?;
+
         match worker_boot_result {
             Err(err) => {
                 worker_req_handle.abort();
@@ -262,7 +263,7 @@ pub async fn create_user_worker_pool(
             match user_worker_msgs_rx.recv().await {
                 None => break,
                 Some(UserWorkerMsgs::Create(worker_options, tx)) => {
-                    let _ = worker_pool.create_worker(worker_options, tx).await;
+                    let _ = worker_pool.create_user_worker(worker_options, tx).await;
                 }
                 Some(UserWorkerMsgs::SendRequest(key, req, res_tx)) => {
                     worker_pool.send_request(key, req, res_tx);

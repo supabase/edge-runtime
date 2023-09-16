@@ -38,7 +38,7 @@ impl WorkerPool {
         }
     }
 
-    pub async fn create_worker(
+    pub async fn create_user_worker(
         &mut self,
         mut worker_options: WorkerContextInitOpts,
         tx: Sender<Result<CreateUserWorkerResult, Error>>,
@@ -105,8 +105,8 @@ impl WorkerPool {
 
                 // Create a closure to handle the request and send the response
                 let request_handler = async move {
-                    let req = send_user_worker_request(profile.worker_event_tx, req).await;
-                    match req {
+                    let result = send_user_worker_request(profile.worker_event_tx, req).await;
+                    match result {
                         Ok(rep) => Ok(rep),
                         Err(err) => {
                             error!("failed to send request to user worker: {}", err.to_string());

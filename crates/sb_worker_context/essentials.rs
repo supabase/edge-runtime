@@ -29,6 +29,7 @@ pub struct UserWorkerRuntimeOpts {
     pub force_create: bool,
     pub net_access_disabled: bool,
     pub custom_module_root: Option<String>,
+    pub allow_remote_modules: bool,
 }
 
 impl Default for UserWorkerRuntimeOpts {
@@ -46,6 +47,7 @@ impl Default for UserWorkerRuntimeOpts {
             pool_msg_tx: None,
             events_msg_tx: None,
             net_access_disabled: false,
+            allow_remote_modules: true,
             custom_module_root: None,
             service_path: None,
             execution_id: None,

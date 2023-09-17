@@ -18,9 +18,21 @@ pub struct EszipModuleLoader {
     maybe_import_map: Option<ImportMap>,
 }
 
+#[derive(Debug)]
+pub enum EszipPayloadKind {
+    JsBufferKind(JsBuffer),
+    VecKind(Vec<u8>),
+}
+
 impl EszipModuleLoader {
-    pub async fn new(bytes: JsBuffer, maybe_import_map_url: Option<String>) -> Result<Self, Error> {
-        let bytes = Vec::from(&*bytes);
+    pub async fn new(
+        eszip_payload: EszipPayloadKind,
+        maybe_import_map_url: Option<String>,
+    ) -> Result<Self, Error> {
+        let bytes = match eszip_payload {
+            EszipPayloadKind::JsBufferKind(js_buffer) => Vec::from(&*js_buffer),
+            EszipPayloadKind::VecKind(vec) => vec,
+        };
 
         let bufreader = BufReader::new(AllowStdIo::new(bytes.as_slice()));
         let (eszip, loader) = eszip::EszipV2::parse(bufreader).await?;

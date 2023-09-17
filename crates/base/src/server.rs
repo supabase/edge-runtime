@@ -1,13 +1,10 @@
 use crate::rt_worker::worker_ctx::{
-    create_events_worker, create_user_worker_pool, create_worker, WorkerRequestMsg,
+    create_events_worker, create_main_worker, create_user_worker_pool, WorkerRequestMsg,
 };
 use anyhow::Error;
 use event_worker::events::WorkerEventWithMetadata;
 use hyper::{server::conn::Http, service::Service, Body, Request, Response};
 use log::{debug, error, info};
-use sb_worker_context::essentials::{
-    MainWorkerRuntimeOpts, WorkerContextInitOpts, WorkerRuntimeOpts,
-};
 use std::future::Future;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
@@ -101,8 +98,7 @@ impl Server {
 
             let events_worker =
                 create_events_worker(events_path_buf, import_map_path.clone(), no_module_cache)
-                    .await
-                    .expect("Event worker could not be created");
+                    .await?;
 
             worker_events_sender = Some(events_worker);
         }
@@ -111,20 +107,13 @@ impl Server {
         let user_worker_msgs_tx = create_user_worker_pool(worker_events_sender).await?;
 
         // create main worker
-        let main_path = Path::new(&main_service_path);
-        let main_worker_req_tx = create_worker(WorkerContextInitOpts {
-            service_path: main_path.to_path_buf(),
-            import_map_path,
+        let main_worker_path = Path::new(&main_service_path).to_path_buf();
+        let main_worker_req_tx = create_main_worker(
+            main_worker_path,
+            import_map_path.clone(),
             no_module_cache,
-            events_rx: None,
-            maybe_eszip: None,
-            maybe_entrypoint: None,
-            maybe_module_code: None,
-            conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
-                worker_pool_tx: user_worker_msgs_tx,
-            }),
-            env_vars: std::env::vars().collect(),
-        })
+            user_worker_msgs_tx,
+        )
         .await?;
 
         // register alarm signal handler

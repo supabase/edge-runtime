@@ -4,13 +4,15 @@ use crate::utils::units::bytes_to_display;
 
 use crate::rt_worker::worker::{Worker, WorkerHandler};
 use crate::rt_worker::worker_pool::WorkerPool;
-use anyhow::{bail, Error};
+use anyhow::{anyhow, bail, Error};
 use cpu_timer::{CPUAlarmVal, CPUTimer};
 use event_worker::events::{BootEvent, PseudoEvent, WorkerEventWithMetadata, WorkerEvents};
 use hyper::{Body, Request, Response};
 use log::{debug, error};
+use sb_eszip::module_loader::EszipPayloadKind;
 use sb_worker_context::essentials::{
-    EventWorkerRuntimeOpts, UserWorkerMsgs, WorkerContextInitOpts, WorkerRuntimeOpts,
+    EventWorkerRuntimeOpts, MainWorkerRuntimeOpts, UserWorkerMsgs, WorkerContextInitOpts,
+    WorkerRuntimeOpts,
 };
 use std::path::PathBuf;
 use std::thread;
@@ -225,6 +227,42 @@ pub async fn send_user_worker_request(
     Ok(res)
 }
 
+pub async fn create_main_worker(
+    main_worker_path: PathBuf,
+    import_map_path: Option<String>,
+    no_module_cache: bool,
+    user_worker_msgs_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
+) -> Result<mpsc::UnboundedSender<WorkerRequestMsg>, Error> {
+    let mut service_path = main_worker_path.clone();
+    let mut maybe_eszip = None;
+    let mut maybe_entrypoint = None;
+    if let Some(ext) = main_worker_path.extension() {
+        if ext == "eszip" {
+            service_path = main_worker_path.parent().unwrap().to_path_buf();
+            maybe_eszip = Some(EszipPayloadKind::VecKind(std::fs::read(main_worker_path)?));
+            maybe_entrypoint = Some("file:///src/index.ts".to_string());
+        }
+    }
+
+    let main_worker_req_tx = create_worker(WorkerContextInitOpts {
+        service_path,
+        import_map_path,
+        no_module_cache,
+        events_rx: None,
+        maybe_eszip,
+        maybe_entrypoint,
+        maybe_module_code: None,
+        conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
+            worker_pool_tx: user_worker_msgs_tx,
+        }),
+        env_vars: std::env::vars().collect(),
+    })
+    .await
+    .map_err(|err| anyhow!("main worker boot error: {}", err))?;
+
+    Ok(main_worker_req_tx)
+}
+
 pub async fn create_events_worker(
     events_worker_path: PathBuf,
     import_map_path: Option<String>,
@@ -232,18 +270,32 @@ pub async fn create_events_worker(
 ) -> Result<mpsc::UnboundedSender<WorkerEventWithMetadata>, Error> {
     let (events_tx, events_rx) = mpsc::unbounded_channel::<WorkerEventWithMetadata>();
 
+    let mut service_path = events_worker_path.clone();
+    let mut maybe_eszip = None;
+    let mut maybe_entrypoint = None;
+    if let Some(ext) = events_worker_path.extension() {
+        if ext == "eszip" {
+            service_path = events_worker_path.parent().unwrap().to_path_buf();
+            maybe_eszip = Some(EszipPayloadKind::VecKind(std::fs::read(
+                events_worker_path,
+            )?));
+            maybe_entrypoint = Some("file:///src/index.ts".to_string());
+        }
+    }
+
     let _ = create_worker(WorkerContextInitOpts {
-        service_path: events_worker_path,
+        service_path,
         no_module_cache,
         import_map_path,
         env_vars: std::env::vars().collect(),
         events_rx: Some(events_rx),
-        maybe_eszip: None,
-        maybe_entrypoint: None,
+        maybe_eszip,
+        maybe_entrypoint,
         maybe_module_code: None,
         conf: WorkerRuntimeOpts::EventsWorker(EventWorkerRuntimeOpts {}),
     })
-    .await?;
+    .await
+    .map_err(|err| anyhow!("events worker boot error: {}", err))?;
 
     Ok(events_tx)
 }

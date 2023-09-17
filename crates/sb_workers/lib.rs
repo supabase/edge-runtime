@@ -10,6 +10,7 @@ use deno_core::{
 use hyper::body::HttpBody;
 use hyper::header::{HeaderName, HeaderValue};
 use hyper::{Body, Request, Response};
+use sb_eszip::module_loader::EszipPayloadKind;
 use sb_worker_context::essentials::{
     CreateUserWorkerResult, UserWorkerMsgs, UserWorkerRuntimeOpts, WorkerContextInitOpts,
     WorkerRuntimeOpts,
@@ -100,7 +101,7 @@ pub async fn op_user_worker_create(
             import_map_path,
             env_vars: env_vars_map,
             events_rx: None,
-            maybe_eszip,
+            maybe_eszip: maybe_eszip.map(EszipPayloadKind::JsBufferKind),
             maybe_entrypoint,
             maybe_module_code: maybe_module_code.map(|v| v.into()),
             conf: WorkerRuntimeOpts::UserWorker(UserWorkerRuntimeOpts {

@@ -1,5 +1,5 @@
 use anyhow::Error;
-use deno_core::{FastString, JsBuffer};
+use deno_core::FastString;
 use enum_as_inner::EnumAsInner;
 use event_worker::events::WorkerEventWithMetadata;
 use hyper::{Body, Request, Response};
@@ -7,6 +7,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
+
+use sb_eszip::module_loader::EszipPayloadKind;
 
 #[derive(Debug, Clone)]
 pub struct UserWorkerRuntimeOpts {
@@ -78,7 +80,7 @@ pub struct WorkerContextInitOpts {
     pub env_vars: HashMap<String, String>,
     pub events_rx: Option<mpsc::UnboundedReceiver<WorkerEventWithMetadata>>,
     pub conf: WorkerRuntimeOpts,
-    pub maybe_eszip: Option<JsBuffer>,
+    pub maybe_eszip: Option<EszipPayloadKind>,
     pub maybe_module_code: Option<FastString>,
     pub maybe_entrypoint: Option<String>,
 }

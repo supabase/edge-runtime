@@ -16,9 +16,11 @@ use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::oneshot::Sender;
 
 pub struct WorkerPool {
-    pub worker_event_sender: Option<mpsc::UnboundedSender<WorkerEventWithMetadata>>,
     pub user_workers: HashMap<u64, UserWorkerProfile>,
-    pub user_worker_msg_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
+    pub worker_pool_msgs_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
+
+    // TODO: refactor this out of worker pool
+    pub worker_event_sender: Option<mpsc::UnboundedSender<WorkerEventWithMetadata>>,
 }
 
 pub enum CreationCodes {
@@ -29,12 +31,12 @@ pub enum CreationCodes {
 impl WorkerPool {
     pub(crate) fn new(
         worker_event_sender: Option<UnboundedSender<WorkerEventWithMetadata>>,
-        user_worker_msg_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
+        worker_pool_msgs_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
     ) -> Self {
         Self {
             worker_event_sender,
             user_workers: HashMap::new(),
-            user_worker_msg_tx,
+            worker_pool_msgs_tx,
         }
     }
 
@@ -63,10 +65,11 @@ impl WorkerPool {
         user_worker_rt_opts.service_path = Some(service_path);
         user_worker_rt_opts.key = Some(key);
         user_worker_rt_opts.execution_id = Some(uuid::Uuid::new_v4());
-        user_worker_rt_opts.pool_msg_tx = Some(self.user_worker_msg_tx.clone());
+        user_worker_rt_opts.pool_msg_tx = Some(self.worker_pool_msgs_tx.clone());
         user_worker_rt_opts.events_msg_tx = self.worker_event_sender.clone();
 
         worker_options.conf = WorkerRuntimeOpts::UserWorker(user_worker_rt_opts);
+
         let result = create_worker(worker_options).await;
 
         match result {

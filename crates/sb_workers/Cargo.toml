@@ -17,6 +17,7 @@ deno_core.workspace = true
 tokio.workspace = true
 deno_http.workspace = true
 hyper.workspace = true
+sb_eszip = { version = "0.1.0", path = "../sb_eszip" }
 serde.workspace = true
 bytes.workspace = true
 log.workspace = true

@@ -17,5 +17,6 @@ event_worker ={ version = "0.1.0", path = "../event_worker" }
 enum-as-inner = "0.6.0"
 hyper.workspace = true
 serde.workspace = true
+sb_eszip = { version = "0.1.0", path = "../sb_eszip" }
 tokio.workspace = true
 uuid.workspace = true

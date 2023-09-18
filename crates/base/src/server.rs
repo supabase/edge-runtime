@@ -1,10 +1,11 @@
 use crate::rt_worker::worker_ctx::{
-    create_events_worker, create_main_worker, create_user_worker_pool, WorkerRequestMsg,
+    create_events_worker, create_main_worker, create_user_worker_pool,
 };
 use anyhow::Error;
 use event_worker::events::WorkerEventWithMetadata;
 use hyper::{server::conn::Http, service::Service, Body, Request, Response};
 use log::{debug, error, info};
+use sb_worker_context::essentials::WorkerRequestMsg;
 use std::future::Future;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;

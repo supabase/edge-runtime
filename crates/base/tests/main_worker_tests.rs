@@ -1,7 +1,7 @@
-use base::rt_worker::worker_ctx::{create_user_worker_pool, create_worker, WorkerRequestMsg};
+use base::rt_worker::worker_ctx::{create_user_worker_pool, create_worker};
 use hyper::{Body, Request, Response};
 use sb_worker_context::essentials::{
-    MainWorkerRuntimeOpts, WorkerContextInitOpts, WorkerRuntimeOpts,
+    MainWorkerRuntimeOpts, WorkerContextInitOpts, WorkerRequestMsg, WorkerRuntimeOpts,
 };
 use std::collections::HashMap;
 use tokio::sync::oneshot;

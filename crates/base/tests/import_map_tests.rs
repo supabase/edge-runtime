@@ -4,9 +4,9 @@ use std::path::Path;
 use tokio::sync::oneshot;
 use urlencoding::encode;
 
-use base::rt_worker::worker_ctx::{create_worker, WorkerRequestMsg};
+use base::rt_worker::worker_ctx::create_worker;
 use sb_worker_context::essentials::{
-    UserWorkerRuntimeOpts, WorkerContextInitOpts, WorkerRuntimeOpts,
+    UserWorkerRuntimeOpts, WorkerContextInitOpts, WorkerRequestMsg, WorkerRuntimeOpts,
 };
 
 #[tokio::test]

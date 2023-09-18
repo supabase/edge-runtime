@@ -91,6 +91,7 @@ pub enum UserWorkerMsgs {
         WorkerContextInitOpts,
         oneshot::Sender<Result<CreateUserWorkerResult, Error>>,
     ),
+    Created(u64, mpsc::UnboundedSender<WorkerRequestMsg>),
     SendRequest(
         u64,
         Request<Body>,
@@ -102,4 +103,10 @@ pub enum UserWorkerMsgs {
 #[derive(Debug)]
 pub struct CreateUserWorkerResult {
     pub key: u64,
+}
+
+#[derive(Debug)]
+pub struct WorkerRequestMsg {
+    pub req: Request<Body>,
+    pub res_tx: oneshot::Sender<Result<Response<Body>, hyper::Error>>,
 }

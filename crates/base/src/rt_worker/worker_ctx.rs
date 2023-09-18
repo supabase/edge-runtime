@@ -12,7 +12,7 @@ use log::{debug, error};
 use sb_eszip::module_loader::EszipPayloadKind;
 use sb_worker_context::essentials::{
     EventWorkerRuntimeOpts, MainWorkerRuntimeOpts, UserWorkerMsgs, WorkerContextInitOpts,
-    WorkerRuntimeOpts,
+    WorkerRequestMsg, WorkerRuntimeOpts,
 };
 use std::path::PathBuf;
 use std::thread;
@@ -20,15 +20,9 @@ use std::time::{Duration, Instant};
 use tokio::net::UnixStream;
 use tokio::sync::{mpsc, oneshot};
 
-#[derive(Debug)]
-pub struct WorkerRequestMsg {
-    pub req: Request<Body>,
-    pub res_tx: oneshot::Sender<Result<Response<Body>, hyper::Error>>,
-}
-
 #[derive(Debug, Clone)]
 pub struct UserWorkerProfile {
-    pub(crate) worker_event_tx: mpsc::UnboundedSender<WorkerRequestMsg>,
+    pub(crate) worker_request_msg_tx: mpsc::UnboundedSender<WorkerRequestMsg>,
 }
 
 async fn handle_request(
@@ -210,14 +204,14 @@ pub async fn create_worker(
 }
 
 pub async fn send_user_worker_request(
-    worker_channel: mpsc::UnboundedSender<WorkerRequestMsg>,
+    worker_request_msg_tx: mpsc::UnboundedSender<WorkerRequestMsg>,
     req: Request<Body>,
 ) -> Result<Response<Body>, Error> {
     let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
     let msg = WorkerRequestMsg { req, res_tx };
 
     // send the message to worker
-    worker_channel.send(msg)?;
+    worker_request_msg_tx.send(msg)?;
 
     // wait for the response back from the worker
     let res = res_rx.await??;
@@ -311,11 +305,16 @@ pub async fn create_user_worker_pool(
     let _handle: tokio::task::JoinHandle<Result<(), Error>> = tokio::spawn(async move {
         let mut worker_pool = WorkerPool::new(worker_event_sender, user_worker_msgs_tx_clone);
 
+        // Note: Keep this loop non-blocking. Spawn a task to run blocking calls.
+        // Handle errors within tasks and log them - do not bubble up errors.
         loop {
             match user_worker_msgs_rx.recv().await {
                 None => break,
                 Some(UserWorkerMsgs::Create(worker_options, tx)) => {
-                    let _ = worker_pool.create_user_worker(worker_options, tx).await;
+                    worker_pool.create_user_worker(worker_options, tx);
+                }
+                Some(UserWorkerMsgs::Created(key, worker_request_msg_tx)) => {
+                    worker_pool.add_user_worker(key, worker_request_msg_tx);
                 }
                 Some(UserWorkerMsgs::SendRequest(key, req, res_tx)) => {
                     worker_pool.send_request(key, req, res_tx);

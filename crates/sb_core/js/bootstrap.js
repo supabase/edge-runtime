@@ -264,9 +264,9 @@ globalThis.bootstrapSBEdge = (opts, isUserWorker, isEventsWorker, version) => {
 		mainModule: getterOnly(() => ops.op_main_module()),
 		version: getterOnly(() => ({
 			deno: `supabase-edge-runtime-${globalThis.SUPABASE_VERSION}`,
-			v8: "11.6.189.12",
-			typescript: "5.1.6"
-		}))
+			v8: '11.6.189.12',
+			typescript: '5.1.6',
+		})),
 	});
 	ObjectDefineProperty(globalThis, 'Deno', readOnly(denoOverrides));
 
@@ -281,7 +281,7 @@ globalThis.bootstrapSBEdge = (opts, isUserWorker, isEventsWorker, version) => {
 		ObjectDefineProperties(globalThis, {
 			console: nonEnumerable(
 				new console.Console((msg, level) => {
-					return ops.op_user_worker_log(msg, level > 1, ops.op_runtime_memory_usage());
+					return ops.op_user_worker_log(msg, level > 1);
 				}),
 			),
 		});

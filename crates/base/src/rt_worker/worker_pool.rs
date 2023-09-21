@@ -77,7 +77,6 @@ impl WorkerPool {
 
         user_worker_rt_opts.service_path = Some(service_path.clone());
         user_worker_rt_opts.key = Some(uuid);
-        user_worker_rt_opts.execution_id = Some(uuid);
 
         user_worker_rt_opts.pool_msg_tx = Some(self.worker_pool_msgs_tx.clone());
         user_worker_rt_opts.events_msg_tx = self.worker_event_sender.clone();

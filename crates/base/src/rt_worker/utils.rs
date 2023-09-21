@@ -38,7 +38,7 @@ pub fn get_event_metadata(conf: &WorkerRuntimeOpts) -> EventMetadata {
         let conf = conf.as_user_worker().unwrap();
         event_metadata = EventMetadata {
             service_path: conf.service_path.clone(),
-            execution_id: conf.execution_id,
+            execution_id: conf.key,
             v8_heap_stats: None,
         };
     }

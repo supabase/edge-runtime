@@ -14,7 +14,6 @@ use sb_eszip::module_loader::EszipPayloadKind;
 pub struct UserWorkerRuntimeOpts {
     pub service_path: Option<String>,
     pub key: Option<Uuid>,
-    pub execution_id: Option<Uuid>, // TODO: deprecate and use key instead
 
     pub pool_msg_tx: Option<mpsc::UnboundedSender<UserWorkerMsgs>>,
     pub events_msg_tx: Option<mpsc::UnboundedSender<WorkerEventWithMetadata>>,
@@ -52,7 +51,6 @@ impl Default for UserWorkerRuntimeOpts {
             allow_remote_modules: true,
             custom_module_root: None,
             service_path: None,
-            execution_id: None,
         }
     }
 }

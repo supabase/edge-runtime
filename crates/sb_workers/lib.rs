@@ -120,7 +120,6 @@ pub async fn op_user_worker_create(
                 pool_msg_tx: None,
                 events_msg_tx: None,
                 service_path: None,
-                execution_id: None,
             }),
         };
 

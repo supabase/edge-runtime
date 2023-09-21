@@ -24,6 +24,7 @@ use std::pin::Pin;
 use std::rc::Rc;
 use std::task::{Context, Poll};
 use tokio::sync::{mpsc, oneshot};
+use uuid::Uuid;
 
 deno_core::extension!(
     sb_user_workers,
@@ -352,7 +353,7 @@ pub async fn op_user_worker_fetch_send(
         .ok()
         .expect("multiple op_user_worker_fetch_send ongoing");
     let (result_tx, result_rx) = oneshot::channel::<Result<Response<Body>, Error>>();
-    let key_parsed = key.parse::<u64>()?;
+    let key_parsed = Uuid::try_parse(key.as_str())?;
     tx.send(UserWorkerMsgs::SendRequest(
         key_parsed, request.0, result_tx,
     ))?;

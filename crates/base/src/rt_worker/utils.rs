@@ -1,9 +1,10 @@
 use event_worker::events::{EventMetadata, WorkerEventWithMetadata};
 use sb_worker_context::essentials::{UserWorkerMsgs, WorkerRuntimeOpts};
 use tokio::sync::mpsc::UnboundedSender;
+use uuid::Uuid;
 
 type WorkerCoreConfig = (
-    Option<u64>,
+    Option<Uuid>,
     Option<UnboundedSender<UserWorkerMsgs>>,
     Option<UnboundedSender<WorkerEventWithMetadata>>,
     String,

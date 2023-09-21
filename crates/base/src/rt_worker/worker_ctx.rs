@@ -19,11 +19,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 use tokio::net::UnixStream;
 use tokio::sync::{mpsc, oneshot};
-
-#[derive(Debug, Clone)]
-pub struct UserWorkerProfile {
-    pub(crate) worker_request_msg_tx: mpsc::UnboundedSender<WorkerRequestMsg>,
-}
+use uuid::Uuid;
 
 async fn handle_request(
     unix_stream_tx: mpsc::UnboundedSender<UnixStream>,
@@ -52,7 +48,7 @@ async fn handle_request(
 }
 
 pub fn create_supervisor(
-    key: u64,
+    key: Uuid,
     worker_runtime: &mut DenoRuntime,
     termination_event_tx: oneshot::Sender<WorkerEvents>,
 ) -> Result<CPUTimer, Error> {
@@ -313,14 +309,17 @@ pub async fn create_user_worker_pool(
                 Some(UserWorkerMsgs::Create(worker_options, tx)) => {
                     worker_pool.create_user_worker(worker_options, tx);
                 }
-                Some(UserWorkerMsgs::Created(key, worker_request_msg_tx)) => {
-                    worker_pool.add_user_worker(key, worker_request_msg_tx);
+                Some(UserWorkerMsgs::Created(key, profile)) => {
+                    worker_pool.add_user_worker(key, profile);
                 }
                 Some(UserWorkerMsgs::SendRequest(key, req, res_tx)) => {
-                    worker_pool.send_request(key, req, res_tx);
+                    worker_pool.send_request(&key, req, res_tx);
+                }
+                Some(UserWorkerMsgs::Retire(key)) => {
+                    worker_pool.retire(&key);
                 }
                 Some(UserWorkerMsgs::Shutdown(key)) => {
-                    worker_pool.shutdown(key);
+                    worker_pool.shutdown(&key);
                 }
             }
         }

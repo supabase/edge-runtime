@@ -104,6 +104,7 @@ impl Worker {
                                     worker_key.unwrap_or(Uuid::nil()),
                                     &mut new_runtime,
                                     termination_event_tx,
+                                    pool_msg_tx.clone(),
                                 )?;
                             }
 

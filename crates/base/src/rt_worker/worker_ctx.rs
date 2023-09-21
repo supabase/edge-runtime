@@ -18,6 +18,7 @@ use std::path::PathBuf;
 use std::thread;
 use std::time::{Duration, Instant};
 use tokio::net::UnixStream;
+use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 
@@ -51,6 +52,7 @@ pub fn create_supervisor(
     key: Uuid,
     worker_runtime: &mut DenoRuntime,
     termination_event_tx: oneshot::Sender<WorkerEvents>,
+    pool_msg_tx: Option<UnboundedSender<UserWorkerMsgs>>,
 ) -> Result<CPUTimer, Error> {
     let (memory_limit_tx, mut memory_limit_rx) = mpsc::unbounded_channel::<()>();
     let thread_safe_handle = worker_runtime.js_runtime.v8_isolate().thread_safe_handle();
@@ -91,8 +93,14 @@ pub fn create_supervisor(
                 let mut bursts = 0;
                 let mut last_burst = Instant::now();
 
-                let sleep = tokio::time::sleep(Duration::from_millis(conf.worker_timeout_ms));
-                tokio::pin!(sleep);
+                let wall_clock_duration = Duration::from_millis(conf.worker_timeout_ms);
+
+                // Split wall clock duration into 2 intervals.
+                // At the first interval, we will send a msg to retire the worker.
+                let wall_clock_duration_alert = tokio::time::interval(wall_clock_duration.checked_div(2).unwrap_or(Duration::from_millis(0)));
+                tokio::pin!(wall_clock_duration_alert);
+
+                let mut wall_clock_alerts = 0;
 
                 loop {
                     tokio::select! {
@@ -108,15 +116,31 @@ pub fn create_supervisor(
                             }
                         }
 
-                        // wall-clock limit
-                        () = &mut sleep => {
+                        // wall clock warning
+                        _ = wall_clock_duration_alert.tick() => {
                             // use interrupt to capture the heap stats
                             //thread_safe_handle.request_interrupt(callback, std::ptr::null_mut());
-                            thread_safe_handle.terminate_execution();
-                            error!("wall clock duration reached. isolate: {:?}", key);
-                            return WorkerEvents::WallClockTimeLimit(PseudoEvent{});
-
+                            if wall_clock_alerts == 0 {
+                                // first tick completes immediately
+                                wall_clock_alerts += 1;
+                            } else if wall_clock_alerts == 1 {
+                                if let Some(tx) = pool_msg_tx.clone() {
+                                    if tx.send(UserWorkerMsgs::Retire(key)).is_err() {
+                                        error!("failed to send retire msg to pool: {:?}", key);
+                                    }
+                                }
+                                error!("wall clock duration warning. isolate: {:?}", key);
+                                wall_clock_alerts += 1;
+                            } else {
+                                // wall-clock limit reached
+                                // use interrupt to capture the heap stats
+                                //thread_safe_handle.request_interrupt(callback, std::ptr::null_mut());
+                                thread_safe_handle.terminate_execution();
+                                error!("wall clock duration reached. isolate: {:?}", key);
+                                return WorkerEvents::WallClockTimeLimit(PseudoEvent{});
+                            }
                         }
+
 
                         // memory usage
                         Some(_) = memory_limit_rx.recv() => {

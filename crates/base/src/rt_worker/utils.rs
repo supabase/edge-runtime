@@ -1,9 +1,10 @@
 use event_worker::events::{EventMetadata, WorkerEventWithMetadata};
 use sb_worker_context::essentials::{UserWorkerMsgs, WorkerRuntimeOpts};
 use tokio::sync::mpsc::UnboundedSender;
+use uuid::Uuid;
 
 type WorkerCoreConfig = (
-    Option<u64>,
+    Option<Uuid>,
     Option<UnboundedSender<UserWorkerMsgs>>,
     Option<UnboundedSender<WorkerEventWithMetadata>>,
     String,
@@ -37,7 +38,7 @@ pub fn get_event_metadata(conf: &WorkerRuntimeOpts) -> EventMetadata {
         let conf = conf.as_user_worker().unwrap();
         event_metadata = EventMetadata {
             service_path: conf.service_path.clone(),
-            execution_id: conf.execution_id,
+            execution_id: conf.key,
             v8_heap_stats: None,
         };
     }

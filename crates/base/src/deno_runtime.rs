@@ -285,7 +285,7 @@ impl DenoRuntime {
                     op_state.put::<mpsc::UnboundedSender<WorkerEventWithMetadata>>(events_msg_tx);
                     op_state.put::<EventMetadata>(EventMetadata {
                         service_path: conf.service_path.clone(),
-                        execution_id: conf.execution_id,
+                        execution_id: conf.key,
                         v8_heap_stats: None,
                     });
                 }
@@ -714,7 +714,6 @@ mod test {
                 key: None,
                 pool_msg_tx: None,
                 events_msg_tx: None,
-                execution_id: None,
                 service_path: None,
             })),
         )

@@ -18,6 +18,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::{Receiver, Sender};
 use tokio::time::Instant;
+use uuid::Uuid;
 
 #[derive(Clone)]
 pub struct Worker {
@@ -25,7 +26,7 @@ pub struct Worker {
     pub events_msg_tx: Option<UnboundedSender<WorkerEventWithMetadata>>,
     pub pool_msg_tx: Option<UnboundedSender<UserWorkerMsgs>>,
     pub event_metadata: EventMetadata,
-    pub worker_key: Option<u64>,
+    pub worker_key: Option<Uuid>,
     pub thread_name: String,
 }
 
@@ -100,9 +101,10 @@ impl Worker {
 
                                 // cputimer is returned from supervisor and assigned here to keep it in scope.
                                 _cputimer = create_supervisor(
-                                    worker_key.unwrap_or(0),
+                                    worker_key.unwrap_or(Uuid::nil()),
                                     &mut new_runtime,
                                     termination_event_tx,
+                                    pool_msg_tx.clone(),
                                 )?;
                             }
 

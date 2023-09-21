@@ -13,8 +13,7 @@ use sb_eszip::module_loader::EszipPayloadKind;
 #[derive(Debug, Clone)]
 pub struct UserWorkerRuntimeOpts {
     pub service_path: Option<String>,
-    pub key: Option<u64>, // unique worker key based on service path hash
-    pub execution_id: Option<Uuid>,
+    pub key: Option<Uuid>,
 
     pub pool_msg_tx: Option<mpsc::UnboundedSender<UserWorkerMsgs>>,
     pub events_msg_tx: Option<mpsc::UnboundedSender<WorkerEventWithMetadata>>,
@@ -52,9 +51,14 @@ impl Default for UserWorkerRuntimeOpts {
             allow_remote_modules: true,
             custom_module_root: None,
             service_path: None,
-            execution_id: None,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct UserWorkerProfile {
+    pub worker_request_msg_tx: mpsc::UnboundedSender<WorkerRequestMsg>,
+    pub service_path: String,
 }
 
 #[derive(Debug, Clone)]
@@ -91,18 +95,19 @@ pub enum UserWorkerMsgs {
         WorkerContextInitOpts,
         oneshot::Sender<Result<CreateUserWorkerResult, Error>>,
     ),
-    Created(u64, mpsc::UnboundedSender<WorkerRequestMsg>),
+    Created(Uuid, UserWorkerProfile),
     SendRequest(
-        u64,
+        Uuid,
         Request<Body>,
         oneshot::Sender<Result<Response<Body>, Error>>,
     ),
-    Shutdown(u64),
+    Retire(Uuid),
+    Shutdown(Uuid),
 }
 
 #[derive(Debug)]
 pub struct CreateUserWorkerResult {
-    pub key: u64,
+    pub key: Uuid,
 }
 
 #[derive(Debug)]

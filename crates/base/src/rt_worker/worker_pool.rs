@@ -1,23 +1,30 @@
-use crate::rt_worker::worker_ctx::{create_worker, send_user_worker_request, UserWorkerProfile};
+use crate::rt_worker::worker_ctx::{create_worker, send_user_worker_request};
 use anyhow::{anyhow, Error};
-use cityhash::cityhash_1::city_hash_64;
 use event_worker::events::WorkerEventWithMetadata;
 use http::{Request, Response};
 use hyper::Body;
 use log::error;
 use sb_worker_context::essentials::{
-    CreateUserWorkerResult, UserWorkerMsgs, WorkerContextInitOpts, WorkerRequestMsg,
+    CreateUserWorkerResult, UserWorkerMsgs, UserWorkerProfile, WorkerContextInitOpts,
     WorkerRuntimeOpts,
 };
 use std::collections::HashMap;
-use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::oneshot::Sender;
+use uuid::Uuid;
 
+// every new worker gets a new UUID (can reuse execution_id)
+// user_workers - maintain a hashmap of (uuid - workerProfile (include service path))
+// active_workers - hashmap of (service_path - uuid)
+// retire removed entry for uuid from active
+// shutdown removes uuid from both active and user_workers
+// create_worker returns true if an active_worker is available for service_path (force create
+// retires current one adds new one)
+// send_request is called with UUID
 pub struct WorkerPool {
-    pub user_workers: HashMap<u64, UserWorkerProfile>,
+    pub user_workers: HashMap<Uuid, UserWorkerProfile>,
+    pub active_workers: HashMap<String, Uuid>,
     pub worker_pool_msgs_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
 
     // TODO: refactor this out of worker pool
@@ -32,6 +39,7 @@ impl WorkerPool {
         Self {
             worker_event_sender,
             user_workers: HashMap::new(),
+            active_workers: HashMap::new(),
             worker_pool_msgs_tx,
         }
     }
@@ -46,21 +54,30 @@ impl WorkerPool {
             _ => unreachable!(),
         };
 
-        let (key, service_path) = self.derive_worker_key(
-            &worker_options.service_path,
-            user_worker_rt_opts.force_create,
-        );
-
-        if self.worker_already_exists(key, user_worker_rt_opts.force_create) {
-            if tx.send(Ok(CreateUserWorkerResult { key })).is_err() {
+        let service_path = worker_options
+            .service_path
+            .to_str()
+            .unwrap_or("")
+            .to_string();
+        if let Some(active_worker_uuid) =
+            self.maybe_active_worker(&service_path, user_worker_rt_opts.force_create)
+        {
+            if tx
+                .send(Ok(CreateUserWorkerResult {
+                    key: *active_worker_uuid,
+                }))
+                .is_err()
+            {
                 error!("main worker receiver dropped")
             }
             return;
         }
 
-        user_worker_rt_opts.service_path = Some(service_path);
-        user_worker_rt_opts.key = Some(key);
-        user_worker_rt_opts.execution_id = Some(uuid::Uuid::new_v4());
+        let uuid = uuid::Uuid::new_v4();
+
+        user_worker_rt_opts.service_path = Some(service_path.clone());
+        user_worker_rt_opts.key = Some(uuid);
+
         user_worker_rt_opts.pool_msg_tx = Some(self.worker_pool_msgs_tx.clone());
         user_worker_rt_opts.events_msg_tx = self.worker_event_sender.clone();
 
@@ -71,13 +88,17 @@ impl WorkerPool {
             let result = create_worker(worker_options).await;
             match result {
                 Ok(worker_request_msg_tx) => {
+                    let profile = UserWorkerProfile {
+                        worker_request_msg_tx,
+                        service_path,
+                    };
                     if worker_pool_msgs_tx
-                        .send(UserWorkerMsgs::Created(key, worker_request_msg_tx))
+                        .send(UserWorkerMsgs::Created(uuid, profile))
                         .is_err()
                     {
                         error!("user worker msgs receiver dropped")
                     }
-                    if tx.send(Ok(CreateUserWorkerResult { key })).is_err() {
+                    if tx.send(Ok(CreateUserWorkerResult { key: uuid })).is_err() {
                         error!("main worker receiver dropped")
                     };
                 }
@@ -92,26 +113,19 @@ impl WorkerPool {
         });
     }
 
-    pub fn add_user_worker(
-        &mut self,
-        key: u64,
-        worker_request_msg_tx: mpsc::UnboundedSender<WorkerRequestMsg>,
-    ) {
-        self.user_workers.insert(
-            key,
-            UserWorkerProfile {
-                worker_request_msg_tx,
-            },
-        );
+    pub fn add_user_worker(&mut self, key: Uuid, profile: UserWorkerProfile) {
+        self.active_workers
+            .insert(profile.service_path.clone(), key);
+        self.user_workers.insert(key, profile);
     }
 
     pub fn send_request(
         &self,
-        key: u64,
+        key: &Uuid,
         req: Request<Body>,
         res_tx: Sender<Result<Response<Body>, Error>>,
     ) {
-        let _: Result<(), Error> = match self.user_workers.get(&key) {
+        let _: Result<(), Error> = match self.user_workers.get(key) {
             Some(worker) => {
                 let profile = worker.clone();
 
@@ -149,21 +163,21 @@ impl WorkerPool {
         };
     }
 
-    pub fn shutdown(&mut self, key: u64) {
-        self.user_workers.remove(&key);
-    }
-
-    fn derive_worker_key(&self, service_path: &Path, force_create: bool) -> (u64, String) {
-        let mut key_input = service_path.to_str().unwrap_or("").to_string();
-        if force_create {
-            let cur_epoch_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-            key_input = format!("{}-{}", key_input, cur_epoch_time.as_millis());
+    pub fn retire(&mut self, key: &Uuid) {
+        if let Some(profile) = self.user_workers.get(key) {
+            self.active_workers.remove(&profile.service_path);
         }
-
-        (city_hash_64(key_input.as_bytes()), key_input)
     }
 
-    fn worker_already_exists(&self, key: u64, force_create: bool) -> bool {
-        !force_create && self.user_workers.contains_key(&key)
+    pub fn shutdown(&mut self, key: &Uuid) {
+        self.retire(key);
+        self.user_workers.remove(key);
+    }
+
+    fn maybe_active_worker(&self, service_path: &String, force_create: bool) -> Option<&Uuid> {
+        if force_create {
+            return None;
+        }
+        self.active_workers.get(service_path)
     }
 }

@@ -1,4 +1,4 @@
-use crate::events::{EventMetadata, LogEvent, LogLevel, WorkerEvents, WorkerMemoryUsage};
+use crate::events::{EventMetadata, LogEvent, LogLevel, WorkerEvents};
 use crate::WorkerEventWithMetadata;
 use deno_core::error::AnyError;
 use deno_core::op;
@@ -7,12 +7,7 @@ use log::error;
 use tokio::sync::mpsc;
 
 #[op]
-pub fn op_user_worker_log(
-    state: &mut OpState,
-    msg: &str,
-    is_err: bool,
-    v8_heap_stats: Option<WorkerMemoryUsage>,
-) -> Result<(), AnyError> {
+pub fn op_user_worker_log(state: &mut OpState, msg: &str, is_err: bool) -> Result<(), AnyError> {
     let maybe_tx = state.try_borrow::<mpsc::UnboundedSender<WorkerEventWithMetadata>>();
     let mut level = LogLevel::Info;
     if is_err {
@@ -25,10 +20,7 @@ pub fn op_user_worker_log(
             .unwrap_or(&EventMetadata::default())
             .clone();
 
-        let metadata = EventMetadata {
-            v8_heap_stats,
-            ..event_metadata
-        };
+        let metadata = EventMetadata { ..event_metadata };
 
         tx.send(WorkerEventWithMetadata {
             event: WorkerEvents::Log(LogEvent {

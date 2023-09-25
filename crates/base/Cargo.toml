@@ -45,6 +45,7 @@ urlencoding = { version = "2.1.2" }
 uuid = { workspace = true }
 deno_broadcast_channel.workspace = true
 sb_node = { version = "0.1.0", path = "../node" }
+eszip.workspace = true
 
 [dev-dependencies]
 futures-util = { version = "0.3.28" }

@@ -1,6 +1,8 @@
 use event_worker::events::{EventMetadata, WorkerEventWithMetadata, WorkerEvents};
 use tokio::sync::mpsc;
 
+pub mod graph_resolver;
+pub mod graph_util;
 pub mod units;
 
 pub fn send_event_if_event_worker_available(

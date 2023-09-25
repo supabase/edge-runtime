@@ -38,7 +38,7 @@ fn get_module_type(media_type: MediaType) -> Result<ModuleType, Error> {
     Ok(module_type)
 }
 
-fn make_http_client() -> Result<HttpClient, AnyError> {
+pub fn make_http_client() -> Result<HttpClient, AnyError> {
     let root_cert_store = None;
     let unsafely_ignore_certificate_errors = None;
     Ok(HttpClient::new(

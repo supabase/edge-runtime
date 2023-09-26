@@ -4,8 +4,9 @@ use crate::utils::graph_util::deno_graph::ModuleError;
 use crate::utils::graph_util::deno_graph::ResolutionError;
 use deno_core::error::{custom_error, AnyError};
 use deno_core::ModuleSpecifier;
-use eszip::deno_graph;
 use eszip::deno_graph::{ModuleGraph, ModuleGraphError};
+use eszip::{deno_graph, EszipV2};
+use std::path::PathBuf;
 
 use module_fetcher::cache::FetchCacher;
 use module_fetcher::file_fetcher::FileFetcher;
@@ -180,4 +181,29 @@ pub async fn create_graph_and_maybe_check(
     // }
 
     Ok(graph)
+}
+
+pub async fn create_module_graph_from_path(
+    main_service_path: &str,
+) -> Result<ModuleGraph, Box<dyn std::error::Error>> {
+    let main_service_directory = PathBuf::from(main_service_path);
+    let index = main_service_directory.clone().join("index.ts");
+    let binding = std::fs::canonicalize(&index)?;
+    let specifier = binding.to_str().ok_or("Failed to convert path to string")?;
+    let format_specifier = format!("file:///{}", specifier);
+    let module_specifier = ModuleSpecifier::parse(&format_specifier)?;
+    let graph = create_graph_and_maybe_check(vec![module_specifier])
+        .await
+        .unwrap();
+    Ok(graph)
+}
+
+pub async fn create_eszip_from_graph(graph: ModuleGraph) -> Vec<u8> {
+    let emitter = EmitterFactory::new();
+    let parser_arc = emitter.parsed_source_cache().unwrap();
+    let parser = parser_arc.as_capturing_parser();
+
+    let eszip = eszip::EszipV2::from_graph(graph, &parser, Default::default());
+
+    eszip.unwrap().into_bytes()
 }

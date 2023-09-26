@@ -2,8 +2,15 @@ mod logger;
 
 use anyhow::Error;
 use base::commands::start_server;
+use base::utils::graph_util::{
+    create_eszip_from_graph, create_graph_and_maybe_check, create_module_graph_from_path,
+};
 use clap::builder::FalseyValueParser;
 use clap::{arg, crate_version, value_parser, ArgAction, Command};
+use std::fs::File;
+use std::io::Write;
+use std::path::PathBuf;
+
 fn cli() -> Command {
     Command::new("edge-runtime")
         .about("A server based on Deno runtime, capable of running JavaScript, TypeScript, and WASM services")
@@ -39,6 +46,11 @@ fn cli() -> Command {
                 .arg(arg!(--"disable-module-cache" "Disable using module cache").default_value("false").value_parser(FalseyValueParser::new()))
                 .arg(arg!(--"import-map" <Path> "Path to import map file"))
                 .arg(arg!(--"event-worker" <Path> "Path to event worker directory"))
+        )
+        .subcommand(
+            Command::new("bundle")
+                .about("Creates an 'eszip' file that can be executed by the EdgeRuntime. Such file contains all the modules in contained in a single binary.")
+                .arg(arg!(--"main-service" <DIR> "Path to main service directory").default_value("examples/main"))
         )
 }
 
@@ -97,6 +109,20 @@ fn main() -> Result<(), anyhow::Error> {
                     None,
                 )
                 .await?;
+            }
+            Some(("bundle", sub_matches)) => {
+                let main_service_path = sub_matches
+                    .get_one::<String>("main-service")
+                    .cloned()
+                    .unwrap();
+
+                let create_graph_from_path =
+                    create_module_graph_from_path(main_service_path.as_str())
+                        .await
+                        .unwrap();
+                let create_eszip = create_eszip_from_graph(create_graph_from_path).await;
+                let mut file = File::create("eszip.bin").unwrap();
+                file.write_all(&create_eszip).unwrap();
             }
             _ => {
                 // unrecognized command

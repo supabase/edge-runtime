@@ -47,7 +47,8 @@ fn cli() -> Command {
         .subcommand(
             Command::new("bundle")
                 .about("Creates an 'eszip' file that can be executed by the EdgeRuntime. Such file contains all the modules in contained in a single binary.")
-                .arg(arg!(--"main-service" <DIR> "Path to main service directory").default_value("examples/main"))
+                .arg(arg!(--"output" <DIR> "Path to output eszip file").default_value("bin.eszip"))
+                .arg(arg!(--"entry-point" <Path> "Path to entry point").required(true))
         )
 }
 
@@ -108,17 +109,19 @@ fn main() -> Result<(), anyhow::Error> {
                 .await?;
             }
             Some(("bundle", sub_matches)) => {
-                let main_service_path = sub_matches
-                    .get_one::<String>("main-service")
+                let output_path = sub_matches.get_one::<String>("output").cloned().unwrap();
+
+                let entry_point_path = sub_matches
+                    .get_one::<String>("entry-point")
                     .cloned()
                     .unwrap();
 
                 let create_graph_from_path =
-                    create_module_graph_from_path(main_service_path.as_str())
+                    create_module_graph_from_path(entry_point_path.as_str())
                         .await
                         .unwrap();
                 let create_eszip = create_eszip_from_graph(create_graph_from_path).await;
-                let mut file = File::create("eszip.bin").unwrap();
+                let mut file = File::create(output_path.as_str()).unwrap();
                 file.write_all(&create_eszip).unwrap();
             }
             _ => {

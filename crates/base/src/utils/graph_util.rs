@@ -182,8 +182,7 @@ pub async fn create_graph_and_maybe_check(
 pub async fn create_module_graph_from_path(
     main_service_path: &str,
 ) -> Result<ModuleGraph, Box<dyn std::error::Error>> {
-    let main_service_directory = PathBuf::from(main_service_path);
-    let index = main_service_directory.clone().join("index.ts");
+    let index = PathBuf::from(main_service_path);
     let binding = std::fs::canonicalize(&index)?;
     let specifier = binding.to_str().ok_or("Failed to convert path to string")?;
     let format_specifier = format!("file:///{}", specifier);

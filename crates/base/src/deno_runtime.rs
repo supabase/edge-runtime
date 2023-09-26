@@ -372,15 +372,74 @@ impl DenoRuntime {
 #[cfg(test)]
 mod test {
     use crate::deno_runtime::DenoRuntime;
-    use deno_core::ModuleCode;
+    use crate::js_worker::emitter::EmitterFactory;
+    use crate::utils::graph_util::create_graph_and_maybe_check;
+    use deno_core::{resolve_import, ModuleCode, ModuleSpecifier};
+    use eszip::deno_graph::ModuleGraph;
+    use sb_eszip::module_loader::EszipPayloadKind;
     use sb_worker_context::essentials::{
         MainWorkerRuntimeOpts, UserWorkerMsgs, UserWorkerRuntimeOpts, WorkerContextInitOpts,
         WorkerRuntimeOpts,
     };
     use std::collections::HashMap;
     use std::path::PathBuf;
+    use std::sync::Arc;
     use tokio::net::UnixStream;
     use tokio::sync::mpsc;
+
+    #[tokio::test]
+    async fn test_create_eszip_from_graph() {
+        let (worker_pool_tx, _) = mpsc::unbounded_channel::<UserWorkerMsgs>();
+        let file = PathBuf::from("./test_cases/eszip-silly-test/index.ts");
+        let service_path = PathBuf::from("./test_cases/eszip-silly-test");
+        let binding = std::fs::canonicalize(&file).unwrap();
+        let specifier = binding.to_str().unwrap();
+        let format_specifier = format!("file:///{}", specifier);
+        let module_specifier = ModuleSpecifier::parse(&format_specifier).unwrap();
+        let create_module_graph_task = create_graph_and_maybe_check(vec![module_specifier]);
+        let graph = create_module_graph_task.await.unwrap();
+
+        let emitter = EmitterFactory::new();
+        let parser_arc = emitter.parsed_source_cache().unwrap();
+        let parser = parser_arc.as_capturing_parser();
+
+        let eszip = eszip::EszipV2::from_graph(graph, &parser, Default::default());
+        let eszip_code = eszip.unwrap().into_bytes();
+
+        let runtime = DenoRuntime::new(WorkerContextInitOpts {
+            service_path: service_path,
+            no_module_cache: false,
+            import_map_path: None,
+            env_vars: Default::default(),
+            events_rx: None,
+            maybe_eszip: Some(EszipPayloadKind::VecKind(eszip_code)),
+            maybe_entrypoint: None,
+            maybe_module_code: None,
+            conf: { WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts { worker_pool_tx }) },
+        })
+        .await;
+
+        let mut rt = runtime.unwrap();
+
+        let main_mod_ev = rt.js_runtime.mod_evaluate(rt.main_module_id);
+        let _ = rt.js_runtime.run_event_loop(false).await;
+
+        let read_is_even_global = rt
+            .js_runtime
+            .execute_script(
+                "<anon>",
+                ModuleCode::from(
+                    r#"
+            globalThis.isTenEven;
+        "#
+                    .to_string(),
+                ),
+            )
+            .unwrap();
+        let read_is_even = rt.to_value::<deno_core::serde_json::Value>(&read_is_even_global);
+        assert_eq!(read_is_even.unwrap().to_string(), "true");
+        std::mem::drop(main_mod_ev);
+    }
 
     async fn create_runtime(
         path: Option<PathBuf>,

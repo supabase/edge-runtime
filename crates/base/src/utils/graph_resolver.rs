@@ -1,10 +1,10 @@
-use anyhow::bail;
+use anyhow::{anyhow, bail};
 use deno_core::error::AnyError;
 use deno_core::ModuleSpecifier;
 use eszip::deno_graph;
 use eszip::deno_graph::source::{Resolver, DEFAULT_JSX_IMPORT_SOURCE_MODULE};
 use import_map::ImportMap;
-use module_fetcher::args::package_json::PackageJsonDepsProvider;
+use module_fetcher::args::package_json::{PackageJsonDeps, PackageJsonDepsProvider};
 use module_fetcher::npm::{CliNpmRegistryApi, NpmResolution, PackageJsonDepsInstaller};
 use module_fetcher::util::sync::AtomicFlag;
 use std::sync::Arc;
@@ -27,12 +27,74 @@ impl MappedResolution {
     }
 }
 
+fn resolve_package_json_dep(
+    specifier: &str,
+    deps: &PackageJsonDeps,
+) -> Result<Option<ModuleSpecifier>, AnyError> {
+    for (bare_specifier, req_result) in deps {
+        if specifier.starts_with(bare_specifier) {
+            let path = &specifier[bare_specifier.len()..];
+            if path.is_empty() || path.starts_with('/') {
+                let req = req_result.as_ref().map_err(|err| {
+                    anyhow!("Parsing version constraints in the application-level package.json is more strict at the moment.")
+                })?;
+                return Ok(Some(ModuleSpecifier::parse(&format!("npm:{req}{path}"))?));
+            }
+        }
+    }
+
+    Ok(None)
+}
+
 /// Resolver for specifiers that could be mapped via an
 /// import map or package.json.
 #[derive(Debug)]
 pub struct MappedSpecifierResolver {
     maybe_import_map: Option<Arc<ImportMap>>,
     package_json_deps_provider: Arc<PackageJsonDepsProvider>,
+}
+
+impl MappedSpecifierResolver {
+    pub fn new(
+        maybe_import_map: Option<Arc<ImportMap>>,
+        package_json_deps_provider: Arc<PackageJsonDepsProvider>,
+    ) -> Self {
+        Self {
+            maybe_import_map,
+            package_json_deps_provider,
+        }
+    }
+
+    pub fn resolve(
+        &self,
+        specifier: &str,
+        referrer: &ModuleSpecifier,
+    ) -> Result<MappedResolution, AnyError> {
+        // attempt to resolve with the import map first
+        let maybe_import_map_err = match self
+            .maybe_import_map
+            .as_ref()
+            .map(|import_map| import_map.resolve(specifier, referrer))
+        {
+            Some(Ok(value)) => return Ok(MappedResolution::ImportMap(value)),
+            Some(Err(err)) => Some(err),
+            None => None,
+        };
+
+        // then with package.json
+        if let Some(deps) = self.package_json_deps_provider.deps() {
+            if let Some(specifier) = resolve_package_json_dep(specifier, deps)? {
+                return Ok(MappedResolution::PackageJson(specifier));
+            }
+        }
+
+        // otherwise, surface the import map error or try resolving when has no import map
+        if let Some(err) = maybe_import_map_err {
+            Err(err.into())
+        } else {
+            Ok(MappedResolution::None)
+        }
+    }
 }
 
 /// A resolver that takes care of resolution, taking into account loaded

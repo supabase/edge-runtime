@@ -135,27 +135,23 @@ pub async fn build_graph_with_npm_resolution<'a>(
 
 pub async fn create_graph_and_maybe_check(
     roots: Vec<ModuleSpecifier>,
-) -> Result<Arc<deno_graph::ModuleGraph>, AnyError> {
+) -> Result<deno_graph::ModuleGraph, AnyError> {
     let emitter_factory = EmitterFactory::new();
 
-    let mut cache = emitter_factory.file_fetcher();
-    let analyzer = emitter_factory
-        .parsed_source_cache()
-        .unwrap()
-        .as_analyzer()
-        .as_ref();
+    let mut cache = emitter_factory.file_fetcher_loader();
+    let analyzer = emitter_factory.parsed_source_cache().unwrap().as_analyzer();
     let graph_kind = deno_graph::GraphKind::CodeOnly;
     let mut graph = ModuleGraph::new(graph_kind);
-    let graph_resolver = emitter_factory.graph_resolver().unwrap().as_ref();
+    let graph_resolver = emitter_factory.graph_resolver();
 
     build_graph_with_npm_resolution(
         &mut graph,
         roots,
-        &mut cache,
+        cache.as_mut(),
         deno_graph::BuildOptions {
             is_dynamic: false,
             imports: vec![],
-            resolver: Some(graph_resolver),
+            resolver: Some(&*graph_resolver),
             npm_resolver: None,
             module_analyzer: Some(&*analyzer),
             reporter: None,
@@ -163,7 +159,7 @@ pub async fn create_graph_and_maybe_check(
     )
     .await?;
 
-    let graph = Arc::new(graph);
+    //let graph = Arc::new(graph);
     // graph_valid_with_cli_options(&graph, &graph.roots, &self.options)?;
     // if let Some(lockfile) = &self.lockfile {
     //     graph_lock_or_exit(&graph, &mut lockfile.lock());

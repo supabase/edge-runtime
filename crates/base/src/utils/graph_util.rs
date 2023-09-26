@@ -4,13 +4,9 @@ use crate::utils::graph_util::deno_graph::ModuleError;
 use crate::utils::graph_util::deno_graph::ResolutionError;
 use deno_core::error::{custom_error, AnyError};
 use deno_core::ModuleSpecifier;
+use eszip::deno_graph;
 use eszip::deno_graph::{ModuleGraph, ModuleGraphError};
-use eszip::{deno_graph, EszipV2};
 use std::path::PathBuf;
-
-use module_fetcher::cache::FetchCacher;
-use module_fetcher::file_fetcher::FileFetcher;
-use std::sync::Arc;
 
 #[derive(Clone, Copy)]
 pub struct GraphValidOptions {
@@ -60,11 +56,11 @@ pub fn graph_valid(
         )
         .errors()
         .flat_map(|error| {
-            let is_root = match &error {
+            let _is_root = match &error {
                 ModuleGraphError::ResolutionError(_) => false,
                 ModuleGraphError::ModuleError(error) => roots.contains(error.specifier()),
             };
-            let mut message = if let ModuleGraphError::ResolutionError(err) = &error {
+            let message = if let ModuleGraphError::ResolutionError(_err) = &error {
                 format!("{error}")
             } else {
                 format!("{error}")

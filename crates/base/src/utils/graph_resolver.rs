@@ -5,7 +5,6 @@ use eszip::deno_graph;
 use eszip::deno_graph::source::{Resolver, DEFAULT_JSX_IMPORT_SOURCE_MODULE};
 use import_map::ImportMap;
 use module_fetcher::args::package_json::{PackageJsonDeps, PackageJsonDepsProvider};
-use module_fetcher::npm::{CliNpmRegistryApi, NpmResolution, PackageJsonDepsInstaller};
 use module_fetcher::util::sync::AtomicFlag;
 use std::sync::Arc;
 
@@ -35,7 +34,7 @@ fn resolve_package_json_dep(
         if specifier.starts_with(bare_specifier) {
             let path = &specifier[bare_specifier.len()..];
             if path.is_empty() || path.starts_with('/') {
-                let req = req_result.as_ref().map_err(|err| {
+                let req = req_result.as_ref().map_err(|_err| {
                     anyhow!("Parsing version constraints in the application-level package.json is more strict at the moment.")
                 })?;
                 return Ok(Some(ModuleSpecifier::parse(&format!("npm:{req}{path}"))?));
@@ -105,10 +104,10 @@ pub struct CliGraphResolver {
     maybe_default_jsx_import_source: Option<String>,
     maybe_jsx_import_source_module: Option<String>,
     maybe_vendor_specifier: Option<ModuleSpecifier>,
-    no_npm: bool,
-    npm_registry_api: Arc<CliNpmRegistryApi>,
-    npm_resolution: Arc<NpmResolution>,
-    package_json_deps_installer: Arc<PackageJsonDepsInstaller>,
+    // no_npm: bool,
+    // npm_registry_api: Arc<CliNpmRegistryApi>,
+    // npm_resolution: Arc<NpmResolution>,
+    // package_json_deps_installer: Arc<PackageJsonDepsInstaller>,
     found_package_json_dep_flag: Arc<AtomicFlag>,
 }
 
@@ -116,12 +115,12 @@ impl Default for CliGraphResolver {
     fn default() -> Self {
         // This is not ideal, but necessary for the LSP. In the future, we should
         // refactor the LSP and force this to be initialized.
-        let npm_registry_api = Arc::new(CliNpmRegistryApi::new_uninitialized());
-        let npm_resolution = Arc::new(NpmResolution::from_serialized(
-            npm_registry_api.clone(),
-            None,
-            None,
-        ));
+        // let npm_registry_api = Arc::new(CliNpmRegistryApi::new_uninitialized());
+        // let npm_resolution = Arc::new(NpmResolution::from_serialized(
+        //     npm_registry_api.clone(),
+        //     None,
+        //     None,
+        // ));
         Self {
             mapped_specifier_resolver: MappedSpecifierResolver {
                 maybe_import_map: Default::default(),
@@ -130,10 +129,10 @@ impl Default for CliGraphResolver {
             maybe_default_jsx_import_source: None,
             maybe_jsx_import_source_module: None,
             maybe_vendor_specifier: None,
-            no_npm: false,
-            npm_registry_api,
-            npm_resolution,
-            package_json_deps_installer: Default::default(),
+            // no_npm: false,
+            // npm_registry_api,
+            // npm_resolution,
+            // package_json_deps_installer: Default::default(),
             found_package_json_dep_flag: Default::default(),
         }
     }

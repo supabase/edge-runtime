@@ -4,9 +4,7 @@ use deno_ast::EmitOptions;
 use deno_core::error::AnyError;
 use eszip::deno_graph::source::{Loader, Resolver};
 use module_fetcher::args::CacheSetting;
-use module_fetcher::cache::{
-    Caches, DenoDir, DenoDirProvider, EmitCache, GlobalHttpCache, HttpCache, ParsedSourceCache,
-};
+use module_fetcher::cache::{Caches, DenoDir, DenoDirProvider, EmitCache, ParsedSourceCache};
 use module_fetcher::emit::Emitter;
 use module_fetcher::file_fetcher::FileFetcher;
 use module_fetcher::permissions::Permissions;
@@ -69,7 +67,7 @@ impl EmitterFactory {
     }
 
     pub fn graph_resolver(&self) -> Box<dyn Resolver> {
-        Box::new(CliGraphResolver::default())
+        Box::<CliGraphResolver>::default()
     }
 
     pub fn file_fetcher(&self) -> FileFetcher {

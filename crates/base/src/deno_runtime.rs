@@ -374,8 +374,7 @@ mod test {
     use crate::deno_runtime::DenoRuntime;
     use crate::js_worker::emitter::EmitterFactory;
     use crate::utils::graph_util::create_graph_and_maybe_check;
-    use deno_core::{resolve_import, ModuleCode, ModuleSpecifier};
-    use eszip::deno_graph::ModuleGraph;
+    use deno_core::{ModuleCode, ModuleSpecifier};
     use sb_eszip::module_loader::EszipPayloadKind;
     use sb_worker_context::essentials::{
         MainWorkerRuntimeOpts, UserWorkerMsgs, UserWorkerRuntimeOpts, WorkerContextInitOpts,
@@ -383,7 +382,6 @@ mod test {
     };
     use std::collections::HashMap;
     use std::path::PathBuf;
-    use std::sync::Arc;
     use tokio::net::UnixStream;
     use tokio::sync::mpsc;
 
@@ -407,7 +405,7 @@ mod test {
         let eszip_code = eszip.unwrap().into_bytes();
 
         let runtime = DenoRuntime::new(WorkerContextInitOpts {
-            service_path: service_path,
+            service_path,
             no_module_cache: false,
             import_map_path: None,
             env_vars: Default::default(),

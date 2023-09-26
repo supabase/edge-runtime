@@ -2,14 +2,11 @@ mod logger;
 
 use anyhow::Error;
 use base::commands::start_server;
-use base::utils::graph_util::{
-    create_eszip_from_graph, create_graph_and_maybe_check, create_module_graph_from_path,
-};
+use base::utils::graph_util::{create_eszip_from_graph, create_module_graph_from_path};
 use clap::builder::FalseyValueParser;
 use clap::{arg, crate_version, value_parser, ArgAction, Command};
 use std::fs::File;
 use std::io::Write;
-use std::path::PathBuf;
 
 fn cli() -> Command {
     Command::new("edge-runtime")

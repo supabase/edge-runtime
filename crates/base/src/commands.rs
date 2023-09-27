@@ -10,6 +10,8 @@ pub async fn start_server(
     import_map_path: Option<String>,
     no_module_cache: bool,
     callback_tx: Option<Sender<ServerCodes>>,
+    maybe_main_entrypoint: Option<String>,
+    maybe_events_entrypoint: Option<String>,
 ) -> Result<(), Error> {
     let mut server = Server::new(
         ip,
@@ -19,6 +21,8 @@ pub async fn start_server(
         import_map_path,
         no_module_cache,
         callback_tx,
+        maybe_main_entrypoint,
+        maybe_events_entrypoint,
     )
     .await?;
     server.listen().await

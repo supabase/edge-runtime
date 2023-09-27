@@ -89,6 +89,8 @@ impl Server {
         import_map_path: Option<String>,
         no_module_cache: bool,
         callback_tx: Option<Sender<ServerCodes>>,
+        maybe_main_entrypoint: Option<String>,
+        maybe_events_entrypoint: Option<String>,
     ) -> Result<Self, Error> {
         let mut worker_events_sender: Option<mpsc::UnboundedSender<WorkerEventWithMetadata>> = None;
 
@@ -97,9 +99,13 @@ impl Server {
             let events_path = Path::new(&events_service_path);
             let events_path_buf = events_path.to_path_buf();
 
-            let events_worker =
-                create_events_worker(events_path_buf, import_map_path.clone(), no_module_cache)
-                    .await?;
+            let events_worker = create_events_worker(
+                events_path_buf,
+                import_map_path.clone(),
+                no_module_cache,
+                maybe_events_entrypoint,
+            )
+            .await?;
 
             worker_events_sender = Some(events_worker);
         }
@@ -114,6 +120,7 @@ impl Server {
             import_map_path.clone(),
             no_module_cache,
             user_worker_msgs_tx,
+            maybe_main_entrypoint,
         )
         .await?;
 

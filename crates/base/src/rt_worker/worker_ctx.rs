@@ -246,15 +246,14 @@ pub async fn create_main_worker(
     import_map_path: Option<String>,
     no_module_cache: bool,
     user_worker_msgs_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
+    maybe_entrypoint: Option<String>,
 ) -> Result<mpsc::UnboundedSender<WorkerRequestMsg>, Error> {
     let mut service_path = main_worker_path.clone();
     let mut maybe_eszip = None;
-    let mut maybe_entrypoint = None;
     if let Some(ext) = main_worker_path.extension() {
         if ext == "eszip" {
             service_path = main_worker_path.parent().unwrap().to_path_buf();
             maybe_eszip = Some(EszipPayloadKind::VecKind(std::fs::read(main_worker_path)?));
-            maybe_entrypoint = Some("file:///src/index.ts".to_string());
         }
     }
 
@@ -281,19 +280,18 @@ pub async fn create_events_worker(
     events_worker_path: PathBuf,
     import_map_path: Option<String>,
     no_module_cache: bool,
+    maybe_entrypoint: Option<String>,
 ) -> Result<mpsc::UnboundedSender<WorkerEventWithMetadata>, Error> {
     let (events_tx, events_rx) = mpsc::unbounded_channel::<WorkerEventWithMetadata>();
 
     let mut service_path = events_worker_path.clone();
     let mut maybe_eszip = None;
-    let mut maybe_entrypoint = None;
     if let Some(ext) = events_worker_path.extension() {
         if ext == "eszip" {
             service_path = events_worker_path.parent().unwrap().to_path_buf();
             maybe_eszip = Some(EszipPayloadKind::VecKind(std::fs::read(
                 events_worker_path,
             )?));
-            maybe_entrypoint = Some("file:///src/index.ts".to_string());
         }
     }
 

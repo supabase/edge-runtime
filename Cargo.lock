@@ -354,6 +354,7 @@ dependencies = [
  "deno_web",
  "deno_webidl",
  "deno_websocket",
+ "eszip",
  "event_worker",
  "flaky_test",
  "futures-util",

@@ -1,7 +1,14 @@
+use crate::js_worker::module_loader::make_http_client;
+use crate::utils::graph_resolver::CliGraphResolver;
 use deno_ast::EmitOptions;
 use deno_core::error::AnyError;
+use eszip::deno_graph::source::{Loader, Resolver};
+use module_fetcher::args::CacheSetting;
 use module_fetcher::cache::{Caches, DenoDir, DenoDirProvider, EmitCache, ParsedSourceCache};
 use module_fetcher::emit::Emitter;
+use module_fetcher::file_fetcher::FileFetcher;
+use module_fetcher::permissions::Permissions;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 pub struct EmitterFactory {
@@ -57,5 +64,39 @@ impl EmitterFactory {
         ));
 
         Ok(emitter)
+    }
+
+    pub fn graph_resolver(&self) -> Box<dyn Resolver> {
+        Box::<CliGraphResolver>::default()
+    }
+
+    pub fn file_fetcher(&self) -> FileFetcher {
+        use module_fetcher::cache::*;
+        let global_cache_struct = GlobalHttpCache::new(self.deno_dir.deps_folder_path());
+        let global_cache: Arc<dyn HttpCache> = Arc::new(global_cache_struct);
+        let http_client = Arc::new(make_http_client().unwrap());
+        let blob_store = Arc::new(deno_web::BlobStore::default());
+
+        FileFetcher::new(
+            global_cache.clone(),
+            CacheSetting::ReloadAll, // TODO: Maybe ?
+            true,
+            http_client,
+            blob_store,
+        )
+    }
+
+    pub fn file_fetcher_loader(&self) -> Box<dyn Loader> {
+        use module_fetcher::cache::*;
+        let global_cache_struct = GlobalHttpCache::new(self.deno_dir.deps_folder_path());
+
+        Box::new(FetchCacher::new(
+            self.emit_cache().unwrap(),
+            Arc::new(self.file_fetcher()),
+            HashMap::new(),
+            Arc::new(global_cache_struct),
+            Permissions::allow_all(),
+            None, // TODO: NPM
+        ))
     }
 }

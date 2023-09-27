@@ -16,6 +16,7 @@ members = [
 resolver = "2"
 
 [workspace.dependencies]
+eszip = "0.49.0"
 log = "0.4.19"
 anyhow = { version = "1.0.57" }
 libc = { version = "0.2.144" }

@@ -26,7 +26,11 @@ macro_rules! integration_test {
                 None,
                 None,
                 false,
-                Some(tx.clone())
+                Some(tx.clone()),
+                $crate::server::WorkerEntrypoints {
+                    main: None,
+                    events: None,
+                }
             ) => {
                 panic!("This one should not end first");
             }

@@ -2,6 +2,7 @@ mod logger;
 
 use anyhow::Error;
 use base::commands::start_server;
+use base::server::WorkerEntrypoints;
 use base::utils::graph_util::{create_eszip_from_graph, create_module_graph_from_path};
 use clap::builder::FalseyValueParser;
 use clap::{arg, crate_version, value_parser, ArgAction, Command};
@@ -39,16 +40,18 @@ fn cli() -> Command {
                         .default_value("9000")
                         .value_parser(value_parser!(u16)),
                 )
-                .arg(arg!(--"main-service" <DIR> "Path to main service directory").default_value("examples/main"))
+                .arg(arg!(--"main-service" <DIR> "Path to main service directory or eszip").default_value("examples/main"))
                 .arg(arg!(--"disable-module-cache" "Disable using module cache").default_value("false").value_parser(FalseyValueParser::new()))
                 .arg(arg!(--"import-map" <Path> "Path to import map file"))
                 .arg(arg!(--"event-worker" <Path> "Path to event worker directory"))
+                .arg(arg!(--"main-entrypoint" <Path> "Path to entrypoint in main service (only for eszips)"))
+                .arg(arg!(--"events-entrypoint" <Path> "Path to entrypoint in events worker (only for eszips)"))
         )
         .subcommand(
             Command::new("bundle")
                 .about("Creates an 'eszip' file that can be executed by the EdgeRuntime. Such file contains all the modules in contained in a single binary.")
                 .arg(arg!(--"output" <DIR> "Path to output eszip file").default_value("bin.eszip"))
-                .arg(arg!(--"entry-point" <Path> "Path to entry point").required(true))
+                .arg(arg!(--"entrypoint" <Path> "Path to entrypoint to bundle as an eszip").required(true))
         )
 }
 
@@ -96,6 +99,10 @@ fn main() -> Result<(), anyhow::Error> {
                     .unwrap();
                 let event_service_manager_path =
                     sub_matches.get_one::<String>("event-worker").cloned();
+                let maybe_main_entrypoint =
+                    sub_matches.get_one::<String>("main-entrypoint").cloned();
+                let maybe_events_entrypoint =
+                    sub_matches.get_one::<String>("events-entrypoint").cloned();
 
                 start_server(
                     ip.as_str(),
@@ -105,6 +112,10 @@ fn main() -> Result<(), anyhow::Error> {
                     import_map_path,
                     no_module_cache,
                     None,
+                    WorkerEntrypoints {
+                        main: maybe_main_entrypoint,
+                        events: maybe_events_entrypoint,
+                    },
                 )
                 .await?;
             }
@@ -112,7 +123,7 @@ fn main() -> Result<(), anyhow::Error> {
                 let output_path = sub_matches.get_one::<String>("output").cloned().unwrap();
 
                 let entry_point_path = sub_matches
-                    .get_one::<String>("entry-point")
+                    .get_one::<String>("entrypoint")
                     .cloned()
                     .unwrap();
 

@@ -2,6 +2,7 @@ mod logger;
 
 use anyhow::Error;
 use base::commands::start_server;
+use base::server::WorkerEntrypoints;
 use base::utils::graph_util::{create_eszip_from_graph, create_module_graph_from_path};
 use clap::builder::FalseyValueParser;
 use clap::{arg, crate_version, value_parser, ArgAction, Command};
@@ -111,8 +112,10 @@ fn main() -> Result<(), anyhow::Error> {
                     import_map_path,
                     no_module_cache,
                     None,
-                    maybe_main_entrypoint,
-                    maybe_events_entrypoint,
+                    WorkerEntrypoints {
+                        main: maybe_main_entrypoint,
+                        events: maybe_events_entrypoint,
+                    },
                 )
                 .await?;
             }

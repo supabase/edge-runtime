@@ -73,6 +73,11 @@ impl Service<Request<Body>> for WorkerService {
     }
 }
 
+pub struct WorkerEntrypoints {
+    pub main: Option<String>,
+    pub events: Option<String>,
+}
+
 pub struct Server {
     ip: Ipv4Addr,
     port: u16,
@@ -81,6 +86,7 @@ pub struct Server {
 }
 
 impl Server {
+    #[allow(clippy::too_many_arguments)]
     pub async fn new(
         ip: &str,
         port: u16,
@@ -89,10 +95,11 @@ impl Server {
         import_map_path: Option<String>,
         no_module_cache: bool,
         callback_tx: Option<Sender<ServerCodes>>,
-        maybe_main_entrypoint: Option<String>,
-        maybe_events_entrypoint: Option<String>,
+        entrypoints: WorkerEntrypoints,
     ) -> Result<Self, Error> {
         let mut worker_events_sender: Option<mpsc::UnboundedSender<WorkerEventWithMetadata>> = None;
+        let maybe_events_entrypoint = entrypoints.events;
+        let maybe_main_entrypoint = entrypoints.main;
 
         // Create Event Worker
         if let Some(events_service_path) = maybe_events_service_path {

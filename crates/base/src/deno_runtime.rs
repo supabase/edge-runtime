@@ -6,6 +6,9 @@ use deno_core::error::AnyError;
 use deno_core::url::Url;
 use deno_core::{located_script_name, serde_v8, JsRuntime, ModuleCode, ModuleId, RuntimeOptions};
 use deno_http::DefaultHttpPropertyExtractor;
+use deno_tls::rustls;
+use deno_tls::rustls::RootCertStore;
+use deno_tls::rustls_native_certs::load_native_certs;
 use deno_tls::RootCertStoreProvider;
 use import_map::{parse_from_json, ImportMap};
 use log::error;
@@ -140,8 +143,41 @@ impl DenoRuntime {
             main_module_url = Url::parse(&maybe_entrypoint.unwrap())?;
         }
 
-        // Note: this will load Mozilla's CAs (we may also need to support system certs)
-        let root_cert_store = deno_tls::create_default_root_cert_store();
+        // Create and populate a root cert store based on environment variable.
+        // Reference: https://github.com/denoland/deno/blob/v1.37.0/cli/args/mod.rs#L467
+        let mut root_cert_store = RootCertStore::empty();
+        let ca_stores: Vec<String> = (|| {
+            let env_ca_store = std::env::var("DENO_TLS_CA_STORE").ok()?;
+            Some(
+                env_ca_store
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect(),
+            )
+        })()
+        .unwrap_or_else(|| vec!["mozilla".to_string()]);
+        for store in ca_stores.iter() {
+            match store.as_str() {
+                "mozilla" => {
+                    root_cert_store = deno_tls::create_default_root_cert_store();
+                }
+                "system" => {
+                    let roots = load_native_certs().expect("could not load platform certs");
+                    for root in roots {
+                        root_cert_store
+                            .add(&rustls::Certificate(root.0))
+                            .expect("Failed to add platform cert to root cert store");
+                    }
+                }
+                _ => {
+                    bail!(
+                        "Unknown certificate store \"{0}\" specified (allowed: \"system,mozilla\")",
+                        store
+                    );
+                }
+            }
+        }
 
         let mut net_access_disabled = false;
         let mut allow_remote_modules = true;

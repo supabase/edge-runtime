@@ -70,25 +70,6 @@ fn base_url_to_filename(url: &Url) -> Option<PathBuf> {
 pub struct GlobalHttpCache(PathBuf);
 
 impl GlobalHttpCache {
-    pub fn new(path: PathBuf) -> Self {
-        assert!(path.is_absolute());
-        Self(path)
-    }
-
-    // Deprecated to discourage using this as where the file is stored and
-    // how it's stored should be an implementation detail of the cache.
-    #[deprecated(note = "Should only be used for deno info.")]
-    pub fn get_global_cache_location(&self) -> &PathBuf {
-        &self.0
-    }
-
-    // DEPRECATED: Where the file is stored and how it's stored should be an implementation
-    // detail of the cache.
-    #[deprecated(note = "Do not assume the cache will be stored at a file path.")]
-    pub fn get_global_cache_filepath(&self, url: &Url) -> Result<PathBuf, AnyError> {
-        Ok(self.0.join(url_to_filename(url)?))
-    }
-
     fn get_cache_filepath(&self, url: &Url) -> Result<PathBuf, AnyError> {
         Ok(self.0.join(url_to_filename(url)?))
     }

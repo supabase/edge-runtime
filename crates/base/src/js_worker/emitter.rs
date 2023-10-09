@@ -72,7 +72,8 @@ impl EmitterFactory {
 
     pub fn file_fetcher(&self) -> FileFetcher {
         use module_fetcher::cache::*;
-        let global_cache_struct = GlobalHttpCache::new(self.deno_dir.deps_folder_path());
+        let global_cache_struct =
+            GlobalHttpCache::new(self.deno_dir.deps_folder_path(), RealDenoCacheEnv);
         let global_cache: Arc<dyn HttpCache> = Arc::new(global_cache_struct);
         let http_client = Arc::new(make_http_client().unwrap());
         let blob_store = Arc::new(deno_web::BlobStore::default());
@@ -88,13 +89,16 @@ impl EmitterFactory {
 
     pub fn file_fetcher_loader(&self) -> Box<dyn Loader> {
         use module_fetcher::cache::*;
-        let global_cache_struct = GlobalHttpCache::new(self.deno_dir.deps_folder_path());
+        let global_cache_struct =
+            GlobalHttpCache::new(self.deno_dir.deps_folder_path(), RealDenoCacheEnv);
+        let parsed_source = self.parsed_source_cache().unwrap();
 
         Box::new(FetchCacher::new(
             self.emit_cache().unwrap(),
             Arc::new(self.file_fetcher()),
             HashMap::new(),
             Arc::new(global_cache_struct),
+            parsed_source,
             Permissions::allow_all(),
             None, // TODO: NPM
         ))

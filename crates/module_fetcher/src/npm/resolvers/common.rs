@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use deno_ast::ModuleSpecifier;
 use deno_core::error::AnyError;
 use deno_core::futures;
-use deno_core::task::spawn;
+use deno_core::unsync::spawn;
 use deno_core::url::Url;
 use deno_fs::FileSystem;
 use deno_npm::NpmPackageCacheFolderId;
@@ -20,7 +20,6 @@ use deno_npm::NpmResolutionPackage;
 use sb_node::NodePermissions;
 use sb_node::NodeResolutionMode;
 
-use crate::npm::cache::should_sync_download;
 use crate::npm::NpmCache;
 
 /// Part of the resolution that interacts with the file system.
@@ -124,17 +123,10 @@ impl RegistryReadPermissionChecker {
 
 /// Caches all the packages in parallel.
 pub async fn cache_packages(
-    mut packages: Vec<NpmResolutionPackage>,
+    packages: Vec<NpmResolutionPackage>,
     cache: &Arc<NpmCache>,
     registry_url: &Url,
 ) -> Result<(), AnyError> {
-    let sync_download = should_sync_download();
-    if sync_download {
-        // we're running the tests not with --quiet
-        // and we want the output to be deterministic
-        packages.sort_by(|a, b| a.id.cmp(&b.id));
-    }
-
     let mut handles = Vec::with_capacity(packages.len());
     for package in packages {
         let cache = cache.clone();
@@ -144,11 +136,7 @@ pub async fn cache_packages(
                 .ensure_package(&package.id.nv, &package.dist, &registry_url)
                 .await
         });
-        if sync_download {
-            handle.await??;
-        } else {
-            handles.push(handle);
-        }
+        handles.push(handle);
     }
     let results = futures::future::join_all(handles).await;
     for result in results {
@@ -164,4 +152,18 @@ pub fn types_package_name(package_name: &str) -> String {
     // Scoped packages will get two underscores for each slash
     // https://github.com/DefinitelyTyped/DefinitelyTyped/tree/15f1ece08f7b498f4b9a2147c2a46e94416ca777#what-about-scoped-packages
     format!("@types/{}", package_name.replace('/', "__"))
+}
+
+#[cfg(test)]
+mod test {
+    use super::types_package_name;
+
+    #[test]
+    fn test_types_package_name() {
+        assert_eq!(types_package_name("name"), "@types/name");
+        assert_eq!(
+            types_package_name("@scoped/package"),
+            "@types/@scoped__package"
+        );
+    }
 }

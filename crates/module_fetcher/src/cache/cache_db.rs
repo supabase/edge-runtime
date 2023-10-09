@@ -3,12 +3,13 @@
 use deno_core::error::AnyError;
 use deno_core::parking_lot::Mutex;
 use deno_core::parking_lot::MutexGuard;
-use deno_core::task::spawn_blocking;
+use deno_core::unsync::spawn_blocking;
 use deno_webstorage::rusqlite;
 use deno_webstorage::rusqlite::Connection;
 use deno_webstorage::rusqlite::OptionalExtension;
 use deno_webstorage::rusqlite::Params;
 use once_cell::sync::OnceCell;
+use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -225,7 +226,7 @@ impl CacheDB {
         };
 
         // Failed, try deleting it
-        let is_tty = atty::is(atty::Stream::Stderr);
+        let is_tty = std::io::stderr().is_terminal();
         log::log!(
             if is_tty {
                 log::Level::Warn

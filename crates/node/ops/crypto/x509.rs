@@ -2,7 +2,7 @@
 
 use deno_core::error::bad_resource_id;
 use deno_core::error::AnyError;
-use deno_core::op;
+use deno_core::op2;
 use deno_core::OpState;
 use deno_core::Resource;
 
@@ -54,8 +54,8 @@ impl Resource for Certificate {
     }
 }
 
-#[op]
-pub fn op_node_x509_parse(state: &mut OpState, buf: &[u8]) -> Result<u32, AnyError> {
+#[op2(fast)]
+pub fn op_node_x509_parse(state: &mut OpState, #[buffer] buf: &[u8]) -> Result<u32, AnyError> {
     let pem = match pem::parse_x509_pem(buf) {
         Ok((_, pem)) => Some(pem),
         Err(_) => None,
@@ -77,7 +77,7 @@ pub fn op_node_x509_parse(state: &mut OpState, buf: &[u8]) -> Result<u32, AnyErr
     Ok(rid)
 }
 
-#[op]
+#[op2(fast)]
 pub fn op_node_x509_ca(state: &mut OpState, rid: u32) -> Result<bool, AnyError> {
     let cert = state
         .resource_table
@@ -86,11 +86,11 @@ pub fn op_node_x509_ca(state: &mut OpState, rid: u32) -> Result<bool, AnyError> 
     Ok(cert.is_ca())
 }
 
-#[op]
+#[op2(fast)]
 pub fn op_node_x509_check_email(
     state: &mut OpState,
     rid: u32,
-    email: &str,
+    #[string] email: &str,
 ) -> Result<bool, AnyError> {
     let cert = state
         .resource_table
@@ -128,7 +128,8 @@ pub fn op_node_x509_check_email(
     Ok(false)
 }
 
-#[op]
+#[op2]
+#[string]
 pub fn op_node_x509_fingerprint(state: &mut OpState, rid: u32) -> Result<Option<String>, AnyError> {
     let cert = state
         .resource_table
@@ -137,7 +138,8 @@ pub fn op_node_x509_fingerprint(state: &mut OpState, rid: u32) -> Result<Option<
     Ok(cert.fingerprint::<sha1::Sha1>())
 }
 
-#[op]
+#[op2]
+#[string]
 pub fn op_node_x509_fingerprint256(
     state: &mut OpState,
     rid: u32,
@@ -149,7 +151,8 @@ pub fn op_node_x509_fingerprint256(
     Ok(cert.fingerprint::<sha2::Sha256>())
 }
 
-#[op]
+#[op2]
+#[string]
 pub fn op_node_x509_fingerprint512(
     state: &mut OpState,
     rid: u32,
@@ -161,7 +164,8 @@ pub fn op_node_x509_fingerprint512(
     Ok(cert.fingerprint::<sha2::Sha512>())
 }
 
-#[op]
+#[op2]
+#[string]
 pub fn op_node_x509_get_issuer(state: &mut OpState, rid: u32) -> Result<String, AnyError> {
     let cert = state
         .resource_table
@@ -170,7 +174,8 @@ pub fn op_node_x509_get_issuer(state: &mut OpState, rid: u32) -> Result<String, 
     Ok(x509name_to_string(cert.issuer(), oid_registry())?)
 }
 
-#[op]
+#[op2]
+#[string]
 pub fn op_node_x509_get_subject(state: &mut OpState, rid: u32) -> Result<String, AnyError> {
     let cert = state
         .resource_table
@@ -211,36 +216,30 @@ fn x509name_to_string(
 ) -> Result<String, x509_parser::error::X509Error> {
     // Lifted from https://github.com/rusticata/x509-parser/blob/4d618c2ed6b1fc102df16797545895f7c67ee0fe/src/x509.rs#L543-L566
     // since it's a private function (Copyright 2017 Pierre Chifflier)
-    #[allow(clippy::manual_try_fold)]
-    name.iter_rdn().fold(Ok(String::new()), |acc, rdn| {
-        acc.and_then(|mut _vec| {
-            #[allow(clippy::manual_try_fold)]
-            rdn.iter()
-                .fold(Ok(String::new()), |acc2, attr| {
-                    acc2.and_then(|mut _vec2| {
-                        let val_str =
-                            attribute_value_to_string(attr.attr_value(), attr.attr_type())?;
-                        // look ABBREV, and if not found, use shortname
-                        let abbrev = match oid2abbrev(attr.attr_type(), oid_registry) {
-                            Ok(s) => String::from(s),
-                            _ => format!("{:?}", attr.attr_type()),
-                        };
-                        let rdn = format!("{}={}", abbrev, val_str);
-                        match _vec2.len() {
-                            0 => Ok(rdn),
-                            _ => Ok(_vec2 + " + " + rdn.as_str()),
-                        }
-                    })
-                })
-                .map(|v| match _vec.len() {
-                    0 => v,
-                    _ => _vec + "\n" + v.as_str(),
-                })
-        })
+    name.iter_rdn().try_fold(String::new(), |acc, rdn| {
+        rdn.iter()
+            .try_fold(String::new(), |acc2, attr| {
+                let val_str = attribute_value_to_string(attr.attr_value(), attr.attr_type())?;
+                // look ABBREV, and if not found, use shortname
+                let abbrev = match oid2abbrev(attr.attr_type(), oid_registry) {
+                    Ok(s) => String::from(s),
+                    _ => format!("{:?}", attr.attr_type()),
+                };
+                let rdn = format!("{}={}", abbrev, val_str);
+                match acc2.len() {
+                    0 => Ok(rdn),
+                    _ => Ok(acc2 + " + " + rdn.as_str()),
+                }
+            })
+            .map(|v| match acc.len() {
+                0 => v,
+                _ => acc + "\n" + v.as_str(),
+            })
     })
 }
 
-#[op]
+#[op2]
+#[string]
 pub fn op_node_x509_get_valid_from(state: &mut OpState, rid: u32) -> Result<String, AnyError> {
     let cert = state
         .resource_table
@@ -249,7 +248,8 @@ pub fn op_node_x509_get_valid_from(state: &mut OpState, rid: u32) -> Result<Stri
     Ok(cert.validity().not_before.to_string())
 }
 
-#[op]
+#[op2]
+#[string]
 pub fn op_node_x509_get_valid_to(state: &mut OpState, rid: u32) -> Result<String, AnyError> {
     let cert = state
         .resource_table
@@ -258,7 +258,8 @@ pub fn op_node_x509_get_valid_to(state: &mut OpState, rid: u32) -> Result<String
     Ok(cert.validity().not_after.to_string())
 }
 
-#[op]
+#[op2]
+#[string]
 pub fn op_node_x509_get_serial_number(state: &mut OpState, rid: u32) -> Result<String, AnyError> {
     let cert = state
         .resource_table
@@ -269,7 +270,7 @@ pub fn op_node_x509_get_serial_number(state: &mut OpState, rid: u32) -> Result<S
     Ok(s)
 }
 
-#[op]
+#[op2(fast)]
 pub fn op_node_x509_key_usage(state: &mut OpState, rid: u32) -> Result<u16, AnyError> {
     let cert = state
         .resource_table

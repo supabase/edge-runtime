@@ -9,9 +9,9 @@ mod supabase_startup_snapshot {
     use deno_ast::SourceTextInfo;
     use deno_core::error::AnyError;
     use deno_core::snapshot_util::*;
-    use deno_core::Extension;
     use deno_core::ExtensionFileSource;
     use deno_core::ModuleCode;
+    use deno_core::{Extension, ExtensionFileSourceCode};
     use deno_fs::OpenOptions;
     use deno_http::DefaultHttpPropertyExtractor;
     use event_worker::js_interceptors::sb_events_js_interceptors;
@@ -28,32 +28,26 @@ mod supabase_startup_snapshot {
     use std::sync::Arc;
     use url::Url;
 
-    fn transpile_ts_for_snapshotting(
-        file_source: &ExtensionFileSource,
-    ) -> Result<ModuleCode, AnyError> {
-        let media_type = if file_source.specifier.starts_with("node:") {
+    fn maybe_transpile_source(source: &mut ExtensionFileSource) -> Result<(), AnyError> {
+        let media_type = if source.specifier.starts_with("node:") {
             MediaType::TypeScript
         } else {
-            MediaType::from_path(Path::new(&file_source.specifier))
+            MediaType::from_path(Path::new(&source.specifier))
         };
 
-        let should_transpile = match media_type {
-            MediaType::JavaScript => false,
-            MediaType::Mjs => false,
-            MediaType::TypeScript => true,
+        match media_type {
+            MediaType::TypeScript => {}
+            MediaType::JavaScript => return Ok(()),
+            MediaType::Mjs => return Ok(()),
             _ => panic!(
                 "Unsupported media type for snapshotting {media_type:?} for file {}",
-                file_source.specifier
+                source.specifier
             ),
-        };
-        let code = file_source.load()?;
-
-        if !should_transpile {
-            return Ok(code);
         }
+        let code = source.load()?;
 
         let parsed = deno_ast::parse_module(ParseParams {
-            specifier: file_source.specifier.to_string(),
+            specifier: source.specifier.to_string(),
             text_info: SourceTextInfo::from_string(code.as_str().to_owned()),
             media_type,
             capture_tokens: false,
@@ -66,7 +60,8 @@ mod supabase_startup_snapshot {
             ..Default::default()
         })?;
 
-        Ok(transpiled_source.text.into())
+        source.code = ExtensionFileSourceCode::Computed(transpiled_source.text.into());
+        Ok(())
     }
 
     #[derive(Clone)]
@@ -202,7 +197,7 @@ mod supabase_startup_snapshot {
     pub fn create_runtime_snapshot(snapshot_path: PathBuf) {
         let user_agent = String::from("supabase");
         let fs = Arc::new(deno_fs::RealFs);
-        let extensions: Vec<Extension> = vec![
+        let mut extensions: Vec<Extension> = vec![
             sb_core_permissions::init_ops_and_esm(false),
             deno_webidl::deno_webidl::init_ops_and_esm(),
             deno_console::deno_console::init_ops_and_esm(),
@@ -240,13 +235,21 @@ mod supabase_startup_snapshot {
             sb_core_runtime::init_ops_and_esm(None),
         ];
 
+        for extension in &mut extensions {
+            for source in extension.esm_files.to_mut() {
+                maybe_transpile_source(source).unwrap();
+            }
+            for source in extension.js_files.to_mut() {
+                maybe_transpile_source(source).unwrap();
+            }
+        }
+
         let _ = create_snapshot(CreateSnapshotOptions {
             cargo_manifest_dir: env!("CARGO_MANIFEST_DIR"),
             snapshot_path,
             startup_snapshot: None,
             extensions,
             compression_cb: None,
-            snapshot_module_load_cb: Some(Box::new(transpile_ts_for_snapshotting)),
             with_runtime_cb: None,
         });
     }

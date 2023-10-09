@@ -128,7 +128,7 @@ export function arch(): string {
 (uptime as any)[Symbol.toPrimitive] = (): number => uptime();
 
 export function cpus(): CPUCoreInfo[] {
-  return Array.from(Array(navigator.hardwareConcurrency)).map(() => {
+  return Array.from(Array(navigator.hardwareConcurrency), () => {
     return {
       model: "",
       speed: 0,
@@ -322,8 +322,8 @@ export function uptime(): number {
 export function userInfo(
   options: UserInfoOptions = { encoding: "utf-8" },
 ): UserInfo {
-  const uid = Deno.uid();
-  const gid = Deno.gid();
+  let uid = Deno.uid();
+  let gid = Deno.gid();
 
   if (isWindows) {
     uid = -1;

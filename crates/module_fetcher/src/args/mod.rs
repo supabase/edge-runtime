@@ -4,6 +4,20 @@ pub mod import_map;
 pub mod lockfile;
 pub mod package_json;
 
+pub use deno_config::BenchConfig;
+pub use deno_config::CompilerOptions;
+pub use deno_config::ConfigFile;
+pub use deno_config::EmitConfigOptions;
+pub use deno_config::FilesConfig;
+pub use deno_config::FmtOptionsConfig;
+pub use deno_config::JsxImportSourceConfig;
+pub use deno_config::LintRulesConfig;
+pub use deno_config::ProseWrap;
+pub use deno_config::TsConfig;
+pub use deno_config::TsConfigForEmit;
+pub use deno_config::TsConfigType;
+pub use deno_config::TsTypeLib;
+
 /// Indicates how cached source files should be handled.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum CacheSetting {

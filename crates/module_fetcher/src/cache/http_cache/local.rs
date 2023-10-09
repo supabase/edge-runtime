@@ -35,80 +35,6 @@ pub struct LocalLspHttpCache {
     cache: LocalHttpCache,
 }
 
-impl LocalLspHttpCache {
-    pub fn new(path: PathBuf, global_cache: Arc<GlobalHttpCache>) -> Self {
-        assert!(path.is_absolute());
-        let manifest = LocalCacheManifest::new_for_lsp(path.join("manifest.json"));
-        Self {
-            cache: LocalHttpCache {
-                path,
-                manifest,
-                global_cache,
-            },
-        }
-    }
-
-    pub fn get_file_url(&self, url: &Url) -> Option<Url> {
-        {
-            let data = self.cache.manifest.data.read();
-            if let Some(data) = data.get(url) {
-                if let Some(path) = &data.path {
-                    return Url::from_file_path(self.cache.path.join(path)).ok();
-                }
-            }
-        }
-        match self.cache.get_cache_filepath(url, &Default::default()) {
-            Ok(path) if path.exists() => Url::from_file_path(path).ok(),
-            _ => None,
-        }
-    }
-
-    pub fn get_remote_url(&self, path: &Path) -> Option<Url> {
-        if let Ok(path) = path.strip_prefix(&self.cache.path) {
-            let has_hashed_component = path
-                .components()
-                .any(|p| p.as_os_str().to_string_lossy().starts_with('#'));
-            if has_hashed_component {
-                // check in the manifest
-                {
-                    let data = self.cache.manifest.data.read();
-                    if let Some(url) = data.get_reverse_mapping(path) {
-                        return Some(url);
-                    }
-                }
-                None
-            } else {
-                // we can work backwards from the path to the url
-                let mut parts = Vec::new();
-                for (i, part) in path.components().enumerate() {
-                    let part = part.as_os_str().to_string_lossy();
-                    if i == 0 {
-                        let mut result = String::new();
-                        let part = if let Some(part) = part.strip_prefix("http_") {
-                            result.push_str("http://");
-                            part
-                        } else {
-                            result.push_str("https://");
-                            &part
-                        };
-                        if let Some((domain, port)) = part.rsplit_once('_') {
-                            result.push_str(&format!("{}:{}", domain, port));
-                        } else {
-                            result.push_str(part);
-                        }
-                        parts.push(result);
-                    } else {
-                        parts.push(part.to_string());
-                    }
-                }
-                Url::parse(&parts.join("/")).ok()
-            }
-        } else {
-            None
-        }
-    }
-}
-
 impl HttpCache for LocalLspHttpCache {
     fn cache_item_key<'a>(&self, url: &'a Url) -> Result<HttpCacheItemKey<'a>, AnyError> {
         self.cache.cache_item_key(url)
@@ -566,7 +492,6 @@ impl LocalCacheManifest {
 // the internal implementation private.
 mod manifest {
     use std::collections::HashMap;
-    use std::path::Path;
     use std::path::PathBuf;
 
     use deno_core::serde_json;
@@ -636,14 +561,6 @@ mod manifest {
 
         pub fn get(&self, url: &Url) -> Option<&SerializedLocalCacheManifestDataModule> {
             self.serialized.modules.get(url)
-        }
-
-        pub fn get_reverse_mapping(&self, path: &Path) -> Option<Url> {
-            debug_assert!(self.reverse_mapping.is_some()); // only call this if you're in the lsp
-            self.reverse_mapping
-                .as_ref()
-                .and_then(|mapping| mapping.get(path))
-                .cloned()
         }
 
         pub fn insert(

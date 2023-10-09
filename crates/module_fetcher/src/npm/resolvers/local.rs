@@ -23,8 +23,8 @@ use deno_core::anyhow::bail;
 use deno_core::anyhow::Context;
 use deno_core::error::AnyError;
 use deno_core::futures;
-use deno_core::task::spawn;
-use deno_core::task::JoinHandle;
+use deno_core::unsync::spawn;
+use deno_core::unsync::JoinHandle;
 use deno_core::url::Url;
 use deno_fs;
 use deno_npm::resolution::NpmResolutionSnapshot;
@@ -32,7 +32,7 @@ use deno_npm::NpmPackageCacheFolderId;
 use deno_npm::NpmPackageId;
 use deno_npm::NpmResolutionPackage;
 use deno_npm::NpmSystemInfo;
-use deno_semver::npm::NpmPackageNv;
+use deno_semver::package::PackageNv;
 use sb_node::NodePermissions;
 use sb_node::NodeResolutionMode;
 use sb_node::PackageJson;
@@ -40,7 +40,6 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use crate::npm::cache::mixed_case_package_name_encode;
-use crate::npm::cache::should_sync_download;
 use crate::npm::resolution::NpmResolution;
 use crate::npm::NpmCache;
 use crate::util::fs::copy_dir_recursive;
@@ -172,7 +171,7 @@ impl NpmPackageFsResolver for LocalNpmPackageResolver {
                 Cow::Owned(current_folder.join("node_modules"))
             };
             let sub_dir = join_package_name(&node_modules_folder, name);
-            if self.fs.is_dir(&sub_dir) {
+            if self.fs.is_dir_sync(&sub_dir) {
                 // if doing types resolution, only resolve the package if it specifies a types property
                 if mode.is_types() && !name.starts_with("@types/") {
                     let package_json = PackageJson::load_skip_read_permission(
@@ -190,7 +189,7 @@ impl NpmPackageFsResolver for LocalNpmPackageResolver {
             // if doing type resolution, check for the existence of a @types package
             if mode.is_types() && !name.starts_with("@types/") {
                 let sub_dir = join_package_name(&node_modules_folder, &types_package_name(name));
-                if self.fs.is_dir(&sub_dir) {
+                if self.fs.is_dir_sync(&sub_dir) {
                     return Ok(sub_dir);
                 }
             }
@@ -279,13 +278,7 @@ async fn sync_resolution_with_fs(
     //
     // Copy (hardlink in future) <global_registry_cache>/<package_id>/ to
     // node_modules/.deno/<package_folder_id_folder_name>/node_modules/<package_name>
-    let sync_download = should_sync_download();
-    let mut package_partitions = snapshot.all_system_packages_partitioned(system_info);
-    if sync_download {
-        // we're running the tests not with --quiet
-        // and we want the output to be deterministic
-        package_partitions.packages.sort_by(|a, b| a.id.cmp(&b.id));
-    }
+    let package_partitions = snapshot.all_system_packages_partitioned(system_info);
     let mut handles: Vec<JoinHandle<Result<(), AnyError>>> =
         Vec::with_capacity(package_partitions.packages.len());
     let mut newest_packages_by_name: HashMap<&String, &NpmResolutionPackage> =
@@ -332,11 +325,7 @@ async fn sync_resolution_with_fs(
                 // finally stop showing the progress bar
                 Ok(())
             });
-            if sync_download {
-                handle.await??;
-            } else {
-                handles.push(handle);
-            }
+            handles.push(handle);
         }
     }
 
@@ -610,7 +599,7 @@ fn get_package_folder_id_from_folder_name(folder_name: &str) -> Option<NpmPackag
     };
     let version = deno_semver::Version::parse_from_npm(raw_version).ok()?;
     Some(NpmPackageCacheFolderId {
-        nv: NpmPackageNv { name, version },
+        nv: PackageNv { name, version },
         copy_index,
     })
 }

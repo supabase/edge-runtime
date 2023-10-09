@@ -1,5 +1,6 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
@@ -14,9 +15,10 @@ use deno_core::url::Url;
 use deno_core::ModuleSpecifier;
 use deno_fs::FileSystemRc;
 use deno_media_type::MediaType;
-use deno_semver::npm::NpmPackageNv;
 use deno_semver::npm::NpmPackageNvReference;
 use deno_semver::npm::NpmPackageReqReference;
+use deno_semver::package::PackageNv;
+use deno_semver::package::PackageNvReference;
 
 use crate::errors;
 use crate::AllowAllNodePermissions;
@@ -126,10 +128,10 @@ impl NodeResolver {
         self.npm_resolver.in_npm_package(specifier)
     }
 
-    pub fn in_npm_package_with_cache(&self, specifier: String) -> bool {
+    pub fn in_npm_package_with_cache(&self, specifier: Cow<str>) -> bool {
         let mut cache = self.in_npm_package_cache.lock();
 
-        if let Some(result) = cache.get(&specifier) {
+        if let Some(result) = cache.get(specifier.as_ref()) {
             return *result;
         }
 
@@ -138,7 +140,7 @@ impl NodeResolver {
         } else {
             false
         };
-        cache.insert(specifier, result);
+        cache.insert(specifier.into_owned(), result);
         result
     }
 
@@ -323,11 +325,11 @@ impl NodeResolver {
     ) -> Result<Option<NodeResolution>, AnyError> {
         let pkg_id = self
             .npm_resolver
-            .resolve_pkg_id_from_pkg_req(&reference.req)?;
-        let reference = NpmPackageNvReference {
+            .resolve_pkg_id_from_pkg_req(reference.req())?;
+        let reference = NpmPackageNvReference::new(PackageNvReference {
             nv: pkg_id.nv,
-            sub_path: reference.sub_path.clone(),
-        };
+            sub_path: reference.sub_path().map(ToOwned::to_owned),
+        });
         self.resolve_npm_reference(&reference, mode, permissions)
     }
 
@@ -339,13 +341,12 @@ impl NodeResolver {
     ) -> Result<Option<NodeResolution>, AnyError> {
         let package_folder = self
             .npm_resolver
-            .resolve_package_folder_from_deno_module(&reference.nv)?;
+            .resolve_package_folder_from_deno_module(reference.nv())?;
         let node_module_kind = NodeModuleKind::Esm;
         let maybe_resolved_path = self
             .package_config_resolve(
                 &reference
-                    .sub_path
-                    .as_ref()
+                    .sub_path()
                     .map(|s| format!("./{s}"))
                     .unwrap_or_else(|| ".".to_string()),
                 &package_folder,
@@ -375,7 +376,7 @@ impl NodeResolver {
         Ok(Some(resolve_response))
     }
 
-    pub fn resolve_binary_commands(&self, pkg_nv: &NpmPackageNv) -> Result<Vec<String>, AnyError> {
+    pub fn resolve_binary_commands(&self, pkg_nv: &PackageNv) -> Result<Vec<String>, AnyError> {
         let package_folder = self
             .npm_resolver
             .resolve_package_folder_from_deno_module(pkg_nv)?;
@@ -395,9 +396,9 @@ impl NodeResolver {
     ) -> Result<NodeResolution, AnyError> {
         let pkg_nv = self
             .npm_resolver
-            .resolve_pkg_id_from_pkg_req(&pkg_ref.req)?
+            .resolve_pkg_id_from_pkg_req(pkg_ref.req())?
             .nv;
-        let bin_name = pkg_ref.sub_path.as_deref();
+        let bin_name = pkg_ref.sub_path();
         let package_folder = self
             .npm_resolver
             .resolve_package_folder_from_deno_module(&pkg_nv)?;
@@ -508,20 +509,20 @@ impl NodeResolver {
             let mut searched_for_d_cts = false;
             if lowercase_path.ends_with(".mjs") {
                 let d_mts_path = with_known_extension(path, "d.mts");
-                if fs.exists(&d_mts_path) {
+                if fs.exists_sync(&d_mts_path) {
                     return Some(d_mts_path);
                 }
                 searched_for_d_mts = true;
             } else if lowercase_path.ends_with(".cjs") {
                 let d_cts_path = with_known_extension(path, "d.cts");
-                if fs.exists(&d_cts_path) {
+                if fs.exists_sync(&d_cts_path) {
                     return Some(d_cts_path);
                 }
                 searched_for_d_cts = true;
             }
 
             let dts_path = with_known_extension(path, "d.ts");
-            if fs.exists(&dts_path) {
+            if fs.exists_sync(&dts_path) {
                 return Some(dts_path);
             }
 
@@ -535,7 +536,7 @@ impl NodeResolver {
                 _ => None, // already searched above
             };
             if let Some(specific_dts_path) = specific_dts_path {
-                if fs.exists(&specific_dts_path) {
+                if fs.exists_sync(&specific_dts_path) {
                     return Some(specific_dts_path);
                 }
             }
@@ -552,7 +553,7 @@ impl NodeResolver {
         if let Some(path) = probe_extensions(&*self.fs, &path, &lowercase_path, referrer_kind) {
             return Some(path);
         }
-        if self.fs.is_dir(&path) {
+        if self.fs.is_dir_sync(&path) {
             let index_path = path.join("index.js");
             if let Some(path) = probe_extensions(
                 &*self.fs,
@@ -1093,7 +1094,7 @@ impl NodeResolver {
     ) -> Result<Option<PackageJson>, AnyError> {
         let Some(root_folder) = self
             .npm_resolver
-            .resolve_package_folder_from_path(&referrer.to_file_path().unwrap())?
+            .resolve_package_folder_from_path(referrer)?
         else {
             return Ok(None);
         };
@@ -1123,19 +1124,19 @@ impl NodeResolver {
             deno_core::strip_unc_prefix(self.fs.realpath_sync(file_path.parent().unwrap())?);
         let mut current_dir = current_dir.as_path();
         let package_json_path = current_dir.join("package.json");
-        if self.fs.exists(&package_json_path) {
+        if self.fs.exists_sync(&package_json_path) {
             return Ok(Some(package_json_path));
         }
-        let Some(root_pkg_folder) = self
-            .npm_resolver
-            .resolve_package_folder_from_path(current_dir)?
+        let Some(root_pkg_folder) = self.npm_resolver.resolve_package_folder_from_path(
+            &ModuleSpecifier::from_directory_path(current_dir).unwrap(),
+        )?
         else {
             return Ok(None);
         };
         while current_dir.starts_with(&root_pkg_folder) {
             current_dir = current_dir.parent().unwrap();
             let package_json_path = current_dir.join("package.json");
-            if self.fs.exists(&package_json_path) {
+            if self.fs.exists_sync(&package_json_path) {
                 return Ok(Some(package_json_path));
             }
         }
@@ -1183,7 +1184,7 @@ impl NodeResolver {
 
         if let Some(main) = maybe_main {
             let guess = package_json.path.parent().unwrap().join(main).clean();
-            if self.fs.is_file(&guess) {
+            if self.fs.is_file_sync(&guess) {
                 return Ok(Some(guess));
             }
 
@@ -1212,7 +1213,7 @@ impl NodeResolver {
                     .unwrap()
                     .join(format!("{main}{ending}"))
                     .clean();
-                if self.fs.is_file(&guess) {
+                if self.fs.is_file_sync(&guess) {
                     // TODO(bartlomieju): emitLegacyIndexDeprecation()
                     return Ok(Some(guess));
                 }
@@ -1235,7 +1236,7 @@ impl NodeResolver {
                 .unwrap()
                 .join(index_file_name)
                 .clean();
-            if self.fs.is_file(&guess) {
+            if self.fs.is_file_sync(&guess) {
                 // TODO(bartlomieju): emitLegacyIndexDeprecation()
                 return Ok(Some(guess));
             }
@@ -1246,7 +1247,7 @@ impl NodeResolver {
 }
 
 fn resolve_bin_entry_value<'a>(
-    pkg_nv: &NpmPackageNv,
+    pkg_nv: &PackageNv,
     bin_name: Option<&str>,
     bin: &'a Value,
 ) -> Result<&'a str, AnyError> {
@@ -1553,7 +1554,7 @@ mod tests {
         });
         assert_eq!(
             resolve_bin_entry_value(
-                &NpmPackageNv::from_str("test@1.1.1").unwrap(),
+                &PackageNv::from_str("test@1.1.1").unwrap(),
                 Some("bin1"),
                 &value
             )
@@ -1563,7 +1564,7 @@ mod tests {
 
         // should resolve the value with the same name when not specified
         assert_eq!(
-            resolve_bin_entry_value(&NpmPackageNv::from_str("test@1.1.1").unwrap(), None, &value)
+            resolve_bin_entry_value(&PackageNv::from_str("test@1.1.1").unwrap(), None, &value)
                 .unwrap(),
             "./value3"
         );
@@ -1571,7 +1572,7 @@ mod tests {
         // should not resolve when specified value does not exist
         assert_eq!(
             resolve_bin_entry_value(
-                &NpmPackageNv::from_str("test@1.1.1").unwrap(),
+                &PackageNv::from_str("test@1.1.1").unwrap(),
                 Some("other"),
                 &value
             )
@@ -1590,7 +1591,7 @@ mod tests {
 
         // should not resolve when default value can't be determined
         assert_eq!(
-            resolve_bin_entry_value(&NpmPackageNv::from_str("asdf@1.2.3").unwrap(), None, &value)
+            resolve_bin_entry_value(&PackageNv::from_str("asdf@1.2.3").unwrap(), None, &value)
                 .err()
                 .unwrap()
                 .to_string(),
@@ -1610,7 +1611,7 @@ mod tests {
           "bin2": "./value",
         });
         assert_eq!(
-            resolve_bin_entry_value(&NpmPackageNv::from_str("test@1.2.3").unwrap(), None, &value)
+            resolve_bin_entry_value(&PackageNv::from_str("test@1.2.3").unwrap(), None, &value)
                 .unwrap(),
             "./value"
         );
@@ -1619,7 +1620,7 @@ mod tests {
         let value = json!("./value");
         assert_eq!(
             resolve_bin_entry_value(
-                &NpmPackageNv::from_str("test@1.2.3").unwrap(),
+                &PackageNv::from_str("test@1.2.3").unwrap(),
                 Some("path"),
                 &value
             )

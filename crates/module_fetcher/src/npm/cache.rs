@@ -16,9 +16,8 @@ use deno_core::url::Url;
 use deno_fs;
 use deno_npm::registry::NpmPackageVersionDistInfo;
 use deno_npm::NpmPackageCacheFolderId;
-use deno_semver::npm::NpmPackageNv;
+use deno_semver::package::PackageNv;
 use deno_semver::Version;
-use once_cell::sync::Lazy;
 
 use crate::args::CacheSetting;
 use crate::http_util::HttpClient;
@@ -28,21 +27,10 @@ use crate::util::path::root_url_to_safe_local_dirname;
 
 use super::tarball::verify_and_extract_tarball;
 
-static SHOULD_SYNC_DOWNLOAD: Lazy<bool> =
-    Lazy::new(|| std::env::var("DENO_UNSTABLE_NPM_SYNC_DOWNLOAD").is_ok());
-
-/// For some of the tests, we want downloading of packages
-/// to be deterministic so that the output is always the same
-pub fn should_sync_download() -> bool {
-    // this gets called a lot when doing npm resolution and was taking
-    // a significant amount of time, so cache it in a lazy
-    *SHOULD_SYNC_DOWNLOAD
-}
-
 const NPM_PACKAGE_SYNC_LOCK_FILENAME: &str = ".deno_sync_lock";
 
 pub fn with_folder_sync_lock(
-    package: &NpmPackageNv,
+    package: &PackageNv,
     output_folder: &Path,
     action: impl FnOnce() -> Result<(), AnyError>,
 ) -> Result<(), AnyError> {
@@ -156,7 +144,7 @@ impl NpmCacheDir {
 
     pub fn package_folder_for_name_and_version(
         &self,
-        package: &NpmPackageNv,
+        package: &PackageNv,
         registry_url: &Url,
     ) -> PathBuf {
         self.package_name_folder(&package.name, registry_url)
@@ -243,7 +231,7 @@ impl NpmCacheDir {
                 (version_part, 0)
             };
         Some(NpmPackageCacheFolderId {
-            nv: NpmPackageNv {
+            nv: PackageNv {
                 name,
                 version: Version::parse_from_npm(version).ok()?,
             },
@@ -264,7 +252,7 @@ pub struct NpmCache {
     fs: Arc<dyn deno_fs::FileSystem>,
     http_client: Arc<HttpClient>,
     /// ensures a package is only downloaded once per run
-    previously_reloaded_packages: Mutex<HashSet<NpmPackageNv>>,
+    previously_reloaded_packages: Mutex<HashSet<PackageNv>>,
 }
 
 impl NpmCache {
@@ -300,7 +288,7 @@ impl NpmCache {
     /// to ensure a package is only downloaded once per run of the CLI. This
     /// prevents downloads from re-occurring when someone has `--reload` and
     /// and imports a dynamic import that imports the same package again for example.
-    fn should_use_global_cache_for_package(&self, package: &NpmPackageNv) -> bool {
+    fn should_use_global_cache_for_package(&self, package: &PackageNv) -> bool {
         self.cache_setting.should_use_for_npm_package(&package.name)
             || !self
                 .previously_reloaded_packages
@@ -310,7 +298,7 @@ impl NpmCache {
 
     pub async fn ensure_package(
         &self,
-        package: &NpmPackageNv,
+        package: &PackageNv,
         dist: &NpmPackageVersionDistInfo,
         registry_url: &Url,
     ) -> Result<(), AnyError> {
@@ -321,7 +309,7 @@ impl NpmCache {
 
     async fn ensure_package_inner(
         &self,
-        package: &NpmPackageNv,
+        package: &PackageNv,
         dist: &NpmPackageVersionDistInfo,
         registry_url: &Url,
     ) -> Result<(), AnyError> {
@@ -329,10 +317,10 @@ impl NpmCache {
             .cache_dir
             .package_folder_for_name_and_version(package, registry_url);
         if self.should_use_global_cache_for_package(package)
-      && self.fs.exists(&package_folder)
+      && self.fs.exists_sync(&package_folder)
       // if this file exists, then the package didn't successfully extract
       // the first time, or another process is currently extracting the zip file
-      && !self.fs.exists(&package_folder.join(NPM_PACKAGE_SYNC_LOCK_FILENAME))
+      && !self.fs.exists_sync(&package_folder.join(NPM_PACKAGE_SYNC_LOCK_FILENAME))
         {
             return Ok(());
         } else if self.cache_setting == CacheSetting::Only {
@@ -403,7 +391,7 @@ impl NpmCache {
 
     pub fn package_folder_for_name_and_version(
         &self,
-        package: &NpmPackageNv,
+        package: &PackageNv,
         registry_url: &Url,
     ) -> PathBuf {
         self.cache_dir
@@ -446,7 +434,7 @@ pub fn mixed_case_package_name_decode(name: &str) -> Option<String> {
 #[cfg(test)]
 mod test {
     use deno_core::url::Url;
-    use deno_semver::npm::NpmPackageNv;
+    use deno_semver::package::PackageNv;
     use deno_semver::Version;
 
     use super::NpmCacheDir;
@@ -462,7 +450,7 @@ mod test {
         assert_eq!(
             cache.package_folder_for_id(
                 &NpmPackageCacheFolderId {
-                    nv: NpmPackageNv {
+                    nv: PackageNv {
                         name: "json".to_string(),
                         version: Version::parse_from_npm("1.2.5").unwrap(),
                     },
@@ -479,7 +467,7 @@ mod test {
         assert_eq!(
             cache.package_folder_for_id(
                 &NpmPackageCacheFolderId {
-                    nv: NpmPackageNv {
+                    nv: PackageNv {
                         name: "json".to_string(),
                         version: Version::parse_from_npm("1.2.5").unwrap(),
                     },
@@ -496,7 +484,7 @@ mod test {
         assert_eq!(
             cache.package_folder_for_id(
                 &NpmPackageCacheFolderId {
-                    nv: NpmPackageNv {
+                    nv: PackageNv {
                         name: "JSON".to_string(),
                         version: Version::parse_from_npm("2.1.5").unwrap(),
                     },
@@ -513,7 +501,7 @@ mod test {
         assert_eq!(
             cache.package_folder_for_id(
                 &NpmPackageCacheFolderId {
-                    nv: NpmPackageNv {
+                    nv: PackageNv {
                         name: "@types/JSON".to_string(),
                         version: Version::parse_from_npm("2.1.5").unwrap(),
                     },

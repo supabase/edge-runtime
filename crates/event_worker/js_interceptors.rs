@@ -1,13 +1,17 @@
 use crate::events::{EventMetadata, LogEvent, LogLevel, WorkerEvents};
 use crate::WorkerEventWithMetadata;
 use deno_core::error::AnyError;
-use deno_core::op;
+use deno_core::op2;
 use deno_core::OpState;
 use log::error;
 use tokio::sync::mpsc;
 
-#[op]
-pub fn op_user_worker_log(state: &mut OpState, msg: &str, is_err: bool) -> Result<(), AnyError> {
+#[op2(fast)]
+fn op_user_worker_log(
+    state: &mut OpState,
+    #[string] msg: &str,
+    is_err: bool,
+) -> Result<(), AnyError> {
     let maybe_tx = state.try_borrow::<mpsc::UnboundedSender<WorkerEventWithMetadata>>();
     let mut level = LogLevel::Info;
     if is_err {
@@ -30,10 +34,10 @@ pub fn op_user_worker_log(state: &mut OpState, msg: &str, is_err: bool) -> Resul
             metadata,
         })?;
     } else {
-        error!("[{:?}] {}", level, msg);
+        error!("[{:?}] {}", level, msg.to_string());
     }
 
     Ok(())
 }
 
-deno_core::extension!(sb_events_js_interceptors, ops = [op_user_worker_log,]);
+deno_core::extension!(sb_events_js_interceptors, ops = [op_user_worker_log,],);

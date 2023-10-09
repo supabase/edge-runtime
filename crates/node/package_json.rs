@@ -81,7 +81,7 @@ impl PackageJson {
             return Ok(CACHE.with(|cache| cache.borrow()[&path].clone()));
         }
 
-        let source = match fs.read_to_string(&path) {
+        let source = match fs.read_text_file_sync(&path) {
             Ok(source) => source,
             Err(err) if err.kind() == ErrorKind::NotFound => {
                 return Ok(PackageJson::empty(path));
@@ -111,14 +111,14 @@ impl PackageJson {
         let version_val = package_json.get("version");
         let type_val = package_json.get("type");
         let bin = package_json.get("bin").map(ToOwned::to_owned);
-        let exports = package_json.get("exports").map(|exports| {
-            if is_conditional_exports_main_sugar(exports) {
+        let exports = package_json.get("exports").and_then(|exports| {
+            Some(if is_conditional_exports_main_sugar(exports) {
                 let mut map = Map::new();
                 map.insert(".".to_string(), exports.to_owned());
                 map
             } else {
-                exports.as_object().unwrap().to_owned()
-            }
+                exports.as_object()?.to_owned()
+            })
         });
 
         let imports = imports_val
@@ -236,4 +236,20 @@ fn is_conditional_exports_main_sugar(exports: &Value) -> bool {
     }
 
     is_conditional_sugar
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn null_exports_should_not_crash() {
+        let package_json = PackageJson::load_from_string(
+            PathBuf::from("/package.json"),
+            r#"{ "exports": null }"#.to_string(),
+        )
+        .unwrap();
+
+        assert!(package_json.exports.is_none());
+    }
 }

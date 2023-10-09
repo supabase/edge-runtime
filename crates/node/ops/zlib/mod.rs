@@ -4,6 +4,7 @@ use deno_core::error::bad_resource_id;
 use deno_core::error::type_error;
 use deno_core::error::AnyError;
 use deno_core::op;
+use deno_core::op2;
 use deno_core::OpState;
 use libz_sys::*;
 use std::borrow::Cow;
@@ -245,8 +246,9 @@ impl deno_core::Resource for Zlib {
     }
 }
 
-#[op]
-pub fn op_zlib_new(state: &mut OpState, mode: i32) -> Result<u32, AnyError> {
+#[op2(fast)]
+#[smi]
+pub fn op_zlib_new(state: &mut OpState, #[smi] mode: i32) -> Result<u32, AnyError> {
     let mode = Mode::try_from(mode)?;
 
     let inner = ZlibInner {
@@ -259,8 +261,8 @@ pub fn op_zlib_new(state: &mut OpState, mode: i32) -> Result<u32, AnyError> {
     }))
 }
 
-#[op]
-pub fn op_zlib_close(state: &mut OpState, handle: u32) -> Result<(), AnyError> {
+#[op2(fast)]
+pub fn op_zlib_close(state: &mut OpState, #[smi] handle: u32) -> Result<(), AnyError> {
     let resource = zlib(state, handle)?;
     let mut zlib = resource.inner.borrow_mut();
 
@@ -300,6 +302,7 @@ pub fn op_zlib_write_async(
     })
 }
 
+// TODO(bartlomieju): op2 can't seem to handle clippy ignore here
 #[op]
 pub fn op_zlib_write(
     state: &mut OpState,
@@ -326,6 +329,7 @@ pub fn op_zlib_write(
     Ok(zlib.err)
 }
 
+// TODO(bartlomieju): op2 can't seem to handle clippy ignore here
 #[op]
 pub fn op_zlib_init(
     state: &mut OpState,
@@ -334,7 +338,7 @@ pub fn op_zlib_init(
     window_bits: i32,
     mem_level: i32,
     strategy: i32,
-    dictionary: Option<&[u8]>,
+    dictionary: &[u8],
 ) -> Result<i32, AnyError> {
     let resource = zlib(state, handle)?;
     let mut zlib = resource.inner.borrow_mut();
@@ -363,13 +367,18 @@ pub fn op_zlib_init(
 
     zlib.init_stream()?;
 
-    zlib.dictionary = dictionary.map(|buf| buf.to_vec());
+    zlib.dictionary = if !dictionary.is_empty() {
+        Some(dictionary.to_vec())
+    } else {
+        None
+    };
 
     Ok(zlib.err)
 }
 
-#[op]
-pub fn op_zlib_reset(state: &mut OpState, handle: u32) -> Result<i32, AnyError> {
+#[op2(fast)]
+#[smi]
+pub fn op_zlib_reset(state: &mut OpState, #[smi] handle: u32) -> Result<i32, AnyError> {
     let resource = zlib(state, handle)?;
 
     let mut zlib = resource.inner.borrow_mut();
@@ -378,8 +387,8 @@ pub fn op_zlib_reset(state: &mut OpState, handle: u32) -> Result<i32, AnyError> 
     Ok(zlib.err)
 }
 
-#[op]
-pub fn op_zlib_close_if_pending(state: &mut OpState, handle: u32) -> Result<(), AnyError> {
+#[op2(fast)]
+pub fn op_zlib_close_if_pending(state: &mut OpState, #[smi] handle: u32) -> Result<(), AnyError> {
     let resource = zlib(state, handle)?;
     let pending_close = {
         let mut zlib = resource.inner.borrow_mut();
@@ -388,7 +397,9 @@ pub fn op_zlib_close_if_pending(state: &mut OpState, handle: u32) -> Result<(), 
     };
     if pending_close {
         drop(resource);
-        state.resource_table.close(handle)?;
+        if let Ok(res) = state.resource_table.take_any(handle) {
+            res.close();
+        }
     }
 
     Ok(())

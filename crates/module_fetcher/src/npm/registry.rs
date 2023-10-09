@@ -18,7 +18,6 @@ use deno_core::futures::FutureExt;
 use deno_core::parking_lot::Mutex;
 use deno_core::serde_json;
 use deno_core::url::Url;
-use deno_core::TaskQueue;
 use deno_npm::registry::NpmPackageInfo;
 use deno_npm::registry::NpmRegistryApi;
 use deno_npm::registry::NpmRegistryPackageInfoLoadError;
@@ -30,7 +29,6 @@ use crate::http_util::HttpClient;
 use crate::util::fs::atomic_write_file;
 use crate::util::sync::AtomicFlag;
 
-use super::cache::should_sync_download;
 use super::cache::NpmCache;
 
 static NPM_REGISTRY_DEFAULT_URL: Lazy<Url> = Lazy::new(|| {
@@ -89,11 +87,29 @@ impl CliNpmRegistryApi {
         &self.inner().base_url
     }
 
-    /// Marks that new requests for package information should retrieve it
-    /// from the npm registry
-    ///
-    /// Returns true if it was successfully set for the first time.
-    pub fn mark_force_reload(&self) -> bool {
+    fn inner(&self) -> &Arc<CliNpmRegistryApiInner> {
+        // this panicking indicates a bug in the code where this
+        // wasn't initialized
+        self.0.as_ref().unwrap()
+    }
+}
+
+#[async_trait]
+impl NpmRegistryApi for CliNpmRegistryApi {
+    async fn package_info(
+        &self,
+        name: &str,
+    ) -> Result<Arc<NpmPackageInfo>, NpmRegistryPackageInfoLoadError> {
+        match self.inner().maybe_package_info(name).await {
+            Ok(Some(info)) => Ok(info),
+            Ok(None) => Err(NpmRegistryPackageInfoLoadError::PackageNotExists {
+                package_name: name.to_string(),
+            }),
+            Err(err) => Err(NpmRegistryPackageInfoLoadError::LoadError(Arc::new(err))),
+        }
+    }
+
+    fn mark_force_reload(&self) -> bool {
         // never force reload the registry information if reloading
         // is disabled or if we're already reloading
         if matches!(
@@ -103,42 +119,10 @@ impl CliNpmRegistryApi {
             return false;
         }
         if self.inner().force_reload_flag.raise() {
-            self.clear_memory_cache(); // clear the memory cache to force reloading
+            self.clear_memory_cache(); // clear the cache to force reloading
             true
         } else {
             false
-        }
-    }
-
-    fn inner(&self) -> &Arc<CliNpmRegistryApiInner> {
-        // this panicking indicates a bug in the code where this
-        // wasn't initialized
-        self.0.as_ref().unwrap()
-    }
-}
-
-static SYNC_DOWNLOAD_TASK_QUEUE: Lazy<TaskQueue> = Lazy::new(TaskQueue::default);
-
-#[async_trait]
-impl NpmRegistryApi for CliNpmRegistryApi {
-    async fn package_info(
-        &self,
-        name: &str,
-    ) -> Result<Arc<NpmPackageInfo>, NpmRegistryPackageInfoLoadError> {
-        let result = if should_sync_download() {
-            let inner = self.inner().clone();
-            SYNC_DOWNLOAD_TASK_QUEUE
-                .queue(async move { inner.maybe_package_info(name).await })
-                .await
-        } else {
-            self.inner().maybe_package_info(name).await
-        };
-        match result {
-            Ok(Some(info)) => Ok(info),
-            Ok(None) => Err(NpmRegistryPackageInfoLoadError::PackageNotExists {
-                package_name: name.to_string(),
-            }),
-            Err(err) => Err(NpmRegistryPackageInfoLoadError::LoadError(Arc::new(err))),
         }
     }
 }
@@ -352,7 +336,7 @@ impl CliNpmRegistryApiInner {
         name_folder_path.join("registry.json")
     }
 
-    pub fn clear_memory_cache(&self) {
+    fn clear_memory_cache(&self) {
         self.mem_cache.lock().clear();
     }
 

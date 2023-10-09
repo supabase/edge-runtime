@@ -152,6 +152,7 @@ pub async fn create_graph_and_maybe_check(
             npm_resolver: None,
             module_analyzer: Some(&*analyzer),
             reporter: None,
+            workspace_members: vec![],
         },
     )
     .await?;

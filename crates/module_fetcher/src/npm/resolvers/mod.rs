@@ -10,7 +10,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use deno_ast::ModuleSpecifier;
-use deno_core::anyhow::bail;
 use deno_core::error::AnyError;
 use deno_core::parking_lot::Mutex;
 use deno_core::serde_json;
@@ -21,13 +20,12 @@ use deno_npm::resolution::PackageReqNotFoundError;
 use deno_npm::resolution::SerializedNpmResolutionSnapshot;
 use deno_npm::NpmPackageId;
 use deno_npm::NpmSystemInfo;
-use deno_semver::npm::NpmPackageNv;
-use deno_semver::npm::NpmPackageReq;
+use deno_semver::package::PackageNv;
+use deno_semver::package::PackageReq;
 use global::GlobalNpmPackageResolver;
 use sb_node::NodePermissions;
 use sb_node::NodeResolutionMode;
 use sb_node::NpmResolver;
-use sb_node::PathClean;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -90,7 +88,7 @@ impl CliNpmResolver {
     }
 
     /// Checks if the provided package req's folder is cached.
-    pub fn is_pkg_req_folder_cached(&self, req: &NpmPackageReq) -> bool {
+    pub fn is_pkg_req_folder_cached(&self, req: &PackageReq) -> bool {
         self.resolve_pkg_id_from_pkg_req(req)
             .ok()
             .and_then(|id| self.fs_resolver.package_folder(&id).ok())
@@ -100,7 +98,7 @@ impl CliNpmResolver {
 
     pub fn resolve_pkg_id_from_pkg_req(
         &self,
-        req: &NpmPackageReq,
+        req: &PackageReq,
     ) -> Result<NpmPackageId, PackageReqNotFoundError> {
         self.resolution.resolve_pkg_id_from_pkg_req(req)
     }
@@ -167,20 +165,8 @@ impl CliNpmResolver {
         Ok(crate::util::fs::dir_size(&package_folder)?)
     }
 
-    /// Gets if the provided specifier is in an npm package.
-    pub fn in_npm_package(&self, specifier: &ModuleSpecifier) -> bool {
-        let root_dir_url = self.fs_resolver.root_dir_url();
-        debug_assert!(root_dir_url.as_str().ends_with('/'));
-        specifier.as_ref().starts_with(root_dir_url.as_str())
-    }
-
-    /// If the resolver has resolved any npm packages.
-    pub fn has_packages(&self) -> bool {
-        self.resolution.has_packages()
-    }
-
     /// Adds package requirements to the resolver and ensures everything is setup.
-    pub async fn add_package_reqs(&self, packages: &[NpmPackageReq]) -> Result<(), AnyError> {
+    pub async fn add_package_reqs(&self, packages: &[PackageReq]) -> Result<(), AnyError> {
         if packages.is_empty() {
             return Ok(());
         }
@@ -200,7 +186,7 @@ impl CliNpmResolver {
     /// Sets package requirements to the resolver, removing old requirements and adding new ones.
     ///
     /// This will retrieve and resolve package information, but not cache any package files.
-    pub async fn set_package_reqs(&self, packages: &[NpmPackageReq]) -> Result<(), AnyError> {
+    pub async fn set_package_reqs(&self, packages: &[PackageReq]) -> Result<(), AnyError> {
         self.resolution.set_package_reqs(packages).await
     }
 
@@ -219,7 +205,7 @@ impl CliNpmResolver {
         .unwrap()
     }
 
-    pub fn package_reqs(&self) -> HashMap<NpmPackageReq, NpmPackageNv> {
+    pub fn package_reqs(&self) -> HashMap<PackageReq, PackageNv> {
         self.resolution.package_reqs()
     }
 
@@ -233,7 +219,7 @@ impl CliNpmResolver {
 
     pub async fn inject_synthetic_types_node_package(&self) -> Result<(), AnyError> {
         // add and ensure this isn't added to the lockfile
-        let package_reqs = vec![NpmPackageReq::from_str("@types/node").unwrap()];
+        let package_reqs = vec![PackageReq::from_str("@types/node").unwrap()];
         self.resolution.add_package_reqs(&package_reqs).await?;
         self.fs_resolver.cache_packages().await?;
 
@@ -261,14 +247,16 @@ impl NpmResolver for CliNpmResolver {
         Ok(path)
     }
 
-    fn resolve_package_folder_from_path(&self, path: &Path) -> Result<Option<PathBuf>, AnyError> {
-        let specifier = path_to_specifier(path)?;
-        self.resolve_package_folder_from_specifier(&specifier)
+    fn resolve_package_folder_from_path(
+        &self,
+        specifier: &ModuleSpecifier,
+    ) -> Result<Option<PathBuf>, AnyError> {
+        self.resolve_package_folder_from_specifier(specifier)
     }
 
     fn resolve_package_folder_from_deno_module(
         &self,
-        pkg_nv: &NpmPackageNv,
+        pkg_nv: &PackageNv,
     ) -> Result<PathBuf, AnyError> {
         let pkg_id = self.resolution.resolve_pkg_id_from_deno_module(pkg_nv)?;
         self.resolve_pkg_folder_from_pkg_id(&pkg_id)
@@ -276,15 +264,15 @@ impl NpmResolver for CliNpmResolver {
 
     fn resolve_pkg_id_from_pkg_req(
         &self,
-        req: &NpmPackageReq,
+        req: &PackageReq,
     ) -> Result<NpmPackageId, PackageReqNotFoundError> {
         self.resolution.resolve_pkg_id_from_pkg_req(req)
     }
 
     fn in_npm_package(&self, specifier: &ModuleSpecifier) -> bool {
-        self.resolve_package_folder_from_specifier(specifier)
-            .map(|p| p.is_some())
-            .unwrap_or(false)
+        let root_dir_url = self.fs_resolver.root_dir_url();
+        debug_assert!(root_dir_url.as_str().ends_with('/'));
+        specifier.as_ref().starts_with(root_dir_url.as_str())
     }
 
     fn ensure_read_permission(
@@ -320,12 +308,5 @@ pub fn create_npm_fs_resolver(
             resolution,
             system_info,
         )),
-    }
-}
-
-fn path_to_specifier(path: &Path) -> Result<ModuleSpecifier, AnyError> {
-    match ModuleSpecifier::from_file_path(path.to_path_buf().clean()) {
-        Ok(specifier) => Ok(specifier),
-        Err(()) => bail!("Could not convert '{}' to url.", path.display()),
     }
 }

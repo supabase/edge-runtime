@@ -1,6 +1,6 @@
 use deno_core::error::AnyError;
 use deno_core::error::{not_supported, type_error};
-use deno_core::op;
+use deno_core::op2;
 use deno_core::OpState;
 use sb_core::permissions::Permissions;
 use sb_node::NODE_ENV_VAR_ALLOWLIST;
@@ -15,20 +15,26 @@ deno_core::extension!(
     esm = ["env.js"]
 );
 
-#[op]
-fn op_set_env(_state: &mut OpState, _key: String, _value: String) -> Result<(), AnyError> {
+#[op2(fast)]
+fn op_set_env(
+    _state: &mut OpState,
+    #[string] _key: String,
+    #[string] _value: String,
+) -> Result<(), AnyError> {
     Err(not_supported())
 }
 
-#[op]
+#[op2]
+#[serde]
 fn op_env(state: &mut OpState) -> Result<HashMap<String, String>, AnyError> {
     state.borrow_mut::<Permissions>().check_env_all()?;
     let env_vars = state.borrow::<EnvVars>();
     Ok(env_vars.clone())
 }
 
-#[op]
-fn op_get_env(state: &mut OpState, key: String) -> Result<Option<String>, AnyError> {
+#[op2]
+#[string]
+fn op_get_env(state: &mut OpState, #[string] key: String) -> Result<Option<String>, AnyError> {
     let skip_permission_check = NODE_ENV_VAR_ALLOWLIST.contains(&key);
 
     if !skip_permission_check {
@@ -51,7 +57,7 @@ fn op_get_env(state: &mut OpState, key: String) -> Result<Option<String>, AnyErr
     Ok(r)
 }
 
-#[op]
-fn op_delete_env(_state: &mut OpState, _key: String) -> Result<(), AnyError> {
+#[op2(fast)]
+fn op_delete_env(_state: &mut OpState, #[string] _key: String) -> Result<(), AnyError> {
     Err(not_supported())
 }

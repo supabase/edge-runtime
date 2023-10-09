@@ -1,10 +1,9 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
-use crate::args::config_file::FilesConfig;
 use deno_core::anyhow::Context;
 use deno_core::error::AnyError;
 pub use deno_core::normalize_path;
-use deno_core::task::spawn_blocking;
+use deno_core::unsync::spawn_blocking;
 use deno_core::ModuleSpecifier;
 use deno_crypto::rand;
 use sb_node::PathClean;
@@ -182,7 +181,7 @@ pub struct FileCollector<TFilter: Fn(&Path) -> bool> {
     file_filter: TFilter,
     ignore_git_folder: bool,
     ignore_node_modules: bool,
-    ignore_deno_modules: bool,
+    ignore_vendor_folder: bool,
 }
 
 impl<TFilter: Fn(&Path) -> bool> FileCollector<TFilter> {
@@ -192,7 +191,7 @@ impl<TFilter: Fn(&Path) -> bool> FileCollector<TFilter> {
             file_filter,
             ignore_git_folder: false,
             ignore_node_modules: false,
-            ignore_deno_modules: false,
+            ignore_vendor_folder: false,
         }
     }
 
@@ -208,8 +207,8 @@ impl<TFilter: Fn(&Path) -> bool> FileCollector<TFilter> {
         self
     }
 
-    pub fn ignore_deno_modules(mut self) -> Self {
-        self.ignore_deno_modules = true;
+    pub fn ignore_vendor_folder(mut self) -> Self {
+        self.ignore_vendor_folder = true;
         self
     }
 
@@ -218,13 +217,12 @@ impl<TFilter: Fn(&Path) -> bool> FileCollector<TFilter> {
         self
     }
 
-    pub fn collect_files(&self, files: &[PathBuf]) -> Result<Vec<PathBuf>, AnyError> {
+    pub fn collect_files(&self, files: Option<&[PathBuf]>) -> Result<Vec<PathBuf>, AnyError> {
         let mut target_files = Vec::new();
-        let files = if files.is_empty() {
-            // collect files in the current directory when empty
-            Cow::Owned(vec![PathBuf::from(".")])
-        } else {
+        let files = if let Some(files) = files {
             Cow::Borrowed(files)
+        } else {
+            Cow::Owned(vec![PathBuf::from(".")])
         };
         for file in files.iter() {
             if let Ok(file) = canonicalize_path(file) {
@@ -250,7 +248,7 @@ impl<TFilter: Fn(&Path) -> bool> FileCollector<TFilter> {
                                     let dir_name = dir_name.to_string_lossy().to_lowercase();
                                     let is_ignored_file = match dir_name.as_str() {
                                         "node_modules" => self.ignore_node_modules,
-                                        "deno_modules" => self.ignore_deno_modules,
+                                        "vendor" => self.ignore_vendor_folder,
                                         ".git" => self.ignore_git_folder,
                                         _ => false,
                                     };
@@ -279,7 +277,7 @@ impl<TFilter: Fn(&Path) -> bool> FileCollector<TFilter> {
 /// Specifiers that start with http and https are left intact.
 /// Note: This ignores all .git and node_modules folders.
 pub fn collect_specifiers(
-    files: &FilesConfig,
+    files: &deno_config::FilesConfig,
     predicate: impl Fn(&Path) -> bool,
 ) -> Result<Vec<ModuleSpecifier>, AnyError> {
     let mut prepared = vec![];
@@ -287,14 +285,13 @@ pub fn collect_specifiers(
         .add_ignore_paths(&files.exclude)
         .ignore_git_folder()
         .ignore_node_modules()
-        .ignore_deno_modules();
+        .ignore_vendor_folder();
 
     let root_path = current_dir()?;
-    let include_files = if files.include.is_empty() {
-        // collect files in the current directory when empty
-        Cow::Owned(vec![root_path.clone()])
+    let include_files = if let Some(include) = &files.include {
+        Cow::Borrowed(include)
     } else {
-        Cow::Borrowed(&files.include)
+        Cow::Owned(vec![root_path.clone()])
     };
     for path in include_files.iter() {
         let path = path.to_string_lossy();
@@ -312,7 +309,7 @@ pub fn collect_specifiers(
         };
         let p = normalize_path(p);
         if p.is_dir() {
-            let test_files = file_collector.collect_files(&[p])?;
+            let test_files = file_collector.collect_files(Some(&[p]))?;
             let mut test_files_as_urls = test_files
                 .iter()
                 .map(|f| ModuleSpecifier::from_file_path(f).unwrap())
@@ -518,6 +515,7 @@ impl LaxSingleProcessFsFlag {
         log::debug!("Acquiring file lock at {}", file_path.display());
         use fs3::FileExt;
         let last_updated_path = file_path.with_extension("lock.poll");
+        let _start_instant = std::time::Instant::now();
         let open_result = std::fs::OpenOptions::new()
             .read(true)
             .write(true)

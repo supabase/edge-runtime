@@ -1,6 +1,6 @@
 use crate::events::{RawEvent, WorkerEventWithMetadata};
 use anyhow::{bail, Error};
-use deno_core::op;
+use deno_core::op2;
 use deno_core::OpState;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -9,7 +9,8 @@ use tokio::sync::mpsc;
 pub mod events;
 pub mod js_interceptors;
 
-#[op]
+#[op2(async)]
+#[serde]
 async fn op_event_accept(state: Rc<RefCell<OpState>>) -> Result<RawEvent, Error> {
     let rx = {
         let mut op_state = state.borrow_mut();

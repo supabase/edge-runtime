@@ -3,14 +3,14 @@
 use std::future::Future;
 use std::sync::Arc;
 
-use crate::args::package_json::PackageJsonDepsProvider;
 use deno_core::error::AnyError;
 use deno_core::futures::stream::FuturesOrdered;
 use deno_core::futures::StreamExt;
 use deno_npm::registry::NpmRegistryApi;
 use deno_npm::registry::NpmRegistryPackageInfoLoadError;
-use deno_semver::npm::NpmPackageReq;
+use deno_semver::package::PackageReq;
 
+use crate::args::package_json::PackageJsonDepsProvider;
 use crate::util::sync::AtomicFlag;
 
 use super::CliNpmRegistryApi;
@@ -27,11 +27,11 @@ struct PackageJsonDepsInstallerInner {
 impl PackageJsonDepsInstallerInner {
     pub fn reqs_with_info_futures<'a>(
         &self,
-        reqs: &'a [&'a NpmPackageReq],
+        reqs: &'a [&'a PackageReq],
     ) -> FuturesOrdered<
         impl Future<
             Output = Result<
-                (&'a NpmPackageReq, Arc<deno_npm::registry::NpmPackageInfo>),
+                (&'a PackageReq, Arc<deno_npm::registry::NpmPackageInfo>),
                 NpmRegistryPackageInfoLoadError,
             >,
         >,

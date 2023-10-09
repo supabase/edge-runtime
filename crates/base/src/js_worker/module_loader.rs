@@ -74,7 +74,8 @@ impl DefaultModuleLoader {
         let http_client = Arc::new(make_http_client()?);
         let blob_store = Arc::new(deno_web::BlobStore::default());
 
-        let global_cache_struct = GlobalHttpCache::new(deps_cache_location);
+        let global_cache_struct =
+            GlobalHttpCache::new(deps_cache_location, module_fetcher::cache::RealDenoCacheEnv);
         let global_cache: Arc<dyn HttpCache> = Arc::new(global_cache_struct);
         let file_fetcher = FileFetcher::new(
             global_cache.clone(),

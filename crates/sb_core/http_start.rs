@@ -3,14 +3,18 @@ use std::rc::Rc;
 use deno_core::error::bad_resource;
 use deno_core::error::bad_resource_id;
 use deno_core::error::AnyError;
-use deno_core::op;
+use deno_core::op2;
 use deno_core::OpState;
 use deno_core::ResourceId;
 use deno_http::http_create_conn_resource;
 use deno_net::io::UnixStreamResource;
 
-#[op]
-fn op_http_start(state: &mut OpState, stream_rid: ResourceId) -> Result<ResourceId, AnyError> {
+#[op2(fast)]
+#[smi]
+fn op_http_start(
+    state: &mut OpState,
+    #[smi] stream_rid: ResourceId,
+) -> Result<ResourceId, AnyError> {
     if let Ok(resource_rc) = state.resource_table.take::<UnixStreamResource>(stream_rid) {
         // This connection might be used somewhere else. If it's the case, we cannot proceed with the
         // process of starting a HTTP server on top of this connection, so we just return a bad

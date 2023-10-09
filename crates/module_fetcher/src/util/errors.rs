@@ -15,13 +15,15 @@ fn get_diagnostic_class(_: &Diagnostic) -> &'static str {
 fn get_module_graph_error_class(err: &ModuleGraphError) -> &'static str {
     match err {
         ModuleGraphError::ModuleError(err) => match err {
-            ModuleError::LoadingErr(_, _, _error) => "Loading Err",
-            ModuleError::Missing(_, _) => "NotFound",
-            ModuleError::MissingDynamic(_, _) => "Unknown",
-            ModuleError::ParseErr(_, diag) => get_diagnostic_class(diag),
+            ModuleError::LoadingErr(_, _, err) => get_error_class_name(err.as_ref()),
             ModuleError::InvalidTypeAssertion { .. } => "SyntaxError",
-            ModuleError::UnsupportedMediaType(_, _, _)
-            | ModuleError::UnsupportedImportAssertionType { .. } => "TypeError",
+            ModuleError::ParseErr(_, diagnostic) => get_diagnostic_class(diagnostic),
+            ModuleError::UnsupportedMediaType { .. }
+            | ModuleError::UnsupportedImportAttributeType { .. } => "TypeError",
+            ModuleError::Missing(_, _)
+            | ModuleError::MissingDynamic(_, _)
+            | ModuleError::UnknownPackage { .. }
+            | ModuleError::UnknownPackageReq { .. } => "NotFound",
         },
         ModuleGraphError::ResolutionError(err) => get_resolution_error_class(err),
     }

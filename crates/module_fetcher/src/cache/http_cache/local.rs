@@ -69,6 +69,7 @@ pub struct LocalHttpCache {
 }
 
 impl LocalHttpCache {
+    #![allow(dead_code)]
     pub fn new(path: PathBuf, global_cache: Arc<GlobalHttpCache>) -> Self {
         assert!(path.is_absolute());
         let manifest = LocalCacheManifest::new(path.join("manifest.json"));
@@ -361,6 +362,7 @@ struct LocalCacheManifest {
 }
 
 impl LocalCacheManifest {
+    #![allow(dead_code)]
     pub fn new(file_path: PathBuf) -> Self {
         Self::new_internal(file_path, false)
     }

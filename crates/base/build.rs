@@ -10,7 +10,6 @@ mod supabase_startup_snapshot {
     use deno_core::error::AnyError;
     use deno_core::snapshot_util::*;
     use deno_core::ExtensionFileSource;
-    use deno_core::ModuleCode;
     use deno_core::{Extension, ExtensionFileSourceCode};
     use deno_fs::OpenOptions;
     use deno_http::DefaultHttpPropertyExtractor;

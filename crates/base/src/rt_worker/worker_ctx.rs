@@ -226,7 +226,7 @@ pub fn create_supervisor(
             let termination_event = WorkerEvents::Shutdown(ShutdownEvent{
                 reason,
                 memory_used,
-                cpu_time_used: 0,
+                cpu_time_used: 0, // this will be set later
             });
             let _ = termination_event_tx.send(termination_event);
         })

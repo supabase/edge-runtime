@@ -8,15 +8,35 @@ pub struct PseudoEvent {}
 pub struct BootEvent {
     pub boot_time: usize,
 }
-
 #[derive(Serialize, Deserialize, Debug)]
-pub struct BootFailure {
+pub struct BootFailureEvent {
     pub msg: String,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct UncaughtException {
+pub struct IsolateMemoryUsed {
+    pub heap_used: usize,
+    pub external_memory: usize,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub enum ShutdownReason {
+    WallClockTime,
+    CPUTime,
+    Memory,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ShutdownEvent {
+    pub reason: ShutdownReason,
+    pub cpu_time_used: usize,
+    pub memory_used: IsolateMemoryUsed,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct UncaughtExceptionEvent {
     pub exception: String,
+    pub cpu_time_used: usize,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -36,11 +56,9 @@ pub enum LogLevel {
 #[derive(Serialize, Deserialize, Debug)]
 pub enum WorkerEvents {
     Boot(BootEvent),
-    BootFailure(BootFailure),
-    UncaughtException(UncaughtException),
-    CpuTimeLimit(PseudoEvent),
-    WallClockTimeLimit(PseudoEvent),
-    MemoryLimit(PseudoEvent),
+    BootFailure(BootFailureEvent),
+    UncaughtException(UncaughtExceptionEvent),
+    Shutdown(ShutdownEvent),
     EventLoopCompleted(PseudoEvent),
     Log(LogEvent),
 }
@@ -57,7 +75,6 @@ pub struct WorkerMemoryUsage {
 pub struct EventMetadata {
     pub service_path: Option<String>,
     pub execution_id: Option<Uuid>,
-    pub v8_heap_stats: Option<WorkerMemoryUsage>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

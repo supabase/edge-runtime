@@ -1,7 +1,7 @@
 use crate::deno_runtime::DenoRuntime;
 use crate::rt_worker::worker::{HandleCreationType, Worker, WorkerHandler};
 use anyhow::Error;
-use event_worker::events::{BootFailure, PseudoEvent, UncaughtException, WorkerEvents};
+use event_worker::events::{BootFailureEvent, PseudoEvent, UncaughtExceptionEvent, WorkerEvents};
 use std::any::Any;
 use tokio::net::UnixStream;
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -10,7 +10,7 @@ use tokio::sync::oneshot::Receiver;
 impl WorkerHandler for Worker {
     fn handle_error(&self, error: Error) -> Result<WorkerEvents, Error> {
         println!("{}", error);
-        Ok(WorkerEvents::BootFailure(BootFailure {
+        Ok(WorkerEvents::BootFailure(BootFailureEvent {
             msg: error.to_string(),
         }))
     }
@@ -31,8 +31,9 @@ impl WorkerHandler for Worker {
                     {
                         Ok(termination_event_rx.await.unwrap())
                     } else {
-                        Ok(WorkerEvents::UncaughtException(UncaughtException {
+                        Ok(WorkerEvents::UncaughtException(UncaughtExceptionEvent {
                             exception: err_string,
+                            cpu_time_used: 0, // this will be set later
                         }))
                     }
                 }

@@ -7,8 +7,8 @@ use crate::rt_worker::worker_pool::WorkerPool;
 use anyhow::{anyhow, bail, Error};
 use cpu_timer::{CPUAlarmVal, CPUTimer};
 use event_worker::events::{
-    BootEvent, IsolateMemoryUsed, ShutdownEvent, ShutdownReason, WorkerEventWithMetadata,
-    WorkerEvents,
+    BootEvent, ShutdownEvent, ShutdownReason, WorkerEventWithMetadata, WorkerEvents,
+    WorkerMemoryUsed,
 };
 use hyper::{Body, Request, Response};
 use log::{debug, error};
@@ -208,16 +208,18 @@ pub fn create_supervisor(
 
             let memory_used = match isolate_memory_usage_rx.blocking_recv() {
                 Ok(v) => {
-                    IsolateMemoryUsed {
-                        heap_used: v.used_heap_size,
-                        external_memory: v.external_memory,
+                    WorkerMemoryUsed {
+                        total: v.used_heap_size + v.external_memory,
+                        heap: v.used_heap_size,
+                        external: v.external_memory,
                     }
                 },
                 Err(_) => {
                     error!("isolate memory usage sender dropped");
-                    IsolateMemoryUsed {
-                        heap_used: 0,
-                        external_memory: 0,
+                    WorkerMemoryUsed {
+                        total: 0,
+                        heap: 0,
+                        external: 0,
                     }
                 }
             };

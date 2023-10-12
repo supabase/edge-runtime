@@ -5,7 +5,7 @@ use crate::utils::send_event_if_event_worker_available;
 use anyhow::{anyhow, Error};
 use cpu_timer::get_thread_time;
 use event_worker::events::{
-    EventMetadata, LogEvent, LogLevel, WorkerEventWithMetadata, WorkerEvents,
+    EventMetadata, ShutdownEvent, UncaughtExceptionEvent, WorkerEventWithMetadata, WorkerEvents,
 };
 use log::{debug, error};
 use sb_worker_context::essentials::{UserWorkerMsgs, WorkerContextInitOpts};
@@ -97,8 +97,6 @@ impl Worker {
 
                             // TODO: Allow customization of supervisor
                             if new_runtime.conf.is_user_worker() {
-                                start_time = get_thread_time()?;
-
                                 // cputimer is returned from supervisor and assigned here to keep it in scope.
                                 _cputimer = create_supervisor(
                                     worker_key.unwrap_or(Uuid::nil()),
@@ -108,7 +106,6 @@ impl Worker {
                                 )?;
                             }
 
-                            // TODO: Should we handle it gracefully?
                             start_time = get_thread_time()?;
                             let data = method_cloner.handle_creation(
                                 new_runtime,
@@ -124,30 +121,35 @@ impl Worker {
                     }
                 });
 
+                let end_time = get_thread_time()?;
+                let cpu_time_used =
+                    usize::try_from((end_time - start_time) / 1_000_000).unwrap_or(0);
+                debug!("CPU time used: {:?}ms", cpu_time_used);
+
                 match result {
                     Ok(event) => {
+                        let event_with_cpu_time = match event {
+                            WorkerEvents::Shutdown(e) => WorkerEvents::Shutdown(ShutdownEvent {
+                                reason: e.reason,
+                                memory_used: e.memory_used,
+                                cpu_time_used,
+                            }),
+                            WorkerEvents::UncaughtException(e) => {
+                                WorkerEvents::UncaughtException(UncaughtExceptionEvent {
+                                    exception: e.exception,
+                                    cpu_time_used,
+                                })
+                            }
+                            other => other,
+                        };
                         send_event_if_event_worker_available(
                             events_msg_tx.clone(),
-                            event,
+                            event_with_cpu_time,
                             event_metadata.clone(),
                         );
                     }
                     Err(err) => error!("unexpected worker error {}", err),
                 };
-
-                let end_time = get_thread_time()?;
-                let cpu_time_msg =
-                    format!("CPU time used: {:?}ms", (end_time - start_time) / 1_000_000);
-
-                debug!("{}", cpu_time_msg);
-                send_event_if_event_worker_available(
-                    events_msg_tx,
-                    WorkerEvents::Log(LogEvent {
-                        msg: cpu_time_msg,
-                        level: LogLevel::Info,
-                    }),
-                    event_metadata,
-                );
 
                 worker_key.and_then(|worker_key_unwrapped| {
                     pool_msg_tx.map(|tx| {

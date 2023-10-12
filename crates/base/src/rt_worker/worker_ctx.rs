@@ -6,7 +6,10 @@ use crate::rt_worker::worker::{Worker, WorkerHandler};
 use crate::rt_worker::worker_pool::WorkerPool;
 use anyhow::{anyhow, bail, Error};
 use cpu_timer::{CPUAlarmVal, CPUTimer};
-use event_worker::events::{BootEvent, PseudoEvent, WorkerEventWithMetadata, WorkerEvents};
+use event_worker::events::{
+    BootEvent, IsolateMemoryUsed, ShutdownEvent, ShutdownReason, WorkerEventWithMetadata,
+    WorkerEvents,
+};
 use hyper::{Body, Request, Response};
 use log::{debug, error};
 use sb_eszip::module_loader::EszipPayloadKind;
@@ -46,6 +49,41 @@ async fn handle_request(
     let _ = msg.res_tx.send(result);
 
     Ok(())
+}
+
+#[repr(C)]
+pub struct IsolateMemoryStats {
+    pub used_heap_size: usize,
+    pub external_memory: usize,
+}
+
+#[repr(C)]
+pub struct IsolateInterruptData {
+    pub should_terminate: bool,
+    pub isolate_memory_usage_tx: oneshot::Sender<IsolateMemoryStats>,
+}
+
+extern "C" fn handle_interrupt(isolate: &mut deno_core::v8::Isolate, data: *mut std::ffi::c_void) {
+    let boxed_data: Box<IsolateInterruptData>;
+    unsafe {
+        boxed_data = Box::from_raw(data as *mut IsolateInterruptData);
+    }
+
+    // log memory usage
+    let mut heap_stats = deno_core::v8::HeapStatistics::default();
+    isolate.get_heap_statistics(&mut heap_stats);
+    let usage = IsolateMemoryStats {
+        used_heap_size: heap_stats.used_heap_size(),
+        external_memory: heap_stats.external_memory(),
+    };
+
+    if boxed_data.isolate_memory_usage_tx.send(usage).is_err() {
+        error!("failed to send isolate memory usage - receiver may have been dropped");
+    };
+
+    if boxed_data.should_terminate {
+        isolate.terminate_execution();
+    }
 }
 
 pub fn create_supervisor(
@@ -89,11 +127,15 @@ pub fn create_supervisor(
                 .unwrap();
             let local = tokio::task::LocalSet::new();
 
+            let (isolate_memory_usage_tx, isolate_memory_usage_rx) = oneshot::channel::<IsolateMemoryStats>();
+
             let future = async move {
                 let mut bursts = 0;
                 let mut last_burst = Instant::now();
 
-                let wall_clock_duration = Duration::from_millis(conf.worker_timeout_ms);
+                // reduce 100ms from wall clock duration, so the interrupt can be handled before
+                // isolate is dropped
+                let wall_clock_duration = Duration::from_millis(conf.worker_timeout_ms) - Duration::from_millis(100);
 
                 // Split wall clock duration into 2 intervals.
                 // At the first interval, we will send a msg to retire the worker.
@@ -110,16 +152,18 @@ pub fn create_supervisor(
                                 last_burst = Instant::now();
                             }
                             if bursts > conf.max_cpu_bursts {
-                                thread_safe_handle.terminate_execution();
+                                let interrupt_data = IsolateInterruptData {
+                                    should_terminate: true,
+                                    isolate_memory_usage_tx
+                                };
+                                thread_safe_handle.request_interrupt(handle_interrupt, Box::into_raw(Box::new(interrupt_data)) as *mut std::ffi::c_void);
                                 error!("CPU time limit reached. isolate: {:?}", key);
-                                return WorkerEvents::CpuTimeLimit(PseudoEvent{})
+                                return ShutdownReason::CPUTime;
                             }
                         }
 
                         // wall clock warning
                         _ = wall_clock_duration_alert.tick() => {
-                            // use interrupt to capture the heap stats
-                            //thread_safe_handle.request_interrupt(callback, std::ptr::null_mut());
                             if wall_clock_alerts == 0 {
                                 // first tick completes immediately
                                 wall_clock_alerts += 1;
@@ -133,29 +177,58 @@ pub fn create_supervisor(
                                 wall_clock_alerts += 1;
                             } else {
                                 // wall-clock limit reached
-                                // use interrupt to capture the heap stats
-                                //thread_safe_handle.request_interrupt(callback, std::ptr::null_mut());
-                                thread_safe_handle.terminate_execution();
+                                // Don't terminate isolate from supervisor when wall-clock
+                                // duration reached. It's dropped in deno_runtime.rs
+                                let interrupt_data = IsolateInterruptData {
+                                    should_terminate: false,
+                                    isolate_memory_usage_tx
+                                };
+                                thread_safe_handle.request_interrupt(handle_interrupt, Box::into_raw(Box::new(interrupt_data)) as *mut std::ffi::c_void);
                                 error!("wall clock duration reached. isolate: {:?}", key);
-                                return WorkerEvents::WallClockTimeLimit(PseudoEvent{});
+                                return ShutdownReason::WallClockTime;
                             }
                         }
 
 
                         // memory usage
                         Some(_) = memory_limit_rx.recv() => {
-                            thread_safe_handle.terminate_execution();
+                            let interrupt_data = IsolateInterruptData {
+                                should_terminate: true,
+                                isolate_memory_usage_tx
+                            };
+                            thread_safe_handle.request_interrupt(handle_interrupt, Box::into_raw(Box::new(interrupt_data)) as *mut std::ffi::c_void);
                             error!("memory limit reached for the worker. isolate: {:?}", key);
-                            return WorkerEvents::MemoryLimit(PseudoEvent{});
+                            return ShutdownReason::Memory;
                         }
                     }
                 }
             };
 
-            let result = local.block_on(&rt, future);
+            let reason = local.block_on(&rt, future);
+
+            let memory_used = match isolate_memory_usage_rx.blocking_recv() {
+                Ok(v) => {
+                    IsolateMemoryUsed {
+                        heap_used: v.used_heap_size,
+                        external_memory: v.external_memory,
+                    }
+                },
+                Err(_) => {
+                    error!("isolate memory usage sender dropped");
+                    IsolateMemoryUsed {
+                        heap_used: 0,
+                        external_memory: 0,
+                    }
+                }
+            };
 
             // send termination reason
-            let _ = termination_event_tx.send(result);
+            let termination_event = WorkerEvents::Shutdown(ShutdownEvent{
+                reason,
+                memory_used,
+                cpu_time_used: 0, // this will be set later
+            });
+            let _ = termination_event_tx.send(termination_event);
         })
         .unwrap();
 

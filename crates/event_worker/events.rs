@@ -14,9 +14,10 @@ pub struct BootFailureEvent {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct IsolateMemoryUsed {
-    pub heap_used: usize,
-    pub external_memory: usize,
+pub struct WorkerMemoryUsed {
+    pub total: usize,
+    pub heap: usize,
+    pub external: usize,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -30,7 +31,7 @@ pub enum ShutdownReason {
 pub struct ShutdownEvent {
     pub reason: ShutdownReason,
     pub cpu_time_used: usize,
-    pub memory_used: IsolateMemoryUsed,
+    pub memory_used: WorkerMemoryUsed,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

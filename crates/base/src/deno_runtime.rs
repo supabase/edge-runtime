@@ -322,7 +322,6 @@ impl DenoRuntime {
                     op_state.put::<EventMetadata>(EventMetadata {
                         service_path: conf.service_path.clone(),
                         execution_id: conf.key,
-                        v8_heap_stats: None,
                     });
                 }
             }

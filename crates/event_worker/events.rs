@@ -8,15 +8,36 @@ pub struct PseudoEvent {}
 pub struct BootEvent {
     pub boot_time: usize,
 }
-
 #[derive(Serialize, Deserialize, Debug)]
-pub struct BootFailure {
+pub struct BootFailureEvent {
     pub msg: String,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct UncaughtException {
+pub struct WorkerMemoryUsed {
+    pub total: usize,
+    pub heap: usize,
+    pub external: usize,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub enum ShutdownReason {
+    WallClockTime,
+    CPUTime,
+    Memory,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ShutdownEvent {
+    pub reason: ShutdownReason,
+    pub cpu_time_used: usize,
+    pub memory_used: WorkerMemoryUsed,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct UncaughtExceptionEvent {
     pub exception: String,
+    pub cpu_time_used: usize,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -36,28 +57,17 @@ pub enum LogLevel {
 #[derive(Serialize, Deserialize, Debug)]
 pub enum WorkerEvents {
     Boot(BootEvent),
-    BootFailure(BootFailure),
-    UncaughtException(UncaughtException),
-    CpuTimeLimit(PseudoEvent),
-    WallClockTimeLimit(PseudoEvent),
-    MemoryLimit(PseudoEvent),
+    BootFailure(BootFailureEvent),
+    UncaughtException(UncaughtExceptionEvent),
+    Shutdown(ShutdownEvent),
     EventLoopCompleted(PseudoEvent),
     Log(LogEvent),
-}
-
-#[derive(Serialize, Deserialize, Debug, Default, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct WorkerMemoryUsage {
-    pub heap_total: usize,
-    pub heap_used: usize,
-    pub external: usize,
 }
 
 #[derive(Serialize, Deserialize, Default, Debug, Clone)]
 pub struct EventMetadata {
     pub service_path: Option<String>,
     pub execution_id: Option<Uuid>,
-    pub v8_heap_stats: Option<WorkerMemoryUsage>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

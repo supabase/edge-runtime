@@ -52,6 +52,21 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
+      - name: Prepare build environment
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+
+          sudo apt-get remove --purge -y man-db
+          sudo apt-get remove 'clang-13*' 'clang-14*' 'clang-15*' 'llvm-13*' 'llvm-14*' 'llvm-15*' 'lld-13*' 'lld-14*' 'lld-15*'
+
+          # install CMAKE
+          sudo apt-get update
+          sudo apt-get install cmake
+
       - id: build
         uses: docker/build-push-action@v3
         with:
@@ -94,6 +109,22 @@ jobs:
           driver-opts: |
             image=moby/buildkit:master
             network=host
+
+      - name: Prepare build environment
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+
+          sudo apt-get remove --purge -y man-db
+          sudo apt-get remove 'clang-13*' 'clang-14*' 'clang-15*' 'llvm-13*' 'llvm-14*' 'llvm-15*' 'lld-13*' 'lld-14*' 'lld-15*'
+
+          # install CMAKE
+          sudo apt-get update
+          sudo apt-get install cmake
+
 
       - id: build
         uses: docker/build-push-action@v3

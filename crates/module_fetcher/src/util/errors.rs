@@ -37,6 +37,7 @@ fn get_resolution_error_class(err: &ResolutionError) -> &'static str {
 }
 
 pub fn get_error_class_name(e: &AnyError) -> &'static str {
+    #[allow(clippy::format_collect)]
     deno_core::error::get_custom_error_class(e)
         .or_else(|| {
             e.downcast_ref::<ImportMapError>()

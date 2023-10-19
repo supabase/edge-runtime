@@ -138,13 +138,10 @@ pub async fn op_user_worker_create(
 
     // channel returns a Result<T, E>, we need to unwrap it first;
     let result = result.unwrap();
-    if result.is_err() {
-        return Err(custom_error(
-            "InvalidWorkerCreation",
-            result.unwrap_err().to_string(),
-        ));
+    match result {
+        Err(e) => Err(custom_error("InvalidWorkerCreation", e.to_string())),
+        Ok(res) => Ok(res.key.to_string()),
     }
-    Ok(result.unwrap().key.to_string())
 }
 
 #[derive(Deserialize, Debug)]

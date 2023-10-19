@@ -2,7 +2,7 @@ use anyhow::Error;
 use deno_core::error::{custom_error, type_error, AnyError};
 use deno_core::futures::stream::Peekable;
 use deno_core::futures::{Stream, StreamExt};
-use deno_core::op;
+use deno_core::op2;
 use deno_core::{
     AsyncRefCell, AsyncResult, BufView, ByteString, CancelFuture, CancelHandle, CancelTryFuture,
     JsBuffer, OpState, RcRef, Resource, ResourceId, WriteOutcome,
@@ -60,10 +60,11 @@ pub struct UserWorkerCreateOptions {
     cpu_burst_interval_ms: u64,
 }
 
-#[op]
+#[op2(async)]
+#[string]
 pub async fn op_user_worker_create(
     state: Rc<RefCell<OpState>>,
-    opts: UserWorkerCreateOptions,
+    #[serde] opts: UserWorkerCreateOptions,
 ) -> Result<String, AnyError> {
     let result_rx = {
         let op_state = state.borrow();
@@ -137,13 +138,10 @@ pub async fn op_user_worker_create(
 
     // channel returns a Result<T, E>, we need to unwrap it first;
     let result = result.unwrap();
-    if result.is_err() {
-        return Err(custom_error(
-            "InvalidWorkerCreation",
-            result.unwrap_err().to_string(),
-        ));
+    match result {
+        Err(e) => Err(custom_error("InvalidWorkerCreation", e.to_string())),
+        Ok(res) => Ok(res.key.to_string()),
     }
-    Ok(result.unwrap().key.to_string())
 }
 
 #[derive(Deserialize, Debug)]
@@ -282,10 +280,11 @@ impl Resource for UserWorkerResponseBodyResource {
     }
 }
 
-#[op]
+#[op2]
+#[serde]
 pub fn op_user_worker_fetch_build(
     state: &mut OpState,
-    req: UserWorkerRequest,
+    #[serde] req: UserWorkerRequest,
 ) -> Result<UserWorkerBuiltRequest, AnyError> {
     let mut body = Body::empty();
     let mut request_body_rid = None;
@@ -329,11 +328,12 @@ pub fn op_user_worker_fetch_build(
     })
 }
 
-#[op]
+#[op2(async)]
+#[serde]
 pub async fn op_user_worker_fetch_send(
     state: Rc<RefCell<OpState>>,
-    key: String,
-    rid: ResourceId,
+    #[string] key: String,
+    #[smi] rid: ResourceId,
 ) -> Result<UserWorkerResponse, AnyError> {
     let (tx, request) = {
         let mut op_state = state.borrow_mut();

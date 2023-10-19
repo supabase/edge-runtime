@@ -485,7 +485,7 @@ mod test {
             service_path: path.unwrap_or(PathBuf::from("./test_cases/main")),
             no_module_cache: false,
             import_map_path: None,
-            env_vars: env_vars.unwrap_or(Default::default()),
+            env_vars: env_vars.unwrap_or_default(),
             events_rx: None,
             maybe_eszip: None,
             maybe_entrypoint: None,

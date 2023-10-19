@@ -9,9 +9,9 @@ use crate::http_util::resolve_redirect_from_response;
 use crate::http_util::CacheSemantics;
 use crate::http_util::HeadersMap;
 use crate::http_util::HttpClient;
-use crate::permissions::Permissions;
 use crate::util::text_encoding;
 
+use crate::permissions::Permissions;
 use data_url::DataUrl;
 use deno_ast::MediaType;
 use deno_core::error::custom_error;
@@ -126,8 +126,8 @@ fn get_validated_scheme(specifier: &ModuleSpecifier) -> Result<String, AnyError>
     let scheme = specifier.scheme();
     if !SUPPORTED_SCHEMES.contains(&scheme) {
         Err(generic_error(format!(
-      "Unsupported scheme \"{scheme}\" for module \"{specifier}\". Supported schemes: {SUPPORTED_SCHEMES:#?}"
-    )))
+            "Unsupported scheme \"{scheme}\" for module \"{specifier}\". Supported schemes: {SUPPORTED_SCHEMES:#?}"
+        )))
     } else {
         Ok(scheme.to_string())
     }
@@ -152,6 +152,13 @@ pub fn map_content_type(
     } else {
         (MediaType::from_specifier(specifier), None)
     }
+}
+
+pub struct FetchOptions {
+    pub specifier: ModuleSpecifier,
+    pub permissions: Permissions,
+    pub maybe_accept: Option<String>,
+    pub maybe_cache_setting: Option<CacheSetting>,
 }
 
 /// A structure for resolving, fetching and caching source files.
@@ -185,6 +192,10 @@ impl FileFetcher {
             blob_store,
             download_log_level: log::Level::Info,
         }
+    }
+
+    pub fn cache_setting(&self) -> &CacheSetting {
+        &self.cache_setting
     }
 
     /// Sets the log level to use when outputting the download message.
@@ -303,6 +314,7 @@ impl FileFetcher {
         mut permissions: Permissions,
         redirect_limit: i64,
         maybe_accept: Option<String>,
+        cache_setting: &CacheSetting,
     ) -> Pin<Box<dyn Future<Output = Result<File, AnyError>> + Send>> {
         debug!("FileFetcher::fetch_remote() - specifier: {}", specifier);
         if redirect_limit < 0 {
@@ -313,7 +325,7 @@ impl FileFetcher {
             return futures::future::err(err).boxed();
         }
 
-        if self.should_use_cache(specifier) {
+        if self.should_use_cache(specifier, cache_setting) {
             match self.fetch_cached(specifier, redirect_limit) {
                 Ok(Some(file)) => {
                     return futures::future::ok(file).boxed();
@@ -325,7 +337,7 @@ impl FileFetcher {
             }
         }
 
-        if self.cache_setting == CacheSetting::Only {
+        if *cache_setting == CacheSetting::Only {
             return futures::future::err(custom_error(
                 "NotCached",
                 format!(
@@ -352,6 +364,7 @@ impl FileFetcher {
         let specifier = specifier.clone();
         let client = self.http_client.clone();
         let file_fetcher = self.clone();
+        let cache_setting = cache_setting.clone();
         // A single pass of fetch either yields code or yields a redirect, server
         // error causes a single retry to avoid crashing hard on intermittent failures.
 
@@ -400,6 +413,7 @@ impl FileFetcher {
                                 permissions,
                                 redirect_limit - 1,
                                 maybe_accept,
+                                &cache_setting,
                             )
                             .await
                     }
@@ -431,8 +445,8 @@ impl FileFetcher {
     }
 
     /// Returns if the cache should be used for a given specifier.
-    fn should_use_cache(&self, specifier: &ModuleSpecifier) -> bool {
-        match &self.cache_setting {
+    fn should_use_cache(&self, specifier: &ModuleSpecifier, cache_setting: &CacheSetting) -> bool {
+        match cache_setting {
             CacheSetting::ReloadAll => false,
             CacheSetting::Use | CacheSetting::Only => true,
             CacheSetting::RespectHeaders => {
@@ -473,36 +487,48 @@ impl FileFetcher {
         specifier: &ModuleSpecifier,
         permissions: Permissions,
     ) -> Result<File, AnyError> {
-        debug!("FileFetcher::fetch() - specifier: {}", specifier);
-        self.fetch_with_accept(specifier, permissions, None).await
+        self.fetch_with_options(FetchOptions {
+            specifier: specifier.clone(),
+            permissions,
+            maybe_accept: None,
+            maybe_cache_setting: None,
+        })
+        .await
     }
 
-    pub async fn fetch_with_accept(
-        &self,
-        specifier: &ModuleSpecifier,
-        mut permissions: Permissions,
-        maybe_accept: Option<&str>,
-    ) -> Result<File, AnyError> {
-        let scheme = get_validated_scheme(specifier)?;
-        permissions.check_specifier(specifier)?;
-        if let Some(file) = self.cache.get(specifier) {
+    pub async fn fetch_with_options(&self, mut options: FetchOptions) -> Result<File, AnyError> {
+        let specifier = options.specifier.clone();
+        debug!("FileFetcher::fetch() - specifier: {}", specifier);
+        let scheme = get_validated_scheme(&specifier)?;
+        options.permissions.check_specifier(&specifier)?;
+        if let Some(file) = self.cache.get(&specifier) {
             Ok(file)
         } else if scheme == "file" {
             // we do not in memory cache files, as this would prevent files on the
             // disk changing effecting things like workers and dynamic imports.
-            fetch_local(specifier)
+            fetch_local(&specifier)
         } else if scheme == "data" {
-            self.fetch_data_url(specifier)
+            self.fetch_data_url(&specifier)
         } else if scheme == "blob" {
-            self.fetch_blob_url(specifier).await
+            self.fetch_blob_url(&specifier).await
         } else if !self.allow_remote {
             Err(custom_error(
-        "NoRemote",
-        format!("A remote specifier was requested: \"{specifier}\", but --no-remote is specified."),
-      ))
+                "NoRemote",
+                format!("A remote specifier was requested: \"{specifier}\", but --no-remote is specified."),
+            ))
         } else {
+            let cache_settings = options
+                .maybe_cache_setting
+                .clone()
+                .unwrap_or(self.cache_setting.clone());
             let result = self
-                .fetch_remote(specifier, permissions, 10, maybe_accept.map(String::from))
+                .fetch_remote(
+                    &specifier,
+                    options.permissions,
+                    10,
+                    options.maybe_accept.map(String::from),
+                    &cache_settings,
+                )
                 .await;
             if let Ok(file) = &result {
                 self.cache.insert(specifier.clone(), file.clone());
@@ -593,7 +619,7 @@ async fn fetch_once(
     let response_headers = response.headers();
 
     if let Some(warning) = response_headers.get("X-Deno-Warning") {
-        log::warn!("{} {}", format!("Warning"), warning.to_str().unwrap());
+        log::warn!("{}", warning.to_str().unwrap());
     }
 
     for key in response_headers.keys() {

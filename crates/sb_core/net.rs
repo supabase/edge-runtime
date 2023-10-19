@@ -1,7 +1,7 @@
 use anyhow::Error;
 use deno_core::error::bad_resource;
 use deno_core::error::AnyError;
-use deno_core::op;
+use deno_core::op2;
 use deno_core::AsyncRefCell;
 use deno_core::AsyncResult;
 use deno_core::CancelHandle;
@@ -72,7 +72,8 @@ impl From<tokio::net::TcpStream> for TcpStreamResource {
     }
 }
 
-#[op]
+#[op2]
+#[serde]
 pub fn op_net_listen(_state: &mut OpState) -> Result<(ResourceId, IpAddr), AnyError> {
     // this is a noop
     // TODO: customize to match the service ip and port
@@ -85,7 +86,8 @@ pub fn op_net_listen(_state: &mut OpState) -> Result<(ResourceId, IpAddr), AnyEr
     ))
 }
 
-#[op]
+#[op2(async)]
+#[serde]
 pub async fn op_net_accept(
     state: Rc<RefCell<OpState>>,
 ) -> Result<(ResourceId, IpAddr, IpAddr), AnyError> {
@@ -129,7 +131,7 @@ pub async fn op_net_accept(
 }
 
 // TODO: This should be a global ext
-#[op]
+#[op2(fast)]
 pub fn op_net_unsupported(_state: &mut OpState) -> Result<(), AnyError> {
     Err(deno_core::error::not_supported())
 }

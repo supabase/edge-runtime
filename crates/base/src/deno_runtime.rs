@@ -203,6 +203,7 @@ impl DenoRuntime {
                 stderr: deno_io::StdioPipe::File(std::fs::File::create("/dev/null")?),
             });
         }
+        let emitter_factory = EmitterFactory::new();
         let fs = Arc::new(deno_fs::RealFs);
         let extensions = vec![
             sb_core_permissions::init_ops(net_access_disabled),
@@ -246,7 +247,7 @@ impl DenoRuntime {
             sb_core_main_js::init_ops(),
             sb_core_net::init_ops(),
             sb_core_http::init_ops(),
-            deno_node::init_ops::<Permissions>(None, fs),
+            deno_node::init_ops::<Permissions>(Some(emitter_factory.npm_resolver(None)), fs),
             sb_core_runtime::init_ops(Some(main_module_url.clone())),
         ];
 
@@ -275,12 +276,11 @@ impl DenoRuntime {
             runtime_options.module_loader = Some(Rc::new(eszip_module_loader));
         } else {
             let import_map = load_import_map(import_map_path)?;
-            let emitter = EmitterFactory::new();
 
             let default_module_loader = DefaultModuleLoader::new(
                 module_root_path,
                 import_map,
-                emitter.emitter().unwrap(),
+                emitter_factory.emitter().unwrap(),
                 no_module_cache,
                 allow_remote_modules,
             )?;

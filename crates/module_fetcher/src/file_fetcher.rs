@@ -39,7 +39,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::SystemTime;
 
-pub const SUPPORTED_SCHEMES: [&str; 6] = ["data", "blob", "file", "http", "https", "npm"];
+pub const SUPPORTED_SCHEMES: [&str; 5] = ["data", "blob", "file", "http", "https"];
 
 /// A structure representing a source file.
 #[derive(Debug, Clone, Eq, PartialEq)]

@@ -115,7 +115,7 @@ impl ModuleLoader for EszipModuleLoader {
                         eszip::ModuleKind::JavaScript => Some(deno_core::ModuleType::JavaScript),
                         eszip::ModuleKind::Json => Some(deno_core::ModuleType::Json),
                         eszip::ModuleKind::Jsonc => None,
-                        eszip::ModuleKind::OpaqueData => Some(deno_core::ModuleType::JavaScript),
+                        eszip::ModuleKind::OpaqueData => None,
                     };
                     if module_type.is_none() {
                         bail!("invalid module type {}", &module_specifier)

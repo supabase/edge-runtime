@@ -2,7 +2,7 @@
 FROM rust:1.71.0-bookworm as builder
 ARG TARGETPLATFORM
 ARG GIT_V_VERSION
-RUN apt-get update && apt-get install -y llvm-dev libclang-dev clang
+RUN apt-get update && apt-get install -y llvm-dev libclang-dev clang cmake
 WORKDIR /usr/src/edge-runtime
 RUN --mount=type=cache,target=/usr/local/cargo/registry,id=${TARGETPLATFORM} \
     cargo install cargo-strip

@@ -52,6 +52,7 @@ pub fn atomic_write_file<T: AsRef<[u8]>>(
 
     fn inner(file_path: &Path, data: &[u8], mode: u32) -> std::io::Result<()> {
         let temp_file_path = {
+            #[allow(clippy::format_collect)]
             let rand: String = (0..4)
                 .map(|_| format!("{:02x}", rand::random::<u8>()))
                 .collect();

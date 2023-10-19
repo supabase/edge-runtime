@@ -87,7 +87,7 @@ pub struct WorkerContextInitOpts {
     pub maybe_eszip: Option<EszipPayloadKind>,
     pub maybe_module_code: Option<FastString>,
     pub maybe_entrypoint: Option<String>,
-    pub watch: Option<bool>
+    pub watch: Option<bool>,
 }
 
 #[derive(Debug)]

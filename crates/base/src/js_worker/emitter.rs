@@ -1,19 +1,29 @@
 use crate::js_worker::module_loader::make_http_client;
+use crate::js_worker::node_module_loader::{CjsResolutionStore, NpmModuleLoader};
 use crate::utils::graph_resolver::CliGraphResolver;
 use deno_ast::EmitOptions;
 use deno_core::error::AnyError;
+use deno_npm::NpmSystemInfo;
 use eszip::deno_graph::source::{Loader, Resolver};
+use module_fetcher::args::lockfile::Lockfile;
 use module_fetcher::args::CacheSetting;
-use module_fetcher::cache::{Caches, DenoDir, DenoDirProvider, EmitCache, GlobalHttpCache, ParsedSourceCache, RealDenoCacheEnv};
+use module_fetcher::cache::{
+    Caches, DenoDir, DenoDirProvider, EmitCache, GlobalHttpCache, NodeAnalysisCache,
+    ParsedSourceCache, RealDenoCacheEnv,
+};
 use module_fetcher::emit::Emitter;
 use module_fetcher::file_fetcher::FileFetcher;
-use module_fetcher::permissions::Permissions;
-use std::collections::HashMap;
-use std::sync::{Arc};
-use deno_npm::NpmSystemInfo;
-use module_fetcher::args::lockfile::Lockfile;
 use module_fetcher::http_util::HttpClient;
-use sb_npm::{CliNpmRegistryApi, CliNpmResolver, create_npm_fs_resolver, NpmCache, NpmCacheDir, NpmResolution};
+use module_fetcher::node::CliCjsCodeAnalyzer;
+use module_fetcher::permissions::Permissions;
+use sb_node::analyze::NodeCodeTranslator;
+use sb_node::NodeResolver;
+use sb_npm::{
+    create_npm_fs_resolver, CliNpmRegistryApi, CliNpmResolver, NpmCache, NpmCacheDir,
+    NpmPackageFsResolver, NpmResolution,
+};
+use std::collections::HashMap;
+use std::sync::Arc;
 
 pub struct EmitterFactory {
     deno_dir: DenoDir,
@@ -87,14 +97,15 @@ impl EmitterFactory {
     }
 
     pub fn npm_cache(&self) -> Arc<NpmCache> {
-        println!("{}", self.deno_dir.npm_folder_path().clone().to_str().unwrap());
+        println!(
+            "{}",
+            self.deno_dir.npm_folder_path().clone().to_str().unwrap()
+        );
         Arc::new(NpmCache::new(
-            NpmCacheDir::new(
-                self.deno_dir.npm_folder_path().clone()
-            ),
+            NpmCacheDir::new(self.deno_dir.npm_folder_path().clone()),
             CacheSetting::Use, // TODO: Maybe ?,
             self.real_fs(),
-            self.http_client()
+            self.http_client(),
         ))
     }
 
@@ -102,32 +113,74 @@ impl EmitterFactory {
         Arc::new(CliNpmRegistryApi::new(
             CliNpmRegistryApi::default_url().to_owned(),
             self.npm_cache(),
-            self.http_client()
+            self.http_client(),
         ))
     }
 
-    pub fn npm_resolver(&self, lock_file: Option<Arc<deno_core::parking_lot::Mutex<Lockfile>>>) -> Arc<CliNpmResolver> {
+    pub fn npm_resolution(&self) -> Arc<NpmResolution> {
         let npm_registry_api = self.npm_api();
-        let npm_resolution = Arc::new(NpmResolution::from_serialized(
+        Arc::new(NpmResolution::from_serialized(
             npm_registry_api.clone(),
             None,
             None,
+        ))
+    }
+
+    pub fn node_resolver(
+        &self,
+        lock_file: Option<Arc<deno_core::parking_lot::Mutex<Lockfile>>>,
+    ) -> Arc<NodeResolver> {
+        let fs = self.real_fs().clone();
+        Arc::new(NodeResolver::new(fs, self.npm_resolver(lock_file)))
+    }
+
+    pub fn npm_module_loader(
+        &self,
+        lock_file: Option<Arc<deno_core::parking_lot::Mutex<Lockfile>>>,
+    ) -> Arc<NpmModuleLoader> {
+        let cjs_resolution = Arc::new(CjsResolutionStore::default());
+        let cache_db = Caches::new(self.deno_dir_provider());
+        let node_analysis_cache = NodeAnalysisCache::new(cache_db.node_analysis_db());
+        let cjs_esm_code_analyzer =
+            CliCjsCodeAnalyzer::new(node_analysis_cache, self.real_fs().clone());
+        let node_code_translator = Arc::new(NodeCodeTranslator::new(
+            cjs_esm_code_analyzer,
+            self.real_fs().clone(),
+            self.node_resolver(lock_file.clone()).clone(),
+            self.npm_resolver(lock_file.clone()),
         ));
+
+        Arc::new(NpmModuleLoader::new(
+            cjs_resolution,
+            node_code_translator,
+            self.real_fs(),
+            self.node_resolver(lock_file),
+        ))
+    }
+
+    pub fn npm_fs(&self) -> Arc<dyn NpmPackageFsResolver> {
         let fs = self.real_fs();
-        let npm_fs_resolver = create_npm_fs_resolver(
+        create_npm_fs_resolver(
             fs.clone(),
             self.npm_cache(),
             CliNpmRegistryApi::default_url().to_owned(),
-            npm_resolution.clone(),
+            self.npm_resolution(),
             None,
-            NpmSystemInfo::default()
-        );
+            NpmSystemInfo::default(),
+        )
+    }
 
+    pub fn npm_resolver(
+        &self,
+        lock_file: Option<Arc<deno_core::parking_lot::Mutex<Lockfile>>>,
+    ) -> Arc<CliNpmResolver> {
+        let npm_resolution = self.npm_resolution();
+        let npm_fs_resolver = self.npm_fs();
         Arc::new(CliNpmResolver::new(
             self.real_fs(),
             npm_resolution,
             npm_fs_resolver,
-            lock_file
+            lock_file,
         ))
     }
 

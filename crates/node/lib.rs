@@ -50,7 +50,7 @@ pub trait NodePermissions {
     fn check_sys(&self, kind: &str, api_name: &str) -> Result<(), AnyError>;
 }
 
-pub(crate) struct AllowAllNodePermissions;
+pub struct AllowAllNodePermissions;
 
 impl NodePermissions for AllowAllNodePermissions {
     fn check_net_url(&mut self, _url: &Url, _api_name: &str) -> Result<(), AnyError> {

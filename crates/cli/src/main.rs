@@ -104,10 +104,7 @@ fn main() -> Result<(), anyhow::Error> {
                     sub_matches.get_one::<String>("main-entrypoint").cloned();
                 let maybe_events_entrypoint =
                     sub_matches.get_one::<String>("events-entrypoint").cloned();
-                let watch = sub_matches
-                    .get_one::<bool>("watch")
-                    .cloned()
-                    .unwrap();
+                let watch = sub_matches.get_one::<bool>("watch").cloned().unwrap();
 
                 start_server(
                     ip.as_str(),

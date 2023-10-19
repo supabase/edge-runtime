@@ -12,6 +12,7 @@ use event_worker::events::{
 };
 use hyper::{Body, Request, Response};
 use log::{debug, error};
+use notify::{RecursiveMode, Watcher};
 use sb_eszip::module_loader::EszipPayloadKind;
 use sb_worker_context::essentials::{
     EventWorkerRuntimeOpts, MainWorkerRuntimeOpts, UserWorkerMsgs, WorkerContextInitOpts,
@@ -20,7 +21,6 @@ use sb_worker_context::essentials::{
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant};
-use notify::{RecursiveMode, Watcher};
 use tokio::net::UnixStream;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::{mpsc, oneshot};
@@ -241,16 +241,21 @@ pub fn create_supervisor(
 pub fn watch_worker_files(service_path: &PathBuf) {
     let path = service_path.canonicalize().unwrap();
     let service_path_clone = std::env::current_dir().map(|p| p.join(path)).unwrap();
-    println!("Watcher path: {}", service_path_clone.as_path().to_str().unwrap());
-    let mut watcher: notify::RecommendedWatcher = notify::recommended_watcher(|res: notify::Result<notify::Event>| {
-        println!("Received {}", res.is_ok());
-        match res {
-            Ok(event) => {
-                println!("watch event: {:?}", event)
-            },
-            Err(e) => println!("watch error: {:?}", e),
-        }
-    }).unwrap();
+    println!(
+        "Watcher path: {}",
+        service_path_clone.as_path().to_str().unwrap()
+    );
+    let mut watcher: notify::RecommendedWatcher =
+        notify::recommended_watcher(|res: notify::Result<notify::Event>| {
+            println!("Received {}", res.is_ok());
+            match res {
+                Ok(event) => {
+                    println!("watch event: {:?}", event)
+                }
+                Err(e) => println!("watch error: {:?}", e),
+            }
+        })
+        .unwrap();
 
     println!("{}", service_path_clone.clone().as_path().to_str().unwrap());
     //let result = watcher.watch(service_path_clone.as_path(), RecursiveMode::Recursive).unwrap();

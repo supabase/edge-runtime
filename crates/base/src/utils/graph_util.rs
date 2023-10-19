@@ -1,21 +1,21 @@
 use crate::errors_rt::get_error_class_name;
 use crate::js_worker::emitter::EmitterFactory;
+use crate::utils::graph_resolver::CliGraphResolver;
 use crate::utils::graph_util::deno_graph::ModuleError;
 use crate::utils::graph_util::deno_graph::ResolutionError;
 use deno_core::error::{custom_error, AnyError};
+use deno_core::parking_lot::Mutex;
 use deno_core::ModuleSpecifier;
+use deno_semver::package::{PackageNv, PackageReq};
 use eszip::deno_graph;
+use eszip::deno_graph::source::{Loader, NpmResolver};
 use eszip::deno_graph::{GraphKind, ModuleGraph, ModuleGraphError};
+use module_fetcher::args::lockfile::Lockfile;
+use module_fetcher::cache::{GlobalHttpCache, ParsedSourceCache};
+use module_fetcher::file_fetcher::FileFetcher;
+use sb_npm::CliNpmResolver;
 use std::path::PathBuf;
 use std::sync::Arc;
-use module_fetcher::cache::{GlobalHttpCache, ParsedSourceCache};
-use sb_npm::CliNpmResolver;
-use crate::utils::graph_resolver::CliGraphResolver;
-use deno_core::parking_lot::Mutex;
-use deno_semver::package::{PackageNv, PackageReq};
-use eszip::deno_graph::source::{Loader, NpmResolver};
-use module_fetcher::args::lockfile::Lockfile;
-use module_fetcher::file_fetcher::FileFetcher;
 
 #[derive(Clone, Copy)]
 pub struct GraphValidOptions {
@@ -49,15 +49,14 @@ pub struct ModuleGraphBuilder {
     lockfile: Option<Arc<Mutex<Lockfile>>>,
     file_fetcher: Arc<FileFetcher>,
     global_http_cache: Arc<GlobalHttpCache>,
-    type_check: bool
-    // type_checker: Arc<TypeChecker>,
+    type_check: bool, // type_checker: Arc<TypeChecker>,
 }
 
 impl ModuleGraphBuilder {
     pub fn new(lockfile: Option<Arc<Mutex<Lockfile>>>, type_check: bool) -> Self {
         let emitter_factory = EmitterFactory::new();
         let graph_resolver = CliGraphResolver::default();
-        let npm_resolver =  emitter_factory.npm_resolver(None);
+        let npm_resolver = emitter_factory.npm_resolver(None);
         let parsed_source_cache = emitter_factory.parsed_source_cache().unwrap();
         let mut file_fetcher = emitter_factory.file_fetcher();
         let http = emitter_factory.global_http_cache();
@@ -68,7 +67,7 @@ impl ModuleGraphBuilder {
             lockfile,
             file_fetcher: Arc::new(file_fetcher),
             global_http_cache: Arc::new(http),
-            type_check
+            type_check,
         }
     }
 
@@ -84,27 +83,25 @@ impl ModuleGraphBuilder {
         let analyzer = self.parsed_source_cache.as_analyzer();
 
         let mut graph = ModuleGraph::new(graph_kind);
-        self
-            .build_graph_with_npm_resolution(
-                &mut graph,
-                roots,
-                loader,
-                deno_graph::BuildOptions {
-                    is_dynamic: false,
-                    imports: vec![],
-                    resolver: Some(graph_resolver),
-                    npm_resolver: Some(graph_npm_resolver),
-                    module_analyzer: Some(&*analyzer),
-                    reporter: None,
-                    // todo(dsherret): workspace support
-                    workspace_members: vec![],
-                },
-            )
-            .await?;
+        self.build_graph_with_npm_resolution(
+            &mut graph,
+            roots,
+            loader,
+            deno_graph::BuildOptions {
+                is_dynamic: false,
+                imports: vec![],
+                resolver: Some(graph_resolver),
+                npm_resolver: Some(graph_npm_resolver),
+                module_analyzer: Some(&*analyzer),
+                reporter: None,
+                // todo(dsherret): workspace support
+                workspace_members: vec![],
+            },
+        )
+        .await?;
 
         if graph.has_node_specifier && self.type_check {
-            self
-                .npm_resolver
+            self.npm_resolver
                 .inject_synthetic_types_node_package()
                 .await?;
         }
@@ -119,7 +116,6 @@ impl ModuleGraphBuilder {
         loader: &mut dyn deno_graph::source::Loader,
         options: deno_graph::BuildOptions<'a>,
     ) -> Result<(), AnyError> {
-
         // TODO: Option here similar to: https://github.com/denoland/deno/blob/v1.37.1/cli/graph_util.rs#L323C5-L405C11
         self.resolver.force_top_level_package_json_install().await?;
 
@@ -164,9 +160,10 @@ impl ModuleGraphBuilder {
         // add the redirects in the graph to the lockfile
         if !graph.redirects.is_empty() {
             if let Some(lockfile) = &self.lockfile {
-                let graph_redirects = graph.redirects.iter().filter(|(from, _)| {
-                    !matches!(from.scheme(), "npm" | "file" | "deno")
-                });
+                let graph_redirects = graph
+                    .redirects
+                    .iter()
+                    .filter(|(from, _)| !matches!(from.scheme(), "npm" | "file" | "deno"));
                 let mut lockfile = lockfile.lock();
                 for (from, to) in graph_redirects {
                     lockfile.insert_redirect(from.to_string(), to.to_string());
@@ -180,18 +177,15 @@ impl ModuleGraphBuilder {
                 let mappings = graph.packages.mappings();
                 let mut lockfile = lockfile.lock();
                 for (from, to) in mappings {
-                    lockfile.insert_package_specifier(
-                        format!("jsr:{}", from),
-                        format!("jsr:{}", to),
-                    );
+                    lockfile
+                        .insert_package_specifier(format!("jsr:{}", from), format!("jsr:{}", to));
                 }
             }
         }
 
         // ensure that the top level package.json is installed if a
         // specifier was matched in the package.json
-        self
-            .resolver
+        self.resolver
             .top_level_package_json_install_if_necessary()
             .await?;
 
@@ -236,7 +230,7 @@ impl ModuleGraphBuilder {
                 workspace_members: vec![],
             },
         )
-            .await?;
+        .await?;
 
         Ok(graph)
     }
@@ -318,7 +312,8 @@ pub async fn create_module_graph_from_path(
     let format_specifier = format!("file:///{}", specifier);
     let module_specifier = ModuleSpecifier::parse(&format_specifier)?;
     let graph_builder = ModuleGraphBuilder::new(None, false);
-    let graph = graph_builder.create_graph_and_maybe_check(vec![module_specifier])
+    let graph = graph_builder
+        .create_graph_and_maybe_check(vec![module_specifier])
         .await
         .unwrap();
     Ok(graph)

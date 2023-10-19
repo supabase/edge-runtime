@@ -1,23 +1,25 @@
-use std::path::PathBuf;
+use crate::js_worker::emitter::EmitterFactory;
 use anyhow::{anyhow, bail};
 use deno_core::error::AnyError;
-use deno_core::ModuleSpecifier;
-use eszip::deno_graph;
-use eszip::deno_graph::source::{Resolver, DEFAULT_JSX_IMPORT_SOURCE_MODULE, NpmResolver, UnknownBuiltInNodeModuleError};
-use import_map::ImportMap;
-use module_fetcher::args::package_json::{PackageJsonDeps, PackageJsonDepsProvider};
-use module_fetcher::util::sync::AtomicFlag;
-use std::sync::Arc;
-use eszip::deno_graph::NpmPackageReqResolution;
 use deno_core::futures::future;
 use deno_core::futures::future::LocalBoxFuture;
 use deno_core::futures::FutureExt;
+use deno_core::ModuleSpecifier;
+use deno_npm::registry::NpmRegistryApi;
+use deno_semver::package::PackageReq;
+use eszip::deno_graph;
+use eszip::deno_graph::source::{
+    NpmResolver, Resolver, UnknownBuiltInNodeModuleError, DEFAULT_JSX_IMPORT_SOURCE_MODULE,
+};
+use eszip::deno_graph::NpmPackageReqResolution;
+use import_map::ImportMap;
+use module_fetcher::args::package_json::{PackageJsonDeps, PackageJsonDepsProvider};
 use module_fetcher::args::JsxImportSourceConfig;
+use module_fetcher::util::sync::AtomicFlag;
 use sb_node::is_builtin_node_module;
 use sb_npm::{CliNpmRegistryApi, NpmResolution, PackageJsonDepsInstaller};
-use deno_semver::package::PackageReq;
-use deno_npm::registry::NpmRegistryApi;
-use crate::js_worker::emitter::EmitterFactory;
+use std::path::PathBuf;
+use std::sync::Arc;
 
 /// Result of checking if a specifier is mapped via
 /// an import map or package.json.
@@ -168,18 +170,13 @@ impl CliGraphResolver {
         self
     }
 
-    pub async fn force_top_level_package_json_install(
-        &self,
-    ) -> Result<(), AnyError> {
-        self
-            .package_json_deps_installer
+    pub async fn force_top_level_package_json_install(&self) -> Result<(), AnyError> {
+        self.package_json_deps_installer
             .ensure_top_level_install()
             .await
     }
 
-    pub async fn top_level_package_json_install_if_necessary(
-        &self,
-    ) -> Result<(), AnyError> {
+    pub async fn top_level_package_json_install_if_necessary(&self) -> Result<(), AnyError> {
         if self.found_package_json_dep_flag.is_raised() {
             self.force_top_level_package_json_install().await?;
         }
@@ -293,19 +290,19 @@ impl NpmResolver for CliGraphResolver {
         let api = self.npm_registry_api.clone();
 
         async move {
-            api
-                .package_info(&package_name)
+            api.package_info(&package_name)
                 .await
                 .map(|_| ())
                 .map_err(|err| err.into())
-        }.boxed()
+        }
+        .boxed()
     }
 
     fn resolve_npm(&self, package_req: &PackageReq) -> NpmPackageReqResolution {
         if self.no_npm {
             return NpmPackageReqResolution::Err(anyhow!(
-        "npm specifiers were requested; but --no-npm is specified"
-      ));
+                "npm specifiers were requested; but --no-npm is specified"
+            ));
         }
 
         let result = self

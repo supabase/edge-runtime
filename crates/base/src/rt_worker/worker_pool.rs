@@ -4,13 +4,13 @@ use event_worker::events::WorkerEventWithMetadata;
 use http::{Request, Response};
 use hyper::Body;
 use log::error;
+use notify::{RecursiveMode, Watcher};
 use sb_worker_context::essentials::{
     CreateUserWorkerResult, UserWorkerMsgs, UserWorkerProfile, WorkerContextInitOpts,
     WorkerRuntimeOpts,
 };
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use notify::{RecursiveMode, Watcher};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::oneshot::Sender;
@@ -92,7 +92,6 @@ impl WorkerPool {
             let result = create_worker(worker_options).await;
             match result {
                 Ok(worker_request_msg_tx) => {
-
                     if let Some(watch) = maybe_watch {
                         if watch {
                             watch_worker_files(&main_path);

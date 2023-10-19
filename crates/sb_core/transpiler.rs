@@ -1,9 +1,11 @@
-use std::path::Path;
 use deno_ast::{MediaType, ParseParams, SourceTextInfo};
 use deno_core::error::AnyError;
 use deno_core::{ExtensionFileSource, ExtensionFileSourceCode};
+use std::path::Path;
 
-pub fn maybe_transpile_source(source: &mut ExtensionFileSource) -> Result<&mut ExtensionFileSource, AnyError> {
+pub fn maybe_transpile_source(
+    source: &mut ExtensionFileSource,
+) -> Result<&mut ExtensionFileSource, AnyError> {
     let media_type = if source.specifier.starts_with("node:") {
         MediaType::TypeScript
     } else {

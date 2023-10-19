@@ -25,6 +25,7 @@ use urlencoding::decode;
 
 use crate::cert::ValueRootCertStoreProvider;
 use crate::js_worker::emitter::EmitterFactory;
+use crate::js_worker::standalone::create_module_loader_for_standalone_from_eszip_kind;
 use crate::{errors_rt, snapshot};
 use event_worker::events::{EventMetadata, WorkerEventWithMetadata};
 use event_worker::js_interceptors::sb_events_js_interceptors;
@@ -124,7 +125,7 @@ impl DenoRuntime {
             maybe_eszip,
             maybe_entrypoint,
             maybe_module_code,
-            watch
+            watch,
         } = opts;
 
         // check if the service_path exists
@@ -271,8 +272,11 @@ impl DenoRuntime {
             ..Default::default()
         };
         if maybe_eszip.is_some() {
+            // let eszip_module_loader =
+            //     EszipModuleLoader::new(maybe_eszip.unwrap(), import_map_path).await?;
             let eszip_module_loader =
-                EszipModuleLoader::new(maybe_eszip.unwrap(), import_map_path).await?;
+                create_module_loader_for_standalone_from_eszip_kind(maybe_eszip.unwrap(), None)
+                    .await;
             runtime_options.module_loader = Some(Rc::new(eszip_module_loader));
         } else {
             let import_map = load_import_map(import_map_path)?;
@@ -501,7 +505,7 @@ mod test {
                     WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts { worker_pool_tx })
                 }
             },
-            watch: None
+            watch: None,
         })
         .await
         .unwrap()

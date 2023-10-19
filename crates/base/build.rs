@@ -20,13 +20,13 @@ mod supabase_startup_snapshot {
     use sb_core::permissions::sb_core_permissions;
     use sb_core::runtime::sb_core_runtime;
     use sb_core::sb_core_main_js;
+    use sb_core::transpiler::maybe_transpile_source;
     use sb_env::sb_env;
     use sb_node::deno_node;
     use sb_workers::sb_user_workers;
     use std::path::Path;
     use std::sync::Arc;
     use url::Url;
-    use sb_core::transpiler::maybe_transpile_source;
 
     #[derive(Clone)]
     pub struct Permissions;

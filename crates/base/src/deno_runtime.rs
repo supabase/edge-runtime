@@ -124,6 +124,7 @@ impl DenoRuntime {
             maybe_eszip,
             maybe_entrypoint,
             maybe_module_code,
+            watch
         } = opts;
 
         // check if the service_path exists
@@ -408,7 +409,7 @@ impl DenoRuntime {
 mod test {
     use crate::deno_runtime::DenoRuntime;
     use crate::js_worker::emitter::EmitterFactory;
-    use crate::utils::graph_util::create_graph_and_maybe_check;
+    use crate::utils::graph_util::ModuleGraphBuilder;
     use deno_core::{ModuleCode, ModuleSpecifier};
     use sb_eszip::module_loader::EszipPayloadKind;
     use sb_worker_context::essentials::{
@@ -417,6 +418,7 @@ mod test {
     };
     use std::collections::HashMap;
     use std::path::PathBuf;
+    use std::sync::Arc;
     use tokio::net::UnixStream;
     use tokio::sync::mpsc;
 
@@ -429,7 +431,8 @@ mod test {
         let specifier = binding.to_str().unwrap();
         let format_specifier = format!("file:///{}", specifier);
         let module_specifier = ModuleSpecifier::parse(&format_specifier).unwrap();
-        let create_module_graph_task = create_graph_and_maybe_check(vec![module_specifier]);
+        let builder = ModuleGraphBuilder::new(None, false);
+        let create_module_graph_task = builder.create_graph_and_maybe_check(vec![module_specifier]);
         let graph = create_module_graph_task.await.unwrap();
 
         let emitter = EmitterFactory::new();
@@ -448,6 +451,7 @@ mod test {
             maybe_eszip: Some(EszipPayloadKind::VecKind(eszip_code)),
             maybe_entrypoint: None,
             maybe_module_code: None,
+            watch: None,
             conf: { WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts { worker_pool_tx }) },
         })
         .await;
@@ -497,6 +501,7 @@ mod test {
                     WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts { worker_pool_tx })
                 }
             },
+            watch: None
         })
         .await
         .unwrap()

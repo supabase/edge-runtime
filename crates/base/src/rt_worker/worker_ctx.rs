@@ -17,9 +17,10 @@ use sb_worker_context::essentials::{
     EventWorkerRuntimeOpts, MainWorkerRuntimeOpts, UserWorkerMsgs, WorkerContextInitOpts,
     WorkerRequestMsg, WorkerRuntimeOpts,
 };
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant};
+use notify::{RecursiveMode, Watcher};
 use tokio::net::UnixStream;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::{mpsc, oneshot};
@@ -237,6 +238,26 @@ pub fn create_supervisor(
     Ok(cputimer)
 }
 
+pub fn watch_worker_files(service_path: &PathBuf) {
+    let path = service_path.canonicalize().unwrap();
+    let service_path_clone = std::env::current_dir().map(|p| p.join(path)).unwrap();
+    println!("Watcher path: {}", service_path_clone.as_path().to_str().unwrap());
+    let mut watcher: notify::RecommendedWatcher = notify::recommended_watcher(|res: notify::Result<notify::Event>| {
+        println!("Received {}", res.is_ok());
+        match res {
+            Ok(event) => {
+                println!("watch event: {:?}", event)
+            },
+            Err(e) => println!("watch error: {:?}", e),
+        }
+    }).unwrap();
+
+    println!("{}", service_path_clone.clone().as_path().to_str().unwrap());
+    //let result = watcher.watch(service_path_clone.as_path(), RecursiveMode::Recursive).unwrap();
+    // println!("Watcher started {}", result.is_ok());
+    //watcher.unwatch(&service_path_clone.as_path()).unwrap();
+}
+
 pub async fn create_worker(
     init_opts: WorkerContextInitOpts,
 ) -> Result<mpsc::UnboundedSender<WorkerRequestMsg>, Error> {
@@ -339,6 +360,7 @@ pub async fn create_main_worker(
         events_rx: None,
         maybe_eszip,
         maybe_entrypoint,
+        watch: None,
         maybe_module_code: None,
         conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
             worker_pool_tx: user_worker_msgs_tx,
@@ -374,6 +396,7 @@ pub async fn create_events_worker(
         service_path,
         no_module_cache,
         import_map_path,
+        watch: None,
         env_vars: std::env::vars().collect(),
         events_rx: Some(events_rx),
         maybe_eszip,

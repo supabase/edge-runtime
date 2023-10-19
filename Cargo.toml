@@ -11,7 +11,8 @@ members = [
   "./crates/sb_os",
   "./crates/cpu_timer",
   "./crates/event_worker",
-  "./crates/sb_eszip"
+  "./crates/sb_eszip",
+  "./crates/npm"
 ]
 resolver = "2"
 

@@ -4,7 +4,7 @@ use anyhow::Error;
 use base::commands::start_server;
 use base::server::WorkerEntrypoints;
 use base::utils::graph_util::{create_eszip_from_graph, create_module_graph_from_path};
-use clap::builder::FalseyValueParser;
+use clap::builder::{BoolValueParser, FalseyValueParser};
 use clap::{arg, crate_version, value_parser, ArgAction, Command};
 use std::fs::File;
 use std::io::Write;
@@ -42,6 +42,7 @@ fn cli() -> Command {
                 )
                 .arg(arg!(--"main-service" <DIR> "Path to main service directory or eszip").default_value("examples/main"))
                 .arg(arg!(--"disable-module-cache" "Disable using module cache").default_value("false").value_parser(FalseyValueParser::new()))
+                .arg(arg!(--"watch" "Watch files for hot reloading").default_value("true").value_parser(BoolValueParser::new()))
                 .arg(arg!(--"import-map" <Path> "Path to import map file"))
                 .arg(arg!(--"event-worker" <Path> "Path to event worker directory"))
                 .arg(arg!(--"main-entrypoint" <Path> "Path to entrypoint in main service (only for eszips)"))
@@ -103,6 +104,10 @@ fn main() -> Result<(), anyhow::Error> {
                     sub_matches.get_one::<String>("main-entrypoint").cloned();
                 let maybe_events_entrypoint =
                     sub_matches.get_one::<String>("events-entrypoint").cloned();
+                let watch = sub_matches
+                    .get_one::<bool>("watch")
+                    .cloned()
+                    .unwrap();
 
                 start_server(
                     ip.as_str(),

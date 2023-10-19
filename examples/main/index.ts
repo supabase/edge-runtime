@@ -61,6 +61,7 @@ serve(async (req: Request) => {
 			envVars,
 			forceCreate,
 			netAccessDisabled,
+			watch: true,
 			// maybeEszip,
 			// maybeEntrypoint,
 			// maybeModuleCode,

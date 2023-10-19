@@ -26,42 +26,7 @@ mod supabase_startup_snapshot {
     use std::path::Path;
     use std::sync::Arc;
     use url::Url;
-
-    fn maybe_transpile_source(source: &mut ExtensionFileSource) -> Result<(), AnyError> {
-        let media_type = if source.specifier.starts_with("node:") {
-            MediaType::TypeScript
-        } else {
-            MediaType::from_path(Path::new(&source.specifier))
-        };
-
-        match media_type {
-            MediaType::TypeScript => {}
-            MediaType::JavaScript => return Ok(()),
-            MediaType::Mjs => return Ok(()),
-            _ => panic!(
-                "Unsupported media type for snapshotting {media_type:?} for file {}",
-                source.specifier
-            ),
-        }
-        let code = source.load()?;
-
-        let parsed = deno_ast::parse_module(ParseParams {
-            specifier: source.specifier.to_string(),
-            text_info: SourceTextInfo::from_string(code.as_str().to_owned()),
-            media_type,
-            capture_tokens: false,
-            scope_analysis: false,
-            maybe_syntax: None,
-        })?;
-        let transpiled_source = parsed.transpile(&deno_ast::EmitOptions {
-            imports_not_used_as_values: deno_ast::ImportsNotUsedAsValues::Remove,
-            inline_source_map: false,
-            ..Default::default()
-        })?;
-
-        source.code = ExtensionFileSourceCode::Computed(transpiled_source.text.into());
-        Ok(())
-    }
+    use sb_core::transpiler::maybe_transpile_source;
 
     #[derive(Clone)]
     pub struct Permissions;
@@ -236,10 +201,10 @@ mod supabase_startup_snapshot {
 
         for extension in &mut extensions {
             for source in extension.esm_files.to_mut() {
-                maybe_transpile_source(source).unwrap();
+                let _ = maybe_transpile_source(source).unwrap();
             }
             for source in extension.js_files.to_mut() {
-                maybe_transpile_source(source).unwrap();
+                let _ = maybe_transpile_source(source).unwrap();
             }
         }
 

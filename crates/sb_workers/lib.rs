@@ -58,6 +58,7 @@ pub struct UserWorkerCreateOptions {
     cpu_time_threshold_ms: u64,
     max_cpu_bursts: u64,
     cpu_burst_interval_ms: u64,
+    watch: Option<bool>
 }
 
 #[op2(async)]
@@ -90,6 +91,7 @@ pub async fn op_user_worker_create(
             cpu_time_threshold_ms,
             max_cpu_bursts,
             cpu_burst_interval_ms,
+            watch
         } = opts;
 
         let mut env_vars_map = HashMap::new();
@@ -106,6 +108,7 @@ pub async fn op_user_worker_create(
             maybe_eszip: maybe_eszip.map(EszipPayloadKind::JsBufferKind),
             maybe_entrypoint,
             maybe_module_code: maybe_module_code.map(|v| v.into()),
+            watch,
             conf: WorkerRuntimeOpts::UserWorker(UserWorkerRuntimeOpts {
                 memory_limit_mb,
                 low_memory_multiplier,

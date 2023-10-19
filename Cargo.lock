@@ -338,6 +338,8 @@ dependencies = [
  "deno_http",
  "deno_io",
  "deno_net",
+ "deno_npm",
+ "deno_semver 0.5.1",
  "deno_tls",
  "deno_url",
  "deno_web",
@@ -353,11 +355,13 @@ dependencies = [
  "import_map",
  "log",
  "module_fetcher",
+ "notify",
  "reqwest",
  "sb_core",
  "sb_env",
  "sb_eszip",
  "sb_node",
+ "sb_npm",
  "sb_os",
  "sb_worker_context",
  "sb_workers",
@@ -2392,6 +2396,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "inotify"
+version = "0.9.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8069d3ec154eb856955c1c0fbffefbf5f3c40a104ec912d4797314c1801abff"
+dependencies = [
+ "bitflags 1.3.2",
+ "inotify-sys",
+ "libc",
+]
+
+[[package]]
+name = "inotify-sys"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e05c02b5e89bff3b946cedeca278abc628fe811e604f027c45a8aa3cf793d0eb"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "inout"
 version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2474,6 +2498,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7b56a20e76235284255a09fcd1f45cf55d3c524ea657ebd3854735925c57743d"
 dependencies = [
  "serde_json",
+]
+
+[[package]]
+name = "kqueue"
+version = "1.0.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7447f1ca1b7b563588a205fe93dea8df60fd981423a768bc1c0ded35ed147d0c"
+dependencies = [
+ "kqueue-sys",
+ "libc",
+]
+
+[[package]]
+name = "kqueue-sys"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed9625ffda8729b85e45cf04090035ac368927b8cebc34898e7c120f52e4838b"
+dependencies = [
+ "bitflags 1.3.2",
+ "libc",
 ]
 
 [[package]]
@@ -2679,6 +2723,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "927a765cd3fc26206e66b296465fa9d3e5ab003e651c1b3c060e7956d96b19d2"
 dependencies = [
  "libc",
+ "log",
  "wasi 0.11.0+wasi-snapshot-preview1",
  "windows-sys",
 ]
@@ -2782,6 +2827,23 @@ checksum = "d273983c5a657a70a3e8f2a01329822f3b8c8172b73826411a55751e404a0a4a"
 dependencies = [
  "memchr",
  "minimal-lexical",
+]
+
+[[package]]
+name = "notify"
+version = "6.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6205bd8bb1e454ad2e27422015fb5e4f2bcc7e08fa8f27058670d208324a4d2d"
+dependencies = [
+ "bitflags 2.4.0",
+ "filetime",
+ "inotify",
+ "kqueue",
+ "libc",
+ "log",
+ "mio",
+ "walkdir",
+ "windows-sys",
 ]
 
 [[package]]
@@ -3671,6 +3733,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bytes",
+ "deno_ast",
  "deno_core",
  "deno_fetch",
  "deno_fs",
@@ -3769,6 +3832,31 @@ dependencies = [
  "winapi",
  "x25519-dalek",
  "x509-parser",
+]
+
+[[package]]
+name = "sb_npm"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "base32",
+ "base64 0.13.1",
+ "bincode",
+ "deno_ast",
+ "deno_core",
+ "deno_fs",
+ "deno_lockfile",
+ "deno_npm",
+ "deno_semver 0.5.1",
+ "flate2",
+ "hex",
+ "module_fetcher",
+ "once_cell",
+ "percent-encoding",
+ "ring",
+ "sb_node",
+ "serde",
+ "tar",
 ]
 
 [[package]]

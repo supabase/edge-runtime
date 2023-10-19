@@ -4,12 +4,16 @@ use deno_ast::EmitOptions;
 use deno_core::error::AnyError;
 use eszip::deno_graph::source::{Loader, Resolver};
 use module_fetcher::args::CacheSetting;
-use module_fetcher::cache::{Caches, DenoDir, DenoDirProvider, EmitCache, ParsedSourceCache};
+use module_fetcher::cache::{Caches, DenoDir, DenoDirProvider, EmitCache, GlobalHttpCache, ParsedSourceCache, RealDenoCacheEnv};
 use module_fetcher::emit::Emitter;
 use module_fetcher::file_fetcher::FileFetcher;
 use module_fetcher::permissions::Permissions;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc};
+use deno_npm::NpmSystemInfo;
+use module_fetcher::args::lockfile::Lockfile;
+use module_fetcher::http_util::HttpClient;
+use sb_npm::{CliNpmRegistryApi, CliNpmResolver, create_npm_fs_resolver, NpmCache, NpmCacheDir, NpmResolution};
 
 pub struct EmitterFactory {
     deno_dir: DenoDir,
@@ -68,6 +72,63 @@ impl EmitterFactory {
 
     pub fn graph_resolver(&self) -> Box<dyn Resolver> {
         Box::<CliGraphResolver>::default()
+    }
+
+    pub fn global_http_cache(&self) -> GlobalHttpCache {
+        GlobalHttpCache::new(self.deno_dir.deps_folder_path(), RealDenoCacheEnv)
+    }
+
+    pub fn http_client(&self) -> Arc<HttpClient> {
+        Arc::new(make_http_client().unwrap())
+    }
+
+    pub fn real_fs(&self) -> Arc<dyn deno_fs::FileSystem> {
+        Arc::new(deno_fs::RealFs)
+    }
+
+    pub fn npm_cache(&self) -> Arc<NpmCache> {
+        println!("{}", self.deno_dir.npm_folder_path().clone().to_str().unwrap());
+        Arc::new(NpmCache::new(
+            NpmCacheDir::new(
+                self.deno_dir.npm_folder_path().clone()
+            ),
+            CacheSetting::Use, // TODO: Maybe ?,
+            self.real_fs(),
+            self.http_client()
+        ))
+    }
+
+    pub fn npm_api(&self) -> Arc<CliNpmRegistryApi> {
+        Arc::new(CliNpmRegistryApi::new(
+            CliNpmRegistryApi::default_url().to_owned(),
+            self.npm_cache(),
+            self.http_client()
+        ))
+    }
+
+    pub fn npm_resolver(&self, lock_file: Option<Arc<deno_core::parking_lot::Mutex<Lockfile>>>) -> Arc<CliNpmResolver> {
+        let npm_registry_api = self.npm_api();
+        let npm_resolution = Arc::new(NpmResolution::from_serialized(
+            npm_registry_api.clone(),
+            None,
+            None,
+        ));
+        let fs = self.real_fs();
+        let npm_fs_resolver = create_npm_fs_resolver(
+            fs.clone(),
+            self.npm_cache(),
+            CliNpmRegistryApi::default_url().to_owned(),
+            npm_resolution.clone(),
+            None,
+            NpmSystemInfo::default()
+        );
+
+        Arc::new(CliNpmResolver::new(
+            self.real_fs(),
+            npm_resolution,
+            npm_fs_resolver,
+            lock_file
+        ))
     }
 
     pub fn file_fetcher(&self) -> FileFetcher {

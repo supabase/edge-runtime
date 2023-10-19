@@ -2,6 +2,7 @@ pub mod http_start;
 pub mod net;
 pub mod permissions;
 pub mod runtime;
+pub mod transpiler;
 
 deno_core::extension!(
     sb_core_main_js,

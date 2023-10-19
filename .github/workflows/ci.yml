@@ -18,9 +18,12 @@ jobs:
     name: "cargo fmt"
     runs-on: ubuntu-latest
     steps:
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          components: rustfmt
       - uses: actions/checkout@v3
-      - name: "Install Rust toolchain"
-        run: rustup component add rustfmt
       - run: ./scripts/fmt.sh
 
   cargo-clippy:
@@ -28,9 +31,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: "Install Rust toolchain"
-        run: |
-          rustup component add clippy
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          components: clippy
       - uses: Swatinem/rust-cache@v2
       - run: ./scripts/clippy.sh
 
@@ -47,8 +52,12 @@ jobs:
           sudo docker image prune --all --force
 
           sudo apt-get remove --purge -y man-db
-          sudo apt-get remove 'clang-12*' 'clang-13*' 'clang-14*' 'clang-15*' 'llvm-12*' 'llvm-13*' 'llvm-14*' 'llvm-15*' 'lld-12*' 'lld-13*' 'lld-14*' 'lld-15*'
+          sudo apt-get remove 'clang-13*' 'clang-14*' 'clang-15*' 'llvm-13*' 'llvm-14*' 'llvm-15*' 'lld-13*' 'lld-14*' 'lld-15*'
 
       - uses: actions/checkout@v3
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
       - uses: Swatinem/rust-cache@v2
       - run: ./scripts/test.sh

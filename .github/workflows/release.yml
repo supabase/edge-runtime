@@ -65,7 +65,6 @@ jobs:
 
           # install CMAKE
           sudo apt-get update
-          sudo apt-get install cmake
 
       - id: build
         uses: docker/build-push-action@v3
@@ -123,7 +122,6 @@ jobs:
 
           # install CMAKE
           sudo apt-get update
-          sudo apt-get install cmake
 
 
       - id: build

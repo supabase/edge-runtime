@@ -3,10 +3,11 @@ use crate::js_worker::node_module_loader::{CjsResolutionStore, NpmModuleLoader};
 use crate::utils::graph_resolver::{CliGraphResolver, CliGraphResolverOptions};
 use deno_ast::EmitOptions;
 use deno_core::error::AnyError;
+use deno_core::parking_lot::Mutex;
 use deno_npm::resolution::ValidSerializedNpmResolutionSnapshot;
 use deno_npm::NpmSystemInfo;
 use eszip::deno_graph::source::{Loader, Resolver};
-use module_fetcher::args::lockfile::Lockfile;
+use module_fetcher::args::lockfile::{snapshot_from_lockfile, Lockfile};
 use module_fetcher::args::package_json::PackageJsonDepsProvider;
 use module_fetcher::args::CacheSetting;
 use module_fetcher::cache::{
@@ -25,13 +26,50 @@ use sb_npm::{
     NpmPackageFsResolver, NpmResolution, PackageJsonDepsInstaller,
 };
 use std::collections::HashMap;
+use std::future::Future;
 use std::path::PathBuf;
 use std::sync::Arc;
+
+struct Deferred<T>(once_cell::unsync::OnceCell<T>);
+
+impl<T> Default for Deferred<T> {
+    fn default() -> Self {
+        Self(once_cell::unsync::OnceCell::default())
+    }
+}
+
+impl<T> Deferred<T> {
+    pub fn get_or_try_init(
+        &self,
+        create: impl FnOnce() -> Result<T, AnyError>,
+    ) -> Result<&T, AnyError> {
+        self.0.get_or_try_init(create)
+    }
+
+    pub fn get_or_init(&self, create: impl FnOnce() -> T) -> &T {
+        self.0.get_or_init(create)
+    }
+
+    pub async fn get_or_try_init_async(
+        &self,
+        create: impl Future<Output = Result<T, AnyError>>,
+    ) -> Result<&T, AnyError> {
+        if self.0.get().is_none() {
+            // todo(dsherret): it would be more ideal if this enforced a
+            // single executor and then we could make some initialization
+            // concurrent
+            let val = create.await?;
+            _ = self.0.set(val);
+        }
+        Ok(self.0.get().unwrap())
+    }
+}
 
 pub struct EmitterFactory {
     deno_dir: DenoDir,
     npm_snapshot: Option<ValidSerializedNpmResolutionSnapshot>,
     lockfile: Option<Lockfile>,
+    cjs_resolutions: Deferred<Arc<CjsResolutionStore>>,
 }
 
 impl Default for EmitterFactory {
@@ -43,18 +81,31 @@ impl Default for EmitterFactory {
 impl EmitterFactory {
     pub fn new() -> Self {
         let deno_dir = DenoDir::new(None).unwrap();
+        let lockfile = Lockfile::new(
+            PathBuf::from(
+                "/Users/andrespirela/Documents/workspace/supabase/edge-runtime/deno.lock",
+            ),
+            false,
+        )
+        .unwrap();
+
         Self {
             deno_dir,
             npm_snapshot: None,
-            lockfile: Some(
-                Lockfile::new(
-                    PathBuf::from(
-                        "/Users/andrespirela/Documents/workspace/supabase/edge-runtime/deno.lock",
-                    ),
-                    false,
-                )
-                .unwrap(),
-            ),
+            lockfile: Some(lockfile),
+            cjs_resolutions: Default::default(),
+        }
+    }
+
+    pub async fn npm_snapshot_from_lockfile(&mut self) {
+        if let Some(lockfile) = self.lockfile.clone() {
+            let npm_api = self.npm_api();
+            let snapshot = snapshot_from_lockfile(Arc::new(Mutex::new(lockfile)), &*npm_api)
+                .await
+                .unwrap();
+            self.npm_snapshot = Some(snapshot);
+        } else {
+            panic!("Lockfile not available");
         }
     }
 
@@ -162,8 +213,11 @@ impl EmitterFactory {
         Arc::new(NodeResolver::new(fs, self.npm_resolver()))
     }
 
+    pub fn cjs_resolution_store(&self) -> &Arc<CjsResolutionStore> {
+        self.cjs_resolutions.get_or_init(Default::default)
+    }
+
     pub fn npm_module_loader(&self) -> Arc<NpmModuleLoader> {
-        let cjs_resolution = Arc::new(CjsResolutionStore::default());
         let cache_db = Caches::new(self.deno_dir_provider());
         let node_analysis_cache = NodeAnalysisCache::new(cache_db.node_analysis_db());
         let cjs_esm_code_analyzer =
@@ -176,7 +230,7 @@ impl EmitterFactory {
         ));
 
         Arc::new(NpmModuleLoader::new(
-            cjs_resolution,
+            self.cjs_resolution_store().clone(),
             node_code_translator,
             self.real_fs(),
             self.node_resolver(),

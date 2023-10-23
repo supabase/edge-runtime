@@ -339,11 +339,9 @@ impl NodeResolver {
         mode: NodeResolutionMode,
         permissions: &dyn NodePermissions,
     ) -> Result<Option<NodeResolution>, AnyError> {
-        println!("Resolve NPM reference");
         let package_folder = self
             .npm_resolver
             .resolve_package_folder_from_deno_module(reference.nv())?;
-        println!("{}", package_folder.clone().to_str().unwrap());
         let node_module_kind = NodeModuleKind::Esm;
         let maybe_resolved_path = self
             .package_config_resolve(

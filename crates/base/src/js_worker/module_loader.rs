@@ -130,10 +130,10 @@ impl PreparedModuleLoader {
 pub struct DefaultModuleLoader {
     file_fetcher: FileFetcher,
     permissions: module_fetcher::permissions::Permissions,
-    emitter: Arc<Emitter>,
     maybe_import_map: Option<ImportMap>,
     graph: ModuleGraph,
     prepared_module_loader: Arc<PreparedModuleLoader>,
+    emitter: EmitterFactory,
 }
 
 impl DefaultModuleLoader {
@@ -141,7 +141,7 @@ impl DefaultModuleLoader {
         root_path: PathBuf,
         main_module: ModuleSpecifier,
         maybe_import_map: Option<ImportMap>,
-        emitter: Arc<Emitter>,
+        mut emitter: EmitterFactory,
         no_cache: bool,
         allow_remote: bool,
     ) -> Result<Self, AnyError> {
@@ -170,13 +170,18 @@ impl DefaultModuleLoader {
         let permissions = module_fetcher::permissions::Permissions::new(root_path);
         let graph = create_graph(main_module.to_file_path().unwrap(), None).await;
 
+        // emitter.npm_snapshot_from_lockfile().await;
+
         Ok(Self {
             file_fetcher,
             permissions,
             maybe_import_map,
-            emitter: emitter.clone(),
             graph: graph.clone(),
-            prepared_module_loader: Arc::new(PreparedModuleLoader { graph, emitter }),
+            prepared_module_loader: Arc::new(PreparedModuleLoader {
+                graph,
+                emitter: emitter.emitter().unwrap(),
+            }),
+            emitter,
         })
     }
 
@@ -186,9 +191,9 @@ impl DefaultModuleLoader {
         maybe_referrer: Option<&ModuleSpecifier>,
         is_dynamic: bool,
     ) -> Result<ModuleSource, AnyError> {
-        let emitter_factory = EmitterFactory::new();
         let permissions: Arc<dyn NodePermissions> = Arc::new(sb_node::AllowAllNodePermissions);
-        let code_source = if let Some(result) = emitter_factory
+        let code_source = if let Some(result) = self
+            .emitter
             .npm_module_loader()
             .load_sync_if_in_npm_package(specifier, maybe_referrer, &*permissions)
         {
@@ -236,11 +241,10 @@ impl ModuleLoader for DefaultModuleLoader {
                 .resolve(specifier, &referrer_url)
                 .map_err(|err| err.into())
         } else {
-            let emitter = EmitterFactory::new();
             let cwd = std::env::current_dir().context("Unable to get CWD")?;
             let referrer_result = deno_core::resolve_url_or_path(referrer, &cwd);
             let permissions: Arc<dyn NodePermissions> = Arc::new(sb_node::AllowAllNodePermissions);
-            let npm_module_loader = emitter.npm_module_loader();
+            let npm_module_loader = self.emitter.npm_module_loader();
 
             if let Ok(referrer) = referrer_result.as_ref() {
                 if let Some(result) =
@@ -262,11 +266,8 @@ impl ModuleLoader for DefaultModuleLoader {
                         let specifier = &resolved.specifier;
 
                         return match graph.get(specifier) {
-                            Some(Module::Npm(module)) => {
-                                println!("NPM {}", module.specifier.clone());
-                                npm_module_loader
-                                    .resolve_nv_ref(&module.nv_reference, &*permissions)
-                            }
+                            Some(Module::Npm(module)) => npm_module_loader
+                                .resolve_nv_ref(&module.nv_reference, &*permissions),
                             Some(Module::Node(module)) => Ok(module.specifier.clone()),
                             Some(Module::Esm(module)) => Ok(module.specifier.clone()),
                             Some(Module::Json(module)) => Ok(module.specifier.clone()),
@@ -286,7 +287,7 @@ impl ModuleLoader for DefaultModuleLoader {
                 }
             }
 
-            emitter
+            self.emitter
                 .cli_graph_resolver()
                 .resolve(specifier, &referrer_result?)
                 .map_err(|err| err.into())

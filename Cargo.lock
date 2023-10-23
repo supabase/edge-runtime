@@ -356,6 +356,7 @@ dependencies = [
  "log",
  "module_fetcher",
  "notify",
+ "once_cell",
  "reqwest",
  "sb_core",
  "sb_env",

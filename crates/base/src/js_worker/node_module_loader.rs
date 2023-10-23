@@ -102,12 +102,12 @@ impl NpmModuleLoader {
         maybe_referrer: Option<&ModuleSpecifier>,
         permissions: &dyn NodePermissions,
     ) -> Option<Result<ModuleCodeSource, AnyError>> {
-        println!(
-            "{} {}",
-            specifier,
-            self.node_resolver.in_npm_package(specifier)
-        );
         if self.node_resolver.in_npm_package(specifier) {
+            println!(
+                "{} {}",
+                specifier,
+                self.node_resolver.in_npm_package(specifier)
+            );
             Some(self.load_sync(specifier, maybe_referrer, permissions))
         } else {
             None
@@ -179,14 +179,8 @@ impl NpmModuleLoader {
         result: Result<Option<NodeResolution>, AnyError>,
     ) -> Result<ModuleSpecifier, AnyError> {
         let response = match result? {
-            Some(response) => {
-                println!("Found");
-                response
-            }
-            None => {
-                println!("Not found");
-                return Err(generic_error("not found"));
-            }
+            Some(response) => response,
+            None => return Err(generic_error("not found")),
         };
         if let NodeResolution::CommonJs(specifier) = &response {
             // remember that this was a common js resolution

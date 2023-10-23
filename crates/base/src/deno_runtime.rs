@@ -206,6 +206,7 @@ impl DenoRuntime {
             });
         }
         let mut emitter_factory = EmitterFactory::new();
+        emitter_factory.npm_snapshot_from_lockfile().await;
 
         let fs = Arc::new(deno_fs::RealFs);
         let extensions = vec![
@@ -287,7 +288,7 @@ impl DenoRuntime {
                 module_root_path,
                 main_module_url.clone(),
                 import_map,
-                emitter_factory.emitter().unwrap(),
+                emitter_factory,
                 no_module_cache,
                 allow_remote_modules,
             )

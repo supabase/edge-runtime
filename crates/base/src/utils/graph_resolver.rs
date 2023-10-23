@@ -131,6 +131,17 @@ pub struct CliGraphResolverOptions<'a> {
     pub no_npm: bool,
 }
 
+impl Default for CliGraphResolverOptions<'_> {
+    fn default() -> Self {
+        CliGraphResolverOptions {
+            maybe_jsx_import_source_config: None,
+            maybe_import_map: None,
+            maybe_vendor_dir: None,
+            no_npm: false,
+        }
+    }
+}
+
 impl CliGraphResolver {
     pub fn new(
         npm_registry_api: Arc<CliNpmRegistryApi>,

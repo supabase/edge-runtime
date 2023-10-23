@@ -288,6 +288,7 @@ impl CliNpmRegistryApiInner {
         &self,
         name: &str,
     ) -> Result<Option<NpmPackageInfo>, AnyError> {
+        println!("Downloading load_package_info_from_registry_inner");
         if *self.cache.cache_setting() == CacheSetting::Only {
             return Err(custom_error(
                 "NotCached",

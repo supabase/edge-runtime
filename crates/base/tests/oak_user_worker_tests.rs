@@ -22,6 +22,7 @@ async fn test_oak_server() {
         maybe_entrypoint: None,
         maybe_module_code: None,
         conf: WorkerRuntimeOpts::UserWorker(user_rt_opts),
+        watch: None,
     };
     let worker_req_tx = create_worker(opts).await.unwrap();
     let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
@@ -59,6 +60,7 @@ async fn test_file_upload() {
         maybe_entrypoint: None,
         maybe_module_code: None,
         conf: WorkerRuntimeOpts::UserWorker(user_rt_opts),
+        watch: None,
     };
     let worker_req_tx = create_worker(opts).await.unwrap();
     let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();

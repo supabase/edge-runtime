@@ -56,7 +56,7 @@ impl ModuleGraphBuilder {
     pub fn new(lockfile: Option<Arc<Mutex<Lockfile>>>, type_check: bool) -> Self {
         let emitter_factory = EmitterFactory::new();
         let graph_resolver = CliGraphResolver::default();
-        let npm_resolver = emitter_factory.npm_resolver(None);
+        let npm_resolver = emitter_factory.npm_resolver();
         let parsed_source_cache = emitter_factory.parsed_source_cache().unwrap();
         let mut file_fetcher = emitter_factory.file_fetcher();
         let http = emitter_factory.global_http_cache();
@@ -118,7 +118,6 @@ impl ModuleGraphBuilder {
     ) -> Result<(), AnyError> {
         // TODO: Option here similar to: https://github.com/denoland/deno/blob/v1.37.1/cli/graph_util.rs#L323C5-L405C11
         self.resolver.force_top_level_package_json_install().await?;
-
         // add the lockfile redirects to the graph if it's the first time executing
         if graph.redirects.is_empty() {
             if let Some(lockfile) = &self.lockfile {

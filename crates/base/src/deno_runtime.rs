@@ -30,6 +30,7 @@ use crate::{errors_rt, snapshot};
 use event_worker::events::{EventMetadata, WorkerEventWithMetadata};
 use event_worker::js_interceptors::sb_events_js_interceptors;
 use event_worker::sb_user_event_worker;
+use module_fetcher::args::lockfile::Lockfile;
 use module_fetcher::util::diagnostic::print_import_map_diagnostics;
 use module_loader::DefaultModuleLoader;
 use sb_core::http_start::sb_core_http;
@@ -204,7 +205,8 @@ impl DenoRuntime {
                 stderr: deno_io::StdioPipe::File(std::fs::File::create("/dev/null")?),
             });
         }
-        let emitter_factory = EmitterFactory::new();
+        let mut emitter_factory = EmitterFactory::new();
+
         let fs = Arc::new(deno_fs::RealFs);
         let extensions = vec![
             sb_core_permissions::init_ops(net_access_disabled),
@@ -248,7 +250,7 @@ impl DenoRuntime {
             sb_core_main_js::init_ops(),
             sb_core_net::init_ops(),
             sb_core_http::init_ops(),
-            deno_node::init_ops::<Permissions>(Some(emitter_factory.npm_resolver(None)), fs),
+            deno_node::init_ops::<Permissions>(Some(emitter_factory.npm_resolver()), fs),
             sb_core_runtime::init_ops(Some(main_module_url.clone())),
         ];
 
@@ -414,7 +416,10 @@ mod test {
     use crate::deno_runtime::DenoRuntime;
     use crate::js_worker::emitter::EmitterFactory;
     use crate::utils::graph_util::ModuleGraphBuilder;
+    use deno_core::parking_lot::Mutex;
     use deno_core::{ModuleCode, ModuleSpecifier};
+    use deno_npm::NpmSystemInfo;
+    use module_fetcher::args::lockfile::Lockfile;
     use sb_eszip::module_loader::EszipPayloadKind;
     use sb_worker_context::essentials::{
         MainWorkerRuntimeOpts, UserWorkerMsgs, UserWorkerRuntimeOpts, WorkerContextInitOpts,
@@ -435,16 +440,34 @@ mod test {
         let specifier = binding.to_str().unwrap();
         let format_specifier = format!("file:///{}", specifier);
         let module_specifier = ModuleSpecifier::parse(&format_specifier).unwrap();
-        let builder = ModuleGraphBuilder::new(None, false);
+        let builder = ModuleGraphBuilder::new(
+            Some(Arc::new(Mutex::new(
+                Lockfile::new(
+                    PathBuf::from(
+                        "/Users/andrespirela/Documents/workspace/supabase/edge-runtime/deno.lock",
+                    ),
+                    false,
+                )
+                .unwrap(),
+            ))),
+            false,
+        );
         let create_module_graph_task = builder.create_graph_and_maybe_check(vec![module_specifier]);
         let graph = create_module_graph_task.await.unwrap();
 
-        let emitter = EmitterFactory::new();
+        let mut emitter = EmitterFactory::new();
         let parser_arc = emitter.parsed_source_cache().unwrap();
         let parser = parser_arc.as_capturing_parser();
 
         let eszip = eszip::EszipV2::from_graph(graph, &parser, Default::default());
-        let eszip_code = eszip.unwrap().into_bytes();
+        let mut raw_eszip = eszip.unwrap();
+
+        let snapshot = emitter
+            .npm_resolution()
+            .serialized_valid_snapshot_for_system(&NpmSystemInfo::default());
+        raw_eszip.add_npm_snapshot(snapshot.clone());
+        println!("{:?}", snapshot.into_serialized());
+        let eszip_code = raw_eszip.into_bytes();
 
         let runtime = DenoRuntime::new(WorkerContextInitOpts {
             service_path,

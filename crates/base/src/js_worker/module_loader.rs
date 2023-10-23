@@ -1,4 +1,6 @@
-use anyhow::{anyhow, bail, Error};
+use crate::js_worker::emitter::EmitterFactory;
+use crate::utils::graph_resolver::CliGraphResolver;
+use anyhow::{anyhow, bail, Context, Error};
 use deno_ast::MediaType;
 use deno_core::error::AnyError;
 use deno_core::futures::FutureExt;
@@ -8,11 +10,14 @@ use deno_core::ModuleSourceFuture;
 use deno_core::ModuleSpecifier;
 use deno_core::ModuleType;
 use deno_core::ResolutionKind;
+use eszip::deno_graph::source::Resolver;
+use eszip::deno_graph::Module;
 use import_map::ImportMap;
 use module_fetcher::cache::{DenoDir, GlobalHttpCache, HttpCache};
 use module_fetcher::emit::Emitter;
 use module_fetcher::file_fetcher::{CacheSetting, FileFetcher};
 use module_fetcher::http_util::HttpClient;
+use sb_node::NodePermissions;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
@@ -109,6 +114,7 @@ impl ModuleLoader for DefaultModuleLoader {
             } else {
                 Url::parse(referrer)
             };
+
             if referrer_url.is_err() {
                 return referrer_url.map_err(|err| err.into());
             }
@@ -118,12 +124,15 @@ impl ModuleLoader for DefaultModuleLoader {
                 .resolve(specifier, &referrer_url)
                 .map_err(|err| err.into())
         } else {
-            // // Built-in Node modules
-            // if let Some(module_name) = specifier.strip_prefix("node:") {
-            //     return module_fetcher::node::resolve_builtin_node_module(module_name);
-            // }
+            let emitter = EmitterFactory::new();
 
-            deno_core::resolve_import(specifier, referrer).map_err(|err| err.into())
+            let cwd = std::env::current_dir().context("Unable to get CWD")?;
+            let referrer_result = deno_core::resolve_url_or_path(referrer, &cwd);
+
+            emitter
+                .cli_graph_resolver()
+                .resolve(specifier, &referrer_result?)
+                .map_err(|err| err.into())
         }
     }
 

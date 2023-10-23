@@ -8,10 +8,12 @@ use deno_core::{ModuleLoader, ModuleSpecifier, ModuleType, ResolutionKind};
 use deno_semver::npm::NpmPackageReqReference;
 use eszip::EszipV2;
 use import_map::ImportMap;
+use module_fetcher::args::lockfile::Lockfile;
 use module_fetcher::args::package_json::PackageJsonDepsProvider;
 use module_fetcher::file_fetcher::get_source_from_data_url;
 use sb_eszip::module_loader::EszipPayloadKind;
 use sb_node::NodePermissions;
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -168,18 +170,30 @@ impl ModuleLoader for EmbeddedModuleLoader {
 }
 
 pub fn create_shared_state_for_module_loader(
-    eszip: eszip::EszipV2,
+    mut eszip: eszip::EszipV2,
     maybe_import_map: Option<Arc<ImportMap>>,
 ) -> SharedModuleLoaderState {
-    let package_json_deps_provider = PackageJsonDepsProvider::new(None);
-    let emitter = EmitterFactory::new();
+    let mut emitter = EmitterFactory::new();
+
+    if let Some(snapshot) = eszip.take_npm_snapshot() {
+        println!("snapshot saved");
+
+        println!(
+            "{}",
+            deno_core::serde_json::to_value(snapshot.clone().into_serialized().packages)
+                .unwrap()
+                .to_string()
+        );
+        emitter.set_npm_snapshot(Some(snapshot));
+    }
+
     let shared_module_state = SharedModuleLoaderState {
         eszip,
         mapped_specifier_resolver: MappedSpecifierResolver::new(
             maybe_import_map,
-            Arc::new(package_json_deps_provider),
+            emitter.package_json_deps_provider(),
         ),
-        npm_module_loader: emitter.npm_module_loader(None),
+        npm_module_loader: emitter.npm_module_loader(),
     };
     shared_module_state
 }

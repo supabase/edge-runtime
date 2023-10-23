@@ -22,6 +22,7 @@ async fn test_main_worker_options_request() {
         conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
             worker_pool_tx: user_worker_msgs_tx,
         }),
+        watch: None,
     };
     let worker_req_tx = create_worker(opts).await.unwrap();
     let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
@@ -64,6 +65,7 @@ async fn test_main_worker_post_request() {
         conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
             worker_pool_tx: user_worker_msgs_tx,
         }),
+        watch: None,
     };
     let worker_req_tx = create_worker(opts).await.unwrap();
     let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
@@ -110,6 +112,7 @@ async fn test_main_worker_boot_error() {
         conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
             worker_pool_tx: user_worker_msgs_tx,
         }),
+        watch: None,
     };
     let result = create_worker(opts).await;
 
@@ -133,6 +136,7 @@ async fn test_main_worker_abort_request() {
         conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
             worker_pool_tx: user_worker_msgs_tx,
         }),
+        watch: None,
     };
     let worker_req_tx = create_worker(opts).await.unwrap();
     let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();

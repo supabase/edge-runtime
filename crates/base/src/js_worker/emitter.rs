@@ -1,11 +1,13 @@
 use crate::js_worker::module_loader::make_http_client;
 use crate::js_worker::node_module_loader::{CjsResolutionStore, NpmModuleLoader};
-use crate::utils::graph_resolver::CliGraphResolver;
+use crate::utils::graph_resolver::{CliGraphResolver, CliGraphResolverOptions};
 use deno_ast::EmitOptions;
 use deno_core::error::AnyError;
+use deno_npm::resolution::ValidSerializedNpmResolutionSnapshot;
 use deno_npm::NpmSystemInfo;
 use eszip::deno_graph::source::{Loader, Resolver};
 use module_fetcher::args::lockfile::Lockfile;
+use module_fetcher::args::package_json::PackageJsonDepsProvider;
 use module_fetcher::args::CacheSetting;
 use module_fetcher::cache::{
     Caches, DenoDir, DenoDirProvider, EmitCache, GlobalHttpCache, NodeAnalysisCache,
@@ -20,13 +22,16 @@ use sb_node::analyze::NodeCodeTranslator;
 use sb_node::NodeResolver;
 use sb_npm::{
     create_npm_fs_resolver, CliNpmRegistryApi, CliNpmResolver, NpmCache, NpmCacheDir,
-    NpmPackageFsResolver, NpmResolution,
+    NpmPackageFsResolver, NpmResolution, PackageJsonDepsInstaller,
 };
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 pub struct EmitterFactory {
     deno_dir: DenoDir,
+    npm_snapshot: Option<ValidSerializedNpmResolutionSnapshot>,
+    lockfile: Option<Lockfile>,
 }
 
 impl Default for EmitterFactory {
@@ -38,7 +43,27 @@ impl Default for EmitterFactory {
 impl EmitterFactory {
     pub fn new() -> Self {
         let deno_dir = DenoDir::new(None).unwrap();
-        Self { deno_dir }
+        Self {
+            deno_dir,
+            npm_snapshot: None,
+            lockfile: Some(
+                Lockfile::new(
+                    PathBuf::from(
+                        "/Users/andrespirela/Documents/workspace/supabase/edge-runtime/deno.lock",
+                    ),
+                    false,
+                )
+                .unwrap(),
+            ),
+        }
+    }
+
+    pub fn set_npm_snapshot(&mut self, npm_snapshot: Option<ValidSerializedNpmResolutionSnapshot>) {
+        self.npm_snapshot = npm_snapshot;
+    }
+
+    pub fn set_lockfile(&mut self, lockfile: Option<Lockfile>) {
+        self.lockfile = lockfile;
     }
 
     pub fn deno_dir_provider(&self) -> Arc<DenoDirProvider> {
@@ -97,10 +122,6 @@ impl EmitterFactory {
     }
 
     pub fn npm_cache(&self) -> Arc<NpmCache> {
-        println!(
-            "{}",
-            self.deno_dir.npm_folder_path().clone().to_str().unwrap()
-        );
         Arc::new(NpmCache::new(
             NpmCacheDir::new(self.deno_dir.npm_folder_path().clone()),
             CacheSetting::Use, // TODO: Maybe ?,
@@ -121,23 +142,27 @@ impl EmitterFactory {
         let npm_registry_api = self.npm_api();
         Arc::new(NpmResolution::from_serialized(
             npm_registry_api.clone(),
-            None,
-            None,
+            self.npm_snapshot.clone(),
+            self.get_lock_file(),
         ))
     }
 
-    pub fn node_resolver(
-        &self,
-        lock_file: Option<Arc<deno_core::parking_lot::Mutex<Lockfile>>>,
-    ) -> Arc<NodeResolver> {
-        let fs = self.real_fs().clone();
-        Arc::new(NodeResolver::new(fs, self.npm_resolver(lock_file)))
+    pub fn get_lock_file(&self) -> Option<Arc<deno_core::parking_lot::Mutex<Lockfile>>> {
+        if self.lockfile.is_some() {
+            Some(Arc::new(deno_core::parking_lot::Mutex::new(
+                self.lockfile.clone().unwrap(),
+            )))
+        } else {
+            None
+        }
     }
 
-    pub fn npm_module_loader(
-        &self,
-        lock_file: Option<Arc<deno_core::parking_lot::Mutex<Lockfile>>>,
-    ) -> Arc<NpmModuleLoader> {
+    pub fn node_resolver(&self) -> Arc<NodeResolver> {
+        let fs = self.real_fs().clone();
+        Arc::new(NodeResolver::new(fs, self.npm_resolver()))
+    }
+
+    pub fn npm_module_loader(&self) -> Arc<NpmModuleLoader> {
         let cjs_resolution = Arc::new(CjsResolutionStore::default());
         let cache_db = Caches::new(self.deno_dir_provider());
         let node_analysis_cache = NodeAnalysisCache::new(cache_db.node_analysis_db());
@@ -146,15 +171,15 @@ impl EmitterFactory {
         let node_code_translator = Arc::new(NodeCodeTranslator::new(
             cjs_esm_code_analyzer,
             self.real_fs().clone(),
-            self.node_resolver(lock_file.clone()).clone(),
-            self.npm_resolver(lock_file.clone()),
+            self.node_resolver().clone(),
+            self.npm_resolver(),
         ));
 
         Arc::new(NpmModuleLoader::new(
             cjs_resolution,
             node_code_translator,
             self.real_fs(),
-            self.node_resolver(lock_file),
+            self.node_resolver(),
         ))
     }
 
@@ -170,17 +195,36 @@ impl EmitterFactory {
         )
     }
 
-    pub fn npm_resolver(
-        &self,
-        lock_file: Option<Arc<deno_core::parking_lot::Mutex<Lockfile>>>,
-    ) -> Arc<CliNpmResolver> {
+    pub fn npm_resolver(&self) -> Arc<CliNpmResolver> {
         let npm_resolution = self.npm_resolution();
         let npm_fs_resolver = self.npm_fs();
         Arc::new(CliNpmResolver::new(
             self.real_fs(),
             npm_resolution,
             npm_fs_resolver,
-            lock_file,
+            self.get_lock_file(),
+        ))
+    }
+
+    pub fn package_json_deps_provider(&self) -> Arc<PackageJsonDepsProvider> {
+        Arc::new(PackageJsonDepsProvider::new(None))
+    }
+
+    pub fn package_json_deps_installer(&self) -> Arc<PackageJsonDepsInstaller> {
+        Arc::new(PackageJsonDepsInstaller::new(
+            self.package_json_deps_provider(),
+            self.npm_api(),
+            self.npm_resolution(),
+        ))
+    }
+
+    pub fn cli_graph_resolver(&self) -> Arc<CliGraphResolver> {
+        Arc::new(CliGraphResolver::new(
+            self.npm_api(),
+            self.npm_resolution(),
+            self.package_json_deps_provider(),
+            self.package_json_deps_installer(),
+            CliGraphResolverOptions::default(),
         ))
     }
 

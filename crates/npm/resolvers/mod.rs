@@ -107,6 +107,7 @@ impl CliNpmResolver {
         &self,
         pkg_id: &NpmPackageId,
     ) -> Result<PathBuf, AnyError> {
+        println!("resolve_pkg_folder_from_pkg_id");
         let path = self.fs_resolver.package_folder(pkg_id)?;
         let path = canonicalize_path_maybe_not_exists_with_fs(&path, |path| {
             self.fs

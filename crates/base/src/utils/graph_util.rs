@@ -327,3 +327,20 @@ pub async fn create_eszip_from_graph(graph: ModuleGraph) -> Vec<u8> {
 
     eszip.unwrap().into_bytes()
 }
+
+pub async fn create_graph(file: PathBuf, maybe_lockfile: Option<Lockfile>) -> ModuleGraph {
+    let binding = std::fs::canonicalize(&file).unwrap();
+    let specifier = binding.to_str().unwrap();
+    let format_specifier = format!("file:///{}", specifier);
+    let module_specifier = ModuleSpecifier::parse(&format_specifier).unwrap();
+    let lockfile: Option<Arc<Mutex<Lockfile>>> = if let Some(lockfile) = maybe_lockfile {
+        Some(Arc::new(Mutex::new(lockfile)))
+    } else {
+        None
+    };
+
+    let builder = ModuleGraphBuilder::new(lockfile, false);
+
+    let create_module_graph_task = builder.create_graph_and_maybe_check(vec![module_specifier]);
+    create_module_graph_task.await.unwrap()
+}

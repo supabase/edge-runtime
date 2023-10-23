@@ -285,11 +285,13 @@ impl DenoRuntime {
 
             let default_module_loader = DefaultModuleLoader::new(
                 module_root_path,
+                main_module_url.clone(),
                 import_map,
                 emitter_factory.emitter().unwrap(),
                 no_module_cache,
                 allow_remote_modules,
-            )?;
+            )
+            .await?;
             runtime_options.module_loader = Some(Rc::new(default_module_loader));
         }
         let mut js_runtime = JsRuntime::new(runtime_options);

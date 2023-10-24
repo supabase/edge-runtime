@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.4
-FROM rust:1.71.0-bookworm as builder
+FROM rust:1.73.0-bookworm as builder
 ARG TARGETPLATFORM
 ARG GIT_V_VERSION
 RUN apt-get update && apt-get install -y llvm-dev libclang-dev clang cmake

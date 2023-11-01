@@ -50,21 +50,17 @@ pub struct ModuleGraphBuilder {
     file_fetcher: Arc<FileFetcher>,
     global_http_cache: Arc<GlobalHttpCache>,
     type_check: bool, // type_checker: Arc<TypeChecker>,
+    emitter_factory: Arc<EmitterFactory>,
 }
 
 impl ModuleGraphBuilder {
-    pub fn new(
-        lockfile: Option<Arc<Mutex<Lockfile>>>,
-        maybe_emitter: Option<&EmitterFactory>,
-        type_check: bool,
-    ) -> Self {
-        let def_emitter = EmitterFactory::new();
-        let emitter_factory = maybe_emitter.unwrap_or(&def_emitter);
+    pub fn new(emitter_factory: Arc<EmitterFactory>, type_check: bool) -> Self {
         let graph_resolver = CliGraphResolver::default();
         let npm_resolver = emitter_factory.npm_resolver();
         let parsed_source_cache = emitter_factory.parsed_source_cache().unwrap();
         let mut file_fetcher = emitter_factory.file_fetcher();
         let http = emitter_factory.global_http_cache();
+        let lockfile = emitter_factory.get_lock_file();
         Self {
             resolver: Arc::new(graph_resolver),
             npm_resolver,
@@ -73,6 +69,7 @@ impl ModuleGraphBuilder {
             file_fetcher: Arc::new(file_fetcher),
             global_http_cache: Arc::new(http),
             type_check,
+            emitter_factory,
         }
     }
 
@@ -203,11 +200,9 @@ impl ModuleGraphBuilder {
     pub async fn create_graph_and_maybe_check(
         &self,
         roots: Vec<ModuleSpecifier>,
-        maybe_emitter_factory: &EmitterFactory,
     ) -> Result<deno_graph::ModuleGraph, AnyError> {
-        let emitter_factory = maybe_emitter_factory;
         //
-        let mut cache = emitter_factory.file_fetcher_loader();
+        let mut cache = self.emitter_factory.file_fetcher_loader();
         let cli_resolver = self.resolver.clone();
         let graph_resolver = cli_resolver.as_graph_resolver();
         let graph_npm_resolver = cli_resolver.as_graph_npm_resolver();
@@ -304,16 +299,17 @@ pub fn graph_valid(
 
 pub async fn create_module_graph_from_path(
     main_service_path: &str,
+    emitter_factory: Arc<EmitterFactory>,
 ) -> Result<ModuleGraph, Box<dyn std::error::Error>> {
     let index = PathBuf::from(main_service_path);
     let binding = std::fs::canonicalize(&index)?;
     let specifier = binding.to_str().ok_or("Failed to convert path to string")?;
     let format_specifier = format!("file:///{}", specifier);
     let module_specifier = ModuleSpecifier::parse(&format_specifier)?;
-    let graph_builder = ModuleGraphBuilder::new(None, None, false);
+    let graph_builder = ModuleGraphBuilder::new(emitter_factory, false);
     let emitter_factory = EmitterFactory::new();
     let graph = graph_builder
-        .create_graph_and_maybe_check(vec![module_specifier], &emitter_factory)
+        .create_graph_and_maybe_check(vec![module_specifier])
         .await
         .unwrap();
     Ok(graph)
@@ -329,36 +325,24 @@ pub async fn create_eszip_from_graph(graph: ModuleGraph) -> Vec<u8> {
     eszip.unwrap().into_bytes()
 }
 
-pub async fn create_graph(file: PathBuf, maybe_lockfile: Option<Lockfile>) -> ModuleGraph {
+pub async fn create_graph(file: PathBuf, emitter_factory: Arc<EmitterFactory>) -> ModuleGraph {
     let binding = std::fs::canonicalize(&file).unwrap();
     let specifier = binding.to_str().unwrap();
     let format_specifier = format!("file:///{}", specifier);
     let module_specifier = ModuleSpecifier::parse(&format_specifier).unwrap();
-    let lockfile: Option<Arc<Mutex<Lockfile>>> = if let Some(lockfile) = maybe_lockfile {
-        Some(Arc::new(Mutex::new(lockfile)))
-    } else {
-        None
-    };
 
-    let builder = ModuleGraphBuilder::new(lockfile, None, false);
-    let emitter_factory = EmitterFactory::new();
+    let builder = ModuleGraphBuilder::new(emitter_factory, false);
 
-    let create_module_graph_task =
-        builder.create_graph_and_maybe_check(vec![module_specifier], &emitter_factory);
+    let create_module_graph_task = builder.create_graph_and_maybe_check(vec![module_specifier]);
     create_module_graph_task.await.unwrap()
 }
 
 pub async fn create_graph_from_specifiers(
     specifiers: Vec<ModuleSpecifier>,
     is_dynamic: bool,
-    maybe_emitter_factory: &EmitterFactory,
+    maybe_emitter_factory: Arc<EmitterFactory>,
 ) -> Result<ModuleGraph, AnyError> {
-    let builder = ModuleGraphBuilder::new(
-        maybe_emitter_factory.get_lock_file(),
-        Some(maybe_emitter_factory),
-        false,
-    );
-    let create_module_graph_task =
-        builder.create_graph_and_maybe_check(specifiers, maybe_emitter_factory);
+    let builder = ModuleGraphBuilder::new(maybe_emitter_factory, false);
+    let create_module_graph_task = builder.create_graph_and_maybe_check(specifiers);
     create_module_graph_task.await
 }

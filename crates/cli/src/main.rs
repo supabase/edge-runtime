@@ -2,12 +2,14 @@ mod logger;
 
 use anyhow::Error;
 use base::commands::start_server;
+use base::js_worker::emitter::EmitterFactory;
 use base::server::WorkerEntrypoints;
 use base::utils::graph_util::{create_eszip_from_graph, create_module_graph_from_path};
 use clap::builder::{BoolValueParser, FalseyValueParser};
 use clap::{arg, crate_version, value_parser, ArgAction, Command};
 use std::fs::File;
 use std::io::Write;
+use std::sync::Arc;
 
 fn cli() -> Command {
     Command::new("edge-runtime")
@@ -129,10 +131,13 @@ fn main() -> Result<(), anyhow::Error> {
                     .cloned()
                     .unwrap();
 
-                let create_graph_from_path =
-                    create_module_graph_from_path(entry_point_path.as_str())
-                        .await
-                        .unwrap();
+                // TODO: Arc::new(Emitter needs to work with NPM
+                let create_graph_from_path = create_module_graph_from_path(
+                    entry_point_path.as_str(),
+                    Arc::new(EmitterFactory::new()),
+                )
+                .await
+                .unwrap();
                 let create_eszip = create_eszip_from_graph(create_graph_from_path).await;
                 let mut file = File::create(output_path.as_str()).unwrap();
                 file.write_all(&create_eszip).unwrap();

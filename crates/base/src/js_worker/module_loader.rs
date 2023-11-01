@@ -136,8 +136,7 @@ impl PreparedModuleLoader {
         roots: Vec<ModuleSpecifier>,
         is_dynamic: bool,
     ) -> Result<(), AnyError> {
-        let emitter = &*self.emitter;
-        create_graph_from_specifiers(roots, is_dynamic, emitter).await?;
+        create_graph_from_specifiers(roots, is_dynamic, self.emitter.clone()).await?;
         Ok(())
     }
 }
@@ -182,11 +181,10 @@ impl DefaultModuleLoader {
             http_client,
             blob_store,
         );
+
         let emitter = Arc::new(emitter);
         let permissions = module_fetcher::permissions::Permissions::new(root_path);
-        let graph = create_graph(main_module.to_file_path().unwrap(), None).await;
-
-        // emitter.npm_snapshot_from_lockfile().await;
+        let graph = create_graph(main_module.to_file_path().unwrap(), emitter.clone()).await;
 
         Ok(Self {
             file_fetcher,

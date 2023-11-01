@@ -70,14 +70,25 @@ impl<T> Deferred<T> {
     }
 }
 
+#[derive(Clone)]
+pub struct LockfileOpts {
+    path: PathBuf,
+    overwrite: bool,
+}
+
 pub struct EmitterFactory {
     deno_dir: DenoDir,
     pub npm_snapshot: Option<ValidSerializedNpmResolutionSnapshot>,
-    lockfile: Option<Lockfile>,
+    lockfile: Deferred<Option<Arc<Mutex<Lockfile>>>>,
     cjs_resolutions: Deferred<Arc<CjsResolutionStore>>,
     package_json_deps_provider: Deferred<Arc<PackageJsonDepsProvider>>,
     package_json_deps_installer: Deferred<Arc<PackageJsonDepsInstaller>>,
+    npm_api: Deferred<Arc<CliNpmRegistryApi>>,
+    npm_cache: Deferred<Arc<NpmCache>>,
+    npm_resolution: Deferred<Arc<NpmResolution>>,
+    node_resolver: Deferred<Arc<NodeResolver>>,
     maybe_package_json_deps: Option<PackageJsonDeps>,
+    maybe_lockfile: Option<LockfileOpts>,
 }
 
 impl Default for EmitterFactory {
@@ -89,50 +100,33 @@ impl Default for EmitterFactory {
 impl EmitterFactory {
     pub fn new() -> Self {
         let deno_dir = DenoDir::new(None).unwrap();
-        let lockfile = Lockfile::new(
-            PathBuf::from(
-                "/Users/andrespirela/Documents/workspace/supabase/edge-runtime/deno.lock",
-            ),
-            false,
-        )
-        .unwrap();
 
         Self {
             deno_dir,
             npm_snapshot: None,
-            lockfile: Some(lockfile),
+            lockfile: Default::default(),
             cjs_resolutions: Default::default(),
             package_json_deps_provider: Default::default(),
             package_json_deps_installer: Default::default(),
+            npm_api: Default::default(),
+            npm_cache: Default::default(),
+            node_resolver: Default::default(),
+            npm_resolution: Default::default(),
             maybe_package_json_deps: None,
+            maybe_lockfile: None,
         }
     }
 
-    pub async fn init_npm(&mut self, maybe_lockfile_path: Option<PathBuf>) {
-        let _ = if let Some(_lockfile) = &self.lockfile {
-            ()
-        } else {
-            // TODO: This seems odd.
-            let lockfile = Some(maybe_lockfile_path.unwrap_or_else(|| {
-                std::env::current_dir()
-                    .map(|p| p.join(".supabase.lock"))
-                    .unwrap()
-            }));
-            let lockfile = discover(lockfile, None);
-            if let Ok(lock) = lockfile {
-                self.lockfile = lock;
-            } else {
-                panic!("Lock file could not be created or found");
-            }
-        };
+    pub async fn init_npm(&mut self) {
+        let _init_lock_file = self.get_lock_file();
 
         self.npm_snapshot_from_lockfile().await;
     }
 
     pub async fn npm_snapshot_from_lockfile(&mut self) {
-        if let Some(lockfile) = self.lockfile.clone() {
+        if let Some(lockfile) = self.get_lock_file().clone() {
             let npm_api = self.npm_api();
-            let snapshot = snapshot_from_lockfile(Arc::new(Mutex::new(lockfile)), &*npm_api)
+            let snapshot = snapshot_from_lockfile(lockfile, &*npm_api.clone())
                 .await
                 .unwrap();
             self.npm_snapshot = Some(snapshot);
@@ -147,10 +141,6 @@ impl EmitterFactory {
 
     pub fn set_npm_snapshot(&mut self, npm_snapshot: Option<ValidSerializedNpmResolutionSnapshot>) {
         self.npm_snapshot = npm_snapshot;
-    }
-
-    pub fn set_lockfile(&mut self, lockfile: Option<Lockfile>) {
-        self.lockfile = lockfile;
     }
 
     pub fn deno_dir_provider(&self) -> Arc<DenoDirProvider> {
@@ -208,45 +198,64 @@ impl EmitterFactory {
         Arc::new(deno_fs::RealFs)
     }
 
-    pub fn npm_cache(&self) -> Arc<NpmCache> {
-        Arc::new(NpmCache::new(
-            NpmCacheDir::new(self.deno_dir.npm_folder_path().clone()),
-            CacheSetting::Use, // TODO: Maybe ?,
-            self.real_fs(),
-            self.http_client(),
-        ))
+    pub fn npm_cache(&self) -> &Arc<NpmCache> {
+        self.npm_cache.get_or_init(|| {
+            Arc::new(NpmCache::new(
+                NpmCacheDir::new(self.deno_dir.npm_folder_path().clone()),
+                CacheSetting::Use, // TODO: Maybe ?,
+                self.real_fs(),
+                self.http_client(),
+            ))
+        })
     }
 
-    pub fn npm_api(&self) -> Arc<CliNpmRegistryApi> {
-        Arc::new(CliNpmRegistryApi::new(
-            CliNpmRegistryApi::default_url().to_owned(),
-            self.npm_cache(),
-            self.http_client(),
-        ))
+    pub fn npm_api(&self) -> &Arc<CliNpmRegistryApi> {
+        self.npm_api.get_or_init(|| {
+            Arc::new(CliNpmRegistryApi::new(
+                CliNpmRegistryApi::default_url().to_owned(),
+                self.npm_cache().clone(),
+                self.http_client(),
+            ))
+        })
     }
 
-    pub fn npm_resolution(&self) -> Arc<NpmResolution> {
-        let npm_registry_api = self.npm_api();
-        Arc::new(NpmResolution::from_serialized(
-            npm_registry_api.clone(),
-            self.npm_snapshot.clone(),
-            self.get_lock_file(),
-        ))
+    pub fn npm_resolution(&self) -> &Arc<NpmResolution> {
+        self.npm_resolution.get_or_init(|| {
+            let npm_registry_api = self.npm_api();
+            Arc::new(NpmResolution::from_serialized(
+                npm_registry_api.clone(),
+                self.npm_snapshot.clone(),
+                self.get_lock_file(),
+            ))
+        })
     }
 
-    pub fn get_lock_file(&self) -> Option<Arc<deno_core::parking_lot::Mutex<Lockfile>>> {
-        if self.lockfile.is_some() {
-            Some(Arc::new(deno_core::parking_lot::Mutex::new(
-                self.lockfile.clone().unwrap(),
-            )))
-        } else {
-            None
-        }
+    pub fn get_lock_file_deferred(&self) -> &Option<Arc<Mutex<Lockfile>>> {
+        self.lockfile.get_or_init(|| {
+            if let Some(lockfile_data) = self.maybe_lockfile.clone() {
+                Some(Arc::new(Mutex::new(
+                    Lockfile::new(lockfile_data.path.clone(), lockfile_data.overwrite).unwrap(),
+                )))
+            } else {
+                let default_lockfile_path = std::env::current_dir()
+                    .map(|p| p.join(".supabase.lock"))
+                    .unwrap();
+                Some(Arc::new(Mutex::new(
+                    Lockfile::new(default_lockfile_path, true).unwrap(),
+                )))
+            }
+        })
     }
 
-    pub fn node_resolver(&self) -> Arc<NodeResolver> {
-        let fs = self.real_fs().clone();
-        Arc::new(NodeResolver::new(fs, self.npm_resolver()))
+    pub fn get_lock_file(&self) -> Option<Arc<Mutex<Lockfile>>> {
+        self.get_lock_file_deferred().as_ref().cloned()
+    }
+
+    pub fn node_resolver(&self) -> &Arc<NodeResolver> {
+        self.node_resolver.get_or_init(|| {
+            let fs = self.real_fs().clone();
+            Arc::new(NodeResolver::new(fs, self.npm_resolver()))
+        })
     }
 
     pub fn cjs_resolution_store(&self) -> &Arc<CjsResolutionStore> {
@@ -269,7 +278,7 @@ impl EmitterFactory {
             self.cjs_resolution_store().clone(),
             node_code_translator,
             self.real_fs(),
-            self.node_resolver(),
+            self.node_resolver().clone(),
         ))
     }
 
@@ -277,9 +286,9 @@ impl EmitterFactory {
         let fs = self.real_fs();
         create_npm_fs_resolver(
             fs.clone(),
-            self.npm_cache(),
+            self.npm_cache().clone(),
             CliNpmRegistryApi::default_url().to_owned(),
-            self.npm_resolution(),
+            self.npm_resolution().clone(),
             None,
             NpmSystemInfo::default(),
         )
@@ -290,7 +299,7 @@ impl EmitterFactory {
         let npm_fs_resolver = self.npm_fs();
         Arc::new(CliNpmResolver::new(
             self.real_fs(),
-            npm_resolution,
+            npm_resolution.clone(),
             npm_fs_resolver,
             self.get_lock_file(),
         ))
@@ -316,8 +325,8 @@ impl EmitterFactory {
 
     pub fn cli_graph_resolver(&self) -> Arc<CliGraphResolver> {
         Arc::new(CliGraphResolver::new(
-            self.npm_api(),
-            self.npm_resolution(),
+            self.npm_api().clone(),
+            self.npm_resolution().clone(),
             self.package_json_deps_provider().clone(),
             self.package_json_deps_installer().clone(),
             CliGraphResolverOptions::default(),

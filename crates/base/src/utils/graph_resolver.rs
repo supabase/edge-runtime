@@ -200,7 +200,7 @@ impl Default for CliGraphResolver {
         // This is not ideal, but necessary for the LSP. In the future, we should
         // refactor the LSP and force this to be initialized.
         let emitter_factory = EmitterFactory::new();
-        let npm_registry_api = emitter_factory.npm_api();
+        let npm_registry_api = emitter_factory.npm_api().clone();
         let npm_resolution = Arc::new(NpmResolution::from_serialized(
             npm_registry_api.clone(),
             None,

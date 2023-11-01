@@ -55,14 +55,14 @@ pub struct ModuleGraphBuilder {
 
 impl ModuleGraphBuilder {
     pub fn new(emitter_factory: Arc<EmitterFactory>, type_check: bool) -> Self {
-        let graph_resolver = CliGraphResolver::default();
+        let lockfile = emitter_factory.get_lock_file();
+        let graph_resolver = emitter_factory.cli_graph_resolver();
         let npm_resolver = emitter_factory.npm_resolver();
         let parsed_source_cache = emitter_factory.parsed_source_cache().unwrap();
         let mut file_fetcher = emitter_factory.file_fetcher();
         let http = emitter_factory.global_http_cache();
-        let lockfile = emitter_factory.get_lock_file();
         Self {
-            resolver: Arc::new(graph_resolver),
+            resolver: graph_resolver,
             npm_resolver,
             parsed_source_cache,
             lockfile,
@@ -119,7 +119,7 @@ impl ModuleGraphBuilder {
         options: deno_graph::BuildOptions<'a>,
     ) -> Result<(), AnyError> {
         // TODO: Option here similar to: https://github.com/denoland/deno/blob/v1.37.1/cli/graph_util.rs#L323C5-L405C11
-        self.resolver.force_top_level_package_json_install().await?;
+        // self.resolver.force_top_level_package_json_install().await?; TODO
         // add the lockfile redirects to the graph if it's the first time executing
         if graph.redirects.is_empty() {
             if let Some(lockfile) = &self.lockfile {
@@ -307,7 +307,6 @@ pub async fn create_module_graph_from_path(
     let format_specifier = format!("file:///{}", specifier);
     let module_specifier = ModuleSpecifier::parse(&format_specifier)?;
     let graph_builder = ModuleGraphBuilder::new(emitter_factory, false);
-    let emitter_factory = EmitterFactory::new();
     let graph = graph_builder
         .create_graph_and_maybe_check(vec![module_specifier])
         .await

@@ -207,7 +207,7 @@ impl DenoRuntime {
             });
         }
         let mut emitter_factory = EmitterFactory::new();
-        emitter_factory.init_npm(None).await;
+        emitter_factory.init_npm().await;
 
         let fs = Arc::new(deno_fs::RealFs);
         let extensions = vec![

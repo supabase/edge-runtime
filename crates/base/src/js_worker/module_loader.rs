@@ -137,6 +137,18 @@ impl PreparedModuleLoader {
         is_dynamic: bool,
     ) -> Result<(), AnyError> {
         create_graph_from_specifiers(roots, is_dynamic, self.emitter.clone()).await?;
+
+        // If there is a lockfile...
+        if let Some(lockfile) = self.emitter.get_lock_file() {
+            let mut lockfile = lockfile.lock();
+            // update it with anything new
+            lockfile.write().context("Failed writing lockfile.")?;
+            println!(
+                "Lock file written {:?}",
+                self.emitter.npm_resolution().snapshot().package_reqs()
+            );
+        }
+
         Ok(())
     }
 }

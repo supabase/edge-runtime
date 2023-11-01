@@ -4,12 +4,17 @@ use crate::utils::graph_resolver::{CliGraphResolver, CliGraphResolverOptions};
 use deno_ast::EmitOptions;
 use deno_core::error::AnyError;
 use deno_core::parking_lot::Mutex;
+use deno_core::ModuleSpecifier;
 use deno_npm::resolution::ValidSerializedNpmResolutionSnapshot;
 use deno_npm::NpmSystemInfo;
+use deno_semver::npm::NpmPackageReqReference;
+use deno_semver::package::PackageReqReference;
 use eszip::deno_graph::source::{Loader, Resolver};
-use module_fetcher::args::lockfile::{snapshot_from_lockfile, Lockfile};
-use module_fetcher::args::package_json::PackageJsonDepsProvider;
-use module_fetcher::args::CacheSetting;
+use module_fetcher::args::lockfile::{discover, snapshot_from_lockfile, Lockfile};
+use module_fetcher::args::package_json::{
+    get_local_package_json_version_reqs, PackageJsonDeps, PackageJsonDepsProvider,
+};
+use module_fetcher::args::{lockfile, CacheSetting};
 use module_fetcher::cache::{
     Caches, DenoDir, DenoDirProvider, EmitCache, GlobalHttpCache, NodeAnalysisCache,
     ParsedSourceCache, RealDenoCacheEnv,
@@ -20,7 +25,7 @@ use module_fetcher::http_util::HttpClient;
 use module_fetcher::node::CliCjsCodeAnalyzer;
 use module_fetcher::permissions::Permissions;
 use sb_node::analyze::NodeCodeTranslator;
-use sb_node::NodeResolver;
+use sb_node::{NodeResolver, PackageJson};
 use sb_npm::{
     create_npm_fs_resolver, CliNpmRegistryApi, CliNpmResolver, NpmCache, NpmCacheDir,
     NpmPackageFsResolver, NpmResolution, PackageJsonDepsInstaller,
@@ -67,9 +72,12 @@ impl<T> Deferred<T> {
 
 pub struct EmitterFactory {
     deno_dir: DenoDir,
-    npm_snapshot: Option<ValidSerializedNpmResolutionSnapshot>,
+    pub npm_snapshot: Option<ValidSerializedNpmResolutionSnapshot>,
     lockfile: Option<Lockfile>,
     cjs_resolutions: Deferred<Arc<CjsResolutionStore>>,
+    package_json_deps_provider: Deferred<Arc<PackageJsonDepsProvider>>,
+    package_json_deps_installer: Deferred<Arc<PackageJsonDepsInstaller>>,
+    maybe_package_json_deps: Option<PackageJsonDeps>,
 }
 
 impl Default for EmitterFactory {
@@ -94,7 +102,31 @@ impl EmitterFactory {
             npm_snapshot: None,
             lockfile: Some(lockfile),
             cjs_resolutions: Default::default(),
+            package_json_deps_provider: Default::default(),
+            package_json_deps_installer: Default::default(),
+            maybe_package_json_deps: None,
         }
+    }
+
+    pub async fn init_npm(&mut self, maybe_lockfile_path: Option<PathBuf>) {
+        let _ = if let Some(_lockfile) = &self.lockfile {
+            ()
+        } else {
+            // TODO: This seems odd.
+            let lockfile = Some(maybe_lockfile_path.unwrap_or_else(|| {
+                std::env::current_dir()
+                    .map(|p| p.join(".supabase.lock"))
+                    .unwrap()
+            }));
+            let lockfile = discover(lockfile, None);
+            if let Ok(lock) = lockfile {
+                self.lockfile = lock;
+            } else {
+                panic!("Lock file could not be created or found");
+            }
+        };
+
+        self.npm_snapshot_from_lockfile().await;
     }
 
     pub async fn npm_snapshot_from_lockfile(&mut self) {
@@ -107,6 +139,10 @@ impl EmitterFactory {
         } else {
             panic!("Lockfile not available");
         }
+    }
+
+    pub fn init_package_json_deps(&mut self, package: &PackageJson) {
+        self.maybe_package_json_deps = Some(get_local_package_json_version_reqs(package));
     }
 
     pub fn set_npm_snapshot(&mut self, npm_snapshot: Option<ValidSerializedNpmResolutionSnapshot>) {
@@ -260,24 +296,30 @@ impl EmitterFactory {
         ))
     }
 
-    pub fn package_json_deps_provider(&self) -> Arc<PackageJsonDepsProvider> {
-        Arc::new(PackageJsonDepsProvider::new(None))
+    pub fn package_json_deps_provider(&self) -> &Arc<PackageJsonDepsProvider> {
+        self.package_json_deps_provider.get_or_init(|| {
+            Arc::new(PackageJsonDepsProvider::new(
+                self.maybe_package_json_deps.clone(),
+            ))
+        })
     }
 
-    pub fn package_json_deps_installer(&self) -> Arc<PackageJsonDepsInstaller> {
-        Arc::new(PackageJsonDepsInstaller::new(
-            self.package_json_deps_provider(),
-            self.npm_api(),
-            self.npm_resolution(),
-        ))
+    pub fn package_json_deps_installer(&self) -> &Arc<PackageJsonDepsInstaller> {
+        self.package_json_deps_installer.get_or_init(|| {
+            Arc::new(PackageJsonDepsInstaller::new(
+                self.package_json_deps_provider().clone(),
+                self.npm_api().clone(),
+                self.npm_resolution().clone(),
+            ))
+        })
     }
 
     pub fn cli_graph_resolver(&self) -> Arc<CliGraphResolver> {
         Arc::new(CliGraphResolver::new(
             self.npm_api(),
             self.npm_resolution(),
-            self.package_json_deps_provider(),
-            self.package_json_deps_installer(),
+            self.package_json_deps_provider().clone(),
+            self.package_json_deps_installer().clone(),
             CliGraphResolverOptions::default(),
         ))
     }
@@ -287,7 +329,7 @@ impl EmitterFactory {
         let global_cache_struct =
             GlobalHttpCache::new(self.deno_dir.deps_folder_path(), RealDenoCacheEnv);
         let global_cache: Arc<dyn HttpCache> = Arc::new(global_cache_struct);
-        let http_client = Arc::new(make_http_client().unwrap());
+        let http_client = self.http_client();
         let blob_store = Arc::new(deno_web::BlobStore::default());
 
         FileFetcher::new(

@@ -191,7 +191,7 @@ pub fn create_shared_state_for_module_loader(
         eszip,
         mapped_specifier_resolver: MappedSpecifierResolver::new(
             maybe_import_map,
-            emitter.package_json_deps_provider(),
+            emitter.package_json_deps_provider().clone(),
         ),
         npm_module_loader: emitter.npm_module_loader(),
     };

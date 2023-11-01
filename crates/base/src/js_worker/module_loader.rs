@@ -1,10 +1,11 @@
 use crate::js_worker::emitter::EmitterFactory;
 use crate::js_worker::node_module_loader::ModuleCodeSource;
 use crate::utils::graph_resolver::CliGraphResolver;
-use crate::utils::graph_util::create_graph;
+use crate::utils::graph_util::{create_graph, create_graph_from_specifiers};
 use anyhow::{anyhow, bail, Context, Error};
 use deno_ast::MediaType;
 use deno_core::error::{custom_error, AnyError};
+use deno_core::futures::Future;
 use deno_core::futures::FutureExt;
 use deno_core::ModuleSource;
 use deno_core::ModuleSourceFuture;
@@ -12,6 +13,7 @@ use deno_core::ModuleSpecifier;
 use deno_core::ModuleType;
 use deno_core::ResolutionKind;
 use deno_core::{ModuleCode, ModuleLoader};
+use deno_npm::NpmSystemInfo;
 use eszip::deno_graph;
 use eszip::deno_graph::source::Resolver;
 use eszip::deno_graph::{EsmModule, JsonModule, Module, ModuleGraph, Resolution};
@@ -59,7 +61,7 @@ pub fn make_http_client() -> Result<HttpClient, AnyError> {
 
 struct PreparedModuleLoader {
     graph: ModuleGraph,
-    emitter: Arc<Emitter>,
+    emitter: Arc<EmitterFactory>,
 }
 
 impl PreparedModuleLoader {
@@ -102,8 +104,11 @@ impl PreparedModuleLoader {
                     | MediaType::Jsx
                     | MediaType::Tsx => {
                         // get emit text
-                        self.emitter
-                            .emit_parsed_source(specifier, *media_type, source)?
+                        self.emitter.emitter().unwrap().emit_parsed_source(
+                            specifier,
+                            *media_type,
+                            source,
+                        )?
                     }
                     MediaType::TsBuildInfo | MediaType::Wasm | MediaType::SourceMap => {
                         panic!("Unexpected media type {media_type} for {specifier}")
@@ -125,6 +130,16 @@ impl PreparedModuleLoader {
             }
         }
     }
+
+    pub async fn prepare_module_load(
+        &self,
+        roots: Vec<ModuleSpecifier>,
+        is_dynamic: bool,
+    ) -> Result<(), AnyError> {
+        let emitter = &*self.emitter;
+        create_graph_from_specifiers(roots, is_dynamic, emitter).await?;
+        Ok(())
+    }
 }
 
 pub struct DefaultModuleLoader {
@@ -133,7 +148,7 @@ pub struct DefaultModuleLoader {
     maybe_import_map: Option<ImportMap>,
     graph: ModuleGraph,
     prepared_module_loader: Arc<PreparedModuleLoader>,
-    emitter: EmitterFactory,
+    emitter: Arc<EmitterFactory>,
 }
 
 impl DefaultModuleLoader {
@@ -167,6 +182,7 @@ impl DefaultModuleLoader {
             http_client,
             blob_store,
         );
+        let emitter = Arc::new(emitter);
         let permissions = module_fetcher::permissions::Permissions::new(root_path);
         let graph = create_graph(main_module.to_file_path().unwrap(), None).await;
 
@@ -179,7 +195,7 @@ impl DefaultModuleLoader {
             graph: graph.clone(),
             prepared_module_loader: Arc::new(PreparedModuleLoader {
                 graph,
-                emitter: emitter.emitter().unwrap(),
+                emitter: emitter.clone(),
             }),
             emitter,
         })
@@ -294,6 +310,31 @@ impl ModuleLoader for DefaultModuleLoader {
         }
     }
 
+    fn prepare_load(
+        &self,
+        specifier: &ModuleSpecifier,
+        _maybe_referrer: Option<String>,
+        is_dynamic: bool,
+    ) -> Pin<Box<dyn Future<Output = Result<(), AnyError>>>> {
+        if let Some(result) = self
+            .emitter
+            .npm_module_loader()
+            .maybe_prepare_load(specifier)
+        {
+            return Box::pin(deno_core::futures::future::ready(result));
+        }
+
+        let specifier = specifier.clone();
+        let module_load_preparer = self.prepared_module_loader.clone();
+
+        async move {
+            module_load_preparer
+                .prepare_module_load(vec![specifier], is_dynamic)
+                .await
+        }
+        .boxed_local()
+    }
+
     // TODO: implement prepare_load method
     fn load(
         &self,
@@ -306,62 +347,5 @@ impl ModuleLoader for DefaultModuleLoader {
             _maybe_referrer,
             _is_dyn_import,
         )))
-        // let file_fetcher = self.file_fetcher.clone();
-        // let permissions = self.permissions.clone();
-        // let module_specifier = module_specifier.clone();
-        // let emitter = self.emitter.clone();
-        //
-        // let maybe_npm_module = self.load_sync(&module_specifier.clone(), _maybe_referrer.clone(), false);
-        //
-        // async move {
-        //     let sync_load = maybe_npm_module;
-        //     if let Ok(mod_source) = sync_load {
-        //         Ok(mod_source)
-        //     } else {
-        //         let fetched_file = file_fetcher
-        //             .fetch(&module_specifier, permissions)
-        //             .await
-        //             .map_err(|err| {
-        //                 anyhow!(
-        //                     "Failed to load module: {:?} - {:?}",
-        //                     module_specifier.as_str(),
-        //                     err
-        //                 )
-        //             })?;
-        //         let module_type = get_module_type(fetched_file.media_type)?;
-        //
-        //         let code = fetched_file.source;
-        //         let code = match fetched_file.media_type {
-        //             MediaType::JavaScript
-        //             | MediaType::Unknown
-        //             | MediaType::Cjs
-        //             | MediaType::Mjs
-        //             | MediaType::Json => code.into(),
-        //             MediaType::Dts | MediaType::Dcts | MediaType::Dmts => Default::default(),
-        //             MediaType::TypeScript
-        //             | MediaType::Mts
-        //             | MediaType::Cts
-        //             | MediaType::Jsx
-        //             | MediaType::Tsx => emitter.emit_parsed_source(
-        //                 &module_specifier,
-        //                 fetched_file.media_type,
-        //                 &code,
-        //             )?,
-        //             MediaType::TsBuildInfo | MediaType::Wasm | MediaType::SourceMap => {
-        //                 panic!("Unexpected media type during import.")
-        //             }
-        //         };
-        //
-        //         let module = ModuleSource::new_with_redirect(
-        //             module_type,
-        //             code,
-        //             &module_specifier,
-        //             &fetched_file.specifier,
-        //         );
-        //
-        //         Ok(module)
-        //     }
-        // }
-        // .boxed_local()
     }
 }

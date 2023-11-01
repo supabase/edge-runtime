@@ -6,6 +6,7 @@ use deno_core::error::AnyError;
 use deno_core::url::Url;
 use deno_core::{located_script_name, serde_v8, JsRuntime, ModuleCode, ModuleId, RuntimeOptions};
 use deno_http::DefaultHttpPropertyExtractor;
+use deno_npm::NpmSystemInfo;
 use deno_tls::rustls;
 use deno_tls::rustls::RootCertStore;
 use deno_tls::rustls_native_certs::load_native_certs;
@@ -206,7 +207,7 @@ impl DenoRuntime {
             });
         }
         let mut emitter_factory = EmitterFactory::new();
-        emitter_factory.npm_snapshot_from_lockfile().await;
+        emitter_factory.init_npm(None).await;
 
         let fs = Arc::new(deno_fs::RealFs);
         let extensions = vec![
@@ -453,6 +454,7 @@ mod test {
                 )
                 .unwrap(),
             ))),
+            None,
             false,
         );
         let create_module_graph_task = builder.create_graph_and_maybe_check(vec![module_specifier]);

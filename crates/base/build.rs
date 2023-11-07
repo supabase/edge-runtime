@@ -114,10 +114,6 @@ mod supabase_startup_snapshot {
         fn allow_hrtime(&mut self) -> bool {
             unreachable!("snapshotting!")
         }
-
-        fn check_unstable(&self, _state: &deno_core::OpState, _api_name: &'static str) {
-            unreachable!("snapshotting!")
-        }
     }
 
     impl deno_websocket::WebSocketPermissions for Permissions {
@@ -215,13 +211,12 @@ mod supabase_startup_snapshot {
             deno_crypto::deno_crypto::init_ops_and_esm(None),
             deno_broadcast_channel::deno_broadcast_channel::init_ops_and_esm(
                 deno_broadcast_channel::InMemoryBroadcastChannel::default(),
-                false,
             ),
-            deno_net::deno_net::init_ops_and_esm::<Permissions>(None, false, None),
+            deno_net::deno_net::init_ops_and_esm::<Permissions>(None, None),
             deno_tls::deno_tls::init_ops_and_esm(),
             deno_http::deno_http::init_ops_and_esm::<DefaultHttpPropertyExtractor>(),
             deno_io::deno_io::init_ops_and_esm(Some(Default::default())),
-            deno_fs::deno_fs::init_ops_and_esm::<Permissions>(false, fs.clone()),
+            deno_fs::deno_fs::init_ops_and_esm::<Permissions>(fs.clone()),
             sb_env::init_ops_and_esm(),
             sb_os::sb_os::init_ops_and_esm(),
             sb_user_workers::init_ops_and_esm(),

@@ -160,7 +160,10 @@ async fn test_main_worker_abort_request() {
 
     let body_bytes = hyper::body::to_bytes(res.into_body()).await.unwrap();
 
-    assert_eq!(body_bytes, "{\"msg\":\"Error: Test abort\"}");
+    assert_eq!(
+        body_bytes,
+        "{\"msg\":\"AbortError: The signal has been aborted\"}"
+    );
 }
 
 //#[tokio::test]

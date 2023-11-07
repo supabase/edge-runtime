@@ -50,8 +50,6 @@ impl deno_web::TimersPermission for Permissions {
     fn allow_hrtime(&mut self) -> bool {
         false
     }
-
-    fn check_unstable(&self, _state: &deno_core::OpState, _api_name: &'static str) {}
 }
 
 impl deno_fetch::FetchPermissions for Permissions {

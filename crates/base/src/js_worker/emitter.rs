@@ -89,6 +89,7 @@ pub struct EmitterFactory {
     node_resolver: Deferred<Arc<NodeResolver>>,
     maybe_package_json_deps: Option<PackageJsonDeps>,
     maybe_lockfile: Option<LockfileOpts>,
+    npm_resolver: Deferred<Arc<CliNpmResolver>>,
 }
 
 impl Default for EmitterFactory {
@@ -114,6 +115,7 @@ impl EmitterFactory {
             npm_resolution: Default::default(),
             maybe_package_json_deps: None,
             maybe_lockfile: None,
+            npm_resolver: Default::default(),
         }
     }
 
@@ -254,7 +256,7 @@ impl EmitterFactory {
     pub fn node_resolver(&self) -> &Arc<NodeResolver> {
         self.node_resolver.get_or_init(|| {
             let fs = self.real_fs().clone();
-            Arc::new(NodeResolver::new(fs, self.npm_resolver()))
+            Arc::new(NodeResolver::new(fs, self.npm_resolver().clone()))
         })
     }
 
@@ -271,7 +273,7 @@ impl EmitterFactory {
             cjs_esm_code_analyzer,
             self.real_fs().clone(),
             self.node_resolver().clone(),
-            self.npm_resolver(),
+            self.npm_resolver().clone(),
         ));
 
         Arc::new(NpmModuleLoader::new(
@@ -294,15 +296,17 @@ impl EmitterFactory {
         )
     }
 
-    pub fn npm_resolver(&self) -> Arc<CliNpmResolver> {
+    pub fn npm_resolver(&self) -> &Arc<CliNpmResolver> {
         let npm_resolution = self.npm_resolution();
         let npm_fs_resolver = self.npm_fs();
-        Arc::new(CliNpmResolver::new(
-            self.real_fs(),
-            npm_resolution.clone(),
-            npm_fs_resolver,
-            self.get_lock_file(),
-        ))
+        self.npm_resolver.get_or_init(|| {
+            Arc::new(CliNpmResolver::new(
+                self.real_fs(),
+                npm_resolution.clone(),
+                npm_fs_resolver,
+                self.get_lock_file(),
+            ))
+        })
     }
 
     pub fn package_json_deps_provider(&self) -> &Arc<PackageJsonDepsProvider> {

@@ -1,7 +1,5 @@
 import { serve } from 'https://deno.land/std@0.131.0/http/server.ts';
 
-console.log('main function started');
-
 serve(async (req: Request) => {
 	const url = new URL(req.url);
 	const { pathname } = url;
@@ -52,6 +50,14 @@ serve(async (req: Request) => {
 		// or load module source from an inline module
 		// const maybeModuleCode = 'Deno.serve((req) => new Response("Hello from Module Code"));';
 
+		const workerChannel = new MessageChannel();
+
+		workerChannel.onmessage = (msg) => {
+			// do the work
+
+			workerChannel.send(result);
+		};
+
 		return await EdgeRuntime.userWorkers.create({
 			servicePath,
 			memoryLimitMb,
@@ -73,6 +79,12 @@ serve(async (req: Request) => {
 			// it will be reused by default.
 			// Update forceCreate option in createWorker to force create a new worker for each request.
 			const worker = await createWorker();
+
+			const port = worker.messagePort();
+			port.onmessage((e) => {
+				// handle worker message
+			});
+
 			const controller = new AbortController();
 
 			const signal = controller.signal;

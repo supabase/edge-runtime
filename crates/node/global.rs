@@ -260,10 +260,8 @@ fn current_mode(scope: &mut v8::HandleScope) -> Mode {
     let mut buffer = [MaybeUninit::uninit(); 2048];
     let str = v8_string.to_rust_cow_lossy(scope, &mut buffer);
     if node_resolver.in_npm_package_with_cache(str.clone()) {
-        println!("Is node script {}", str);
         Mode::Node
     } else {
-        println!("Is Deno script {}", str);
         Mode::Deno
     }
 }

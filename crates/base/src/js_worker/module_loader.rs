@@ -143,10 +143,6 @@ impl PreparedModuleLoader {
             let mut lockfile = lockfile.lock();
             // update it with anything new
             lockfile.write().context("Failed writing lockfile.")?;
-            println!(
-                "Lock file written {:?}",
-                self.emitter.npm_resolution().snapshot().package_reqs()
-            );
         }
 
         Ok(())
@@ -315,6 +311,7 @@ impl ModuleLoader for DefaultModuleLoader {
 
             self.emitter
                 .cli_graph_resolver()
+                .clone()
                 .resolve(specifier, &referrer_result?)
                 .map_err(|err| err.into())
         }

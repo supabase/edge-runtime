@@ -90,6 +90,7 @@ pub struct EmitterFactory {
     maybe_package_json_deps: Option<PackageJsonDeps>,
     maybe_lockfile: Option<LockfileOpts>,
     npm_resolver: Deferred<Arc<CliNpmResolver>>,
+    resolver: Deferred<Arc<CliGraphResolver>>,
 }
 
 impl Default for EmitterFactory {
@@ -116,6 +117,7 @@ impl EmitterFactory {
             maybe_package_json_deps: None,
             maybe_lockfile: None,
             npm_resolver: Default::default(),
+            resolver: Default::default(),
         }
     }
 
@@ -327,14 +329,16 @@ impl EmitterFactory {
         })
     }
 
-    pub fn cli_graph_resolver(&self) -> Arc<CliGraphResolver> {
-        Arc::new(CliGraphResolver::new(
-            self.npm_api().clone(),
-            self.npm_resolution().clone(),
-            self.package_json_deps_provider().clone(),
-            self.package_json_deps_installer().clone(),
-            CliGraphResolverOptions::default(),
-        ))
+    pub fn cli_graph_resolver(&self) -> &Arc<CliGraphResolver> {
+        self.resolver.get_or_init(|| {
+            Arc::new(CliGraphResolver::new(
+                self.npm_api().clone(),
+                self.npm_resolution().clone(),
+                self.package_json_deps_provider().clone(),
+                self.package_json_deps_installer().clone(),
+                CliGraphResolverOptions::default(),
+            ))
+        })
     }
 
     pub fn file_fetcher(&self) -> FileFetcher {

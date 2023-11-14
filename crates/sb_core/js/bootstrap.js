@@ -298,5 +298,11 @@ globalThis.bootstrapSBEdge = (opts, isUserWorker, isEventsWorker, version) => {
 		});
 	}
 
+	const nodeBootstrap = globalThis.nodeBootstrap;
+	if(nodeBootstrap) {
+		nodeBootstrap(false, undefined);
+		delete globalThis.nodeBootstrap;
+	}
+
 	delete globalThis.bootstrapSBEdge;
 };

@@ -471,7 +471,6 @@ mod test {
             .npm_resolution()
             .serialized_valid_snapshot_for_system(&NpmSystemInfo::default());
         raw_eszip.add_npm_snapshot(snapshot.clone());
-        println!("{:?}", snapshot.into_serialized());
         let eszip_code = raw_eszip.into_bytes();
 
         let runtime = DenoRuntime::new(WorkerContextInitOpts {

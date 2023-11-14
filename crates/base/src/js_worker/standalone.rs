@@ -176,14 +176,6 @@ pub fn create_shared_state_for_module_loader(
     let mut emitter = EmitterFactory::new();
 
     if let Some(snapshot) = eszip.take_npm_snapshot() {
-        println!("snapshot saved");
-
-        println!(
-            "{}",
-            deno_core::serde_json::to_value(snapshot.clone().into_serialized().packages)
-                .unwrap()
-                .to_string()
-        );
         emitter.set_npm_snapshot(Some(snapshot));
     }
 

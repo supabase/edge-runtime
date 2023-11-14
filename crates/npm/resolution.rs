@@ -136,11 +136,6 @@ impl NpmResolution {
         )
         .await?;
 
-        println!(
-            "{:?}",
-            &snapshot.as_valid_serialized().into_serialized().packages
-        );
-
         *self.snapshot.write() = snapshot;
 
         Ok(())

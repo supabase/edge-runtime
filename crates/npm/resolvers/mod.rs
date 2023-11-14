@@ -113,11 +113,6 @@ impl CliNpmResolver {
                 .realpath_sync(path)
                 .map_err(|err| err.into_io_error())
         })?;
-        println!(
-            "Resolved package folder of {} to {}",
-            pkg_id.as_serialized(),
-            path.display()
-        );
         Ok(path)
     }
 
@@ -134,11 +129,6 @@ impl CliNpmResolver {
         else {
             return Ok(None);
         };
-        println!(
-            "Resolved package folder of {} to {}",
-            specifier,
-            path.display()
-        );
         Ok(Some(path))
     }
 
@@ -243,7 +233,6 @@ impl NpmResolver for CliNpmResolver {
         let path = self
             .fs_resolver
             .resolve_package_folder_from_package(name, referrer, mode)?;
-        println!("Resolved {} from {} to {}", name, referrer, path.display());
         Ok(path)
     }
 

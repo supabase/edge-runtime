@@ -56,7 +56,7 @@ pub struct ModuleGraphBuilder {
 impl ModuleGraphBuilder {
     pub fn new(emitter_factory: Arc<EmitterFactory>, type_check: bool) -> Self {
         let lockfile = emitter_factory.get_lock_file();
-        let graph_resolver = emitter_factory.cli_graph_resolver();
+        let graph_resolver = emitter_factory.cli_graph_resolver().clone();
         let npm_resolver = emitter_factory.npm_resolver().clone();
         let parsed_source_cache = emitter_factory.parsed_source_cache().unwrap();
         let mut file_fetcher = emitter_factory.file_fetcher();

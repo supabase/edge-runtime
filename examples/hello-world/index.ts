@@ -1,5 +1,9 @@
-import { serve } from 'https://deno.land/std@0.131.0/http/server.ts';
+// user worker state has a (tx, rx) for MessagePort
+// main worker state has a (tx, rx) for MessagePort
+//
+// when main worker posts a message,
 
+import { serve } from 'https://deno.land/std@0.131.0/http/server.ts';
 interface reqPayload {
 	name: string;
 }

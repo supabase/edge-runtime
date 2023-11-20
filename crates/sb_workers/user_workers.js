@@ -121,7 +121,7 @@ class UserWorker {
 			throw new TypeError('service path must be defined');
 		}
 
-		const key = await core.opAsync('op_user_worker_create', readyOptions);
+		const { key } = await core.opAsync('op_user_worker_create', readyOptions);
 
 		return new UserWorker(key);
 	}

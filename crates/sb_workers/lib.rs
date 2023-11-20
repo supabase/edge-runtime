@@ -60,12 +60,19 @@ pub struct UserWorkerCreateOptions {
     cpu_burst_interval_ms: u64,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserWorkerCreateResult {
+    key: String,
+    message_port_id: Option<deno_core::ResourceId>,
+}
+
 #[op2(async)]
-#[string]
+#[serde]
 pub async fn op_user_worker_create(
     state: Rc<RefCell<OpState>>,
     #[serde] opts: UserWorkerCreateOptions,
-) -> Result<String, AnyError> {
+) -> Result<UserWorkerCreateResult, AnyError> {
     let result_rx = {
         let op_state = state.borrow();
         let tx = op_state.borrow::<mpsc::UnboundedSender<UserWorkerMsgs>>();
@@ -140,7 +147,16 @@ pub async fn op_user_worker_create(
     let result = result.unwrap();
     match result {
         Err(e) => Err(custom_error("InvalidWorkerCreation", e.to_string())),
-        Ok(res) => Ok(res.key.to_string()),
+        Ok(res) => {
+            let message_port_id = state.resource_table.add(deno_web::MessagePortResource {
+                port: res.message_port,
+                cancel: deno_core::CancelHandle::new(),
+            });
+            Ok(UserWorkerCreateResult {
+                key: res.key.to_string(),
+                message_port_id,
+            })
+        }
     }
 }
 

@@ -311,6 +311,8 @@ impl DenoRuntime {
             }
 
             if conf.is_user_worker() {
+                op_state.put::<deno_web::MessagePort>(user_port);
+
                 let conf = conf.as_user_worker().unwrap();
                 if let Some(events_msg_tx) = conf.events_msg_tx.clone() {
                     op_state.put::<mpsc::UnboundedSender<WorkerEventWithMetadata>>(events_msg_tx);

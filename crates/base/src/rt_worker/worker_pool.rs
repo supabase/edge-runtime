@@ -81,6 +81,9 @@ impl WorkerPool {
         user_worker_rt_opts.pool_msg_tx = Some(self.worker_pool_msgs_tx.clone());
         user_worker_rt_opts.events_msg_tx = self.worker_event_sender.clone();
 
+        let (main_port, user_port) = deno_web::create_entangled_message_port();
+        user_worker_rt_opts.message_port = user_port;
+
         worker_options.conf = WorkerRuntimeOpts::UserWorker(user_worker_rt_opts);
         let worker_pool_msgs_tx = self.worker_pool_msgs_tx.clone();
 
@@ -98,7 +101,13 @@ impl WorkerPool {
                     {
                         error!("user worker msgs receiver dropped")
                     }
-                    if tx.send(Ok(CreateUserWorkerResult { key: uuid })).is_err() {
+                    if tx
+                        .send(Ok(CreateUserWorkerResult {
+                            key: uuid,
+                            message_port: main_port,
+                        }))
+                        .is_err()
+                    {
                         error!("main worker receiver dropped")
                     };
                 }

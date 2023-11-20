@@ -3788,6 +3788,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "deno_core",
+ "deno_web",
  "enum-as-inner 0.6.0",
  "event_worker",
  "hyper 0.14.27",
@@ -3805,6 +3806,7 @@ dependencies = [
  "bytes",
  "deno_core",
  "deno_http",
+ "deno_web",
  "event_worker",
  "hyper 0.14.27",
  "log",

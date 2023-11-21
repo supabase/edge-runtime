@@ -64,7 +64,6 @@ pub struct UserWorkerCreateOptions {
 #[serde(rename_all = "camelCase")]
 pub struct UserWorkerCreateResult {
     key: String,
-    message_port_id: Option<deno_core::ResourceId>,
 }
 
 #[op2(async)]
@@ -76,7 +75,8 @@ pub async fn op_user_worker_create(
     let result_rx = {
         let op_state = state.borrow();
         let tx = op_state.borrow::<mpsc::UnboundedSender<UserWorkerMsgs>>();
-        let (result_tx, result_rx) = oneshot::channel::<Result<CreateUserWorkerResult, Error>>();
+        let (result_tx, result_rx) =
+            std::sync::mpsc::channel::<Result<CreateUserWorkerResult, Error>>();
 
         let UserWorkerCreateOptions {
             service_path,
@@ -135,7 +135,7 @@ pub async fn op_user_worker_create(
         result_rx
     };
 
-    let result = result_rx.await;
+    let result = result_rx.recv().unwrap();
     if result.is_err() {
         return Err(custom_error(
             "InvalidWorkerCreation",
@@ -144,19 +144,12 @@ pub async fn op_user_worker_create(
     }
 
     // channel returns a Result<T, E>, we need to unwrap it first;
-    let result = result.unwrap();
+    //let result = result.unwrap();
     match result {
         Err(e) => Err(custom_error("InvalidWorkerCreation", e.to_string())),
-        Ok(res) => {
-            let message_port_id = state.resource_table.add(deno_web::MessagePortResource {
-                port: res.message_port,
-                cancel: deno_core::CancelHandle::new(),
-            });
-            Ok(UserWorkerCreateResult {
-                key: res.key.to_string(),
-                message_port_id,
-            })
-        }
+        Ok(res) => Ok(UserWorkerCreateResult {
+            key: res.key.to_string(),
+        }),
     }
 }
 

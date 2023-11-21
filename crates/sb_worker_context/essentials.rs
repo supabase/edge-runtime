@@ -17,7 +17,6 @@ pub struct UserWorkerRuntimeOpts {
 
     pub pool_msg_tx: Option<mpsc::UnboundedSender<UserWorkerMsgs>>,
     pub events_msg_tx: Option<mpsc::UnboundedSender<WorkerEventWithMetadata>>,
-    pub message_port: Option<deno_web::MessagePort>,
 
     pub memory_limit_mb: u64,
     pub low_memory_multiplier: u64,
@@ -52,7 +51,6 @@ impl Default for UserWorkerRuntimeOpts {
             allow_remote_modules: true,
             custom_module_root: None,
             service_path: None,
-            message_port: None,
         }
     }
 }
@@ -95,7 +93,7 @@ pub struct WorkerContextInitOpts {
 pub enum UserWorkerMsgs {
     Create(
         WorkerContextInitOpts,
-        oneshot::Sender<Result<CreateUserWorkerResult, Error>>,
+        std::sync::mpsc::Sender<Result<CreateUserWorkerResult, Error>>,
     ),
     Created(Uuid, UserWorkerProfile),
     SendRequest(
@@ -107,10 +105,8 @@ pub enum UserWorkerMsgs {
     Shutdown(Uuid),
 }
 
-#[derive(Debug)]
 pub struct CreateUserWorkerResult {
     pub key: Uuid,
-    pub message_port: deno_web::MessagePort,
 }
 
 #[derive(Debug)]

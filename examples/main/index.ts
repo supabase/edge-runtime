@@ -50,13 +50,13 @@ serve(async (req: Request) => {
 		// or load module source from an inline module
 		// const maybeModuleCode = 'Deno.serve((req) => new Response("Hello from Module Code"));';
 
-		const workerChannel = new MessageChannel();
+		// const workerChannel = new MessageChannel();
 
-		workerChannel.onmessage = (msg) => {
-			// do the work
+		// workerChannel.onmessage = (msg) => {
+		// 	// do the work
 
-			workerChannel.send(result);
-		};
+		// 	workerChannel.send(result);
+		// };
 
 		return await EdgeRuntime.userWorkers.create({
 			servicePath,
@@ -80,10 +80,10 @@ serve(async (req: Request) => {
 			// Update forceCreate option in createWorker to force create a new worker for each request.
 			const worker = await createWorker();
 
-			const port = worker.messagePort();
-			port.onmessage((e) => {
-				// handle worker message
-			});
+			// const port = worker.messagePort();
+			// port.onmessage((e) => {
+			// 	// handle worker message
+			// });
 
 			const controller = new AbortController();
 

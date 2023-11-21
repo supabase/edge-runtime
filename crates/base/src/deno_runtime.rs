@@ -311,8 +311,6 @@ impl DenoRuntime {
             }
 
             if conf.is_user_worker() {
-                op_state.put::<deno_web::MessagePort>(user_port);
-
                 let conf = conf.as_user_worker().unwrap();
                 if let Some(events_msg_tx) = conf.events_msg_tx.clone() {
                     op_state.put::<mpsc::UnboundedSender<WorkerEventWithMetadata>>(events_msg_tx);
@@ -334,6 +332,18 @@ impl DenoRuntime {
             env_vars,
             conf,
         })
+    }
+
+    pub fn open_port(mut self, tx: std::sync::mpsc::Sender<Result<deno_web::MessagePort, Error>>) {
+        let (main_port, user_port) = deno_web::create_entangled_message_port();
+        // add user port
+        {
+            let op_state_rc = self.js_runtime.op_state();
+            let mut op_state = op_state_rc.borrow_mut();
+            op_state.put::<deno_web::MessagePort>(user_port);
+        }
+
+        tx.send(Ok(main_port)).unwrap();
     }
 
     pub async fn run(

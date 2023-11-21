@@ -93,7 +93,7 @@ pub struct WorkerContextInitOpts {
 pub enum UserWorkerMsgs {
     Create(
         WorkerContextInitOpts,
-        std::sync::mpsc::Sender<Result<CreateUserWorkerResult, Error>>,
+        oneshot::Sender<Result<CreateUserWorkerResult, Error>>,
     ),
     Created(Uuid, UserWorkerProfile),
     SendRequest(
@@ -105,6 +105,7 @@ pub enum UserWorkerMsgs {
     Shutdown(Uuid),
 }
 
+#[derive(Debug)]
 pub struct CreateUserWorkerResult {
     pub key: Uuid,
 }

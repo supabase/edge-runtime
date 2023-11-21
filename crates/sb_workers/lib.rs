@@ -60,23 +60,16 @@ pub struct UserWorkerCreateOptions {
     cpu_burst_interval_ms: u64,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UserWorkerCreateResult {
-    key: String,
-}
-
 #[op2(async)]
-#[serde]
+#[string]
 pub async fn op_user_worker_create(
     state: Rc<RefCell<OpState>>,
     #[serde] opts: UserWorkerCreateOptions,
-) -> Result<UserWorkerCreateResult, AnyError> {
+) -> Result<String, AnyError> {
     let result_rx = {
         let op_state = state.borrow();
         let tx = op_state.borrow::<mpsc::UnboundedSender<UserWorkerMsgs>>();
-        let (result_tx, result_rx) =
-            std::sync::mpsc::channel::<Result<CreateUserWorkerResult, Error>>();
+        let (result_tx, result_rx) = oneshot::channel::<Result<CreateUserWorkerResult, Error>>();
 
         let UserWorkerCreateOptions {
             service_path,
@@ -135,7 +128,7 @@ pub async fn op_user_worker_create(
         result_rx
     };
 
-    let result = result_rx.recv().unwrap();
+    let result = result_rx.await;
     if result.is_err() {
         return Err(custom_error(
             "InvalidWorkerCreation",
@@ -144,12 +137,10 @@ pub async fn op_user_worker_create(
     }
 
     // channel returns a Result<T, E>, we need to unwrap it first;
-    //let result = result.unwrap();
+    let result = result.unwrap();
     match result {
         Err(e) => Err(custom_error("InvalidWorkerCreation", e.to_string())),
-        Ok(res) => Ok(UserWorkerCreateResult {
-            key: res.key.to_string(),
-        }),
+        Ok(res) => Ok(res.key.to_string()),
     }
 }
 

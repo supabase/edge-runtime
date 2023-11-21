@@ -47,7 +47,7 @@ impl WorkerPool {
     pub fn create_user_worker(
         &self,
         mut worker_options: WorkerContextInitOpts,
-        tx: std::sync::mpsc::Sender<Result<CreateUserWorkerResult, Error>>,
+        tx: Sender<Result<CreateUserWorkerResult, Error>>,
     ) {
         let mut user_worker_rt_opts = match worker_options.conf {
             WorkerRuntimeOpts::UserWorker(opts) => opts,

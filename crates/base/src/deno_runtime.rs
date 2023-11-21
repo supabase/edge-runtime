@@ -113,7 +113,10 @@ pub struct DenoRuntime {
 
 impl DenoRuntime {
     #[allow(clippy::unnecessary_literal_unwrap)]
-    pub async fn new(opts: WorkerContextInitOpts) -> Result<Self, Error> {
+    pub async fn new(
+        opts: WorkerContextInitOpts,
+        compiled_wasm_module_store: Option<deno_core::CompiledWasmModuleStore>,
+    ) -> Result<Self, Error> {
         let WorkerContextInitOpts {
             service_path,
             no_module_cache,
@@ -259,7 +262,7 @@ impl DenoRuntime {
             },
             get_error_class_fn: Some(&get_error_class_name),
             shared_array_buffer_store: None,
-            compiled_wasm_module_store: Default::default(),
+            compiled_wasm_module_store: Some(compiled_wasm_module_store.unwrap_or_default()),
             startup_snapshot: Some(snapshot::snapshot()),
             ..Default::default()
         };

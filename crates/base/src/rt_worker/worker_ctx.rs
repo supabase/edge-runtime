@@ -239,10 +239,11 @@ pub fn create_supervisor(
 
 pub async fn create_worker(
     init_opts: WorkerContextInitOpts,
+    compiled_wasm_module_store: Option<deno_core::CompiledWasmModuleStore>,
 ) -> Result<mpsc::UnboundedSender<WorkerRequestMsg>, Error> {
     let (worker_boot_result_tx, worker_boot_result_rx) = oneshot::channel::<Result<(), Error>>();
     let (unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
-    let worker_init = Worker::new(&init_opts)?;
+    let worker_init = Worker::new(&init_opts, compiled_wasm_module_store)?;
 
     let worker: Box<dyn WorkerHandler> = Box::new(worker_init);
 
@@ -332,19 +333,22 @@ pub async fn create_main_worker(
         }
     }
 
-    let main_worker_req_tx = create_worker(WorkerContextInitOpts {
-        service_path,
-        import_map_path,
-        no_module_cache,
-        events_rx: None,
-        maybe_eszip,
-        maybe_entrypoint,
-        maybe_module_code: None,
-        conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
-            worker_pool_tx: user_worker_msgs_tx,
-        }),
-        env_vars: std::env::vars().collect(),
-    })
+    let main_worker_req_tx = create_worker(
+        WorkerContextInitOpts {
+            service_path,
+            import_map_path,
+            no_module_cache,
+            events_rx: None,
+            maybe_eszip,
+            maybe_entrypoint,
+            maybe_module_code: None,
+            conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
+                worker_pool_tx: user_worker_msgs_tx,
+            }),
+            env_vars: std::env::vars().collect(),
+        },
+        None,
+    )
     .await
     .map_err(|err| anyhow!("main worker boot error: {}", err))?;
 
@@ -370,17 +374,20 @@ pub async fn create_events_worker(
         }
     }
 
-    let _ = create_worker(WorkerContextInitOpts {
-        service_path,
-        no_module_cache,
-        import_map_path,
-        env_vars: std::env::vars().collect(),
-        events_rx: Some(events_rx),
-        maybe_eszip,
-        maybe_entrypoint,
-        maybe_module_code: None,
-        conf: WorkerRuntimeOpts::EventsWorker(EventWorkerRuntimeOpts {}),
-    })
+    let _ = create_worker(
+        WorkerContextInitOpts {
+            service_path,
+            no_module_cache,
+            import_map_path,
+            env_vars: std::env::vars().collect(),
+            events_rx: Some(events_rx),
+            maybe_eszip,
+            maybe_entrypoint,
+            maybe_module_code: None,
+            conf: WorkerRuntimeOpts::EventsWorker(EventWorkerRuntimeOpts {}),
+        },
+        None,
+    )
     .await
     .map_err(|err| anyhow!("events worker boot error: {}", err))?;
 

@@ -26,6 +26,7 @@ pub struct WorkerPool {
     pub user_workers: HashMap<Uuid, UserWorkerProfile>,
     pub active_workers: HashMap<String, Uuid>,
     pub worker_pool_msgs_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
+    pub compiled_wasm_module_store: Option<deno_core::CompiledWasmModuleStore>,
 
     // TODO: refactor this out of worker pool
     pub worker_event_sender: Option<mpsc::UnboundedSender<WorkerEventWithMetadata>>,
@@ -41,6 +42,7 @@ impl WorkerPool {
             user_workers: HashMap::new(),
             active_workers: HashMap::new(),
             worker_pool_msgs_tx,
+            compiled_wasm_module_store: Default::default(),
         }
     }
 
@@ -83,9 +85,10 @@ impl WorkerPool {
 
         worker_options.conf = WorkerRuntimeOpts::UserWorker(user_worker_rt_opts);
         let worker_pool_msgs_tx = self.worker_pool_msgs_tx.clone();
+        let compiled_wasm_module_store = self.compiled_wasm_module_store.clone();
 
         tokio::task::spawn(async move {
-            let result = create_worker(worker_options).await;
+            let result = create_worker(worker_options, compiled_wasm_module_store).await;
             match result {
                 Ok(worker_request_msg_tx) => {
                     let profile = UserWorkerProfile {

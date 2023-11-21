@@ -28,6 +28,7 @@ pub struct Worker {
     pub event_metadata: EventMetadata,
     pub worker_key: Option<Uuid>,
     pub thread_name: String,
+    pub compiled_wasm_module_store: Option<deno_core::CompiledWasmModuleStore>,
 }
 
 pub type HandleCreationType = Pin<Box<dyn Future<Output = Result<WorkerEvents, Error>>>>;
@@ -44,7 +45,10 @@ pub trait WorkerHandler: Send {
 }
 
 impl Worker {
-    pub fn new(init_opts: &WorkerContextInitOpts) -> Result<Self, Error> {
+    pub fn new(
+        init_opts: &WorkerContextInitOpts,
+        compiled_wasm_module_store: Option<deno_core::CompiledWasmModuleStore>,
+    ) -> Result<Self, Error> {
         let (worker_key, pool_msg_tx, events_msg_tx, thread_name) =
             parse_worker_conf(&init_opts.conf);
         let event_metadata = get_event_metadata(&init_opts.conf);
@@ -58,6 +62,7 @@ impl Worker {
             event_metadata,
             worker_key,
             thread_name,
+            compiled_wasm_module_store,
         })
     }
 
@@ -73,6 +78,7 @@ impl Worker {
         let worker_key = self.worker_key;
         let pool_msg_tx = self.pool_msg_tx.clone();
         let method_cloner = self.clone();
+        let compiled_wasm_module_store = self.compiled_wasm_module_store.clone();
 
         let _handle: thread::JoinHandle<Result<(), Error>> = thread::Builder::new()
             .name(thread_name)
@@ -86,7 +92,7 @@ impl Worker {
                 let mut start_time = 0;
 
                 let result: Result<WorkerEvents, Error> = local.block_on(&runtime, async {
-                    match DenoRuntime::new(opts).await {
+                    match DenoRuntime::new(opts, compiled_wasm_module_store).await {
                         Ok(mut new_runtime) => {
                             let _ = booter_signal.send(Ok(()));
 

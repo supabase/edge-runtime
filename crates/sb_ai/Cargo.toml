@@ -1,0 +1,21 @@
+[package]
+name = "sb_ai"
+version = "0.1.0"
+authors = ["Supabase <team@supabase.com>"]
+edition = "2021"
+resolver = "2"
+license = "MIT"
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+anyhow.workspace = true
+deno_core.workspace = true
+log = { workspace = true }
+serde.workspace = true
+ort = { version = "2.0.0-alpha.4", default-features = false, features = [ "ndarray", "half", "load-dynamic" ] }
+ndarray = "0.15"
+ndarray-linalg = "0.15"
+tokenizers = { version = ">=0.13.4", default-features = false, features = [ "onig" ] }
+rand = "0.8"

@@ -13,6 +13,7 @@ members = [
   "./crates/sb_graph",
   "./crates/sb_module_loader",
   "./crates/sb_fs",
+  "./crates/sb_ai"
 ]
 resolver = "2"
 

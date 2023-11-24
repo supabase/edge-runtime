@@ -23,9 +23,8 @@ pub struct UserWorkerRuntimeOpts {
 
     pub worker_timeout_ms: u64, // wall clock limit
 
-    pub cpu_time_threshold_ms: u64,
-    pub cpu_burst_interval_ms: u64,
-    pub max_cpu_bursts: u64,
+    pub cpu_time_soft_limit_ms: u64,
+    pub cpu_time_hard_limit_ms: u64,
 
     pub force_create: bool,
     pub net_access_disabled: bool,
@@ -39,9 +38,8 @@ impl Default for UserWorkerRuntimeOpts {
             memory_limit_mb: 512,
             worker_timeout_ms: 5 * 60 * 1000,
             low_memory_multiplier: 5,
-            max_cpu_bursts: 10,
-            cpu_burst_interval_ms: 100,
-            cpu_time_threshold_ms: 50,
+            cpu_time_soft_limit_ms: 50,
+            cpu_time_hard_limit_ms: 100,
 
             force_create: false,
             key: None,

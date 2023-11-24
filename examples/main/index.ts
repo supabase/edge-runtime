@@ -51,6 +51,9 @@ serve(async (req: Request) => {
 		// const maybeEntrypoint = 'file:///src/index.ts';
 		// or load module source from an inline module
 		// const maybeModuleCode = 'Deno.serve((req) => new Response("Hello from Module Code"));';
+		//
+		const cpuTimeSoftLimitMs = 50;
+		const cpuTimeHardLimitMs = 100;
 
 		return await EdgeRuntime.userWorkers.create({
 			servicePath,
@@ -61,6 +64,8 @@ serve(async (req: Request) => {
 			envVars,
 			forceCreate,
 			netAccessDisabled,
+			cpuTimeSoftLimitMs,
+			cpuTimeHardLimitMs,
 			// maybeEszip,
 			// maybeEntrypoint,
 			// maybeModuleCode,

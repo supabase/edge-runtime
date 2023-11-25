@@ -790,9 +790,8 @@ mod test {
             Some(WorkerRuntimeOpts::UserWorker(UserWorkerRuntimeOpts {
                 memory_limit_mb: memory_limit,
                 worker_timeout_ms,
-                cpu_burst_interval_ms: 100,
-                cpu_time_threshold_ms: 50,
-                max_cpu_bursts: 10,
+                cpu_time_soft_limit_ms: 100,
+                cpu_time_hard_limit_ms: 200,
                 low_memory_multiplier: 5,
                 force_create: true,
                 net_access_disabled: false,

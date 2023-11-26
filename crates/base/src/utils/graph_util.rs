@@ -297,23 +297,6 @@ pub fn graph_valid(
     }
 }
 
-pub async fn create_module_graph_from_path(
-    main_service_path: &str,
-    emitter_factory: Arc<EmitterFactory>,
-) -> Result<ModuleGraph, Box<dyn std::error::Error>> {
-    let index = PathBuf::from(main_service_path);
-    let binding = std::fs::canonicalize(&index)?;
-    let specifier = binding.to_str().ok_or("Failed to convert path to string")?;
-    let format_specifier = format!("file:///{}", specifier);
-    let module_specifier = ModuleSpecifier::parse(&format_specifier)?;
-    let graph_builder = ModuleGraphBuilder::new(emitter_factory, false);
-    let graph = graph_builder
-        .create_graph_and_maybe_check(vec![module_specifier])
-        .await
-        .unwrap();
-    Ok(graph)
-}
-
 pub async fn create_eszip_from_graph_raw(
     graph: ModuleGraph,
     emitter_factory: Option<Arc<EmitterFactory>>,
@@ -325,15 +308,6 @@ pub async fn create_eszip_from_graph_raw(
     let eszip = eszip::EszipV2::from_graph(graph, &parser, Default::default());
 
     eszip.unwrap()
-}
-
-pub async fn create_eszip_from_graph(
-    graph: ModuleGraph,
-    emitter_factory: Option<Arc<EmitterFactory>>,
-) -> Vec<u8> {
-    let eszip = create_eszip_from_graph_raw(graph, emitter_factory).await;
-
-    eszip.into_bytes()
 }
 
 pub async fn create_graph(file: PathBuf, emitter_factory: Arc<EmitterFactory>) -> ModuleGraph {

@@ -4,11 +4,13 @@ use anyhow::Error;
 use base::commands::start_server;
 use base::js_worker::emitter::EmitterFactory;
 use base::server::WorkerEntrypoints;
+use base::standalone::binary::generate_binary_eszip;
 use base::utils::graph_util::{create_eszip_from_graph, create_module_graph_from_path};
 use clap::builder::{BoolValueParser, FalseyValueParser};
 use clap::{arg, crate_version, value_parser, ArgAction, Command};
 use std::fs::File;
 use std::io::Write;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 fn cli() -> Command {
@@ -129,16 +131,16 @@ fn main() -> Result<(), anyhow::Error> {
                     .cloned()
                     .unwrap();
 
-                // TODO: Arc::new(Emitter needs to work with NPM
-                let create_graph_from_path = create_module_graph_from_path(
-                    entry_point_path.as_str(),
+                let path = PathBuf::from(entry_point_path.as_str());
+                let eszip = generate_binary_eszip(
+                    path.canonicalize().unwrap(),
                     Arc::new(EmitterFactory::new()),
                 )
-                .await
-                .unwrap();
-                let create_eszip = create_eszip_from_graph(create_graph_from_path, None).await;
+                .await?;
+                let bin = eszip.into_bytes();
+
                 let mut file = File::create(output_path.as_str()).unwrap();
-                file.write_all(&create_eszip).unwrap();
+                file.write_all(&bin).unwrap();
             }
             _ => {
                 // unrecognized command

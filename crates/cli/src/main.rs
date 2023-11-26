@@ -138,7 +138,7 @@ fn main() -> Result<(), anyhow::Error> {
                 )
                 .await
                 .unwrap();
-                let create_eszip = create_eszip_from_graph(create_graph_from_path).await;
+                let create_eszip = create_eszip_from_graph(create_graph_from_path, None).await;
                 let mut file = File::create(output_path.as_str()).unwrap();
                 file.write_all(&create_eszip).unwrap();
             }

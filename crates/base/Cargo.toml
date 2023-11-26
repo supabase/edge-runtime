@@ -6,6 +6,9 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+async-trait.workspace = true
+thiserror = "1.0.40"
+monch = "=0.4.3"
 once_cell.workspace = true
 deno_semver.workspace = true
 deno_npm.workspace = true

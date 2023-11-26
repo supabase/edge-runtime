@@ -213,11 +213,10 @@ impl DefaultModuleLoader {
         maybe_referrer: Option<&ModuleSpecifier>,
         is_dynamic: bool,
     ) -> Result<ModuleSource, AnyError> {
-        let permissions: Arc<dyn NodePermissions> = Arc::new(sb_node::AllowAllNodePermissions);
         let code_source = if let Some(result) = self
             .emitter
             .npm_module_loader()
-            .load_sync_if_in_npm_package(specifier, maybe_referrer, &*permissions)
+            .load_sync_if_in_npm_package(specifier, maybe_referrer, &*sb_node::allow_all())
         {
             result?
         } else {
@@ -265,7 +264,7 @@ impl ModuleLoader for DefaultModuleLoader {
         } else {
             let cwd = std::env::current_dir().context("Unable to get CWD")?;
             let referrer_result = deno_core::resolve_url_or_path(referrer, &cwd);
-            let permissions: Arc<dyn NodePermissions> = Arc::new(sb_node::AllowAllNodePermissions);
+            let permissions = sb_node::allow_all();
             let npm_module_loader = self.emitter.npm_module_loader();
 
             if let Ok(referrer) = referrer_result.as_ref() {

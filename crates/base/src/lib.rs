@@ -9,4 +9,5 @@ pub mod macros;
 pub mod rt_worker;
 pub mod server;
 pub mod snapshot;
+pub mod standalone;
 pub mod utils;

@@ -4,6 +4,7 @@ use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use deno_core::error::AnyError;
 use deno_core::located_script_name;
@@ -585,4 +586,8 @@ pub fn load_cjs_module(
 
     js_runtime.execute_script(located_script_name!(), source_code)?;
     Ok(())
+}
+
+pub fn allow_all() -> Arc<dyn NodePermissions> {
+    Arc::new(AllowAllNodePermissions)
 }

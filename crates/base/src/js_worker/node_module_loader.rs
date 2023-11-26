@@ -103,11 +103,6 @@ impl NpmModuleLoader {
         permissions: &dyn NodePermissions,
     ) -> Option<Result<ModuleCodeSource, AnyError>> {
         if self.node_resolver.in_npm_package(specifier) {
-            println!(
-                "{} {}",
-                specifier,
-                self.node_resolver.in_npm_package(specifier)
-            );
             Some(self.load_sync(specifier, maybe_referrer, permissions))
         } else {
             None

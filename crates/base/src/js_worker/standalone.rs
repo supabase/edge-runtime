@@ -1,5 +1,8 @@
+use crate::deno_runtime::RuntimeProviders;
 use crate::js_worker::emitter::EmitterFactory;
 use crate::js_worker::node_module_loader::NpmModuleLoader;
+use crate::standalone::binary::Metadata;
+use crate::standalone::create_module_loader_for_eszip;
 use crate::utils::graph_resolver::MappedSpecifierResolver;
 use deno_ast::MediaType;
 use deno_core::error::{generic_error, type_error, AnyError};
@@ -13,8 +16,10 @@ use module_fetcher::args::package_json::PackageJsonDepsProvider;
 use module_fetcher::file_fetcher::get_source_from_data_url;
 use sb_eszip::module_loader::EszipPayloadKind;
 use sb_node::NodePermissions;
+use sb_npm::CliNpmResolver;
 use std::path::PathBuf;
 use std::pin::Pin;
+use std::rc::Rc;
 use std::sync::Arc;
 
 pub struct SharedModuleLoaderState {
@@ -58,7 +63,7 @@ impl ModuleLoader for EmbeddedModuleLoader {
                 .map_err(|err| type_error(format!("Referrer uses invalid specifier: {}", err)))?
         };
 
-        let permissions: Arc<dyn NodePermissions> = Arc::new(sb_node::AllowAllNodePermissions);
+        let permissions = sb_node::allow_all();
         if let Some(result) = self.shared.npm_module_loader.resolve_if_in_npm_package(
             specifier,
             &referrer,
@@ -110,7 +115,7 @@ impl ModuleLoader for EmbeddedModuleLoader {
             )));
         }
 
-        let permissions: Arc<dyn NodePermissions> = Arc::new(sb_node::AllowAllNodePermissions);
+        let permissions = sb_node::allow_all();
         if let Some(result) = self.shared.npm_module_loader.load_sync_if_in_npm_package(
             original_specifier,
             maybe_referrer,
@@ -193,7 +198,7 @@ pub fn create_shared_state_for_module_loader(
 pub async fn create_module_loader_for_standalone_from_eszip_kind(
     eszip_payload_kind: EszipPayloadKind,
     maybe_import_map: Option<Arc<ImportMap>>,
-) -> EmbeddedModuleLoader {
+) -> RuntimeProviders {
     use deno_core::futures::io::{AllowStdIo, BufReader};
     let bytes = match eszip_payload_kind {
         EszipPayloadKind::JsBufferKind(js_buffer) => Vec::from(&*js_buffer),
@@ -205,10 +210,16 @@ pub async fn create_module_loader_for_standalone_from_eszip_kind(
 
     loader.await.unwrap();
 
-    EmbeddedModuleLoader {
-        shared: Arc::new(create_shared_state_for_module_loader(
-            eszip,
-            maybe_import_map,
-        )),
-    }
+    create_module_loader_for_eszip(
+        eszip,
+        Metadata {
+            ca_stores: None,
+            ca_data: None,
+            unsafely_ignore_certificate_errors: None,
+            maybe_import_map: None,
+            package_json_deps: None,
+        },
+    )
+    .await
+    .unwrap()
 }

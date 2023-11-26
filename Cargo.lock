@@ -325,6 +325,7 @@ name = "base"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "bytes",
  "cityhash",
  "cpu_timer",
@@ -355,6 +356,7 @@ dependencies = [
  "import_map",
  "log",
  "module_fetcher",
+ "monch",
  "notify",
  "once_cell",
  "reqwest",
@@ -367,6 +369,7 @@ dependencies = [
  "sb_worker_context",
  "sb_workers",
  "serde",
+ "thiserror",
  "tokio",
  "url",
  "urlencoding",

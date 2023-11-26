@@ -4,7 +4,9 @@ use crate::js_worker::module_loader;
 use anyhow::{anyhow, bail, Error};
 use deno_core::error::AnyError;
 use deno_core::url::Url;
-use deno_core::{located_script_name, serde_v8, JsRuntime, ModuleCode, ModuleId, RuntimeOptions};
+use deno_core::{
+    located_script_name, serde_v8, JsRuntime, ModuleCode, ModuleId, ModuleLoader, RuntimeOptions,
+};
 use deno_http::DefaultHttpPropertyExtractor;
 use deno_npm::NpmSystemInfo;
 use deno_tls::rustls;
@@ -42,6 +44,7 @@ use sb_core::sb_core_main_js;
 use sb_env::sb_env as sb_env_op;
 use sb_eszip::module_loader::EszipModuleLoader;
 use sb_node::deno_node;
+use sb_npm::CliNpmResolver;
 use sb_worker_context::essentials::{UserWorkerMsgs, WorkerContextInitOpts, WorkerRuntimeOpts};
 use sb_workers::sb_user_workers;
 
@@ -105,6 +108,12 @@ fn set_v8_flags() {
         "v8 flags unrecognized {:?}",
         deno_core::v8_set_flags(vec.iter().map(|v| v.to_string()).collect())
     );
+}
+
+pub struct RuntimeProviders {
+    pub npm_resolver: Arc<CliNpmResolver>,
+    pub module_loader: Rc<dyn ModuleLoader>,
+    pub fs: Arc<dyn deno_fs::FileSystem>,
 }
 
 pub struct DenoRuntime {
@@ -210,6 +219,37 @@ impl DenoRuntime {
         emitter_factory.init_npm().await;
 
         let fs = Arc::new(deno_fs::RealFs);
+
+        let rt_providers = if maybe_eszip.is_some() {
+            create_module_loader_for_standalone_from_eszip_kind(maybe_eszip.unwrap(), None).await
+        } else {
+            let import_map = load_import_map(import_map_path)?;
+
+            let npm_resolver = emitter_factory.npm_resolver().clone();
+
+            let default_module_loader = DefaultModuleLoader::new(
+                module_root_path,
+                main_module_url.clone(),
+                import_map,
+                emitter_factory,
+                no_module_cache,
+                allow_remote_modules,
+            )
+            .await?;
+
+            RuntimeProviders {
+                npm_resolver,
+                fs: fs.clone(),
+                module_loader: Rc::new(default_module_loader),
+            }
+        };
+
+        let RuntimeProviders {
+            npm_resolver,
+            fs: file_system,
+            module_loader,
+        } = rt_providers;
+
         let extensions = vec![
             sb_core_permissions::init_ops(net_access_disabled),
             deno_webidl::deno_webidl::init_ops(),
@@ -252,7 +292,7 @@ impl DenoRuntime {
             sb_core_main_js::init_ops(),
             sb_core_net::init_ops(),
             sb_core_http::init_ops(),
-            deno_node::init_ops::<Permissions>(Some(emitter_factory.npm_resolver().clone()), fs),
+            deno_node::init_ops::<Permissions>(Some(npm_resolver), file_system),
             sb_core_runtime::init_ops(Some(main_module_url.clone())),
         ];
 
@@ -273,29 +313,10 @@ impl DenoRuntime {
             shared_array_buffer_store: None,
             compiled_wasm_module_store: Default::default(),
             startup_snapshot: Some(snapshot::snapshot()),
+            module_loader: Some(module_loader),
             ..Default::default()
         };
-        if maybe_eszip.is_some() {
-            // let eszip_module_loader =
-            //     EszipModuleLoader::new(maybe_eszip.unwrap(), import_map_path).await?;
-            let eszip_module_loader =
-                create_module_loader_for_standalone_from_eszip_kind(maybe_eszip.unwrap(), None)
-                    .await;
-            runtime_options.module_loader = Some(Rc::new(eszip_module_loader));
-        } else {
-            let import_map = load_import_map(import_map_path)?;
 
-            let default_module_loader = DefaultModuleLoader::new(
-                module_root_path,
-                main_module_url.clone(),
-                import_map,
-                emitter_factory,
-                no_module_cache,
-                allow_remote_modules,
-            )
-            .await?;
-            runtime_options.module_loader = Some(Rc::new(default_module_loader));
-        }
         let mut js_runtime = JsRuntime::new(runtime_options);
 
         let version: Option<&str> = option_env!("GIT_V_TAG");
@@ -419,6 +440,7 @@ impl DenoRuntime {
 mod test {
     use crate::deno_runtime::DenoRuntime;
     use crate::js_worker::emitter::EmitterFactory;
+    use crate::standalone::binary::generate_binary_eszip;
     use crate::utils::graph_util::ModuleGraphBuilder;
     use deno_core::parking_lot::Mutex;
     use deno_core::{ModuleCode, ModuleSpecifier};
@@ -440,38 +462,12 @@ mod test {
         let (worker_pool_tx, _) = mpsc::unbounded_channel::<UserWorkerMsgs>();
         let file = PathBuf::from("./test_cases/eszip-silly-test/index.ts");
         let service_path = PathBuf::from("./test_cases/eszip-silly-test");
-        let binding = std::fs::canonicalize(&file).unwrap();
-        let specifier = binding.to_str().unwrap();
-        let format_specifier = format!("file:///{}", specifier);
-        let module_specifier = ModuleSpecifier::parse(&format_specifier).unwrap();
-        let builder = ModuleGraphBuilder::new(
-            Some(Arc::new(Mutex::new(
-                Lockfile::new(
-                    PathBuf::from(
-                        "/Users/andrespirela/Documents/workspace/supabase/edge-runtime/deno.lock",
-                    ),
-                    false,
-                )
-                .unwrap(),
-            ))),
-            None,
-            false,
-        );
-        let create_module_graph_task = builder.create_graph_and_maybe_check(vec![module_specifier]);
-        let graph = create_module_graph_task.await.unwrap();
+        let emitter_factory = Arc::new(EmitterFactory::new());
+        let binary_eszip = generate_binary_eszip(file, emitter_factory.clone())
+            .await
+            .unwrap();
 
-        let mut emitter = EmitterFactory::new();
-        let parser_arc = emitter.parsed_source_cache().unwrap();
-        let parser = parser_arc.as_capturing_parser();
-
-        let eszip = eszip::EszipV2::from_graph(graph, &parser, Default::default());
-        let mut raw_eszip = eszip.unwrap();
-
-        let snapshot = emitter
-            .npm_resolution()
-            .serialized_valid_snapshot_for_system(&NpmSystemInfo::default());
-        raw_eszip.add_npm_snapshot(snapshot.clone());
-        let eszip_code = raw_eszip.into_bytes();
+        let eszip_code = binary_eszip.into_bytes();
 
         let runtime = DenoRuntime::new(WorkerContextInitOpts {
             service_path,

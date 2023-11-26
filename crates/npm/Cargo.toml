@@ -17,7 +17,7 @@ deno_npm.workspace = true
 deno_fs.workspace = true
 deno_semver.workspace = true
 once_cell.workspace = true
-async-trait = "0.1.73"
+async-trait.workspace = true
 base32 = "=0.4.0"
 module_fetcher = { path = "../module_fetcher" }
 deno_lockfile.workspace = true

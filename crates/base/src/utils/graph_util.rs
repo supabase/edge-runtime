@@ -7,9 +7,9 @@ use deno_core::error::{custom_error, AnyError};
 use deno_core::parking_lot::Mutex;
 use deno_core::ModuleSpecifier;
 use deno_semver::package::{PackageNv, PackageReq};
-use eszip::deno_graph;
 use eszip::deno_graph::source::{Loader, NpmResolver};
 use eszip::deno_graph::{GraphKind, ModuleGraph, ModuleGraphError};
+use eszip::{deno_graph, EszipV2};
 use module_fetcher::args::lockfile::Lockfile;
 use module_fetcher::cache::{GlobalHttpCache, ParsedSourceCache};
 use module_fetcher::file_fetcher::FileFetcher;
@@ -314,14 +314,26 @@ pub async fn create_module_graph_from_path(
     Ok(graph)
 }
 
-pub async fn create_eszip_from_graph(graph: ModuleGraph) -> Vec<u8> {
-    let emitter = EmitterFactory::new();
-    let parser_arc = emitter.parsed_source_cache().unwrap();
+pub async fn create_eszip_from_graph_raw(
+    graph: ModuleGraph,
+    emitter_factory: Option<Arc<EmitterFactory>>,
+) -> EszipV2 {
+    let emitter = emitter_factory.unwrap_or_else(|| Arc::new(EmitterFactory::new()));
+    let parser_arc = emitter.clone().parsed_source_cache().unwrap();
     let parser = parser_arc.as_capturing_parser();
 
     let eszip = eszip::EszipV2::from_graph(graph, &parser, Default::default());
 
-    eszip.unwrap().into_bytes()
+    eszip.unwrap()
+}
+
+pub async fn create_eszip_from_graph(
+    graph: ModuleGraph,
+    emitter_factory: Option<Arc<EmitterFactory>>,
+) -> Vec<u8> {
+    let eszip = create_eszip_from_graph_raw(graph, emitter_factory).await;
+
+    eszip.into_bytes()
 }
 
 pub async fn create_graph(file: PathBuf, emitter_factory: Arc<EmitterFactory>) -> ModuleGraph {

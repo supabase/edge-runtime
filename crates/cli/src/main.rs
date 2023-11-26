@@ -5,7 +5,6 @@ use base::commands::start_server;
 use base::js_worker::emitter::EmitterFactory;
 use base::server::WorkerEntrypoints;
 use base::standalone::binary::generate_binary_eszip;
-use base::utils::graph_util::{create_eszip_from_graph, create_module_graph_from_path};
 use clap::builder::{BoolValueParser, FalseyValueParser};
 use clap::{arg, crate_version, value_parser, ArgAction, Command};
 use std::fs::File;

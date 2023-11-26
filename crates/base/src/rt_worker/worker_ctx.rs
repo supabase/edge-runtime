@@ -12,7 +12,6 @@ use event_worker::events::{
 };
 use hyper::{Body, Request, Response};
 use log::{debug, error};
-use notify::{RecursiveMode, Watcher};
 use sb_eszip::module_loader::EszipPayloadKind;
 use sb_worker_context::essentials::{
     EventWorkerRuntimeOpts, MainWorkerRuntimeOpts, UserWorkerMsgs, WorkerContextInitOpts,
@@ -20,7 +19,7 @@ use sb_worker_context::essentials::{
 };
 use std::path::{Path, PathBuf};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio::net::UnixStream;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::{mpsc, oneshot};
@@ -116,7 +115,11 @@ pub fn create_supervisor(
 
     // Note: CPU timer must be started in the same thread as the worker runtime
     let (cpu_alarms_tx, mut cpu_alarms_rx) = mpsc::unbounded_channel::<()>();
-    let cputimer = CPUTimer::start(conf.cpu_time_threshold_ms, CPUAlarmVal { cpu_alarms_tx })?;
+    let cputimer = CPUTimer::start(
+        conf.cpu_time_soft_limit_ms,
+        conf.cpu_time_hard_limit_ms,
+        CPUAlarmVal { cpu_alarms_tx },
+    )?;
 
     let thread_name = format!("sb-sup-{:?}", key);
     let _handle = thread::Builder::new()
@@ -131,8 +134,8 @@ pub fn create_supervisor(
             let (isolate_memory_usage_tx, isolate_memory_usage_rx) = oneshot::channel::<IsolateMemoryStats>();
 
             let future = async move {
-                let mut bursts = 0;
-                let mut last_burst = Instant::now();
+                let mut cpu_time_soft_limit_reached = false;
+                let mut wall_clock_alerts = 0;
 
                 // reduce 100ms from wall clock duration, so the interrupt can be handled before
                 // isolate is dropped
@@ -143,22 +146,26 @@ pub fn create_supervisor(
                 let wall_clock_duration_alert = tokio::time::interval(wall_clock_duration.checked_div(2).unwrap_or(Duration::from_millis(0)));
                 tokio::pin!(wall_clock_duration_alert);
 
-                let mut wall_clock_alerts = 0;
-
                 loop {
                     tokio::select! {
                         Some(_) = cpu_alarms_rx.recv() => {
-                            if last_burst.elapsed().as_millis() > (conf.cpu_burst_interval_ms as u128) {
-                                bursts += 1;
-                                last_burst = Instant::now();
-                            }
-                            if bursts > conf.max_cpu_bursts {
+                            if !cpu_time_soft_limit_reached {
+                                // retire worker
+                                if let Some(tx) = pool_msg_tx.clone() {
+                                    if tx.send(UserWorkerMsgs::Retire(key)).is_err() {
+                                        error!("failed to send retire msg to pool: {:?}", key);
+                                    }
+                                }
+                                error!("CPU time soft limit reached. isolate: {:?}", key);
+                                cpu_time_soft_limit_reached = true;
+                            } else {
+                                // shutdown worker
                                 let interrupt_data = IsolateInterruptData {
                                     should_terminate: true,
                                     isolate_memory_usage_tx
                                 };
                                 thread_safe_handle.request_interrupt(handle_interrupt, Box::into_raw(Box::new(interrupt_data)) as *mut std::ffi::c_void);
-                                error!("CPU time limit reached. isolate: {:?}", key);
+                                error!("CPU time hard limit reached. isolate: {:?}", key);
                                 return ShutdownReason::CPUTime;
                             }
                         }
@@ -236,31 +243,6 @@ pub fn create_supervisor(
         .unwrap();
 
     Ok(cputimer)
-}
-
-pub fn watch_worker_files(service_path: &PathBuf) {
-    let path = service_path.canonicalize().unwrap();
-    let service_path_clone = std::env::current_dir().map(|p| p.join(path)).unwrap();
-    println!(
-        "Watcher path: {}",
-        service_path_clone.as_path().to_str().unwrap()
-    );
-    let mut watcher: notify::RecommendedWatcher =
-        notify::recommended_watcher(|res: notify::Result<notify::Event>| {
-            println!("Received {}", res.is_ok());
-            match res {
-                Ok(event) => {
-                    println!("watch event: {:?}", event)
-                }
-                Err(e) => println!("watch error: {:?}", e),
-            }
-        })
-        .unwrap();
-
-    println!("{}", service_path_clone.clone().as_path().to_str().unwrap());
-    //let result = watcher.watch(service_path_clone.as_path(), RecursiveMode::Recursive).unwrap();
-    // println!("Watcher started {}", result.is_ok());
-    //watcher.unwatch(&service_path_clone.as_path()).unwrap();
 }
 
 pub async fn create_worker(
@@ -365,7 +347,6 @@ pub async fn create_main_worker(
         events_rx: None,
         maybe_eszip,
         maybe_entrypoint,
-        watch: None,
         maybe_module_code: None,
         conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
             worker_pool_tx: user_worker_msgs_tx,
@@ -401,7 +382,6 @@ pub async fn create_events_worker(
         service_path,
         no_module_cache,
         import_map_path,
-        watch: None,
         env_vars: std::env::vars().collect(),
         events_rx: Some(events_rx),
         maybe_eszip,

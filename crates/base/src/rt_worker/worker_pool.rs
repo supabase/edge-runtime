@@ -1,10 +1,9 @@
-use crate::rt_worker::worker_ctx::{create_worker, send_user_worker_request, watch_worker_files};
+use crate::rt_worker::worker_ctx::{create_worker, send_user_worker_request};
 use anyhow::{anyhow, Error};
 use event_worker::events::WorkerEventWithMetadata;
 use http::{Request, Response};
 use hyper::Body;
 use log::error;
-use notify::{RecursiveMode, Watcher};
 use sb_worker_context::essentials::{
     CreateUserWorkerResult, UserWorkerMsgs, UserWorkerProfile, WorkerContextInitOpts,
     WorkerRuntimeOpts,
@@ -87,17 +86,9 @@ impl WorkerPool {
         let worker_pool_msgs_tx = self.worker_pool_msgs_tx.clone();
 
         tokio::task::spawn(async move {
-            let maybe_watch = worker_options.watch.clone();
-            let main_path = worker_options.service_path.clone();
             let result = create_worker(worker_options).await;
             match result {
                 Ok(worker_request_msg_tx) => {
-                    if let Some(watch) = maybe_watch {
-                        if watch {
-                            watch_worker_files(&main_path);
-                        }
-                    }
-
                     let profile = UserWorkerProfile {
                         worker_request_msg_tx,
                         service_path,

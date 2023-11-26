@@ -19,7 +19,6 @@ async fn test_user_worker_json_imports() {
         maybe_entrypoint: None,
         maybe_module_code: None,
         conf: WorkerRuntimeOpts::UserWorker(user_rt_opts),
-        watch: None,
     };
     let worker_req_tx = create_worker(opts).await.unwrap();
     let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
@@ -54,7 +53,6 @@ async fn test_user_imports_npm() {
         maybe_entrypoint: None,
         maybe_module_code: None,
         conf: WorkerRuntimeOpts::UserWorker(user_rt_opts),
-        watch: None,
     };
     let worker_req_tx = create_worker(opts).await.unwrap();
     let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();

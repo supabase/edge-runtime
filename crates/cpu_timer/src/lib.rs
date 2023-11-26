@@ -25,7 +25,11 @@ pub struct CPUTimer {}
 
 impl CPUTimer {
     #[cfg(target_os = "linux")]
-    pub fn start(interval: u64, cpu_alarm_val: CPUAlarmVal) -> Result<Self, Error> {
+    pub fn start(
+        initial_expiry: u64,
+        interval: u64,
+        cpu_alarm_val: CPUAlarmVal,
+    ) -> Result<Self, Error> {
         let mut timerid = TimerId(std::ptr::null_mut());
         let val_ptr = Box::into_raw(Box::new(cpu_alarm_val));
         let sival_ptr: *mut libc::c_void = val_ptr as *mut libc::c_void;
@@ -47,11 +51,15 @@ impl CPUTimer {
             bail!(std::io::Error::last_os_error())
         }
 
+        let initial_expiry_secs = initial_expiry / 1000;
+        let initial_expiry_msecs = initial_expiry % 1000;
+        let interval_secs = interval / 1000;
+        let interval_msecs = interval % 1000;
         let mut tmspec: libc::itimerspec = unsafe { std::mem::zeroed() };
-        tmspec.it_interval.tv_sec = 0;
-        tmspec.it_interval.tv_nsec = (interval as i64) * 1_000_000;
-        tmspec.it_value.tv_sec = 0;
-        tmspec.it_value.tv_nsec = (interval as i64) * 1_000_000;
+        tmspec.it_value.tv_sec = initial_expiry_secs as i64;
+        tmspec.it_value.tv_nsec = (initial_expiry_msecs as i64) * 1_000_000;
+        tmspec.it_interval.tv_sec = interval_secs as i64;
+        tmspec.it_interval.tv_nsec = (interval_msecs as i64) * 1_000_000;
 
         if unsafe {
             // start the timer with an expiry
@@ -68,7 +76,7 @@ impl CPUTimer {
     }
 
     #[cfg(not(target_os = "linux"))]
-    pub fn start(_: u64, _: CPUAlarmVal) -> Result<Self, Error> {
+    pub fn start(_: u64, _: u64, _: CPUAlarmVal) -> Result<Self, Error> {
         println!("CPU timer: not enabled (need Linux)");
         Ok(Self {})
     }
@@ -120,5 +128,6 @@ pub fn get_thread_time() -> Result<i64, Error> {
         return Err(std::io::Error::last_os_error().into());
     }
 
-    Ok(time.tv_nsec)
+    // convert seconds to nanoseconds and add to nsec value
+    Ok(time.tv_sec * 1_000_000_000 + time.tv_nsec)
 }

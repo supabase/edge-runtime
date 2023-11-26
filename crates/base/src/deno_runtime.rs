@@ -136,7 +136,6 @@ impl DenoRuntime {
             maybe_eszip,
             maybe_entrypoint,
             maybe_module_code,
-            watch,
         } = opts;
 
         // check if the service_path exists
@@ -273,17 +272,12 @@ impl DenoRuntime {
             deno_crypto::deno_crypto::init_ops(None),
             deno_broadcast_channel::deno_broadcast_channel::init_ops(
                 deno_broadcast_channel::InMemoryBroadcastChannel::default(),
-                false,
             ),
-            deno_net::deno_net::init_ops::<Permissions>(
-                Some(root_cert_store_provider),
-                false,
-                None,
-            ),
+            deno_net::deno_net::init_ops::<Permissions>(Some(root_cert_store_provider), None),
             deno_tls::deno_tls::init_ops(),
             deno_http::deno_http::init_ops::<DefaultHttpPropertyExtractor>(),
             deno_io::deno_io::init_ops(stdio),
-            deno_fs::deno_fs::init_ops::<Permissions>(false, fs.clone()),
+            deno_fs::deno_fs::init_ops::<Permissions>(fs.clone()),
             sb_env_op::init_ops(),
             sb_os::sb_os::init_ops(),
             sb_user_workers::init_ops(),
@@ -478,7 +472,6 @@ mod test {
             maybe_eszip: Some(EszipPayloadKind::VecKind(eszip_code)),
             maybe_entrypoint: None,
             maybe_module_code: None,
-            watch: None,
             conf: { WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts { worker_pool_tx }) },
         })
         .await;
@@ -528,7 +521,6 @@ mod test {
                     WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts { worker_pool_tx })
                 }
             },
-            watch: None,
         })
         .await
         .unwrap()
@@ -827,9 +819,8 @@ mod test {
             Some(WorkerRuntimeOpts::UserWorker(UserWorkerRuntimeOpts {
                 memory_limit_mb: memory_limit,
                 worker_timeout_ms,
-                cpu_burst_interval_ms: 100,
-                cpu_time_threshold_ms: 50,
-                max_cpu_bursts: 10,
+                cpu_time_soft_limit_ms: 100,
+                cpu_time_hard_limit_ms: 200,
                 low_memory_multiplier: 5,
                 force_create: true,
                 net_access_disabled: false,

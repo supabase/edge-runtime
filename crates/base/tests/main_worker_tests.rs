@@ -22,7 +22,6 @@ async fn test_main_worker_options_request() {
         conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
             worker_pool_tx: user_worker_msgs_tx,
         }),
-        watch: None,
     };
     let worker_req_tx = create_worker(opts).await.unwrap();
     let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
@@ -65,7 +64,6 @@ async fn test_main_worker_post_request() {
         conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
             worker_pool_tx: user_worker_msgs_tx,
         }),
-        watch: None,
     };
     let worker_req_tx = create_worker(opts).await.unwrap();
     let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
@@ -112,7 +110,6 @@ async fn test_main_worker_boot_error() {
         conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
             worker_pool_tx: user_worker_msgs_tx,
         }),
-        watch: None,
     };
     let result = create_worker(opts).await;
 
@@ -136,7 +133,6 @@ async fn test_main_worker_abort_request() {
         conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
             worker_pool_tx: user_worker_msgs_tx,
         }),
-        watch: None,
     };
     let worker_req_tx = create_worker(opts).await.unwrap();
     let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
@@ -164,7 +160,10 @@ async fn test_main_worker_abort_request() {
 
     let body_bytes = hyper::body::to_bytes(res.into_body()).await.unwrap();
 
-    assert_eq!(body_bytes, "{\"msg\":\"Error: Test abort\"}");
+    assert_eq!(
+        body_bytes,
+        "{\"msg\":\"AbortError: The signal has been aborted\"}"
+    );
 }
 
 //#[tokio::test]

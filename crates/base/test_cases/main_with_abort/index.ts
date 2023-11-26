@@ -42,7 +42,7 @@ serve(async (req: Request) => {
 			const worker = await createWorker();
 			const controller = new AbortController();
 			const signal = controller.signal;
-			controller.abort(new Error('Test abort'));
+			controller.abort();
 			return await worker.fetch(req, { signal });
 		} catch (e) {
 			console.error(e);

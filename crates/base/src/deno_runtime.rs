@@ -8,7 +8,6 @@ use deno_core::{
     located_script_name, serde_v8, JsRuntime, ModuleCode, ModuleId, ModuleLoader, RuntimeOptions,
 };
 use deno_http::DefaultHttpPropertyExtractor;
-use deno_npm::NpmSystemInfo;
 use deno_tls::rustls;
 use deno_tls::rustls::RootCertStore;
 use deno_tls::rustls_native_certs::load_native_certs;
@@ -17,7 +16,7 @@ use import_map::{parse_from_json, ImportMap};
 use log::error;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
@@ -33,7 +32,6 @@ use crate::{errors_rt, snapshot};
 use event_worker::events::{EventMetadata, WorkerEventWithMetadata};
 use event_worker::js_interceptors::sb_events_js_interceptors;
 use event_worker::sb_user_event_worker;
-use module_fetcher::args::lockfile::Lockfile;
 use module_fetcher::util::diagnostic::print_import_map_diagnostics;
 use module_loader::DefaultModuleLoader;
 use sb_core::http_start::sb_core_http;
@@ -42,7 +40,6 @@ use sb_core::permissions::{sb_core_permissions, Permissions};
 use sb_core::runtime::sb_core_runtime;
 use sb_core::sb_core_main_js;
 use sb_env::sb_env as sb_env_op;
-use sb_eszip::module_loader::EszipModuleLoader;
 use sb_node::deno_node;
 use sb_npm::CliNpmResolver;
 use sb_worker_context::essentials::{UserWorkerMsgs, WorkerContextInitOpts, WorkerRuntimeOpts};
@@ -193,12 +190,8 @@ impl DenoRuntime {
 
         let mut net_access_disabled = false;
         let mut allow_remote_modules = true;
-        let mut module_root_path = base_dir_path.clone();
         if conf.is_user_worker() {
             let user_conf = conf.as_user_worker().unwrap();
-            if let Some(custom_module_root) = &user_conf.custom_module_root {
-                module_root_path = PathBuf::from(custom_module_root);
-            }
             net_access_disabled = user_conf.net_access_disabled;
             allow_remote_modules = user_conf.allow_remote_modules;
         }
@@ -227,7 +220,6 @@ impl DenoRuntime {
             let npm_resolver = emitter_factory.npm_resolver().clone();
 
             let default_module_loader = DefaultModuleLoader::new(
-                module_root_path,
                 main_module_url.clone(),
                 import_map,
                 emitter_factory,
@@ -290,7 +282,7 @@ impl DenoRuntime {
             sb_core_runtime::init_ops(Some(main_module_url.clone())),
         ];
 
-        let mut runtime_options = RuntimeOptions {
+        let runtime_options = RuntimeOptions {
             extensions,
             is_main: true,
             create_params: {
@@ -435,11 +427,7 @@ mod test {
     use crate::deno_runtime::DenoRuntime;
     use crate::js_worker::emitter::EmitterFactory;
     use crate::standalone::binary::generate_binary_eszip;
-    use crate::utils::graph_util::ModuleGraphBuilder;
-    use deno_core::parking_lot::Mutex;
-    use deno_core::{ModuleCode, ModuleSpecifier};
-    use deno_npm::NpmSystemInfo;
-    use module_fetcher::args::lockfile::Lockfile;
+    use deno_core::ModuleCode;
     use sb_eszip::module_loader::EszipPayloadKind;
     use sb_worker_context::essentials::{
         MainWorkerRuntimeOpts, UserWorkerMsgs, UserWorkerRuntimeOpts, WorkerContextInitOpts,
@@ -452,6 +440,7 @@ mod test {
     use tokio::sync::mpsc;
 
     #[tokio::test]
+    #[allow(clippy::arc_with_non_send_sync)]
     async fn test_create_eszip_from_graph() {
         let (worker_pool_tx, _) = mpsc::unbounded_channel::<UserWorkerMsgs>();
         let file = PathBuf::from("./test_cases/eszip-silly-test/index.ts");

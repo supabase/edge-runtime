@@ -5,7 +5,7 @@ use base::commands::start_server;
 use base::js_worker::emitter::EmitterFactory;
 use base::server::WorkerEntrypoints;
 use base::standalone::binary::generate_binary_eszip;
-use clap::builder::{BoolValueParser, FalseyValueParser};
+use clap::builder::FalseyValueParser;
 use clap::{arg, crate_version, value_parser, ArgAction, Command};
 use std::fs::File;
 use std::io::Write;
@@ -86,6 +86,7 @@ fn main() -> Result<(), anyhow::Error> {
         }
 
         #[allow(clippy::single_match)]
+        #[allow(clippy::arc_with_non_send_sync)]
         match matches.subcommand() {
             Some(("start", sub_matches)) => {
                 let ip = sub_matches.get_one::<String>("ip").cloned().unwrap();

@@ -7,12 +7,11 @@ use deno_core::error::{custom_error, AnyError};
 use deno_core::parking_lot::Mutex;
 use deno_core::ModuleSpecifier;
 use deno_semver::package::{PackageNv, PackageReq};
-use eszip::deno_graph::source::{Loader, NpmResolver};
+use eszip::deno_graph::source::Loader;
 use eszip::deno_graph::{GraphKind, ModuleGraph, ModuleGraphError};
 use eszip::{deno_graph, EszipV2};
 use module_fetcher::args::lockfile::Lockfile;
-use module_fetcher::cache::{GlobalHttpCache, ParsedSourceCache};
-use module_fetcher::file_fetcher::FileFetcher;
+use module_fetcher::cache::ParsedSourceCache;
 use sb_npm::CliNpmResolver;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -47,8 +46,6 @@ pub struct ModuleGraphBuilder {
     npm_resolver: Arc<CliNpmResolver>,
     parsed_source_cache: Arc<ParsedSourceCache>,
     lockfile: Option<Arc<Mutex<Lockfile>>>,
-    file_fetcher: Arc<FileFetcher>,
-    global_http_cache: Arc<GlobalHttpCache>,
     type_check: bool, // type_checker: Arc<TypeChecker>,
     emitter_factory: Arc<EmitterFactory>,
 }
@@ -59,15 +56,11 @@ impl ModuleGraphBuilder {
         let graph_resolver = emitter_factory.cli_graph_resolver().clone();
         let npm_resolver = emitter_factory.npm_resolver().clone();
         let parsed_source_cache = emitter_factory.parsed_source_cache().unwrap();
-        let mut file_fetcher = emitter_factory.file_fetcher();
-        let http = emitter_factory.global_http_cache();
         Self {
             resolver: graph_resolver,
             npm_resolver,
             parsed_source_cache,
             lockfile,
-            file_fetcher: Arc::new(file_fetcher),
-            global_http_cache: Arc::new(http),
             type_check,
             emitter_factory,
         }
@@ -197,6 +190,7 @@ impl ModuleGraphBuilder {
         Ok(())
     }
 
+    #[allow(clippy::borrow_deref_ref)]
     pub async fn create_graph_and_maybe_check(
         &self,
         roots: Vec<ModuleSpecifier>,
@@ -297,6 +291,7 @@ pub fn graph_valid(
     }
 }
 
+#[allow(clippy::arc_with_non_send_sync)]
 pub async fn create_eszip_from_graph_raw(
     graph: ModuleGraph,
     emitter_factory: Option<Arc<EmitterFactory>>,
@@ -324,7 +319,7 @@ pub async fn create_graph(file: PathBuf, emitter_factory: Arc<EmitterFactory>) -
 
 pub async fn create_graph_from_specifiers(
     specifiers: Vec<ModuleSpecifier>,
-    is_dynamic: bool,
+    _is_dynamic: bool,
     maybe_emitter_factory: Arc<EmitterFactory>,
 ) -> Result<ModuleGraph, AnyError> {
     let builder = ModuleGraphBuilder::new(maybe_emitter_factory, false);

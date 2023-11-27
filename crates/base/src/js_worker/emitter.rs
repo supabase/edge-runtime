@@ -4,17 +4,14 @@ use crate::utils::graph_resolver::{CliGraphResolver, CliGraphResolverOptions};
 use deno_ast::EmitOptions;
 use deno_core::error::AnyError;
 use deno_core::parking_lot::Mutex;
-use deno_core::ModuleSpecifier;
 use deno_npm::resolution::ValidSerializedNpmResolutionSnapshot;
 use deno_npm::NpmSystemInfo;
-use deno_semver::npm::NpmPackageReqReference;
-use deno_semver::package::PackageReqReference;
 use eszip::deno_graph::source::{Loader, Resolver};
-use module_fetcher::args::lockfile::{discover, snapshot_from_lockfile, Lockfile};
+use module_fetcher::args::lockfile::{snapshot_from_lockfile, Lockfile};
 use module_fetcher::args::package_json::{
     get_local_package_json_version_reqs, PackageJsonDeps, PackageJsonDepsProvider,
 };
-use module_fetcher::args::{lockfile, CacheSetting};
+use module_fetcher::args::CacheSetting;
 use module_fetcher::cache::{
     Caches, DenoDir, DenoDirProvider, EmitCache, GlobalHttpCache, NodeAnalysisCache,
     ParsedSourceCache, RealDenoCacheEnv,
@@ -44,6 +41,7 @@ impl<T> Default for Deferred<T> {
 }
 
 impl<T> Deferred<T> {
+    #[allow(dead_code)]
     pub fn get_or_try_init(
         &self,
         create: impl FnOnce() -> Result<T, AnyError>,
@@ -55,6 +53,7 @@ impl<T> Deferred<T> {
         self.0.get_or_init(create)
     }
 
+    #[allow(dead_code)]
     pub async fn get_or_try_init_async(
         &self,
         create: impl Future<Output = Result<T, AnyError>>,
@@ -91,6 +90,8 @@ pub struct EmitterFactory {
     maybe_lockfile: Option<LockfileOpts>,
     npm_resolver: Deferred<Arc<CliNpmResolver>>,
     resolver: Deferred<Arc<CliGraphResolver>>,
+    file_fetcher_cache_strategy: Option<CacheSetting>,
+    file_fetcher_allow_remote: bool,
 }
 
 impl Default for EmitterFactory {
@@ -118,7 +119,17 @@ impl EmitterFactory {
             maybe_lockfile: None,
             npm_resolver: Default::default(),
             resolver: Default::default(),
+            file_fetcher_cache_strategy: None,
+            file_fetcher_allow_remote: true,
         }
+    }
+
+    pub fn set_file_fetcher_cache_strategy(&mut self, strategy: CacheSetting) {
+        self.file_fetcher_cache_strategy = Some(strategy);
+    }
+
+    pub fn set_file_fetcher_allow_remote(&mut self, allow_remote: bool) {
+        self.file_fetcher_allow_remote = allow_remote;
     }
 
     pub async fn init_npm(&mut self) {
@@ -351,8 +362,10 @@ impl EmitterFactory {
 
         FileFetcher::new(
             global_cache.clone(),
-            CacheSetting::ReloadAll, // TODO: Maybe ?
-            true,
+            self.file_fetcher_cache_strategy
+                .clone()
+                .unwrap_or(CacheSetting::ReloadAll),
+            self.file_fetcher_allow_remote,
             http_client,
             blob_store,
         )

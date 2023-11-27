@@ -6,9 +6,7 @@ use deno_core::{ModuleCode, ModuleSpecifier};
 use deno_semver::npm::{NpmPackageNvReference, NpmPackageReqReference};
 use module_fetcher::node::CliNodeCodeTranslator;
 use sb_node::{NodePermissions, NodeResolution, NodeResolutionMode, NodeResolver};
-use sb_npm::CliNpmResolver;
 use std::collections::HashSet;
-use std::path::Path;
 use std::sync::Arc;
 
 pub struct NpmModuleLoader {

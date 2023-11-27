@@ -9,7 +9,6 @@ use sb_worker_context::essentials::{
     WorkerRuntimeOpts,
 };
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::oneshot::Sender;

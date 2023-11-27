@@ -9,17 +9,10 @@ use deno_core::error::{generic_error, type_error, AnyError};
 use deno_core::futures::FutureExt;
 use deno_core::{ModuleLoader, ModuleSpecifier, ModuleType, ResolutionKind};
 use deno_semver::npm::NpmPackageReqReference;
-use eszip::EszipV2;
 use import_map::ImportMap;
-use module_fetcher::args::lockfile::Lockfile;
-use module_fetcher::args::package_json::PackageJsonDepsProvider;
 use module_fetcher::file_fetcher::get_source_from_data_url;
 use sb_eszip::module_loader::EszipPayloadKind;
-use sb_node::NodePermissions;
-use sb_npm::CliNpmResolver;
-use std::path::PathBuf;
 use std::pin::Pin;
-use std::rc::Rc;
 use std::sync::Arc;
 
 pub struct SharedModuleLoaderState {
@@ -102,7 +95,7 @@ impl ModuleLoader for EmbeddedModuleLoader {
         &self,
         original_specifier: &ModuleSpecifier,
         maybe_referrer: Option<&ModuleSpecifier>,
-        is_dynamic: bool,
+        _is_dynamic: bool,
     ) -> Pin<Box<deno_core::ModuleSourceFuture>> {
         let is_data_uri = get_source_from_data_url(original_specifier).ok();
         if let Some((source, _)) = is_data_uri {
@@ -197,7 +190,7 @@ pub fn create_shared_state_for_module_loader(
 
 pub async fn create_module_loader_for_standalone_from_eszip_kind(
     eszip_payload_kind: EszipPayloadKind,
-    maybe_import_map: Option<Arc<ImportMap>>,
+    _maybe_import_map: Option<Arc<ImportMap>>,
 ) -> RuntimeProviders {
     use deno_core::futures::io::{AllowStdIo, BufReader};
     let bytes = match eszip_payload_kind {

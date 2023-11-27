@@ -1,7 +1,6 @@
 use crate::js_worker::emitter::EmitterFactory;
 use anyhow::{anyhow, bail};
 use deno_core::error::AnyError;
-use deno_core::futures::future;
 use deno_core::futures::future::LocalBoxFuture;
 use deno_core::futures::FutureExt;
 use deno_core::ModuleSpecifier;
@@ -124,22 +123,12 @@ pub struct CliGraphResolver {
     found_package_json_dep_flag: Arc<AtomicFlag>,
 }
 
+#[derive(Default)]
 pub struct CliGraphResolverOptions<'a> {
     pub maybe_jsx_import_source_config: Option<JsxImportSourceConfig>,
     pub maybe_import_map: Option<Arc<ImportMap>>,
     pub maybe_vendor_dir: Option<&'a PathBuf>,
     pub no_npm: bool,
-}
-
-impl Default for CliGraphResolverOptions<'_> {
-    fn default() -> Self {
-        CliGraphResolverOptions {
-            maybe_jsx_import_source_config: None,
-            maybe_import_map: None,
-            maybe_vendor_dir: None,
-            no_npm: false,
-        }
-    }
 }
 
 impl CliGraphResolver {

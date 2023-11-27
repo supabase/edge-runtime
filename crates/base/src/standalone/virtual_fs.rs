@@ -3,10 +3,7 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::fs::File;
 use std::io;
-use std::io::Read;
-use std::io::Seek;
 use std::io::SeekFrom;
 use std::path::Path;
 use std::path::PathBuf;
@@ -29,8 +26,6 @@ use module_fetcher::util::fs::canonicalize_path;
 use serde::Deserialize;
 use serde::Serialize;
 use thiserror::Error;
-
-use async_trait::async_trait;
 
 #[derive(Error, Debug)]
 #[error(
@@ -361,7 +356,7 @@ pub struct VirtualFile {
 }
 
 impl VirtualFile {
-    pub fn read_file(&self, pos: u64, buf: &mut [u8]) -> std::io::Result<usize> {
+    pub fn read_file(&self, _pos: u64, buf: &mut [u8]) -> std::io::Result<usize> {
         match &self.content {
             Some(content) => {
                 let read_length = buf.len().min(content.len());

@@ -17,7 +17,7 @@ use sb_worker_context::essentials::{
     EventWorkerRuntimeOpts, MainWorkerRuntimeOpts, UserWorkerMsgs, WorkerContextInitOpts,
     WorkerRequestMsg, WorkerRuntimeOpts,
 };
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
 use tokio::net::UnixStream;

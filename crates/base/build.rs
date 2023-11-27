@@ -4,13 +4,9 @@ use std::path::PathBuf;
 
 mod supabase_startup_snapshot {
     use super::*;
-    use deno_ast::MediaType;
-    use deno_ast::ParseParams;
-    use deno_ast::SourceTextInfo;
     use deno_core::error::AnyError;
     use deno_core::snapshot_util::*;
-    use deno_core::ExtensionFileSource;
-    use deno_core::{Extension, ExtensionFileSourceCode};
+    use deno_core::Extension;
     use deno_fs::OpenOptions;
     use deno_http::DefaultHttpPropertyExtractor;
     use event_worker::js_interceptors::sb_events_js_interceptors;

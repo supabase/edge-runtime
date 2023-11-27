@@ -6,7 +6,6 @@ use deno_core::error::generic_error;
 use deno_core::error::type_error;
 use deno_core::error::AnyError;
 use deno_core::futures::FutureExt;
-use deno_core::v8_set_flags;
 use deno_core::ModuleLoader;
 use deno_core::ModuleSpecifier;
 use deno_core::ModuleType;
@@ -23,7 +22,6 @@ use module_fetcher::cache::{Caches, DenoDirProvider, NodeAnalysisCache};
 use module_fetcher::file_fetcher::get_source_from_data_url;
 use module_fetcher::http_util::HttpClient;
 use module_fetcher::node::CliCjsCodeAnalyzer;
-use sb_core::permissions::Permissions;
 use sb_node::analyze::NodeCodeTranslator;
 use std::pin::Pin;
 use std::rc::Rc;
@@ -37,7 +35,7 @@ use crate::cert::{get_root_cert_store, CaData};
 use crate::deno_runtime::RuntimeProviders;
 use crate::js_worker::node_module_loader::{CjsResolutionStore, NpmModuleLoader};
 use crate::utils::graph_resolver::MappedSpecifierResolver;
-use sb_node::{NodePermissions, NodeResolver};
+use sb_node::NodeResolver;
 use sb_npm::{
     create_npm_fs_resolver, CliNpmRegistryApi, CliNpmResolver, NpmCache, NpmCacheDir, NpmResolution,
 };
@@ -119,7 +117,7 @@ impl ModuleLoader for EmbeddedModuleLoader {
         &self,
         original_specifier: &ModuleSpecifier,
         maybe_referrer: Option<&ModuleSpecifier>,
-        is_dynamic: bool,
+        _is_dynamic: bool,
     ) -> Pin<Box<deno_core::ModuleSourceFuture>> {
         let is_data_uri = get_source_from_data_url(original_specifier).ok();
         let permissions = sb_node::allow_all();
@@ -243,7 +241,7 @@ pub async fn create_module_loader_for_eszip(
         .join(format!("sb-compile-{}", current_exe_name))
         .join("node_modules");
     let npm_cache_dir = NpmCacheDir::new(root_path.clone());
-    let (fs, vfs_root, snapshot) = if let Some(snapshot) = eszip.take_npm_snapshot() {
+    let (fs, snapshot) = if let Some(snapshot) = eszip.take_npm_snapshot() {
         // TODO: Support node_modules
         let vfs_root_dir_path = npm_cache_dir.registry_folder(&npm_registry_url);
 
@@ -255,18 +253,15 @@ pub async fn create_module_loader_for_eszip(
             .unwrap()
             .to_vec();
 
-        let vfs = load_npm_vfs(vfs_root_dir_path.clone(), &vfs_data)
-            .context("Failed to load npm vfs.")?;
+        let vfs = load_npm_vfs(vfs_root_dir_path, &vfs_data).context("Failed to load npm vfs.")?;
 
         (
             Arc::new(DenoCompileFileSystem::new(vfs)) as Arc<dyn deno_fs::FileSystem>,
-            Some(vfs_root_dir_path),
             Some(snapshot),
         )
     } else {
         (
             Arc::new(deno_fs::RealFs) as Arc<dyn deno_fs::FileSystem>,
-            None,
             None,
         )
     };

@@ -1,8 +1,7 @@
 use crate::js_worker::emitter::EmitterFactory;
 use crate::standalone::virtual_fs::{FileBackedVfs, VfsBuilder, VfsRoot, VirtualDirectory};
 use crate::standalone::VFS_ESZIP_KEY;
-use crate::utils::graph_util::{create_eszip_from_graph_raw, create_graph, ModuleGraphBuilder};
-use deno_ast::ModuleSpecifier;
+use crate::utils::graph_util::{create_eszip_from_graph_raw, create_graph};
 use deno_core::error::AnyError;
 use deno_core::serde_json;
 use deno_npm::registry::PackageDepNpmSchemeValueParseError;
@@ -10,7 +9,6 @@ use deno_npm::NpmSystemInfo;
 use deno_semver::package::PackageReq;
 use deno_semver::VersionReqSpecifierParseError;
 use eszip::EszipV2;
-use log::Level;
 use module_fetcher::args::package_json::{PackageJsonDepValueParseError, PackageJsonDeps};
 use serde::Deserialize;
 use serde::Serialize;
@@ -98,7 +96,7 @@ pub struct Metadata {
     pub package_json_deps: Option<SerializablePackageJsonDeps>,
 }
 
-pub fn load_npm_vfs(root_dir_path: PathBuf, vfs_data: &Vec<u8>) -> Result<FileBackedVfs, AnyError> {
+pub fn load_npm_vfs(root_dir_path: PathBuf, vfs_data: &[u8]) -> Result<FileBackedVfs, AnyError> {
     let mut dir: VirtualDirectory = serde_json::from_slice(vfs_data)?;
 
     // align the name of the directory with the root dir
@@ -151,7 +149,7 @@ pub async fn generate_binary_eszip(
 
     let npm_res = emitter_factory.npm_resolution();
 
-    let (npm_vfs, npm_files) = if npm_res.has_packages() {
+    let (npm_vfs, _npm_files) = if npm_res.has_packages() {
         let (root_dir, files) = build_vfs(emitter_factory.clone())?.into_dir_and_files();
         let snapshot = npm_res.serialized_valid_snapshot_for_system(&NpmSystemInfo::default());
         eszip.add_npm_snapshot(snapshot);

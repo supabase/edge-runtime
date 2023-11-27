@@ -15,7 +15,6 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use url::Url;
 
 #[derive(Serialize, Deserialize)]
 enum SerializablePackageJsonDepValueParseError {
@@ -89,7 +88,6 @@ pub struct Metadata {
     pub ca_stores: Option<Vec<String>>,
     pub ca_data: Option<Vec<u8>>,
     pub unsafely_ignore_certificate_errors: Option<Vec<String>>,
-    pub maybe_import_map: Option<(Url, String)>,
     // pub entrypoint: ModuleSpecifier,
     // /// Whether this uses a node_modules directory (true) or the global cache (false).
     // pub node_modules_dir: bool,

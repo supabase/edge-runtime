@@ -20,10 +20,8 @@ use module_fetcher::file_fetcher::CacheSetting;
 use module_fetcher::http_util::HttpClient;
 use module_fetcher::node;
 use module_fetcher::util::text_encoding::code_without_source_map;
-use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
-use url::Url;
 
 pub fn make_http_client() -> Result<HttpClient, AnyError> {
     let root_cert_store = None;
@@ -125,7 +123,6 @@ impl PreparedModuleLoader {
 }
 
 pub struct DefaultModuleLoader {
-    maybe_import_map: Option<ImportMap>,
     graph: ModuleGraph,
     prepared_module_loader: Arc<PreparedModuleLoader>,
     emitter: Arc<EmitterFactory>,
@@ -148,12 +145,12 @@ impl DefaultModuleLoader {
 
         emitter.set_file_fetcher_cache_strategy(cache_setting);
         emitter.set_file_fetcher_allow_remote(allow_remote);
+        emitter.set_import_map(maybe_import_map);
 
         let emitter = Arc::new(emitter);
         let graph = create_graph(main_module.to_file_path().unwrap(), emitter.clone()).await;
 
         Ok(Self {
-            maybe_import_map,
             graph: graph.clone(),
             prepared_module_loader: Arc::new(PreparedModuleLoader {
                 graph,
@@ -201,74 +198,57 @@ impl ModuleLoader for DefaultModuleLoader {
         referrer: &str,
         _kind: ResolutionKind,
     ) -> Result<ModuleSpecifier, Error> {
-        if let Some(import_map) = &self.maybe_import_map {
-            let referrer_relative = Path::new(referrer).is_relative();
-            let referrer_url = if referrer_relative {
-                import_map.base_url().join(referrer)
-            } else {
-                Url::parse(referrer)
+        let cwd = std::env::current_dir().context("Unable to get CWD")?;
+        let referrer_result = deno_core::resolve_url_or_path(referrer, &cwd);
+        let permissions = sb_node::allow_all();
+        let npm_module_loader = self.emitter.npm_module_loader();
+
+        if let Ok(referrer) = referrer_result.as_ref() {
+            if let Some(result) =
+                npm_module_loader.resolve_if_in_npm_package(specifier, referrer, &*permissions)
+            {
+                return result;
+            }
+
+            let graph = self.graph.clone();
+            let maybe_resolved = match graph.get(referrer) {
+                Some(Module::Esm(module)) => {
+                    module.dependencies.get(specifier).map(|d| &d.maybe_code)
+                }
+                _ => None,
             };
 
-            if referrer_url.is_err() {
-                return referrer_url.map_err(|err| err.into());
-            }
+            match maybe_resolved {
+                Some(Resolution::Ok(resolved)) => {
+                    let specifier = &resolved.specifier;
 
-            let referrer_url = referrer_url.unwrap();
-            import_map
-                .resolve(specifier, &referrer_url)
-                .map_err(|err| err.into())
-        } else {
-            let cwd = std::env::current_dir().context("Unable to get CWD")?;
-            let referrer_result = deno_core::resolve_url_or_path(referrer, &cwd);
-            let permissions = sb_node::allow_all();
-            let npm_module_loader = self.emitter.npm_module_loader();
-
-            if let Ok(referrer) = referrer_result.as_ref() {
-                if let Some(result) =
-                    npm_module_loader.resolve_if_in_npm_package(specifier, referrer, &*permissions)
-                {
-                    return result;
+                    return match graph.get(specifier) {
+                        Some(Module::Npm(module)) => {
+                            npm_module_loader.resolve_nv_ref(&module.nv_reference, &*permissions)
+                        }
+                        Some(Module::Node(module)) => Ok(module.specifier.clone()),
+                        Some(Module::Esm(module)) => Ok(module.specifier.clone()),
+                        Some(Module::Json(module)) => Ok(module.specifier.clone()),
+                        Some(Module::External(module)) => {
+                            Ok(node::resolve_specifier_into_node_modules(&module.specifier))
+                        }
+                        None => Ok(specifier.clone()),
+                    };
                 }
-
-                let graph = self.graph.clone();
-                let maybe_resolved = match graph.get(referrer) {
-                    Some(Module::Esm(module)) => {
-                        module.dependencies.get(specifier).map(|d| &d.maybe_code)
-                    }
-                    _ => None,
-                };
-
-                match maybe_resolved {
-                    Some(Resolution::Ok(resolved)) => {
-                        let specifier = &resolved.specifier;
-
-                        return match graph.get(specifier) {
-                            Some(Module::Npm(module)) => npm_module_loader
-                                .resolve_nv_ref(&module.nv_reference, &*permissions),
-                            Some(Module::Node(module)) => Ok(module.specifier.clone()),
-                            Some(Module::Esm(module)) => Ok(module.specifier.clone()),
-                            Some(Module::Json(module)) => Ok(module.specifier.clone()),
-                            Some(Module::External(module)) => {
-                                Ok(node::resolve_specifier_into_node_modules(&module.specifier))
-                            }
-                            None => Ok(specifier.clone()),
-                        };
-                    }
-                    Some(Resolution::Err(err)) => {
-                        return Err(custom_error(
-                            "TypeError",
-                            format!("{}\n", err.to_string_with_range()),
-                        ))
-                    }
-                    Some(Resolution::None) | None => {}
+                Some(Resolution::Err(err)) => {
+                    return Err(custom_error(
+                        "TypeError",
+                        format!("{}\n", err.to_string_with_range()),
+                    ))
                 }
+                Some(Resolution::None) | None => {}
             }
-
-            self.emitter
-                .cli_graph_resolver()
-                .clone()
-                .resolve(specifier, &referrer_result?)
         }
+
+        self.emitter
+            .cli_graph_resolver()
+            .clone()
+            .resolve(specifier, &referrer_result?)
     }
 
     fn prepare_load(

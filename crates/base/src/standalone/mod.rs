@@ -15,7 +15,7 @@ use deno_npm::NpmSystemInfo;
 use deno_semver::npm::NpmPackageReqReference;
 use deno_tls::rustls::RootCertStore;
 use deno_tls::RootCertStoreProvider;
-use import_map::parse_from_json;
+use import_map::ImportMap;
 use module_fetcher::args::package_json::PackageJsonDepsProvider;
 use module_fetcher::args::CacheSetting;
 use module_fetcher::cache::{Caches, DenoDirProvider, NodeAnalysisCache};
@@ -220,6 +220,7 @@ impl RootCertStoreProvider for StandaloneRootCertStoreProvider {
 pub async fn create_module_loader_for_eszip(
     mut eszip: eszip::EszipV2,
     metadata: Metadata,
+    maybe_import_map: Option<ImportMap>,
 ) -> Result<RuntimeProviders, AnyError> {
     // let main_module = &metadata.entrypoint;
     let current_exe_path = std::env::current_exe().unwrap();
@@ -317,15 +318,15 @@ pub async fn create_module_loader_for_eszip(
             .package_json_deps
             .map(|serialized| serialized.into_deps()),
     ));
-    let maybe_import_map = metadata
-        .maybe_import_map
-        .map(|(base, source)| Arc::new(parse_from_json(&base, &source).unwrap().import_map));
+    let maybe_import_map = maybe_import_map
+        .map(|import_map| Some(Arc::new(import_map)))
+        .unwrap_or_else(|| None);
 
     let module_loader_factory = StandaloneModuleLoaderFactory {
         shared: Arc::new(SharedModuleLoaderState {
             eszip,
             mapped_specifier_resolver: MappedSpecifierResolver::new(
-                maybe_import_map.clone(),
+                maybe_import_map,
                 package_json_deps_provider.clone(),
             ),
             npm_module_loader: Arc::new(NpmModuleLoader::new(

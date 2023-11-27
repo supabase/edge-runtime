@@ -7,6 +7,7 @@ use deno_core::parking_lot::Mutex;
 use deno_npm::resolution::ValidSerializedNpmResolutionSnapshot;
 use deno_npm::NpmSystemInfo;
 use eszip::deno_graph::source::{Loader, Resolver};
+use import_map::ImportMap;
 use module_fetcher::args::lockfile::{snapshot_from_lockfile, Lockfile};
 use module_fetcher::args::package_json::{
     get_local_package_json_version_reqs, PackageJsonDeps, PackageJsonDepsProvider,
@@ -92,6 +93,7 @@ pub struct EmitterFactory {
     resolver: Deferred<Arc<CliGraphResolver>>,
     file_fetcher_cache_strategy: Option<CacheSetting>,
     file_fetcher_allow_remote: bool,
+    maybe_import_map: Option<Arc<ImportMap>>,
 }
 
 impl Default for EmitterFactory {
@@ -121,6 +123,7 @@ impl EmitterFactory {
             resolver: Default::default(),
             file_fetcher_cache_strategy: None,
             file_fetcher_allow_remote: true,
+            maybe_import_map: None,
         }
     }
 
@@ -130,6 +133,12 @@ impl EmitterFactory {
 
     pub fn set_file_fetcher_allow_remote(&mut self, allow_remote: bool) {
         self.file_fetcher_allow_remote = allow_remote;
+    }
+
+    pub fn set_import_map(&mut self, import_map: Option<ImportMap>) {
+        self.maybe_import_map = import_map
+            .map(|import_map| Some(Arc::new(import_map)))
+            .unwrap_or_else(|| None);
     }
 
     pub async fn init_npm(&mut self) {
@@ -340,6 +349,13 @@ impl EmitterFactory {
         })
     }
 
+    pub fn cli_graph_resolver_options(&self) -> CliGraphResolverOptions {
+        CliGraphResolverOptions {
+            maybe_import_map: self.maybe_import_map.clone(),
+            ..Default::default()
+        }
+    }
+
     pub fn cli_graph_resolver(&self) -> &Arc<CliGraphResolver> {
         self.resolver.get_or_init(|| {
             Arc::new(CliGraphResolver::new(
@@ -347,7 +363,7 @@ impl EmitterFactory {
                 self.npm_resolution().clone(),
                 self.package_json_deps_provider().clone(),
                 self.package_json_deps_installer().clone(),
-                CliGraphResolverOptions::default(),
+                self.cli_graph_resolver_options(),
             ))
         })
     }

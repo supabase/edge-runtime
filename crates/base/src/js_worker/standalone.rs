@@ -190,7 +190,7 @@ pub fn create_shared_state_for_module_loader(
 
 pub async fn create_module_loader_for_standalone_from_eszip_kind(
     eszip_payload_kind: EszipPayloadKind,
-    _maybe_import_map: Option<Arc<ImportMap>>,
+    maybe_import_map: Option<ImportMap>,
 ) -> RuntimeProviders {
     use deno_core::futures::io::{AllowStdIo, BufReader};
     let bytes = match eszip_payload_kind {
@@ -209,9 +209,9 @@ pub async fn create_module_loader_for_standalone_from_eszip_kind(
             ca_stores: None,
             ca_data: None,
             unsafely_ignore_certificate_errors: None,
-            maybe_import_map: None,
             package_json_deps: None,
         },
+        maybe_import_map,
     )
     .await
     .unwrap()

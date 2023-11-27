@@ -212,11 +212,12 @@ impl DenoRuntime {
 
         let fs = Arc::new(deno_fs::RealFs);
 
-        let rt_providers = if maybe_eszip.is_some() {
-            create_module_loader_for_standalone_from_eszip_kind(maybe_eszip.unwrap(), None).await
-        } else {
-            let import_map = load_import_map(import_map_path)?;
+        let import_map = load_import_map(import_map_path)?;
 
+        let rt_providers = if maybe_eszip.is_some() {
+            create_module_loader_for_standalone_from_eszip_kind(maybe_eszip.unwrap(), import_map)
+                .await
+        } else {
             let npm_resolver = emitter_factory.npm_resolver().clone();
 
             let default_module_loader = DefaultModuleLoader::new(

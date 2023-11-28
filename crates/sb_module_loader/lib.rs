@@ -1,4 +1,4 @@
-use deno_core::ModuleLoader;
+use deno_core::{FastString, ModuleLoader};
 use sb_npm::CliNpmResolver;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -12,4 +12,5 @@ pub struct RuntimeProviders {
     pub npm_resolver: Arc<CliNpmResolver>,
     pub module_loader: Rc<dyn ModuleLoader>,
     pub fs: Arc<dyn deno_fs::FileSystem>,
+    pub module_code: Option<FastString>,
 }

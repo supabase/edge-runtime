@@ -127,11 +127,6 @@ impl DenoRuntime {
             maybe_module_code,
         } = opts;
 
-        // check if the service_path exists
-        if maybe_entrypoint.is_none() && !service_path.exists() {
-            bail!("service does not exist {:?}", &service_path)
-        }
-
         set_v8_flags();
 
         let user_agent = "supabase-edge-runtime".to_string();
@@ -233,7 +228,10 @@ impl DenoRuntime {
             npm_resolver,
             fs: file_system,
             module_loader,
+            module_code,
         } = rt_provider;
+
+        let mod_code = module_code.or(maybe_module_code);
 
         let extensions = vec![
             sb_core_permissions::init_ops(net_access_disabled),
@@ -340,7 +338,7 @@ impl DenoRuntime {
         }
 
         let main_module_id = js_runtime
-            .load_main_module(&main_module_url, maybe_module_code)
+            .load_main_module(&main_module_url, mod_code)
             .await?;
 
         Ok(Self {
@@ -427,10 +425,64 @@ mod test {
         WorkerRuntimeOpts,
     };
     use std::collections::HashMap;
+    use std::fs;
+    use std::fs::File;
+    use std::io::Write;
     use std::path::PathBuf;
     use std::sync::Arc;
     use tokio::net::UnixStream;
     use tokio::sync::mpsc;
+
+    #[tokio::test]
+    #[allow(clippy::arc_with_non_send_sync)]
+    async fn test_eszip_with_source_file() {
+        let (worker_pool_tx, _) = mpsc::unbounded_channel::<UserWorkerMsgs>();
+        let mut file = File::create("./test_cases/eszip-source-test.ts").unwrap();
+        file.write_all(b"import isEven from \"npm:is-even\"; globalThis.isTenEven = isEven(9);")
+            .unwrap();
+        let path_buf = PathBuf::from("./test_cases/eszip-source-test.ts");
+        let emitter_factory = Arc::new(EmitterFactory::new());
+        let bin_eszip = generate_binary_eszip(path_buf, emitter_factory.clone())
+            .await
+            .unwrap();
+        fs::remove_file("./test_cases/eszip-source-test.ts").unwrap();
+
+        let eszip_code = bin_eszip.into_bytes();
+
+        let runtime = DenoRuntime::new(WorkerContextInitOpts {
+            service_path: PathBuf::from("./test_cases/"),
+            no_module_cache: false,
+            import_map_path: None,
+            env_vars: Default::default(),
+            events_rx: None,
+            maybe_eszip: Some(EszipPayloadKind::VecKind(eszip_code)),
+            maybe_entrypoint: None,
+            maybe_module_code: None,
+            conf: { WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts { worker_pool_tx }) },
+        })
+        .await;
+
+        let mut rt = runtime.unwrap();
+
+        let main_mod_ev = rt.js_runtime.mod_evaluate(rt.main_module_id);
+        let _ = rt.js_runtime.run_event_loop(false).await;
+
+        let read_is_even_global = rt
+            .js_runtime
+            .execute_script(
+                "<anon>",
+                ModuleCode::from(
+                    r#"
+            globalThis.isTenEven;
+        "#
+                    .to_string(),
+                ),
+            )
+            .unwrap();
+        let read_is_even = rt.to_value::<deno_core::serde_json::Value>(&read_is_even_global);
+        assert_eq!(read_is_even.unwrap().to_string(), "false");
+        std::mem::drop(main_mod_ev);
+    }
 
     #[tokio::test]
     #[allow(clippy::arc_with_non_send_sync)]

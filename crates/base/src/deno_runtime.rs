@@ -4,7 +4,9 @@ use crate::js_worker::module_loader;
 use anyhow::{anyhow, bail, Error};
 use deno_core::error::AnyError;
 use deno_core::url::Url;
-use deno_core::{located_script_name, serde_v8, JsRuntime, ModuleCode, ModuleId, RuntimeOptions};
+use deno_core::{
+    located_script_name, serde_v8, JsRuntime, ModuleCode, ModuleId, ModuleLoader, RuntimeOptions,
+};
 use deno_http::DefaultHttpPropertyExtractor;
 use deno_tls::rustls;
 use deno_tls::rustls::RootCertStore;
@@ -14,7 +16,7 @@ use import_map::{parse_from_json, ImportMap};
 use log::error;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
@@ -25,6 +27,7 @@ use urlencoding::decode;
 
 use crate::cert::ValueRootCertStoreProvider;
 use crate::js_worker::emitter::EmitterFactory;
+use crate::js_worker::standalone::create_module_loader_for_standalone_from_eszip_kind;
 use crate::{errors_rt, snapshot};
 use event_worker::events::{EventMetadata, WorkerEventWithMetadata};
 use event_worker::js_interceptors::sb_events_js_interceptors;
@@ -37,8 +40,8 @@ use sb_core::permissions::{sb_core_permissions, Permissions};
 use sb_core::runtime::sb_core_runtime;
 use sb_core::sb_core_main_js;
 use sb_env::sb_env as sb_env_op;
-use sb_eszip::module_loader::EszipModuleLoader;
 use sb_node::deno_node;
+use sb_npm::CliNpmResolver;
 use sb_worker_context::essentials::{UserWorkerMsgs, WorkerContextInitOpts, WorkerRuntimeOpts};
 use sb_workers::sb_user_workers;
 
@@ -102,6 +105,12 @@ fn set_v8_flags() {
         "v8 flags unrecognized {:?}",
         deno_core::v8_set_flags(vec.iter().map(|v| v.to_string()).collect())
     );
+}
+
+pub struct RuntimeProviders {
+    pub npm_resolver: Arc<CliNpmResolver>,
+    pub module_loader: Rc<dyn ModuleLoader>,
+    pub fs: Arc<dyn deno_fs::FileSystem>,
 }
 
 pub struct DenoRuntime {
@@ -181,12 +190,8 @@ impl DenoRuntime {
 
         let mut net_access_disabled = false;
         let mut allow_remote_modules = true;
-        let mut module_root_path = base_dir_path.clone();
         if conf.is_user_worker() {
             let user_conf = conf.as_user_worker().unwrap();
-            if let Some(custom_module_root) = &user_conf.custom_module_root {
-                module_root_path = PathBuf::from(custom_module_root);
-            }
             net_access_disabled = user_conf.net_access_disabled;
             allow_remote_modules = user_conf.allow_remote_modules;
         }
@@ -202,7 +207,41 @@ impl DenoRuntime {
                 stderr: deno_io::StdioPipe::File(std::fs::File::create("/dev/null")?),
             });
         }
+        let mut emitter_factory = EmitterFactory::new();
+        emitter_factory.init_npm().await;
+
         let fs = Arc::new(deno_fs::RealFs);
+
+        let import_map = load_import_map(import_map_path)?;
+
+        let rt_providers = if maybe_eszip.is_some() {
+            create_module_loader_for_standalone_from_eszip_kind(maybe_eszip.unwrap(), import_map)
+                .await
+        } else {
+            let npm_resolver = emitter_factory.npm_resolver().clone();
+
+            let default_module_loader = DefaultModuleLoader::new(
+                main_module_url.clone(),
+                import_map,
+                emitter_factory,
+                no_module_cache,
+                allow_remote_modules,
+            )
+            .await?;
+
+            RuntimeProviders {
+                npm_resolver,
+                fs: fs.clone(),
+                module_loader: Rc::new(default_module_loader),
+            }
+        };
+
+        let RuntimeProviders {
+            npm_resolver,
+            fs: file_system,
+            module_loader,
+        } = rt_providers;
+
         let extensions = vec![
             sb_core_permissions::init_ops(net_access_disabled),
             deno_webidl::deno_webidl::init_ops(),
@@ -240,11 +279,11 @@ impl DenoRuntime {
             sb_core_main_js::init_ops(),
             sb_core_net::init_ops(),
             sb_core_http::init_ops(),
-            deno_node::init_ops::<Permissions>(None, fs),
+            deno_node::init_ops::<Permissions>(Some(npm_resolver), file_system),
             sb_core_runtime::init_ops(Some(main_module_url.clone())),
         ];
 
-        let mut runtime_options = RuntimeOptions {
+        let runtime_options = RuntimeOptions {
             extensions,
             is_main: true,
             create_params: {
@@ -261,25 +300,10 @@ impl DenoRuntime {
             shared_array_buffer_store: None,
             compiled_wasm_module_store: Default::default(),
             startup_snapshot: Some(snapshot::snapshot()),
+            module_loader: Some(module_loader),
             ..Default::default()
         };
-        if maybe_eszip.is_some() {
-            let eszip_module_loader =
-                EszipModuleLoader::new(maybe_eszip.unwrap(), import_map_path).await?;
-            runtime_options.module_loader = Some(Rc::new(eszip_module_loader));
-        } else {
-            let import_map = load_import_map(import_map_path)?;
-            let emitter = EmitterFactory::new();
 
-            let default_module_loader = DefaultModuleLoader::new(
-                module_root_path,
-                import_map,
-                emitter.emitter().unwrap(),
-                no_module_cache,
-                allow_remote_modules,
-            )?;
-            runtime_options.module_loader = Some(Rc::new(default_module_loader));
-        }
         let mut js_runtime = JsRuntime::new(runtime_options);
 
         let version: Option<&str> = option_env!("GIT_V_TAG");
@@ -403,8 +427,8 @@ impl DenoRuntime {
 mod test {
     use crate::deno_runtime::DenoRuntime;
     use crate::js_worker::emitter::EmitterFactory;
-    use crate::utils::graph_util::create_graph_and_maybe_check;
-    use deno_core::{ModuleCode, ModuleSpecifier};
+    use crate::standalone::binary::generate_binary_eszip;
+    use deno_core::ModuleCode;
     use sb_eszip::module_loader::EszipPayloadKind;
     use sb_worker_context::essentials::{
         MainWorkerRuntimeOpts, UserWorkerMsgs, UserWorkerRuntimeOpts, WorkerContextInitOpts,
@@ -412,27 +436,22 @@ mod test {
     };
     use std::collections::HashMap;
     use std::path::PathBuf;
+    use std::sync::Arc;
     use tokio::net::UnixStream;
     use tokio::sync::mpsc;
 
     #[tokio::test]
+    #[allow(clippy::arc_with_non_send_sync)]
     async fn test_create_eszip_from_graph() {
         let (worker_pool_tx, _) = mpsc::unbounded_channel::<UserWorkerMsgs>();
         let file = PathBuf::from("./test_cases/eszip-silly-test/index.ts");
         let service_path = PathBuf::from("./test_cases/eszip-silly-test");
-        let binding = std::fs::canonicalize(&file).unwrap();
-        let specifier = binding.to_str().unwrap();
-        let format_specifier = format!("file:///{}", specifier);
-        let module_specifier = ModuleSpecifier::parse(&format_specifier).unwrap();
-        let create_module_graph_task = create_graph_and_maybe_check(vec![module_specifier]);
-        let graph = create_module_graph_task.await.unwrap();
+        let emitter_factory = Arc::new(EmitterFactory::new());
+        let binary_eszip = generate_binary_eszip(file, emitter_factory.clone())
+            .await
+            .unwrap();
 
-        let emitter = EmitterFactory::new();
-        let parser_arc = emitter.parsed_source_cache().unwrap();
-        let parser = parser_arc.as_capturing_parser();
-
-        let eszip = eszip::EszipV2::from_graph(graph, &parser, Default::default());
-        let eszip_code = eszip.unwrap().into_bytes();
+        let eszip_code = binary_eszip.into_bytes();
 
         let runtime = DenoRuntime::new(WorkerContextInitOpts {
             service_path,

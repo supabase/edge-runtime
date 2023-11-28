@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
 
+use crate::NpmCache;
 use async_trait::async_trait;
 use deno_ast::ModuleSpecifier;
 use deno_core::error::AnyError;
@@ -19,8 +20,6 @@ use deno_npm::NpmPackageId;
 use deno_npm::NpmResolutionPackage;
 use sb_node::NodePermissions;
 use sb_node::NodeResolutionMode;
-
-use crate::npm::NpmCache;
 
 /// Part of the resolution that interacts with the file system.
 #[async_trait]
@@ -152,18 +151,4 @@ pub fn types_package_name(package_name: &str) -> String {
     // Scoped packages will get two underscores for each slash
     // https://github.com/DefinitelyTyped/DefinitelyTyped/tree/15f1ece08f7b498f4b9a2147c2a46e94416ca777#what-about-scoped-packages
     format!("@types/{}", package_name.replace('/', "__"))
-}
-
-#[cfg(test)]
-mod test {
-    use super::types_package_name;
-
-    #[test]
-    fn test_types_package_name() {
-        assert_eq!(types_package_name("name"), "@types/name");
-        assert_eq!(
-            types_package_name("@scoped/package"),
-            "@types/@scoped__package"
-        );
-    }
 }

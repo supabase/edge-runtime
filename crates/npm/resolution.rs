@@ -30,11 +30,10 @@ use deno_npm::NpmSystemInfo;
 use deno_semver::package::PackageNv;
 use deno_semver::package::PackageReq;
 use deno_semver::VersionReq;
-
-use crate::args::lockfile::Lockfile;
-use crate::util::sync::TaskQueue;
+use module_fetcher::util::sync::TaskQueue;
 
 use super::registry::CliNpmRegistryApi;
+use module_fetcher::args::lockfile::Lockfile;
 
 /// Handles updating and storing npm resolution in memory where the underlying
 /// snapshot can be updated concurrently. Additionally handles updating the lockfile
@@ -293,7 +292,7 @@ async fn add_package_reqs_to_snapshot(
             .iter()
             .all(|req| snapshot.package_reqs().contains_key(req))
     {
-        log::debug!("Snapshot already up to date. Skipping pending resolution.");
+        println!("Snapshot already up to date. Skipping pending resolution.");
         snapshot
     } else {
         let pending_resolver = get_npm_pending_resolver(api);
@@ -304,8 +303,8 @@ async fn add_package_reqs_to_snapshot(
         match result {
             Ok(snapshot) => snapshot,
             Err(NpmResolutionError::Resolution(err)) if api.mark_force_reload() => {
-                log::debug!("{err:#}");
-                log::debug!("npm resolution failed. Trying again...");
+                println!("{err:#}");
+                println!("npm resolution failed. Trying again...");
 
                 // try again
                 let snapshot = get_new_snapshot();

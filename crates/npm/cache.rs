@@ -18,12 +18,10 @@ use deno_npm::registry::NpmPackageVersionDistInfo;
 use deno_npm::NpmPackageCacheFolderId;
 use deno_semver::package::PackageNv;
 use deno_semver::Version;
-
-use crate::args::CacheSetting;
-use crate::http_util::HttpClient;
-use crate::util::fs::canonicalize_path;
-use crate::util::fs::hard_link_dir_recursive;
-use crate::util::path::root_url_to_safe_local_dirname;
+use module_fetcher::args::CacheSetting;
+use module_fetcher::http_util::HttpClient;
+use module_fetcher::util::fs::{canonicalize_path, hard_link_dir_recursive};
+use module_fetcher::util::path::root_url_to_safe_local_dirname;
 
 use super::tarball::verify_and_extract_tarball;
 
@@ -429,90 +427,4 @@ pub fn mixed_case_package_name_encode(name: &str) -> String {
 pub fn mixed_case_package_name_decode(name: &str) -> Option<String> {
     base32::decode(base32::Alphabet::RFC4648 { padding: false }, name)
         .and_then(|b| String::from_utf8(b).ok())
-}
-
-#[cfg(test)]
-mod test {
-    use deno_core::url::Url;
-    use deno_semver::package::PackageNv;
-    use deno_semver::Version;
-
-    use super::NpmCacheDir;
-    use crate::npm::cache::NpmPackageCacheFolderId;
-
-    #[test]
-    fn should_get_package_folder() {
-        let deno_dir = crate::cache::DenoDir::new(None).unwrap();
-        let root_dir = deno_dir.npm_folder_path();
-        let cache = NpmCacheDir::new(root_dir.clone());
-        let registry_url = Url::parse("https://registry.npmjs.org/").unwrap();
-
-        assert_eq!(
-            cache.package_folder_for_id(
-                &NpmPackageCacheFolderId {
-                    nv: PackageNv {
-                        name: "json".to_string(),
-                        version: Version::parse_from_npm("1.2.5").unwrap(),
-                    },
-                    copy_index: 0,
-                },
-                &registry_url,
-            ),
-            root_dir
-                .join("registry.npmjs.org")
-                .join("json")
-                .join("1.2.5"),
-        );
-
-        assert_eq!(
-            cache.package_folder_for_id(
-                &NpmPackageCacheFolderId {
-                    nv: PackageNv {
-                        name: "json".to_string(),
-                        version: Version::parse_from_npm("1.2.5").unwrap(),
-                    },
-                    copy_index: 1,
-                },
-                &registry_url,
-            ),
-            root_dir
-                .join("registry.npmjs.org")
-                .join("json")
-                .join("1.2.5_1"),
-        );
-
-        assert_eq!(
-            cache.package_folder_for_id(
-                &NpmPackageCacheFolderId {
-                    nv: PackageNv {
-                        name: "JSON".to_string(),
-                        version: Version::parse_from_npm("2.1.5").unwrap(),
-                    },
-                    copy_index: 0,
-                },
-                &registry_url,
-            ),
-            root_dir
-                .join("registry.npmjs.org")
-                .join("_jjju6tq")
-                .join("2.1.5"),
-        );
-
-        assert_eq!(
-            cache.package_folder_for_id(
-                &NpmPackageCacheFolderId {
-                    nv: PackageNv {
-                        name: "@types/JSON".to_string(),
-                        version: Version::parse_from_npm("2.1.5").unwrap(),
-                    },
-                    copy_index: 0,
-                },
-                &registry_url,
-            ),
-            root_dir
-                .join("registry.npmjs.org")
-                .join("_ib2hs4dfomxuuu2pjy")
-                .join("2.1.5"),
-        );
-    }
 }

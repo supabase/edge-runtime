@@ -1,11 +1,11 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
-mod cache;
-mod installer;
-mod registry;
-mod resolution;
-mod resolvers;
-mod tarball;
+pub mod cache;
+pub mod installer;
+pub mod registry;
+pub mod resolution;
+pub mod resolvers;
+pub mod tarball;
 
 pub use cache::NpmCache;
 pub use cache::NpmCacheDir;

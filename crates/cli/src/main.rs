@@ -2,12 +2,15 @@ mod logger;
 
 use anyhow::Error;
 use base::commands::start_server;
+use base::js_worker::emitter::EmitterFactory;
 use base::server::WorkerEntrypoints;
-use base::utils::graph_util::{create_eszip_from_graph, create_module_graph_from_path};
+use base::standalone::binary::generate_binary_eszip;
 use clap::builder::FalseyValueParser;
 use clap::{arg, crate_version, value_parser, ArgAction, Command};
 use std::fs::File;
 use std::io::Write;
+use std::path::PathBuf;
+use std::sync::Arc;
 
 fn cli() -> Command {
     Command::new("edge-runtime")
@@ -83,6 +86,7 @@ fn main() -> Result<(), anyhow::Error> {
         }
 
         #[allow(clippy::single_match)]
+        #[allow(clippy::arc_with_non_send_sync)]
         match matches.subcommand() {
             Some(("start", sub_matches)) => {
                 let ip = sub_matches.get_one::<String>("ip").cloned().unwrap();
@@ -127,13 +131,16 @@ fn main() -> Result<(), anyhow::Error> {
                     .cloned()
                     .unwrap();
 
-                let create_graph_from_path =
-                    create_module_graph_from_path(entry_point_path.as_str())
-                        .await
-                        .unwrap();
-                let create_eszip = create_eszip_from_graph(create_graph_from_path).await;
+                let path = PathBuf::from(entry_point_path.as_str());
+                let eszip = generate_binary_eszip(
+                    path.canonicalize().unwrap(),
+                    Arc::new(EmitterFactory::new()),
+                )
+                .await?;
+                let bin = eszip.into_bytes();
+
                 let mut file = File::create(output_path.as_str()).unwrap();
-                file.write_all(&create_eszip).unwrap();
+                file.write_all(&bin).unwrap();
             }
             _ => {
                 // unrecognized command

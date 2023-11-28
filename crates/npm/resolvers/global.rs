@@ -20,9 +20,9 @@ use deno_npm::NpmSystemInfo;
 use sb_node::NodePermissions;
 use sb_node::NodeResolutionMode;
 
-use crate::npm::resolution::NpmResolution;
-use crate::npm::resolvers::common::cache_packages;
-use crate::npm::NpmCache;
+use crate::resolution::NpmResolution;
+use crate::resolvers::common::cache_packages;
+use crate::NpmCache;
 
 use super::common::types_package_name;
 use super::common::NpmPackageFsResolver;

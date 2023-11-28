@@ -9,9 +9,8 @@ use deno_core::futures::StreamExt;
 use deno_npm::registry::NpmRegistryApi;
 use deno_npm::registry::NpmRegistryPackageInfoLoadError;
 use deno_semver::package::PackageReq;
-
-use crate::args::package_json::PackageJsonDepsProvider;
-use crate::util::sync::AtomicFlag;
+use module_fetcher::args::package_json::PackageJsonDepsProvider;
+use module_fetcher::util::sync::AtomicFlag;
 
 use super::CliNpmRegistryApi;
 use super::NpmResolution;
@@ -92,7 +91,7 @@ impl PackageJsonDepsInstaller {
                 .resolve_pkg_id_from_pkg_req(req)
                 .is_ok()
         }) {
-            log::debug!("All package.json deps resolvable. Skipping top level install.");
+            println!("All package.json deps resolvable. Skipping top level install.");
             return Ok(()); // everything is already resolvable
         }
 
@@ -105,7 +104,7 @@ impl PackageJsonDepsInstaller {
                 .resolve_package_req_as_pending_with_info(req, &info);
             if let Err(err) = result {
                 if inner.npm_registry_api.mark_force_reload() {
-                    log::debug!("Failed to resolve package. Retrying. Error: {err:#}");
+                    println!("Failed to resolve package. Retrying. Error: {err:#}");
                     // re-initialize
                     reqs_with_info_futures = inner.reqs_with_info_futures(&package_reqs);
                 } else {

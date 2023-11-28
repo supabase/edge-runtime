@@ -1,12 +1,20 @@
 use crate::errors_rt::get_error_class_name;
 use crate::js_worker::emitter::EmitterFactory;
+use crate::utils::graph_resolver::CliGraphResolver;
 use crate::utils::graph_util::deno_graph::ModuleError;
 use crate::utils::graph_util::deno_graph::ResolutionError;
 use deno_core::error::{custom_error, AnyError};
+use deno_core::parking_lot::Mutex;
 use deno_core::ModuleSpecifier;
-use eszip::deno_graph;
-use eszip::deno_graph::{ModuleGraph, ModuleGraphError};
+use deno_semver::package::{PackageNv, PackageReq};
+use eszip::deno_graph::source::Loader;
+use eszip::deno_graph::{GraphKind, ModuleGraph, ModuleGraphError};
+use eszip::{deno_graph, EszipV2};
+use module_fetcher::args::lockfile::Lockfile;
+use module_fetcher::cache::ParsedSourceCache;
+use sb_npm::CliNpmResolver;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 #[derive(Clone, Copy)]
 pub struct GraphValidOptions {
@@ -31,6 +39,189 @@ pub fn graph_valid_with_cli_options(
             check_js: false,
         },
     )
+}
+
+pub struct ModuleGraphBuilder {
+    resolver: Arc<CliGraphResolver>,
+    npm_resolver: Arc<CliNpmResolver>,
+    parsed_source_cache: Arc<ParsedSourceCache>,
+    lockfile: Option<Arc<Mutex<Lockfile>>>,
+    type_check: bool, // type_checker: Arc<TypeChecker>,
+    emitter_factory: Arc<EmitterFactory>,
+}
+
+impl ModuleGraphBuilder {
+    pub fn new(emitter_factory: Arc<EmitterFactory>, type_check: bool) -> Self {
+        let lockfile = emitter_factory.get_lock_file();
+        let graph_resolver = emitter_factory.cli_graph_resolver().clone();
+        let npm_resolver = emitter_factory.npm_resolver().clone();
+        let parsed_source_cache = emitter_factory.parsed_source_cache().unwrap();
+        Self {
+            resolver: graph_resolver,
+            npm_resolver,
+            parsed_source_cache,
+            lockfile,
+            type_check,
+            emitter_factory,
+        }
+    }
+
+    pub async fn create_graph_with_loader(
+        &self,
+        graph_kind: GraphKind,
+        roots: Vec<ModuleSpecifier>,
+        loader: &mut dyn Loader,
+    ) -> Result<deno_graph::ModuleGraph, AnyError> {
+        let cli_resolver = self.resolver.clone();
+        let graph_resolver = cli_resolver.as_graph_resolver();
+        let graph_npm_resolver = cli_resolver.as_graph_npm_resolver();
+        let analyzer = self.parsed_source_cache.as_analyzer();
+
+        let mut graph = ModuleGraph::new(graph_kind);
+        self.build_graph_with_npm_resolution(
+            &mut graph,
+            roots,
+            loader,
+            deno_graph::BuildOptions {
+                is_dynamic: false,
+                imports: vec![],
+                resolver: Some(graph_resolver),
+                npm_resolver: Some(graph_npm_resolver),
+                module_analyzer: Some(&*analyzer),
+                reporter: None,
+                // todo(dsherret): workspace support
+                workspace_members: vec![],
+            },
+        )
+        .await?;
+
+        if graph.has_node_specifier && self.type_check {
+            self.npm_resolver
+                .inject_synthetic_types_node_package()
+                .await?;
+        }
+
+        Ok(graph)
+    }
+
+    pub async fn build_graph_with_npm_resolution<'a>(
+        &self,
+        graph: &mut ModuleGraph,
+        roots: Vec<ModuleSpecifier>,
+        loader: &mut dyn deno_graph::source::Loader,
+        options: deno_graph::BuildOptions<'a>,
+    ) -> Result<(), AnyError> {
+        // TODO: Option here similar to: https://github.com/denoland/deno/blob/v1.37.1/cli/graph_util.rs#L323C5-L405C11
+        // self.resolver.force_top_level_package_json_install().await?; TODO
+        // add the lockfile redirects to the graph if it's the first time executing
+        if graph.redirects.is_empty() {
+            if let Some(lockfile) = &self.lockfile {
+                let lockfile = lockfile.lock();
+                for (from, to) in &lockfile.content.redirects {
+                    if let Ok(from) = ModuleSpecifier::parse(from) {
+                        if let Ok(to) = ModuleSpecifier::parse(to) {
+                            if !matches!(from.scheme(), "file" | "npm" | "jsr") {
+                                graph.redirects.insert(from, to);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // add the jsr specifiers to the graph if it's the first time executing
+        if graph.packages.is_empty() {
+            if let Some(lockfile) = &self.lockfile {
+                let lockfile = lockfile.lock();
+                for (key, value) in &lockfile.content.packages.specifiers {
+                    if let Some(key) = key
+                        .strip_prefix("jsr:")
+                        .and_then(|key| PackageReq::from_str(key).ok())
+                    {
+                        if let Some(value) = value
+                            .strip_prefix("jsr:")
+                            .and_then(|value| PackageNv::from_str(value).ok())
+                        {
+                            graph.packages.add(key, value);
+                        }
+                    }
+                }
+            }
+        }
+
+        graph.build(roots, loader, options).await;
+
+        // add the redirects in the graph to the lockfile
+        if !graph.redirects.is_empty() {
+            if let Some(lockfile) = &self.lockfile {
+                let graph_redirects = graph
+                    .redirects
+                    .iter()
+                    .filter(|(from, _)| !matches!(from.scheme(), "npm" | "file" | "deno"));
+                let mut lockfile = lockfile.lock();
+                for (from, to) in graph_redirects {
+                    lockfile.insert_redirect(from.to_string(), to.to_string());
+                }
+            }
+        }
+
+        // add the jsr specifiers in the graph to the lockfile
+        if !graph.packages.is_empty() {
+            if let Some(lockfile) = &self.lockfile {
+                let mappings = graph.packages.mappings();
+                let mut lockfile = lockfile.lock();
+                for (from, to) in mappings {
+                    lockfile
+                        .insert_package_specifier(format!("jsr:{}", from), format!("jsr:{}", to));
+                }
+            }
+        }
+
+        // ensure that the top level package.json is installed if a
+        // specifier was matched in the package.json
+        self.resolver
+            .top_level_package_json_install_if_necessary()
+            .await?;
+
+        // resolve the dependencies of any pending dependencies
+        // that were inserted by building the graph
+        self.npm_resolver.resolve_pending().await?;
+
+        Ok(())
+    }
+
+    #[allow(clippy::borrow_deref_ref)]
+    pub async fn create_graph_and_maybe_check(
+        &self,
+        roots: Vec<ModuleSpecifier>,
+    ) -> Result<deno_graph::ModuleGraph, AnyError> {
+        //
+        let mut cache = self.emitter_factory.file_fetcher_loader();
+        let cli_resolver = self.resolver.clone();
+        let graph_resolver = cli_resolver.as_graph_resolver();
+        let graph_npm_resolver = cli_resolver.as_graph_npm_resolver();
+        let analyzer = self.parsed_source_cache.as_analyzer();
+        let graph_kind = deno_graph::GraphKind::CodeOnly;
+        let mut graph = ModuleGraph::new(graph_kind);
+
+        self.build_graph_with_npm_resolution(
+            &mut graph,
+            roots,
+            cache.as_mut(),
+            deno_graph::BuildOptions {
+                is_dynamic: false,
+                imports: vec![],
+                resolver: Some(&*graph_resolver),
+                npm_resolver: Some(&*graph_npm_resolver),
+                module_analyzer: Some(&*analyzer),
+                reporter: None,
+                workspace_members: vec![],
+            },
+        )
+        .await?;
+
+        Ok(graph)
+    }
 }
 
 /// Check if `roots` and their deps are available. Returns `Ok(())` if
@@ -100,106 +291,38 @@ pub fn graph_valid(
     }
 }
 
-pub async fn build_graph_with_npm_resolution<'a>(
-    graph: &mut ModuleGraph,
-    roots: Vec<ModuleSpecifier>,
-    loader: &mut dyn deno_graph::source::Loader,
-    options: deno_graph::BuildOptions<'a>,
-) -> Result<(), AnyError> {
-    //TODO: NPM resolvers
-
-    // ensure an "npm install" is done if the user has explicitly
-    // opted into using a node_modules directory
-    // if self.options.node_modules_dir_enablement() == Some(true) {
-    //     self.resolver.force_top_level_package_json_install().await?;
-    // }
-
-    graph.build(roots, loader, options).await;
-
-    // ensure that the top level package.json is installed if a
-    // specifier was matched in the package.json
-    // self
-    //     .resolver
-    //     .top_level_package_json_install_if_necessary()
-    //     .await?;
-
-    // resolve the dependencies of any pending dependencies
-    // that were inserted by building the graph
-    // self.npm_resolver.resolve_pending().await?;
-
-    Ok(())
-}
-
-pub async fn create_graph_and_maybe_check(
-    roots: Vec<ModuleSpecifier>,
-) -> Result<deno_graph::ModuleGraph, AnyError> {
-    let emitter_factory = EmitterFactory::new();
-
-    let mut cache = emitter_factory.file_fetcher_loader();
-    let analyzer = emitter_factory.parsed_source_cache().unwrap().as_analyzer();
-    let graph_kind = deno_graph::GraphKind::CodeOnly;
-    let mut graph = ModuleGraph::new(graph_kind);
-    let graph_resolver = emitter_factory.graph_resolver();
-
-    build_graph_with_npm_resolution(
-        &mut graph,
-        roots,
-        cache.as_mut(),
-        deno_graph::BuildOptions {
-            is_dynamic: false,
-            imports: vec![],
-            resolver: Some(&*graph_resolver),
-            npm_resolver: None,
-            module_analyzer: Some(&*analyzer),
-            reporter: None,
-            workspace_members: vec![],
-        },
-    )
-    .await?;
-
-    //let graph = Arc::new(graph);
-    // graph_valid_with_cli_options(&graph, &graph.roots, &self.options)?;
-    // if let Some(lockfile) = &self.lockfile {
-    //     graph_lock_or_exit(&graph, &mut lockfile.lock());
-    // }
-
-    // if self.options.type_check_mode().is_true() {
-    //     self
-    //         .type_checker
-    //         .check(
-    //             graph.clone(),
-    //             check::CheckOptions {
-    //                 lib: self.options.ts_type_lib_window(),
-    //                 log_ignored_options: true,
-    //                 reload: true, // TODO: ?
-    //             },
-    //         )
-    //         .await?;
-    // }
-
-    Ok(graph)
-}
-
-pub async fn create_module_graph_from_path(
-    main_service_path: &str,
-) -> Result<ModuleGraph, Box<dyn std::error::Error>> {
-    let index = PathBuf::from(main_service_path);
-    let binding = std::fs::canonicalize(&index)?;
-    let specifier = binding.to_str().ok_or("Failed to convert path to string")?;
-    let format_specifier = format!("file:///{}", specifier);
-    let module_specifier = ModuleSpecifier::parse(&format_specifier)?;
-    let graph = create_graph_and_maybe_check(vec![module_specifier])
-        .await
-        .unwrap();
-    Ok(graph)
-}
-
-pub async fn create_eszip_from_graph(graph: ModuleGraph) -> Vec<u8> {
-    let emitter = EmitterFactory::new();
-    let parser_arc = emitter.parsed_source_cache().unwrap();
+#[allow(clippy::arc_with_non_send_sync)]
+pub async fn create_eszip_from_graph_raw(
+    graph: ModuleGraph,
+    emitter_factory: Option<Arc<EmitterFactory>>,
+) -> EszipV2 {
+    let emitter = emitter_factory.unwrap_or_else(|| Arc::new(EmitterFactory::new()));
+    let parser_arc = emitter.clone().parsed_source_cache().unwrap();
     let parser = parser_arc.as_capturing_parser();
 
     let eszip = eszip::EszipV2::from_graph(graph, &parser, Default::default());
 
-    eszip.unwrap().into_bytes()
+    eszip.unwrap()
+}
+
+pub async fn create_graph(file: PathBuf, emitter_factory: Arc<EmitterFactory>) -> ModuleGraph {
+    let binding = std::fs::canonicalize(&file).unwrap();
+    let specifier = binding.to_str().unwrap();
+    let format_specifier = format!("file:///{}", specifier);
+    let module_specifier = ModuleSpecifier::parse(&format_specifier).unwrap();
+
+    let builder = ModuleGraphBuilder::new(emitter_factory, false);
+
+    let create_module_graph_task = builder.create_graph_and_maybe_check(vec![module_specifier]);
+    create_module_graph_task.await.unwrap()
+}
+
+pub async fn create_graph_from_specifiers(
+    specifiers: Vec<ModuleSpecifier>,
+    _is_dynamic: bool,
+    maybe_emitter_factory: Arc<EmitterFactory>,
+) -> Result<ModuleGraph, AnyError> {
+    let builder = ModuleGraphBuilder::new(maybe_emitter_factory, false);
+    let create_module_graph_task = builder.create_graph_and_maybe_check(specifiers);
+    create_module_graph_task.await
 }

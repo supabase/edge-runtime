@@ -11,12 +11,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::cache::CACHE_PERM;
-use crate::npm::cache::mixed_case_package_name_decode;
-use crate::util::fs::atomic_write_file;
-use crate::util::fs::canonicalize_path_maybe_not_exists_with_fs;
-use crate::util::fs::symlink_dir;
-use crate::util::fs::LaxSingleProcessFsFlag;
+use crate::cache::mixed_case_package_name_decode;
 use async_trait::async_trait;
 use deno_ast::ModuleSpecifier;
 use deno_core::anyhow::bail;
@@ -33,17 +28,20 @@ use deno_npm::NpmPackageId;
 use deno_npm::NpmResolutionPackage;
 use deno_npm::NpmSystemInfo;
 use deno_semver::package::PackageNv;
+use module_fetcher::cache::CACHE_PERM;
+use module_fetcher::util::fs::{
+    atomic_write_file, canonicalize_path_maybe_not_exists_with_fs, copy_dir_recursive,
+    hard_link_dir_recursive, symlink_dir, LaxSingleProcessFsFlag,
+};
 use sb_node::NodePermissions;
 use sb_node::NodeResolutionMode;
 use sb_node::PackageJson;
 use serde::Deserialize;
 use serde::Serialize;
 
-use crate::npm::cache::mixed_case_package_name_encode;
-use crate::npm::resolution::NpmResolution;
-use crate::npm::NpmCache;
-use crate::util::fs::copy_dir_recursive;
-use crate::util::fs::hard_link_dir_recursive;
+use crate::cache::mixed_case_package_name_encode;
+use crate::resolution::NpmResolution;
+use crate::NpmCache;
 
 use super::common::types_package_name;
 use super::common::NpmPackageFsResolver;
@@ -632,7 +630,7 @@ fn junction_or_symlink_dir(old_path: &Path, new_path: &Path) -> Result<(), AnyEr
             if cfg!(debug) {
                 // When running the tests, junctions should be created, but if not then
                 // surface this error.
-                log::warn!("Error creating junction. {:#}", junction_err);
+                println!("Error creating junction. {:#}", junction_err);
             }
 
             match symlink_dir(old_path, new_path) {

@@ -29,8 +29,8 @@ use sb_node::NpmResolver;
 use serde::Deserialize;
 use serde::Serialize;
 
-use crate::args::lockfile::Lockfile;
-use crate::util::fs::canonicalize_path_maybe_not_exists_with_fs;
+use module_fetcher::args::lockfile::Lockfile;
+use module_fetcher::util::fs::canonicalize_path_maybe_not_exists_with_fs;
 
 use self::local::LocalNpmPackageResolver;
 use super::resolution::NpmResolution;
@@ -113,11 +113,6 @@ impl CliNpmResolver {
                 .realpath_sync(path)
                 .map_err(|err| err.into_io_error())
         })?;
-        log::debug!(
-            "Resolved package folder of {} to {}",
-            pkg_id.as_serialized(),
-            path.display()
-        );
         Ok(path)
     }
 
@@ -134,11 +129,6 @@ impl CliNpmResolver {
         else {
             return Ok(None);
         };
-        log::debug!(
-            "Resolved package folder of {} to {}",
-            specifier,
-            path.display()
-        );
         Ok(Some(path))
     }
 
@@ -162,7 +152,7 @@ impl CliNpmResolver {
     /// Attempts to get the package size in bytes.
     pub fn package_size(&self, package_id: &NpmPackageId) -> Result<u64, AnyError> {
         let package_folder = self.fs_resolver.package_folder(package_id)?;
-        Ok(crate::util::fs::dir_size(&package_folder)?)
+        Ok(module_fetcher::util::fs::dir_size(&package_folder)?)
     }
 
     /// Adds package requirements to the resolver and ensures everything is setup.
@@ -243,7 +233,6 @@ impl NpmResolver for CliNpmResolver {
         let path = self
             .fs_resolver
             .resolve_package_folder_from_package(name, referrer, mode)?;
-        log::debug!("Resolved {} from {} to {}", name, referrer, path.display());
         Ok(path)
     }
 

@@ -4,6 +4,7 @@ use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use deno_core::error::AnyError;
 use deno_core::located_script_name;
@@ -50,7 +51,7 @@ pub trait NodePermissions {
     fn check_sys(&self, kind: &str, api_name: &str) -> Result<(), AnyError>;
 }
 
-pub(crate) struct AllowAllNodePermissions;
+pub struct AllowAllNodePermissions;
 
 impl NodePermissions for AllowAllNodePermissions {
     fn check_net_url(&mut self, _url: &Url, _api_name: &str) -> Result<(), AnyError> {
@@ -585,4 +586,8 @@ pub fn load_cjs_module(
 
     js_runtime.execute_script(located_script_name!(), source_code)?;
     Ok(())
+}
+
+pub fn allow_all() -> Arc<dyn NodePermissions> {
+    Arc::new(AllowAllNodePermissions)
 }

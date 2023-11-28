@@ -21,13 +21,12 @@ use deno_core::url::Url;
 use deno_npm::registry::NpmPackageInfo;
 use deno_npm::registry::NpmRegistryApi;
 use deno_npm::registry::NpmRegistryPackageInfoLoadError;
+use module_fetcher::args::CacheSetting;
+use module_fetcher::cache::CACHE_PERM;
+use module_fetcher::http_util::HttpClient;
+use module_fetcher::util::fs::atomic_write_file;
+use module_fetcher::util::sync::AtomicFlag;
 use once_cell::sync::Lazy;
-
-use crate::args::CacheSetting;
-use crate::cache::CACHE_PERM;
-use crate::http_util::HttpClient;
-use crate::util::fs::atomic_write_file;
-use crate::util::sync::AtomicFlag;
 
 use super::cache::NpmCache;
 
@@ -41,7 +40,7 @@ static NPM_REGISTRY_DEFAULT_URL: Lazy<Url> = Lazy::new(|| {
                 return url;
             }
             Err(err) => {
-                log::debug!("Invalid {} environment variable: {:#}", env_var_name, err,);
+                println!("Invalid {} environment variable: {:#}", env_var_name, err,);
             }
         }
     }
@@ -242,10 +241,9 @@ impl CliNpmRegistryApiInner {
                 // This scenario might mean we need to load more data from the
                 // npm registry than before. So, just debug log while in debug
                 // rather than panic.
-                log::debug!(
+                println!(
                     "error deserializing registry.json for '{}'. Reloading. {:?}",
-                    name,
-                    err
+                    name, err
                 );
                 Ok(None)
             }
@@ -290,6 +288,7 @@ impl CliNpmRegistryApiInner {
         &self,
         name: &str,
     ) -> Result<Option<NpmPackageInfo>, AnyError> {
+        println!("Downloading load_package_info_from_registry_inner");
         if *self.cache.cache_setting() == CacheSetting::Only {
             return Err(custom_error(
                 "NotCached",

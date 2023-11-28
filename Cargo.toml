@@ -11,7 +11,8 @@ members = [
   "./crates/sb_os",
   "./crates/cpu_timer",
   "./crates/event_worker",
-  "./crates/sb_eszip"
+  "./crates/sb_eszip",
+  "./crates/npm"
 ]
 resolver = "2"
 
@@ -48,6 +49,7 @@ bytes = { version = "1.4.0" }
 once_cell = "1.17.1"
 thiserror = "1.0.40"
 deno_lockfile = "0.17.1"
+async-trait = "0.1.73"
 indexmap = { version = "2.0.0", features = ["serde"] }
 flate2 = "=1.0.26"
 tar = "=0.4.40"

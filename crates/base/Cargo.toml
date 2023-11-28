@@ -6,6 +6,12 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+async-trait.workspace = true
+thiserror = "1.0.40"
+monch = "=0.4.3"
+once_cell.workspace = true
+deno_semver.workspace = true
+deno_npm.workspace = true
 cpu_timer = { version = "0.1.0", path = "../cpu_timer" }
 anyhow = { workspace = true }
 bytes = { version = "1.2.1" }
@@ -41,11 +47,13 @@ sb_env = { version = "0.1.0", path = "../sb_env" }
 sb_core = { version = "0.1.0", path = "../sb_core" }
 sb_os = { version = "0.1.0", path = "../sb_os" }
 sb_eszip = { version = "0.1.0", path = "../sb_eszip" }
+sb_npm = { version = "0.1.0", path = "../npm" }
 urlencoding = { version = "2.1.2" }
 uuid = { workspace = true }
 deno_broadcast_channel.workspace = true
 sb_node = { version = "0.1.0", path = "../node" }
 eszip.workspace = true
+notify = { version = "6.1.1", default-features = false, features = ["macos_kqueue"] }
 
 [dev-dependencies]
 futures-util = { version = "0.3.28" }

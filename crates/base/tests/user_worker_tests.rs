@@ -71,5 +71,5 @@ async fn test_user_imports_npm() {
 
     let body_bytes = hyper::body::to_bytes(res.into_body()).await.unwrap();
 
-    assert_eq!(body_bytes, r#"{"version":true}"#);
+    assert_eq!(body_bytes, r#"{"is_even":true}"#);
 }

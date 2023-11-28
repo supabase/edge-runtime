@@ -1,4 +1,4 @@
-use crate::js_worker::emitter::EmitterFactory;
+use crate::EmitterFactory;
 use anyhow::{anyhow, bail};
 use deno_core::error::AnyError;
 use deno_core::futures::future::LocalBoxFuture;
@@ -31,7 +31,7 @@ pub enum MappedResolution {
 impl MappedResolution {
     pub fn into_specifier(self) -> Option<ModuleSpecifier> {
         match self {
-            MappedResolution::None => Option::None,
+            MappedResolution::None => None,
             MappedResolution::PackageJson(specifier) => Some(specifier),
             MappedResolution::ImportMap(specifier) => Some(specifier),
         }

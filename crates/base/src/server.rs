@@ -5,7 +5,7 @@ use anyhow::Error;
 use event_worker::events::WorkerEventWithMetadata;
 use hyper::{server::conn::Http, service::Service, Body, Request, Response};
 use log::{debug, error, info};
-use sb_worker_context::essentials::WorkerRequestMsg;
+use sb_workers::context::WorkerRequestMsg;
 use std::future::Future;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;

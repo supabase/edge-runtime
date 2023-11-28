@@ -4,7 +4,7 @@ use event_worker::events::WorkerEventWithMetadata;
 use http::{Request, Response};
 use hyper::Body;
 use log::error;
-use sb_worker_context::essentials::{
+use sb_workers::context::{
     CreateUserWorkerResult, UserWorkerMsgs, UserWorkerProfile, WorkerContextInitOpts,
     WorkerRuntimeOpts,
 };

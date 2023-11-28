@@ -1,3 +1,9 @@
+pub mod context;
+
+use crate::context::{
+    CreateUserWorkerResult, UserWorkerMsgs, UserWorkerRuntimeOpts, WorkerContextInitOpts,
+    WorkerRuntimeOpts,
+};
 use anyhow::Error;
 use deno_core::error::{custom_error, type_error, AnyError};
 use deno_core::futures::stream::Peekable;
@@ -10,11 +16,7 @@ use deno_core::{
 use hyper::body::HttpBody;
 use hyper::header::{HeaderName, HeaderValue};
 use hyper::{Body, Request, Response};
-use sb_eszip::module_loader::EszipPayloadKind;
-use sb_worker_context::essentials::{
-    CreateUserWorkerResult, UserWorkerMsgs, UserWorkerRuntimeOpts, WorkerContextInitOpts,
-    WorkerRuntimeOpts,
-};
+use sb_graph::EszipPayloadKind;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::cell::RefCell;

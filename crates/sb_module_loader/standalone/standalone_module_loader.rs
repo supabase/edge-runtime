@@ -1,38 +1,32 @@
-use crate::deno_runtime::RuntimeProviders;
-use crate::js_worker::emitter::EmitterFactory;
-use crate::js_worker::node_module_loader::NpmModuleLoader;
-use crate::standalone::binary::Metadata;
-use crate::standalone::create_module_loader_for_eszip;
-use crate::utils::graph_resolver::MappedSpecifierResolver;
+// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+
+use crate::node::node_module_loader::NpmModuleLoader;
 use deno_ast::MediaType;
-use deno_core::error::{generic_error, type_error, AnyError};
+use deno_core::error::generic_error;
+use deno_core::error::type_error;
+use deno_core::error::AnyError;
 use deno_core::futures::FutureExt;
-use deno_core::{ModuleLoader, ModuleSpecifier, ModuleType, ResolutionKind};
+use deno_core::ModuleLoader;
+use deno_core::ModuleSpecifier;
+use deno_core::ModuleType;
+use deno_core::ResolutionKind;
 use deno_semver::npm::NpmPackageReqReference;
-use import_map::ImportMap;
 use module_fetcher::file_fetcher::get_source_from_data_url;
-use sb_eszip::module_loader::EszipPayloadKind;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use crate::util::arc_u8_to_arc_str;
+use sb_graph::graph_resolver::MappedSpecifierResolver;
+
 pub struct SharedModuleLoaderState {
-    eszip: eszip::EszipV2,
-    mapped_specifier_resolver: MappedSpecifierResolver,
-    npm_module_loader: Arc<NpmModuleLoader>,
+    pub(crate) eszip: eszip::EszipV2,
+    pub(crate) mapped_specifier_resolver: MappedSpecifierResolver,
+    pub(crate) npm_module_loader: Arc<NpmModuleLoader>,
 }
 
 #[derive(Clone)]
 pub struct EmbeddedModuleLoader {
-    shared: Arc<SharedModuleLoaderState>,
-}
-
-fn arc_u8_to_arc_str(arc_u8: Arc<[u8]>) -> Result<Arc<str>, std::str::Utf8Error> {
-    // Check that the string is valid UTF-8.
-    std::str::from_utf8(&arc_u8)?;
-    // SAFETY: the string is valid UTF-8, and the layout Arc<[u8]> is the same as
-    // Arc<str>. This is proven by the From<Arc<str>> impl for Arc<[u8]> from the
-    // standard library.
-    Ok(unsafe { std::mem::transmute(arc_u8) })
+    pub(crate) shared: Arc<SharedModuleLoaderState>,
 }
 
 impl ModuleLoader for EmbeddedModuleLoader {
@@ -98,6 +92,7 @@ impl ModuleLoader for EmbeddedModuleLoader {
         _is_dynamic: bool,
     ) -> Pin<Box<deno_core::ModuleSourceFuture>> {
         let is_data_uri = get_source_from_data_url(original_specifier).ok();
+        let permissions = sb_node::allow_all();
         if let Some((source, _)) = is_data_uri {
             return Box::pin(deno_core::futures::future::ready(Ok(
                 deno_core::ModuleSource::new(
@@ -108,7 +103,6 @@ impl ModuleLoader for EmbeddedModuleLoader {
             )));
         }
 
-        let permissions = sb_node::allow_all();
         if let Some(result) = self.shared.npm_module_loader.load_sync_if_in_npm_package(
             original_specifier,
             maybe_referrer,
@@ -165,54 +159,4 @@ impl ModuleLoader for EmbeddedModuleLoader {
         }
         .boxed_local()
     }
-}
-
-pub fn create_shared_state_for_module_loader(
-    mut eszip: eszip::EszipV2,
-    maybe_import_map: Option<Arc<ImportMap>>,
-) -> SharedModuleLoaderState {
-    let mut emitter = EmitterFactory::new();
-
-    if let Some(snapshot) = eszip.take_npm_snapshot() {
-        emitter.set_npm_snapshot(Some(snapshot));
-    }
-
-    let shared_module_state = SharedModuleLoaderState {
-        eszip,
-        mapped_specifier_resolver: MappedSpecifierResolver::new(
-            maybe_import_map,
-            emitter.package_json_deps_provider().clone(),
-        ),
-        npm_module_loader: emitter.npm_module_loader(),
-    };
-    shared_module_state
-}
-
-pub async fn create_module_loader_for_standalone_from_eszip_kind(
-    eszip_payload_kind: EszipPayloadKind,
-    maybe_import_map: Option<ImportMap>,
-) -> RuntimeProviders {
-    use deno_core::futures::io::{AllowStdIo, BufReader};
-    let bytes = match eszip_payload_kind {
-        EszipPayloadKind::JsBufferKind(js_buffer) => Vec::from(&*js_buffer),
-        EszipPayloadKind::VecKind(vec) => vec,
-    };
-
-    let bufreader = BufReader::new(AllowStdIo::new(bytes.as_slice()));
-    let (eszip, loader) = eszip::EszipV2::parse(bufreader).await.unwrap();
-
-    loader.await.unwrap();
-
-    create_module_loader_for_eszip(
-        eszip,
-        Metadata {
-            ca_stores: None,
-            ca_data: None,
-            unsafely_ignore_certificate_errors: None,
-            package_json_deps: None,
-        },
-        maybe_import_map,
-    )
-    .await
-    .unwrap()
 }

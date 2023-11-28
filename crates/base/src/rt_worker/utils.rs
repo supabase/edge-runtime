@@ -1,5 +1,5 @@
 use event_worker::events::{EventMetadata, WorkerEventWithMetadata};
-use sb_worker_context::essentials::{UserWorkerMsgs, WorkerRuntimeOpts};
+use sb_workers::context::{UserWorkerMsgs, WorkerRuntimeOpts};
 use tokio::sync::mpsc::UnboundedSender;
 use uuid::Uuid;
 

@@ -88,7 +88,7 @@ pub struct EmitterFactory {
     resolver: Deferred<Arc<CliGraphResolver>>,
     file_fetcher_cache_strategy: Option<CacheSetting>,
     file_fetcher_allow_remote: bool,
-    maybe_import_map: Option<Arc<ImportMap>>,
+    pub maybe_import_map: Option<Arc<ImportMap>>,
 }
 
 impl Default for EmitterFactory {

@@ -147,25 +147,31 @@ impl DenoRuntime {
             allow_remote_modules = user_conf.allow_remote_modules;
         }
 
-        let import_map = load_import_map(import_map_path)?;
+        let mut maybe_arc_import_map = None;
 
         let eszip = if let Some(eszip_payload) = maybe_eszip {
             eszip_payload
         } else {
+            let mut emitter_factory = EmitterFactory::new();
+
             let cache_strategy = if no_module_cache {
                 CacheSetting::ReloadAll
             } else {
                 CacheSetting::Use
             };
 
-            let mut emitter_factory = EmitterFactory::new();
             emitter_factory.set_file_fetcher_allow_remote(allow_remote_modules);
             emitter_factory.set_file_fetcher_cache_strategy(cache_strategy);
-            emitter_factory.set_import_map(import_map.clone());
+
+            let maybe_import_map = load_import_map(import_map_path.clone())?;
+            emitter_factory.set_import_map(maybe_import_map);
+            maybe_arc_import_map = emitter_factory.maybe_import_map.clone();
+
+            let arc_emitter_factory = Arc::new(emitter_factory);
 
             let main_module_url_file_path = main_module_url.clone().to_file_path().unwrap();
             let eszip =
-                generate_binary_eszip(main_module_url_file_path, Arc::new(emitter_factory)).await?;
+                generate_binary_eszip(main_module_url_file_path, arc_emitter_factory).await?;
 
             EszipPayloadKind::Eszip(eszip)
         };
@@ -217,12 +223,15 @@ impl DenoRuntime {
                 stderr: deno_io::StdioPipe::File(std::fs::File::create("/dev/null")?),
             });
         }
-        // emitter_factory.init_npm().await;
 
         let fs = Arc::new(deno_fs::RealFs);
 
-        let rt_provider =
-            create_module_loader_for_standalone_from_eszip_kind(eszip, import_map).await;
+        let rt_provider = create_module_loader_for_standalone_from_eszip_kind(
+            eszip,
+            maybe_arc_import_map,
+            import_map_path,
+        )
+        .await?;
 
         let RuntimeProviders {
             npm_resolver,

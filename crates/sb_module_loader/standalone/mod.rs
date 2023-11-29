@@ -4,11 +4,12 @@ use crate::standalone::standalone_module_loader::{EmbeddedModuleLoader, SharedMo
 use crate::RuntimeProviders;
 use anyhow::Context;
 use deno_core::error::AnyError;
+use deno_core::url::Url;
 use deno_core::{FastString, ModuleSpecifier};
 use deno_npm::NpmSystemInfo;
 use deno_tls::rustls::RootCertStore;
 use deno_tls::RootCertStoreProvider;
-use import_map::ImportMap;
+use import_map::{parse_from_json, ImportMap};
 use module_fetcher::args::package_json::PackageJsonDepsProvider;
 use module_fetcher::cache::{Caches, DenoDirProvider, NodeAnalysisCache};
 use module_fetcher::file_fetcher::CacheSetting;
@@ -73,7 +74,18 @@ pub async fn create_module_loader_for_eszip(
         .join(format!("sb-compile-{}", current_exe_name))
         .join("node_modules");
     let npm_cache_dir = NpmCacheDir::new(root_path.clone());
-    let (fs, snapshot, module_code) = if let Some(snapshot) = eszip.take_npm_snapshot() {
+
+    let code_fs = if let Some(module) = eszip.get_module(SOURCE_CODE_ESZIP_KEY) {
+        if let Some(code) = module.take_source().await {
+            Some(FastString::from(String::from_utf8(code.to_vec())?))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let (fs, snapshot) = if let Some(snapshot) = eszip.take_npm_snapshot() {
         // TODO: Support node_modules
         let vfs_root_dir_path = npm_cache_dir.registry_folder(&npm_registry_url);
 
@@ -87,23 +99,13 @@ pub async fn create_module_loader_for_eszip(
 
         let vfs = load_npm_vfs(vfs_root_dir_path, &vfs_data).context("Failed to load npm vfs.")?;
 
-        let module_code = eszip
-            .get_module(SOURCE_CODE_ESZIP_KEY)
-            .unwrap()
-            .take_source()
-            .await
-            .unwrap()
-            .to_vec();
-
         (
             Arc::new(DenoCompileFileSystem::new(vfs)) as Arc<dyn deno_fs::FileSystem>,
             Some(snapshot),
-            Some(FastString::from(String::from_utf8(module_code).unwrap())),
         )
     } else {
         (
             Arc::new(deno_fs::RealFs) as Arc<dyn deno_fs::FileSystem>,
-            None,
             None,
         )
     };
@@ -185,14 +187,15 @@ pub async fn create_module_loader_for_eszip(
         }),
         npm_resolver,
         fs,
-        module_code,
+        module_code: code_fs,
     })
 }
 
 pub async fn create_module_loader_for_standalone_from_eszip_kind(
     eszip_payload_kind: EszipPayloadKind,
-    maybe_import_map: Option<ImportMap>,
-) -> RuntimeProviders {
+    maybe_import_map_arc: Option<Arc<ImportMap>>,
+    maybe_import_map_path: Option<String>,
+) -> Result<RuntimeProviders, AnyError> {
     use deno_core::futures::io::{AllowStdIo, BufReader};
 
     let eszip = match eszip_payload_kind {
@@ -213,6 +216,22 @@ pub async fn create_module_loader_for_standalone_from_eszip_kind(
         }
     };
 
+    let mut maybe_import_map: Option<ImportMap> = None;
+
+    if let Some(import_map) = maybe_import_map_arc {
+        let clone_import_map = (*import_map).clone();
+        maybe_import_map = Some(clone_import_map);
+    } else if let Some(import_map_path) = maybe_import_map_path {
+        let import_map_url = Url::parse(import_map_path.as_str())?;
+        if let Some(import_map_module) = eszip.get_import_map(import_map_url.as_str()) {
+            if let Some(source) = import_map_module.source().await {
+                let source = std::str::from_utf8(&source)?.to_string();
+                let result = parse_from_json(&import_map_url, &source)?;
+                maybe_import_map = Some(result.import_map);
+            }
+        }
+    }
+
     create_module_loader_for_eszip(
         eszip,
         Metadata {
@@ -224,5 +243,4 @@ pub async fn create_module_loader_for_standalone_from_eszip_kind(
         maybe_import_map,
     )
     .await
-    .unwrap()
 }

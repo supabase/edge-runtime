@@ -147,11 +147,11 @@ impl DenoRuntime {
             allow_remote_modules = user_conf.allow_remote_modules;
         }
 
-        let import_map = load_import_map(import_map_path)?;
-
         let eszip = if let Some(eszip_payload) = maybe_eszip {
             eszip_payload
         } else {
+            let import_map = load_import_map(import_map_path.clone())?;
+
             let cache_strategy = if no_module_cache {
                 CacheSetting::ReloadAll
             } else {
@@ -222,7 +222,7 @@ impl DenoRuntime {
         let fs = Arc::new(deno_fs::RealFs);
 
         let rt_provider =
-            create_module_loader_for_standalone_from_eszip_kind(eszip, import_map).await;
+            create_module_loader_for_standalone_from_eszip_kind(eszip, import_map_path).await;
 
         let RuntimeProviders {
             npm_resolver,

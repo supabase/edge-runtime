@@ -4,11 +4,13 @@ use crate::standalone::standalone_module_loader::{EmbeddedModuleLoader, SharedMo
 use crate::RuntimeProviders;
 use anyhow::Context;
 use deno_core::error::AnyError;
+use deno_core::url::Url;
 use deno_core::{FastString, ModuleSpecifier};
 use deno_npm::NpmSystemInfo;
 use deno_tls::rustls::RootCertStore;
 use deno_tls::RootCertStoreProvider;
-use import_map::ImportMap;
+use import_map::parse_from_json;
+use log::warn;
 use module_fetcher::args::package_json::PackageJsonDepsProvider;
 use module_fetcher::cache::{Caches, DenoDirProvider, NodeAnalysisCache};
 use module_fetcher::file_fetcher::CacheSetting;
@@ -51,7 +53,7 @@ impl RootCertStoreProvider for StandaloneRootCertStoreProvider {
 pub async fn create_module_loader_for_eszip(
     mut eszip: eszip::EszipV2,
     metadata: Metadata,
-    maybe_import_map: Option<ImportMap>,
+    maybe_import_map_path: Option<String>,
 ) -> Result<RuntimeProviders, AnyError> {
     // let main_module = &metadata.entrypoint;
     let current_exe_path = std::env::current_exe().unwrap();
@@ -159,9 +161,30 @@ pub async fn create_module_loader_for_eszip(
             .package_json_deps
             .map(|serialized| serialized.into_deps()),
     ));
-    let maybe_import_map = maybe_import_map
-        .map(|import_map| Some(Arc::new(import_map)))
-        .unwrap_or_else(|| None);
+
+    let mut maybe_import_map = None;
+    if let Some(import_map_path) = maybe_import_map_path {
+        let import_map_url = Url::parse(import_map_path.as_str())?;
+
+        if let Some(import_map_module) = eszip.get_import_map(import_map_url.as_str()) {
+            if let Some(source) = import_map_module.source().await {
+                let source = std::str::from_utf8(&source)?.to_string();
+                let result = parse_from_json(&import_map_url, &source)?;
+                if !result.diagnostics.is_empty() {
+                    warn!(
+                        "Import map diagnostics:\n{}",
+                        result
+                            .diagnostics
+                            .iter()
+                            .map(|d| format!("  - {d}"))
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    );
+                }
+                maybe_import_map = Some(Arc::new(result.import_map));
+            }
+        }
+    }
 
     let module_loader_factory = StandaloneModuleLoaderFactory {
         shared: Arc::new(SharedModuleLoaderState {
@@ -191,7 +214,7 @@ pub async fn create_module_loader_for_eszip(
 
 pub async fn create_module_loader_for_standalone_from_eszip_kind(
     eszip_payload_kind: EszipPayloadKind,
-    maybe_import_map: Option<ImportMap>,
+    maybe_import_map_path: Option<String>,
 ) -> RuntimeProviders {
     use deno_core::futures::io::{AllowStdIo, BufReader};
 
@@ -221,7 +244,7 @@ pub async fn create_module_loader_for_standalone_from_eszip_kind(
             unsafely_ignore_certificate_errors: None,
             package_json_deps: None,
         },
-        maybe_import_map,
+        maybe_import_map_path,
     )
     .await
     .unwrap()

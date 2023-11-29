@@ -1,6 +1,6 @@
 use base::rt_worker::worker_ctx::create_worker;
 use hyper::{Body, Request, Response};
-use sb_worker_context::essentials::{
+use sb_workers::context::{
     UserWorkerRuntimeOpts, WorkerContextInitOpts, WorkerRequestMsg, WorkerRuntimeOpts,
 };
 use std::collections::HashMap;

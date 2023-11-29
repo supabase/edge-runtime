@@ -10,6 +10,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow = { workspace = true }
 base = { path = "../base" }
+sb_graph = { path = "../sb_graph" }
 clap = { version = "4.0.29", features = ["cargo"] }
 env_logger = "0.10.0"
 log = { workspace = true }

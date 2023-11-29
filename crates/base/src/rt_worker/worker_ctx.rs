@@ -12,8 +12,8 @@ use event_worker::events::{
 };
 use hyper::{Body, Request, Response};
 use log::{debug, error};
-use sb_eszip::module_loader::EszipPayloadKind;
-use sb_worker_context::essentials::{
+use sb_graph::EszipPayloadKind;
+use sb_workers::context::{
     EventWorkerRuntimeOpts, MainWorkerRuntimeOpts, UserWorkerMsgs, WorkerContextInitOpts,
     WorkerRequestMsg, WorkerRuntimeOpts,
 };

@@ -4,15 +4,16 @@ members = [
   "./crates/cli",
   "./crates/module_fetcher",
   "./crates/sb_workers",
-  "./crates/sb_worker_context",
   "./crates/sb_env",
   "./crates/sb_core",
   "./crates/flaky_test",
   "./crates/sb_os",
   "./crates/cpu_timer",
   "./crates/event_worker",
-  "./crates/sb_eszip",
-  "./crates/npm"
+  "./crates/npm",
+  "./crates/sb_graph",
+  "./crates/sb_module_loader",
+  "./crates/sb_fs"
 ]
 resolver = "2"
 
@@ -58,6 +59,7 @@ fs3 = "0.5.0"
 tokio-util = "0.7.4"
 uuid = { version = "1.3.0", features = ["v4"] }
 rsa = { version = "0.7.0", default-features = false, features = ["std", "pem", "hazmat"] }
+monch = "=0.4.3"
 
 reqwest = { version = "0.11.20", default-features = false, features = ["rustls-tls", "stream", "gzip", "brotli", "socks", "json"] }
 ring = "=0.16.20"

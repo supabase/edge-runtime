@@ -2,11 +2,11 @@ mod logger;
 
 use anyhow::Error;
 use base::commands::start_server;
-use base::js_worker::emitter::EmitterFactory;
 use base::server::WorkerEntrypoints;
-use base::standalone::binary::generate_binary_eszip;
 use clap::builder::FalseyValueParser;
 use clap::{arg, crate_version, value_parser, ArgAction, Command};
+use sb_graph::emitter::EmitterFactory;
+use sb_graph::generate_binary_eszip;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;

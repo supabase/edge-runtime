@@ -1,6 +1,4 @@
-use crate::js_worker::module_loader::make_http_client;
-use crate::js_worker::node_module_loader::{CjsResolutionStore, NpmModuleLoader};
-use crate::utils::graph_resolver::{CliGraphResolver, CliGraphResolverOptions};
+use crate::graph_resolver::{CliGraphResolver, CliGraphResolverOptions};
 use deno_ast::EmitOptions;
 use deno_core::error::AnyError;
 use deno_core::parking_lot::Mutex;
@@ -14,15 +12,13 @@ use module_fetcher::args::package_json::{
 };
 use module_fetcher::args::CacheSetting;
 use module_fetcher::cache::{
-    Caches, DenoDir, DenoDirProvider, EmitCache, GlobalHttpCache, NodeAnalysisCache,
-    ParsedSourceCache, RealDenoCacheEnv,
+    Caches, DenoDir, DenoDirProvider, EmitCache, GlobalHttpCache, ParsedSourceCache,
+    RealDenoCacheEnv,
 };
 use module_fetcher::emit::Emitter;
 use module_fetcher::file_fetcher::FileFetcher;
 use module_fetcher::http_util::HttpClient;
-use module_fetcher::node::CliCjsCodeAnalyzer;
 use module_fetcher::permissions::Permissions;
-use sb_node::analyze::NodeCodeTranslator;
 use sb_node::{NodeResolver, PackageJson};
 use sb_npm::{
     create_npm_fs_resolver, CliNpmRegistryApi, CliNpmResolver, NpmCache, NpmCacheDir,
@@ -80,7 +76,6 @@ pub struct EmitterFactory {
     deno_dir: DenoDir,
     pub npm_snapshot: Option<ValidSerializedNpmResolutionSnapshot>,
     lockfile: Deferred<Option<Arc<Mutex<Lockfile>>>>,
-    cjs_resolutions: Deferred<Arc<CjsResolutionStore>>,
     package_json_deps_provider: Deferred<Arc<PackageJsonDepsProvider>>,
     package_json_deps_installer: Deferred<Arc<PackageJsonDepsInstaller>>,
     npm_api: Deferred<Arc<CliNpmRegistryApi>>,
@@ -93,7 +88,7 @@ pub struct EmitterFactory {
     resolver: Deferred<Arc<CliGraphResolver>>,
     file_fetcher_cache_strategy: Option<CacheSetting>,
     file_fetcher_allow_remote: bool,
-    maybe_import_map: Option<Arc<ImportMap>>,
+    pub maybe_import_map: Option<Arc<ImportMap>>,
 }
 
 impl Default for EmitterFactory {
@@ -110,7 +105,6 @@ impl EmitterFactory {
             deno_dir,
             npm_snapshot: None,
             lockfile: Default::default(),
-            cjs_resolutions: Default::default(),
             package_json_deps_provider: Default::default(),
             package_json_deps_installer: Default::default(),
             npm_api: Default::default(),
@@ -215,7 +209,12 @@ impl EmitterFactory {
     }
 
     pub fn http_client(&self) -> Arc<HttpClient> {
-        Arc::new(make_http_client().unwrap())
+        let root_cert_store = None;
+        let unsafely_ignore_certificate_errors = None;
+
+        let http_client = HttpClient::new(root_cert_store, unsafely_ignore_certificate_errors);
+
+        Arc::new(http_client)
     }
 
     pub fn real_fs(&self) -> Arc<dyn deno_fs::FileSystem> {
@@ -280,30 +279,6 @@ impl EmitterFactory {
             let fs = self.real_fs().clone();
             Arc::new(NodeResolver::new(fs, self.npm_resolver().clone()))
         })
-    }
-
-    pub fn cjs_resolution_store(&self) -> &Arc<CjsResolutionStore> {
-        self.cjs_resolutions.get_or_init(Default::default)
-    }
-
-    pub fn npm_module_loader(&self) -> Arc<NpmModuleLoader> {
-        let cache_db = Caches::new(self.deno_dir_provider());
-        let node_analysis_cache = NodeAnalysisCache::new(cache_db.node_analysis_db());
-        let cjs_esm_code_analyzer =
-            CliCjsCodeAnalyzer::new(node_analysis_cache, self.real_fs().clone());
-        let node_code_translator = Arc::new(NodeCodeTranslator::new(
-            cjs_esm_code_analyzer,
-            self.real_fs().clone(),
-            self.node_resolver().clone(),
-            self.npm_resolver().clone(),
-        ));
-
-        Arc::new(NpmModuleLoader::new(
-            self.cjs_resolution_store().clone(),
-            node_code_translator,
-            self.real_fs(),
-            self.node_resolver().clone(),
-        ))
     }
 
     pub fn npm_fs(&self) -> Arc<dyn NpmPackageFsResolver> {

@@ -1,17 +1,17 @@
-use crate::errors_rt::get_error_class_name;
-use crate::js_worker::emitter::EmitterFactory;
-use crate::utils::graph_resolver::CliGraphResolver;
-use crate::utils::graph_util::deno_graph::ModuleError;
-use crate::utils::graph_util::deno_graph::ResolutionError;
+use crate::emitter::EmitterFactory;
+use crate::graph_resolver::CliGraphResolver;
 use deno_core::error::{custom_error, AnyError};
 use deno_core::parking_lot::Mutex;
 use deno_core::ModuleSpecifier;
+use deno_graph::ModuleError;
+use deno_graph::ResolutionError;
 use deno_semver::package::{PackageNv, PackageReq};
 use eszip::deno_graph::source::Loader;
 use eszip::deno_graph::{GraphKind, ModuleGraph, ModuleGraphError};
 use eszip::{deno_graph, EszipV2};
 use module_fetcher::args::lockfile::Lockfile;
 use module_fetcher::cache::ParsedSourceCache;
+use sb_core::errors_rt::get_error_class_name;
 use sb_npm::CliNpmResolver;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -46,7 +46,7 @@ pub struct ModuleGraphBuilder {
     npm_resolver: Arc<CliNpmResolver>,
     parsed_source_cache: Arc<ParsedSourceCache>,
     lockfile: Option<Arc<Mutex<Lockfile>>>,
-    type_check: bool, // type_checker: Arc<TypeChecker>,
+    type_check: bool,
     emitter_factory: Arc<EmitterFactory>,
 }
 
@@ -295,14 +295,12 @@ pub fn graph_valid(
 pub async fn create_eszip_from_graph_raw(
     graph: ModuleGraph,
     emitter_factory: Option<Arc<EmitterFactory>>,
-) -> EszipV2 {
+) -> Result<EszipV2, AnyError> {
     let emitter = emitter_factory.unwrap_or_else(|| Arc::new(EmitterFactory::new()));
     let parser_arc = emitter.clone().parsed_source_cache().unwrap();
     let parser = parser_arc.as_capturing_parser();
 
-    let eszip = eszip::EszipV2::from_graph(graph, &parser, Default::default());
-
-    eszip.unwrap()
+    eszip::EszipV2::from_graph(graph, &parser, Default::default())
 }
 
 pub async fn create_graph(file: PathBuf, emitter_factory: Arc<EmitterFactory>) -> ModuleGraph {

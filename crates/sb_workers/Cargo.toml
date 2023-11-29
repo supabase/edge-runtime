@@ -17,9 +17,9 @@ deno_core.workspace = true
 tokio.workspace = true
 deno_http.workspace = true
 hyper.workspace = true
-sb_eszip = { version = "0.1.0", path = "../sb_eszip" }
 serde.workspace = true
 bytes.workspace = true
 log.workspace = true
-sb_worker_context = { version = "0.1.0", path = "../sb_worker_context" }
 event_worker ={ version = "0.1.0", path = "../event_worker" }
+sb_graph ={ version = "0.1.0", path = "../sb_graph" }
+enum-as-inner = "0.6.0"

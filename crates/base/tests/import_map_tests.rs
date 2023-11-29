@@ -5,7 +5,7 @@ use tokio::sync::oneshot;
 use urlencoding::encode;
 
 use base::rt_worker::worker_ctx::create_worker;
-use sb_worker_context::essentials::{
+use sb_workers::context::{
     UserWorkerRuntimeOpts, WorkerContextInitOpts, WorkerRequestMsg, WorkerRuntimeOpts,
 };
 

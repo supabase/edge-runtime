@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 
-use sb_eszip::module_loader::EszipPayloadKind;
+use sb_graph::EszipPayloadKind;
 
 #[derive(Debug, Clone)]
 pub struct UserWorkerRuntimeOpts {

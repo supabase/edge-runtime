@@ -8,7 +8,7 @@ use event_worker::events::{
     EventMetadata, ShutdownEvent, UncaughtExceptionEvent, WorkerEventWithMetadata, WorkerEvents,
 };
 use log::{debug, error};
-use sb_worker_context::essentials::{UserWorkerMsgs, WorkerContextInitOpts};
+use sb_workers::context::{UserWorkerMsgs, WorkerContextInitOpts};
 use std::any::Any;
 use std::future::Future;
 use std::pin::Pin;

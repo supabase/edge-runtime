@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 async-trait.workspace = true
 thiserror = "1.0.40"
-monch = "=0.4.3"
+monch.workspace = true
 once_cell.workspace = true
 deno_semver.workspace = true
 deno_npm.workspace = true
@@ -41,13 +41,13 @@ serde = { version = "1.0.149", features = ["derive"] }
 tokio = { workspace = true }
 url = { version = "2.3.1" }
 event_worker ={ version = "0.1.0", path = "../event_worker" }
-sb_worker_context = { version = "0.1.0", path = "../sb_worker_context" }
 sb_workers = { version = "0.1.0", path = "../sb_workers" }
 sb_env = { version = "0.1.0", path = "../sb_env" }
 sb_core = { version = "0.1.0", path = "../sb_core" }
 sb_os = { version = "0.1.0", path = "../sb_os" }
-sb_eszip = { version = "0.1.0", path = "../sb_eszip" }
 sb_npm = { version = "0.1.0", path = "../npm" }
+sb_graph = { version = "0.1.0", path = "../sb_graph" }
+sb_module_loader = { version = "0.1.0", path = "../sb_module_loader" }
 urlencoding = { version = "2.1.2" }
 uuid = { workspace = true }
 deno_broadcast_channel.workspace = true
@@ -87,11 +87,9 @@ serde = { version = "1.0.149", features = ["derive"] }
 tokio.workspace = true
 url = { version = "2.3.1" }
 event_worker ={ version = "0.1.0", path = "../event_worker" }
-sb_worker_context = { version = "0.1.0", path = "../sb_worker_context" }
 sb_workers = { version = "0.1.0", path = "../sb_workers" }
 sb_env = { version = "0.1.0", path = "../sb_env" }
 sb_core = { version = "0.1.0", path = "../sb_core" }
 sb_os = { version = "0.1.0", path = "../sb_os" }
 sb_node = { version = "0.1.0", path = "../node" }
 deno_broadcast_channel.workspace = true
-sb_eszip = { version = "0.1.0", path = "../sb_eszip" }

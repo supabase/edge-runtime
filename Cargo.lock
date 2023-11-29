@@ -362,11 +362,11 @@ dependencies = [
  "reqwest",
  "sb_core",
  "sb_env",
- "sb_eszip",
+ "sb_graph",
+ "sb_module_loader",
  "sb_node",
  "sb_npm",
  "sb_os",
- "sb_worker_context",
  "sb_workers",
  "serde",
  "thiserror",
@@ -676,6 +676,7 @@ dependencies = [
  "clap 4.3.21",
  "env_logger 0.10.0",
  "log",
+ "sb_graph",
  "tokio",
 ]
 
@@ -3743,12 +3744,13 @@ dependencies = [
  "deno_fs",
  "deno_http",
  "deno_net",
+ "deno_tls",
  "deno_web",
  "deno_websocket",
  "hyper 0.14.27",
  "sb_node",
- "sb_worker_context",
  "serde",
+ "thiserror",
  "tokio",
 ]
 
@@ -3762,14 +3764,75 @@ dependencies = [
 ]
 
 [[package]]
-name = "sb_eszip"
+name = "sb_fs"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
+ "deno_ast",
  "deno_core",
+ "deno_fs",
+ "deno_io",
+ "deno_npm",
+ "deno_semver 0.5.1",
  "eszip",
  "import_map",
  "log",
+ "module_fetcher",
+ "once_cell",
+ "sb_node",
+ "sb_npm",
+ "serde",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
+name = "sb_graph"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "deno_ast",
+ "deno_core",
+ "deno_fs",
+ "deno_npm",
+ "deno_semver 0.5.1",
+ "deno_web",
+ "eszip",
+ "import_map",
+ "log",
+ "module_fetcher",
+ "once_cell",
+ "sb_core",
+ "sb_fs",
+ "sb_node",
+ "sb_npm",
+ "serde",
+ "tokio",
+]
+
+[[package]]
+name = "sb_module_loader"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "deno_ast",
+ "deno_core",
+ "deno_fs",
+ "deno_npm",
+ "deno_semver 0.5.1",
+ "deno_tls",
+ "eszip",
+ "import_map",
+ "log",
+ "module_fetcher",
+ "monch",
+ "once_cell",
+ "sb_core",
+ "sb_fs",
+ "sb_graph",
+ "sb_node",
+ "sb_npm",
  "serde",
  "tokio",
 ]
@@ -3870,23 +3933,7 @@ dependencies = [
  "deno_core",
  "libc",
  "sb_core",
- "sb_worker_context",
  "serde",
-]
-
-[[package]]
-name = "sb_worker_context"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "deno_core",
- "enum-as-inner 0.6.0",
- "event_worker",
- "hyper 0.14.27",
- "sb_eszip",
- "serde",
- "tokio",
- "uuid",
 ]
 
 [[package]]
@@ -3897,11 +3944,11 @@ dependencies = [
  "bytes",
  "deno_core",
  "deno_http",
+ "enum-as-inner 0.6.0",
  "event_worker",
  "hyper 0.14.27",
  "log",
- "sb_eszip",
- "sb_worker_context",
+ "sb_graph",
  "serde",
  "tokio",
  "uuid",

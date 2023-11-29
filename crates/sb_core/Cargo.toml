@@ -24,5 +24,6 @@ deno_http.workspace = true
 hyper.workspace = true
 serde.workspace = true
 bytes.workspace = true
-sb_worker_context = { version = "0.1.0", path = "../sb_worker_context" }
+deno_tls.workspace = true
+thiserror.workspace = true
 sb_node = { version = "0.1.0", path = "../node" }

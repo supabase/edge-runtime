@@ -16,7 +16,7 @@ use module_fetcher::cache::{
     RealDenoCacheEnv,
 };
 use module_fetcher::emit::Emitter;
-use module_fetcher::file_fetcher::FileFetcher;
+use module_fetcher::file_fetcher::{FileCache, FileFetcher};
 use module_fetcher::http_util::HttpClient;
 use module_fetcher::permissions::Permissions;
 use sb_node::{NodeResolver, PackageJson};
@@ -89,6 +89,7 @@ pub struct EmitterFactory {
     file_fetcher_cache_strategy: Option<CacheSetting>,
     file_fetcher_allow_remote: bool,
     pub maybe_import_map: Option<Arc<ImportMap>>,
+    file_cache: Deferred<Arc<FileCache>>,
 }
 
 impl Default for EmitterFactory {
@@ -118,6 +119,7 @@ impl EmitterFactory {
             file_fetcher_cache_strategy: None,
             file_fetcher_allow_remote: true,
             maybe_import_map: None,
+            file_cache: Default::default(),
         }
     }
 
@@ -253,6 +255,10 @@ impl EmitterFactory {
         })
     }
 
+    pub fn file_cache(&self) -> &Arc<FileCache> {
+        self.file_cache.get_or_init(Default::default)
+    }
+
     pub fn get_lock_file_deferred(&self) -> &Option<Arc<Mutex<Lockfile>>> {
         self.lockfile.get_or_init(|| {
             if let Some(lockfile_data) = self.maybe_lockfile.clone() {
@@ -359,6 +365,7 @@ impl EmitterFactory {
             self.file_fetcher_allow_remote,
             http_client,
             blob_store,
+            self.file_cache().clone(),
         )
     }
 

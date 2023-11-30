@@ -135,6 +135,7 @@ fn main() -> Result<(), anyhow::Error> {
                 let eszip = generate_binary_eszip(
                     path.canonicalize().unwrap(),
                     Arc::new(EmitterFactory::new()),
+                    None,
                 )
                 .await?;
                 let bin = eszip.into_bytes();

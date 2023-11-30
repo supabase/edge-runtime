@@ -135,7 +135,8 @@ impl DenoRuntime {
 
         // TODO: check for other potential main paths (eg: index.js, index.tsx)
         let mut main_module_url = base_url.join("index.ts")?;
-        if maybe_entrypoint.is_some() {
+        let is_some_entry_point = maybe_entrypoint.is_some();
+        if is_some_entry_point {
             main_module_url = Url::parse(&maybe_entrypoint.unwrap())?;
         }
 
@@ -148,6 +149,8 @@ impl DenoRuntime {
         }
 
         let mut maybe_arc_import_map = None;
+        let only_module_code =
+            maybe_module_code.is_some() && maybe_eszip.is_none() && !is_some_entry_point;
 
         let eszip = if let Some(eszip_payload) = maybe_eszip {
             eszip_payload
@@ -170,8 +173,16 @@ impl DenoRuntime {
             let arc_emitter_factory = Arc::new(emitter_factory);
 
             let main_module_url_file_path = main_module_url.clone().to_file_path().unwrap();
+
+            let maybe_code = if only_module_code {
+                maybe_module_code
+            } else {
+                None
+            };
+
             let eszip =
-                generate_binary_eszip(main_module_url_file_path, arc_emitter_factory).await?;
+                generate_binary_eszip(main_module_url_file_path, arc_emitter_factory, maybe_code)
+                    .await?;
 
             EszipPayloadKind::Eszip(eszip)
         };
@@ -240,7 +251,7 @@ impl DenoRuntime {
             module_code,
         } = rt_provider;
 
-        let mod_code = module_code.or(maybe_module_code);
+        let mod_code = module_code;
 
         let extensions = vec![
             sb_core_permissions::init_ops(net_access_disabled),
@@ -426,7 +437,7 @@ impl DenoRuntime {
 #[cfg(test)]
 mod test {
     use crate::deno_runtime::DenoRuntime;
-    use deno_core::ModuleCode;
+    use deno_core::{FastString, ModuleCode};
     use sb_graph::emitter::EmitterFactory;
     use sb_graph::{generate_binary_eszip, EszipPayloadKind};
     use sb_workers::context::{
@@ -443,6 +454,26 @@ mod test {
     use tokio::sync::mpsc;
 
     #[tokio::test]
+    async fn test_module_code_no_eszip() {
+        let (worker_pool_tx, _) = mpsc::unbounded_channel::<UserWorkerMsgs>();
+        DenoRuntime::new(WorkerContextInitOpts {
+            service_path: PathBuf::from("./test_cases/"),
+            no_module_cache: false,
+            import_map_path: None,
+            env_vars: Default::default(),
+            events_rx: None,
+            maybe_eszip: None,
+            maybe_entrypoint: None,
+            maybe_module_code: Some(FastString::from(String::from(
+                "Deno.serve((req) => new Response('Hello World'));",
+            ))),
+            conf: { WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts { worker_pool_tx }) },
+        })
+        .await
+        .expect("It should not panic");
+    }
+
+    #[tokio::test]
     #[allow(clippy::arc_with_non_send_sync)]
     async fn test_eszip_with_source_file() {
         let (worker_pool_tx, _) = mpsc::unbounded_channel::<UserWorkerMsgs>();
@@ -451,7 +482,7 @@ mod test {
             .unwrap();
         let path_buf = PathBuf::from("./test_cases/eszip-source-test.ts");
         let emitter_factory = Arc::new(EmitterFactory::new());
-        let bin_eszip = generate_binary_eszip(path_buf, emitter_factory.clone())
+        let bin_eszip = generate_binary_eszip(path_buf, emitter_factory.clone(), None)
             .await
             .unwrap();
         fs::remove_file("./test_cases/eszip-source-test.ts").unwrap();
@@ -500,7 +531,7 @@ mod test {
         let file = PathBuf::from("./test_cases/eszip-silly-test/index.ts");
         let service_path = PathBuf::from("./test_cases/eszip-silly-test");
         let emitter_factory = Arc::new(EmitterFactory::new());
-        let binary_eszip = generate_binary_eszip(file, emitter_factory.clone())
+        let binary_eszip = generate_binary_eszip(file, emitter_factory.clone(), None)
             .await
             .unwrap();
 

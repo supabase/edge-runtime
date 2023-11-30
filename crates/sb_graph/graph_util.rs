@@ -1,8 +1,9 @@
 use crate::emitter::EmitterFactory;
 use crate::graph_resolver::CliGraphResolver;
+use deno_ast::MediaType;
 use deno_core::error::{custom_error, AnyError};
 use deno_core::parking_lot::Mutex;
-use deno_core::ModuleSpecifier;
+use deno_core::{FastString, ModuleSpecifier};
 use deno_graph::ModuleError;
 use deno_graph::ResolutionError;
 use deno_semver::package::{PackageNv, PackageReq};
@@ -11,6 +12,7 @@ use eszip::deno_graph::{GraphKind, ModuleGraph, ModuleGraphError};
 use eszip::{deno_graph, EszipV2};
 use module_fetcher::args::lockfile::Lockfile;
 use module_fetcher::cache::ParsedSourceCache;
+use module_fetcher::file_fetcher::File;
 use sb_core::errors_rt::get_error_class_name;
 use sb_npm::CliNpmResolver;
 use std::path::PathBuf;
@@ -303,11 +305,33 @@ pub async fn create_eszip_from_graph_raw(
     eszip::EszipV2::from_graph(graph, &parser, Default::default())
 }
 
-pub async fn create_graph(file: PathBuf, emitter_factory: Arc<EmitterFactory>) -> ModuleGraph {
-    let binding = std::fs::canonicalize(&file).unwrap();
-    let specifier = binding.to_str().unwrap();
-    let format_specifier = format!("file:///{}", specifier);
-    let module_specifier = ModuleSpecifier::parse(&format_specifier).unwrap();
+pub async fn create_graph(
+    file: PathBuf,
+    emitter_factory: Arc<EmitterFactory>,
+    maybe_code: &Option<FastString>,
+) -> ModuleGraph {
+    let module_specifier = if let Some(code) = maybe_code {
+        let specifier = ModuleSpecifier::parse("file:///src/index.ts").unwrap();
+
+        emitter_factory.file_cache().insert(
+            specifier.clone(),
+            File {
+                maybe_types: None,
+                media_type: MediaType::TypeScript,
+                source: code.as_str().into(),
+                specifier: specifier.clone(),
+                maybe_headers: None,
+            },
+        );
+
+        specifier
+    } else {
+        let binding = std::fs::canonicalize(&file).unwrap();
+        let specifier = binding.to_str().unwrap();
+        let format_specifier = format!("file:///{}", specifier);
+
+        ModuleSpecifier::parse(&format_specifier).unwrap()
+    };
 
     let builder = ModuleGraphBuilder::new(emitter_factory, false);
 

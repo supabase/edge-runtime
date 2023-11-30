@@ -61,7 +61,7 @@ pub struct File {
 /// Simple struct implementing in-process caching to prevent multiple
 /// fs reads/net fetches for same file.
 #[derive(Debug, Clone, Default)]
-struct FileCache(Arc<Mutex<HashMap<ModuleSpecifier, File>>>);
+pub struct FileCache(Arc<Mutex<HashMap<ModuleSpecifier, File>>>);
 
 impl FileCache {
     pub fn get(&self, specifier: &ModuleSpecifier) -> Option<File> {
@@ -166,7 +166,7 @@ pub struct FetchOptions {
 pub struct FileFetcher {
     auth_tokens: AuthTokens,
     allow_remote: bool,
-    cache: FileCache,
+    cache: Arc<FileCache>,
     cache_setting: CacheSetting,
     http_cache: Arc<dyn HttpCache>,
     http_client: Arc<HttpClient>,
@@ -181,11 +181,12 @@ impl FileFetcher {
         allow_remote: bool,
         http_client: Arc<HttpClient>,
         blob_store: Arc<BlobStore>,
+        file_cache: Arc<FileCache>,
     ) -> Self {
         Self {
             auth_tokens: AuthTokens::new(env::var("DENO_AUTH_TOKENS").ok()),
             allow_remote,
-            cache: Default::default(),
+            cache: file_cache,
             cache_setting,
             http_cache,
             http_client,

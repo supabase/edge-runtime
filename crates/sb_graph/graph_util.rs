@@ -320,12 +320,12 @@ pub async fn create_graph(
                 maybe_types: None,
                 media_type: MediaType::TypeScript,
                 source: code.as_str().into(),
-                specifier,
+                specifier: specifier.clone(),
                 maybe_headers: None,
             },
         );
 
-        ModuleSpecifier::parse("http://internal.supabase.localhost/index.ts").unwrap()
+        specifier
     } else {
         let binding = std::fs::canonicalize(&file).unwrap();
         let specifier = binding.to_str().unwrap();

@@ -2,7 +2,7 @@ use crate::emitter::EmitterFactory;
 use crate::graph_util::{create_eszip_from_graph_raw, create_graph};
 use deno_ast::MediaType;
 use deno_core::error::AnyError;
-use deno_core::{serde_json, JsBuffer, ModuleSpecifier};
+use deno_core::{serde_json, FastString, JsBuffer, ModuleSpecifier};
 use deno_fs::{FileSystem, RealFs};
 use deno_npm::NpmSystemInfo;
 use eszip::EszipV2;
@@ -27,14 +27,19 @@ pub enum EszipPayloadKind {
 pub async fn generate_binary_eszip(
     file: PathBuf,
     emitter_factory: Arc<EmitterFactory>,
+    maybe_module_code: Option<FastString>,
 ) -> Result<EszipV2, AnyError> {
-    let graph = create_graph(file.clone(), emitter_factory.clone()).await;
+    let graph = create_graph(file.clone(), emitter_factory.clone(), &maybe_module_code).await;
     let eszip = create_eszip_from_graph_raw(graph, Some(emitter_factory.clone())).await;
 
     if let Ok(mut eszip) = eszip {
         let fs_path = file.clone();
-        let entry_content = RealFs.read_file_sync(fs_path.clone().as_path()).unwrap();
-        let source_code: Arc<str> = String::from_utf8(entry_content.clone())?.into();
+        let source_code: Arc<str> = if let Some(code) = maybe_module_code {
+            code.as_str().into()
+        } else {
+            let entry_content = RealFs.read_file_sync(fs_path.clone().as_path()).unwrap();
+            String::from_utf8(entry_content.clone())?.into()
+        };
         let emit_source = emitter_factory.emitter().unwrap().emit_parsed_source(
             &ModuleSpecifier::parse("http://localhost").unwrap(),
             MediaType::from_path(fs_path.clone().as_path()),

@@ -311,8 +311,7 @@ pub async fn create_graph(
     maybe_code: &Option<FastString>,
 ) -> ModuleGraph {
     let module_specifier = if let Some(code) = maybe_code {
-        let specifier =
-            ModuleSpecifier::parse("http://internal.supabase.localhost/index.ts").unwrap();
+        let specifier = ModuleSpecifier::parse("file:///src/index.ts").unwrap();
 
         emitter_factory.file_cache().insert(
             specifier.clone(),

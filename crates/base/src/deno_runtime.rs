@@ -334,10 +334,10 @@ impl DenoRuntime {
 
         {
             //run inside a closure, so op_state_rc is released
-            let env_vars = env_vars.clone();
             let op_state_rc = js_runtime.op_state();
             let mut op_state = op_state_rc.borrow_mut();
-            op_state.put::<sb_env::EnvVars>(env_vars);
+
+            let mut env_vars = env_vars.clone();
 
             if conf.is_events_worker() {
                 // if worker is an events worker, assert events_rx is to be available
@@ -347,6 +347,13 @@ impl DenoRuntime {
 
             if conf.is_user_worker() {
                 let conf = conf.as_user_worker().unwrap();
+
+                // set execution id for user workers
+                env_vars.insert(
+                    "SB_EXECUTION_ID".to_string(),
+                    conf.key.map_or("".to_string(), |k| k.to_string()),
+                );
+
                 if let Some(events_msg_tx) = conf.events_msg_tx.clone() {
                     op_state.put::<mpsc::UnboundedSender<WorkerEventWithMetadata>>(events_msg_tx);
                     op_state.put::<EventMetadata>(EventMetadata {
@@ -355,6 +362,8 @@ impl DenoRuntime {
                     });
                 }
             }
+
+            op_state.put::<sb_env::EnvVars>(env_vars);
         }
 
         let main_module_id = js_runtime

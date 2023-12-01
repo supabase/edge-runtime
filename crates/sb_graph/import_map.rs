@@ -1,7 +1,6 @@
 use anyhow::{anyhow, Error};
 use deno_core::url::Url;
 use import_map::{parse_from_json, ImportMap};
-use module_fetcher::util::diagnostic::print_import_map_diagnostics;
 use std::fs;
 use std::path::Path;
 use urlencoding::decode;
@@ -29,7 +28,6 @@ pub fn load_import_map(maybe_path: Option<String>) -> Result<Option<ImportMap>, 
         }
 
         let result = parse_from_json(&base_url, json_str.as_str())?;
-        print_import_map_diagnostics(&result.diagnostics);
         Ok(Some(result.import_map))
     } else {
         Ok(None)

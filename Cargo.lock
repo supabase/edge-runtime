@@ -3752,6 +3752,7 @@ dependencies = [
  "fs3",
  "hyper 0.14.27",
  "log",
+ "ring",
  "sb_node",
  "serde",
  "thiserror",

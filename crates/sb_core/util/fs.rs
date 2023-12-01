@@ -2,11 +2,9 @@ use deno_core::anyhow::Context;
 use deno_core::error::AnyError;
 pub use deno_core::normalize_path;
 use deno_core::unsync::spawn_blocking;
-use deno_core::ModuleSpecifier;
 use deno_crypto::rand;
 use log::debug;
 use sb_node::PathClean;
-use std::borrow::Cow;
 use std::env::current_dir;
 use std::fs::OpenOptions;
 use std::io::Error;
@@ -16,7 +14,6 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use walkdir::WalkDir;
 
 /// Writes the file to the file system at a temporary path, then
 /// renames it to the destination in a single sys call in order

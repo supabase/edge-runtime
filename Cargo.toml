@@ -2,7 +2,6 @@
 members = [
   "./crates/base",
   "./crates/cli",
-  "./crates/module_fetcher",
   "./crates/sb_workers",
   "./crates/sb_env",
   "./crates/sb_core",

@@ -75,8 +75,9 @@ pub struct ParsedSourceCache {
 impl ParsedSourceCache {
     #[cfg(test)]
     pub fn new_in_memory() -> Self {
+        use crate::util::versions_util::deno;
         Self {
-            db: CacheDB::in_memory(&PARSED_SOURCE_CACHE_DB, crate::version::deno()),
+            db: CacheDB::in_memory(&PARSED_SOURCE_CACHE_DB, deno()),
             sources: Default::default(),
         }
     }

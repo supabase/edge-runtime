@@ -11,6 +11,7 @@ license = "MIT"
 path = "lib.rs"
 
 [dependencies]
+sb_core = { version = "0.1.0", path = "../sb_core" }
 deno_ast.workspace = true
 deno_core.workspace = true
 deno_npm.workspace = true
@@ -19,7 +20,6 @@ deno_semver.workspace = true
 once_cell.workspace = true
 async-trait.workspace = true
 base32 = "=0.4.0"
-sb_core = { version = "0.1.0", path = "../sb_core" }
 deno_lockfile.workspace = true
 tar.workspace = true
 flate2.workspace = true

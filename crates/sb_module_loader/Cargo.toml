@@ -10,11 +10,11 @@ license = "MIT"
 path = "lib.rs"
 
 [dependencies]
+sb_core = { version = "0.1.0", path = "../sb_core" }
 sb_node = { version = "0.1.0", path = "../node" }
 sb_npm = { version = "0.1.0", path = "../npm" }
 sb_graph = { version = "0.1.0", path = "../sb_graph" }
 sb_fs = { version = "0.1.0", path = "../sb_fs" }
-sb_core = { version = "0.1.0", path = "../sb_core" }
 deno_semver.workspace = true
 anyhow.workspace = true
 deno_core.workspace = true

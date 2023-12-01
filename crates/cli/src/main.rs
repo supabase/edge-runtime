@@ -1,12 +1,14 @@
 mod logger;
 
-use anyhow::Error;
+use anyhow::{anyhow, Error};
 use base::commands::start_server;
 use base::server::WorkerEntrypoints;
 use clap::builder::FalseyValueParser;
 use clap::{arg, crate_version, value_parser, ArgAction, Command};
+use deno_core::url::Url;
 use sb_graph::emitter::EmitterFactory;
 use sb_graph::generate_binary_eszip;
+use sb_graph::import_map::load_import_map;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
@@ -55,6 +57,7 @@ fn cli() -> Command {
                 .about("Creates an 'eszip' file that can be executed by the EdgeRuntime. Such file contains all the modules in contained in a single binary.")
                 .arg(arg!(--"output" <DIR> "Path to output eszip file").default_value("bin.eszip"))
                 .arg(arg!(--"entrypoint" <Path> "Path to entrypoint to bundle as an eszip").required(true))
+                .arg(arg!(--"import-map" <Path> "Path to import map file"))
         )
 }
 
@@ -125,6 +128,7 @@ fn main() -> Result<(), anyhow::Error> {
             }
             Some(("bundle", sub_matches)) => {
                 let output_path = sub_matches.get_one::<String>("output").cloned().unwrap();
+                let import_map_path = sub_matches.get_one::<String>("import-map").cloned();
 
                 let entry_point_path = sub_matches
                     .get_one::<String>("entrypoint")
@@ -132,10 +136,25 @@ fn main() -> Result<(), anyhow::Error> {
                     .unwrap();
 
                 let path = PathBuf::from(entry_point_path.as_str());
+                let mut emitter_factory = EmitterFactory::new();
+                let maybe_import_map = load_import_map(import_map_path.clone())?;
+                let mut maybe_import_map_url = None;
+                if maybe_import_map.is_some() {
+                    let abs_import_map_path =
+                        std::env::current_dir().map(|p| p.join(import_map_path.unwrap()))?;
+                    maybe_import_map_url = Some(
+                        Url::from_file_path(abs_import_map_path)
+                            .map_err(|_| anyhow!("failed get import map url"))?
+                            .to_string(),
+                    );
+                }
+                emitter_factory.set_import_map(maybe_import_map.clone());
+
                 let eszip = generate_binary_eszip(
                     path.canonicalize().unwrap(),
-                    Arc::new(EmitterFactory::new()),
+                    Arc::new(emitter_factory),
                     None,
+                    maybe_import_map_url,
                 )
                 .await?;
                 let bin = eszip.into_bytes();

@@ -19,13 +19,12 @@ deno_semver.workspace = true
 once_cell.workspace = true
 async-trait.workspace = true
 base32 = "=0.4.0"
-module_fetcher = { path = "../module_fetcher" }
+sb_core = { version = "0.1.0", path = "../sb_core" }
 deno_lockfile.workspace = true
 tar.workspace = true
 flate2.workspace = true
 ring.workspace = true
 sb_node = { version = "0.1.0", path = "../node" }
-sb_core = { version = "0.1.0", path = "../sb_core" }
 serde.workspace = true
 percent-encoding = "=2.3.0"
 hex = "0.4"

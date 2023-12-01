@@ -25,6 +25,7 @@ tar.workspace = true
 flate2.workspace = true
 ring.workspace = true
 sb_node = { version = "0.1.0", path = "../node" }
+sb_core = { version = "0.1.0", path = "../sb_core" }
 serde.workspace = true
 percent-encoding = "=2.3.0"
 hex = "0.4"

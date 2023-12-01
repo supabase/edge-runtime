@@ -20,8 +20,8 @@ use deno_semver::package::PackageNv;
 use deno_semver::Version;
 use module_fetcher::args::CacheSetting;
 use module_fetcher::http_util::HttpClient;
-use module_fetcher::util::fs::{canonicalize_path, hard_link_dir_recursive};
 use module_fetcher::util::path::root_url_to_safe_local_dirname;
+use sb_core::util::fs::{canonicalize_path, hard_link_dir_recursive};
 
 use super::tarball::verify_and_extract_tarball;
 

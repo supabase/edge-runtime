@@ -22,7 +22,7 @@ use deno_io::fs::FsError;
 use deno_io::fs::FsResult;
 use deno_io::fs::FsStat;
 use module_fetcher::util;
-use module_fetcher::util::fs::canonicalize_path;
+use sb_core::util::fs::canonicalize_path;
 use serde::Deserialize;
 use serde::Serialize;
 use thiserror::Error;

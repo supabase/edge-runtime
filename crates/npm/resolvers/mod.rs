@@ -30,7 +30,7 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use module_fetcher::args::lockfile::Lockfile;
-use module_fetcher::util::fs::canonicalize_path_maybe_not_exists_with_fs;
+use sb_core::util::fs::canonicalize_path_maybe_not_exists_with_fs;
 
 use self::local::LocalNpmPackageResolver;
 use super::resolution::NpmResolution;
@@ -152,7 +152,7 @@ impl CliNpmResolver {
     /// Attempts to get the package size in bytes.
     pub fn package_size(&self, package_id: &NpmPackageId) -> Result<u64, AnyError> {
         let package_folder = self.fs_resolver.package_folder(package_id)?;
-        Ok(module_fetcher::util::fs::dir_size(&package_folder)?)
+        Ok(sb_core::util::fs::dir_size(&package_folder)?)
     }
 
     /// Adds package requirements to the resolver and ensures everything is setup.

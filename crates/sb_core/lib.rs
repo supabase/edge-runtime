@@ -5,6 +5,7 @@ pub mod net;
 pub mod permissions;
 pub mod runtime;
 pub mod transpiler;
+pub mod util;
 
 deno_core::extension!(
     sb_core_main_js,

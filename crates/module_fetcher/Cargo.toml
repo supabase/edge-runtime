@@ -21,7 +21,7 @@ thiserror.workspace = true
 deno_lockfile.workspace = true
 indexmap.workspace = true
 async-trait.workspace = true
-base64 = { version = "=0.13.1" }
+base64.workspace = true
 cache_control = { version = "=0.2.0" }
 chrono = { version = "=0.4.22", default-features = false, features = ["clock"] }
 data-url = { version= "=0.3.0" }
@@ -37,7 +37,7 @@ deno_config.workspace = true
 deno_web = { workspace = true }
 deno_webstorage = { workspace = true }
 encoding_rs = { version = "=0.8.33" }
-import_map = { version = "=0.15.0" }
+import_map.workspace = true
 log = { workspace = true }
 libc = { workspace = true }
 ring = { version = "=0.16.20" }

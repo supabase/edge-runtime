@@ -29,5 +29,5 @@ sb_core = { version = "0.1.0", path = "../sb_core" }
 serde.workspace = true
 percent-encoding = "=2.3.0"
 hex = "0.4"
-base64 = { version = "=0.13.1" }
+base64.workspace = true
 bincode = "=1.3.3"

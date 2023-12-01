@@ -20,7 +20,7 @@ deno_semver.workspace = true
 anyhow.workspace = true
 deno_core.workspace = true
 eszip.workspace = true
-import_map = { version = "0.15.0" }
+import_map.workspace = true
 log = { workspace = true }
 serde.workspace = true
 tokio.workspace = true

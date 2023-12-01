@@ -33,7 +33,7 @@ deno_websocket = { workspace = true }
 httparse = { version = "1.8.0" }
 hyper = { version = "0.14.26", features = ["full"] }
 http = { version = "0.2" }
-import_map = { version = "0.15.0" }
+import_map.workspace = true
 log = { workspace = true }
 module_fetcher = { path = "../module_fetcher" }
 reqwest.workspace = true

@@ -25,8 +25,7 @@ use crate::snapshot;
 use event_worker::events::{EventMetadata, WorkerEventWithMetadata};
 use event_worker::js_interceptors::sb_events_js_interceptors;
 use event_worker::sb_user_event_worker;
-use module_fetcher::file_fetcher::CacheSetting;
-use module_fetcher::util::diagnostic::print_import_map_diagnostics;
+use sb_core::cache::CacheSetting;
 use sb_core::cert::ValueRootCertStoreProvider;
 use sb_core::http_start::sb_core_http;
 use sb_core::net::sb_core_net;
@@ -65,7 +64,6 @@ fn load_import_map(maybe_path: Option<String>) -> Result<Option<ImportMap>, Erro
         }
 
         let result = parse_from_json(&base_url, json_str.as_str())?;
-        print_import_map_diagnostics(&result.diagnostics);
         Ok(Some(result.import_map))
     } else {
         Ok(None)

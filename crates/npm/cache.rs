@@ -13,15 +13,14 @@ use deno_core::error::custom_error;
 use deno_core::error::AnyError;
 use deno_core::parking_lot::Mutex;
 use deno_core::url::Url;
-use deno_fs;
 use deno_npm::registry::NpmPackageVersionDistInfo;
 use deno_npm::NpmPackageCacheFolderId;
 use deno_semver::package::PackageNv;
 use deno_semver::Version;
-use module_fetcher::args::CacheSetting;
-use module_fetcher::http_util::HttpClient;
-use module_fetcher::util::fs::{canonicalize_path, hard_link_dir_recursive};
-use module_fetcher::util::path::root_url_to_safe_local_dirname;
+use sb_core::cache::CacheSetting;
+use sb_core::util::fs::{canonicalize_path, hard_link_dir_recursive};
+use sb_core::util::http_util::HttpClient;
+use sb_core::util::path::root_url_to_safe_local_dirname;
 
 use super::tarball::verify_and_extract_tarball;
 
@@ -289,9 +288,9 @@ impl NpmCache {
     fn should_use_global_cache_for_package(&self, package: &PackageNv) -> bool {
         self.cache_setting.should_use_for_npm_package(&package.name)
             || !self
-                .previously_reloaded_packages
-                .lock()
-                .insert(package.clone())
+            .previously_reloaded_packages
+            .lock()
+            .insert(package.clone())
     }
 
     pub async fn ensure_package(
@@ -315,10 +314,10 @@ impl NpmCache {
             .cache_dir
             .package_folder_for_name_and_version(package, registry_url);
         if self.should_use_global_cache_for_package(package)
-      && self.fs.exists_sync(&package_folder)
-      // if this file exists, then the package didn't successfully extract
-      // the first time, or another process is currently extracting the zip file
-      && !self.fs.exists_sync(&package_folder.join(NPM_PACKAGE_SYNC_LOCK_FILENAME))
+            && self.fs.exists_sync(&package_folder)
+            // if this file exists, then the package didn't successfully extract
+            // the first time, or another process is currently extracting the zip file
+            && !self.fs.exists_sync(&package_folder.join(NPM_PACKAGE_SYNC_LOCK_FILENAME))
         {
             return Ok(());
         } else if self.cache_setting == CacheSetting::Only {
@@ -362,10 +361,10 @@ impl NpmCache {
             .package_folder_for_id(folder_id, registry_url);
 
         if package_folder.exists()
-      // if this file exists, then the package didn't successfully extract
-      // the first time, or another process is currently extracting the zip file
-      && !package_folder.join(NPM_PACKAGE_SYNC_LOCK_FILENAME).exists()
-      && self.cache_setting.should_use_for_npm_package(&folder_id.nv.name)
+            // if this file exists, then the package didn't successfully extract
+            // the first time, or another process is currently extracting the zip file
+            && !package_folder.join(NPM_PACKAGE_SYNC_LOCK_FILENAME).exists()
+            && self.cache_setting.should_use_for_npm_package(&folder_id.nv.name)
         {
             return Ok(());
         }
@@ -421,7 +420,7 @@ pub fn mixed_case_package_name_encode(name: &str) -> String {
         base32::Alphabet::RFC4648 { padding: false },
         name.as_bytes(),
     )
-    .to_lowercase()
+        .to_lowercase()
 }
 
 pub fn mixed_case_package_name_decode(name: &str) -> Option<String> {

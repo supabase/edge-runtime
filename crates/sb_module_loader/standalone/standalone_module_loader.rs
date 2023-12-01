@@ -11,7 +11,7 @@ use deno_core::ModuleSpecifier;
 use deno_core::ModuleType;
 use deno_core::ResolutionKind;
 use deno_semver::npm::NpmPackageReqReference;
-use module_fetcher::file_fetcher::get_source_from_data_url;
+use sb_core::file_fetcher::get_source_from_data_url;
 use std::pin::Pin;
 use std::sync::Arc;
 

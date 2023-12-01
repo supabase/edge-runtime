@@ -7,8 +7,8 @@ use std::sync::Arc;
 use deno_core::error::AnyError;
 use deno_core::parking_lot::Mutex;
 use deno_core::parking_lot::RwLock;
-use deno_lockfile::NpmPackageDependencyLockfileInfo;
 use deno_lockfile::NpmPackageLockfileInfo;
+use deno_lockfile::{Lockfile, NpmPackageDependencyLockfileInfo};
 use deno_npm::registry::NpmPackageInfo;
 use deno_npm::registry::NpmPackageVersionDistInfoIntegrity;
 use deno_npm::registry::NpmRegistryApi;
@@ -30,10 +30,9 @@ use deno_npm::NpmSystemInfo;
 use deno_semver::package::PackageNv;
 use deno_semver::package::PackageReq;
 use deno_semver::VersionReq;
-use module_fetcher::util::sync::TaskQueue;
+use sb_core::util::sync::TaskQueue;
 
 use super::registry::CliNpmRegistryApi;
-use module_fetcher::args::lockfile::Lockfile;
 
 /// Handles updating and storing npm resolution in memory where the underlying
 /// snapshot can be updated concurrently. Additionally handles updating the lockfile

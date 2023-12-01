@@ -15,6 +15,7 @@ use deno_core::parking_lot::Mutex;
 use deno_core::serde_json;
 use deno_core::url::Url;
 use deno_fs::FileSystem;
+use deno_lockfile::Lockfile;
 use deno_npm::resolution::NpmResolutionSnapshot;
 use deno_npm::resolution::PackageReqNotFoundError;
 use deno_npm::resolution::SerializedNpmResolutionSnapshot;
@@ -23,14 +24,12 @@ use deno_npm::NpmSystemInfo;
 use deno_semver::package::PackageNv;
 use deno_semver::package::PackageReq;
 use global::GlobalNpmPackageResolver;
+use sb_core::util::fs::canonicalize_path_maybe_not_exists_with_fs;
 use sb_node::NodePermissions;
 use sb_node::NodeResolutionMode;
 use sb_node::NpmResolver;
 use serde::Deserialize;
 use serde::Serialize;
-
-use module_fetcher::args::lockfile::Lockfile;
-use module_fetcher::util::fs::canonicalize_path_maybe_not_exists_with_fs;
 
 use self::local::LocalNpmPackageResolver;
 use super::resolution::NpmResolution;
@@ -152,7 +151,7 @@ impl CliNpmResolver {
     /// Attempts to get the package size in bytes.
     pub fn package_size(&self, package_id: &NpmPackageId) -> Result<u64, AnyError> {
         let package_folder = self.fs_resolver.package_folder(package_id)?;
-        Ok(module_fetcher::util::fs::dir_size(&package_folder)?)
+        Ok(sb_core::util::fs::dir_size(&package_folder)?)
     }
 
     /// Adds package requirements to the resolver and ensures everything is setup.

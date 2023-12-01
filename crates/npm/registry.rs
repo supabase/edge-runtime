@@ -21,11 +21,10 @@ use deno_core::url::Url;
 use deno_npm::registry::NpmPackageInfo;
 use deno_npm::registry::NpmRegistryApi;
 use deno_npm::registry::NpmRegistryPackageInfoLoadError;
-use module_fetcher::args::CacheSetting;
-use module_fetcher::cache::CACHE_PERM;
-use module_fetcher::http_util::HttpClient;
-use module_fetcher::util::fs::atomic_write_file;
-use module_fetcher::util::sync::AtomicFlag;
+use sb_core::cache::{CacheSetting, CACHE_PERM};
+use sb_core::util::http_util::HttpClient;
+use sb_core::util::fs::atomic_write_file;
+use sb_core::util::sync::AtomicFlag;
 use once_cell::sync::Lazy;
 
 use super::cache::NpmCache;
@@ -158,9 +157,9 @@ impl CliNpmRegistryApiInner {
                 Some(CacheItem::Pending(future)) => (false, future.clone()),
                 None => {
                     if (self.cache.cache_setting().should_use_for_npm_package(name) && !self.force_reload())
-            // if this has been previously reloaded, then try loading from the
-            // file system cache
-            || !self.previously_reloaded_packages.lock().insert(name.to_string())
+                        // if this has been previously reloaded, then try loading from the
+                        // file system cache
+                        || !self.previously_reloaded_packages.lock().insert(name.to_string())
                     {
                         // attempt to load from the file cache
                         if let Some(info) = self.load_file_cached_package_info(name) {
@@ -179,8 +178,8 @@ impl CliNpmRegistryApiInner {
                                 .map(|info| info.map(Arc::new))
                                 .map_err(Arc::new)
                         }
-                        .boxed()
-                        .shared()
+                            .boxed()
+                            .shared()
                     };
                     mem_cache.insert(name.to_string(), CacheItem::Pending(future.clone()));
                     (true, future)

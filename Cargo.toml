@@ -2,7 +2,6 @@
 members = [
   "./crates/base",
   "./crates/cli",
-  "./crates/module_fetcher",
   "./crates/sb_workers",
   "./crates/sb_env",
   "./crates/sb_core",
@@ -60,6 +59,8 @@ tokio-util = "0.7.4"
 uuid = { version = "1.3.0", features = ["v4"] }
 rsa = { version = "0.7.0", default-features = false, features = ["std", "pem", "hazmat"] }
 monch = "=0.4.3"
+import_map = { version = "0.15.0" }
+base64 = { version = "=0.13.1" }
 
 reqwest = { version = "0.11.20", default-features = false, features = ["rustls-tls", "stream", "gzip", "brotli", "socks", "json"] }
 ring = "=0.16.20"

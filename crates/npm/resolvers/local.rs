@@ -28,16 +28,13 @@ use deno_npm::NpmPackageId;
 use deno_npm::NpmResolutionPackage;
 use deno_npm::NpmSystemInfo;
 use deno_semver::package::PackageNv;
-use module_fetcher::cache::CACHE_PERM;
-use module_fetcher::util::fs::{
-    atomic_write_file, canonicalize_path_maybe_not_exists_with_fs, copy_dir_recursive,
-    hard_link_dir_recursive, symlink_dir, LaxSingleProcessFsFlag,
-};
 use sb_node::NodePermissions;
 use sb_node::NodeResolutionMode;
 use sb_node::PackageJson;
 use serde::Deserialize;
 use serde::Serialize;
+use sb_core::cache::CACHE_PERM;
+use sb_core::util::fs::{atomic_write_file, canonicalize_path_maybe_not_exists_with_fs, copy_dir_recursive, hard_link_dir_recursive, LaxSingleProcessFsFlag, symlink_dir};
 
 use crate::cache::mixed_case_package_name_encode;
 use crate::resolution::NpmResolution;
@@ -118,8 +115,8 @@ impl LocalNpmPackageResolver {
                 .realpath_sync(path)
                 .map_err(|err| err.into_io_error())
         })
-        .map(Some)
-        .map_err(|err| err.into())
+            .map(Some)
+            .map_err(|err| err.into())
     }
 }
 
@@ -232,7 +229,7 @@ impl NpmPackageFsResolver for LocalNpmPackageResolver {
             &self.root_node_modules_path,
             &self.system_info,
         )
-        .await
+            .await
     }
 
     fn ensure_read_permission(
@@ -267,7 +264,7 @@ async fn sync_resolution_with_fs(
         // similar message used by cargo build
         "waiting for file lock on node_modules directory",
     )
-    .await;
+        .await;
 
     // load this after we get the directory lock
     let mut setup_cache = SetupCache::load(deno_local_registry_dir.join(".setup-cache.bin"));

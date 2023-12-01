@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use crate::util::versions_util::deno;
 use once_cell::sync::OnceCell;
 
 use super::cache_db::CacheDB;
@@ -41,9 +42,9 @@ impl Caches {
     ) -> CacheDB {
         cell.get_or_init(|| {
             if let Some(path) = path {
-                CacheDB::from_path(config, path, crate::version::deno())
+                CacheDB::from_path(config, path, deno())
             } else {
-                CacheDB::in_memory(config, crate::version::deno())
+                CacheDB::in_memory(config, deno())
             }
         })
         .clone()

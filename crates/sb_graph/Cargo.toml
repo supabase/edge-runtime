@@ -10,16 +10,15 @@ license = "MIT"
 path = "lib.rs"
 
 [dependencies]
-module_fetcher = { path = "../module_fetcher" }
+sb_core = { version = "0.1.0", path = "../sb_core" }
 sb_node = { version = "0.1.0", path = "../node" }
 sb_npm = { version = "0.1.0", path = "../npm" }
 sb_fs = { version = "0.1.0", path = "../sb_fs" }
-sb_core = { version = "0.1.0", path = "../sb_core" }
 deno_semver.workspace = true
 anyhow.workspace = true
 deno_core.workspace = true
 eszip.workspace = true
-import_map = { version = "0.15.0" }
+import_map.workspace = true
 log = { workspace = true }
 serde.workspace = true
 tokio.workspace = true
@@ -29,3 +28,5 @@ deno_npm.workspace = true
 once_cell.workspace = true
 deno_web.workspace = true
 urlencoding.workspace = true
+deno_lockfile.workspace = true
+deno_config.workspace = true

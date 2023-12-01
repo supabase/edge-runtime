@@ -2,8 +2,7 @@
 
 use once_cell::sync::OnceCell;
 
-use super::DiskCache;
-
+use crate::cache::disk_cache::DiskCache;
 use std::env;
 use std::path::PathBuf;
 

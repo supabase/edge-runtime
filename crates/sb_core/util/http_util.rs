@@ -1,6 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-use crate::version::get_user_agent;
-
+use crate::util::versions_util::get_user_agent;
 use cache_control::Cachability;
 use cache_control::CacheControl;
 use chrono::DateTime;

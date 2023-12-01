@@ -11,9 +11,9 @@ use deno_core::url::Url;
 use thiserror::Error;
 
 use crate::cache::CACHE_PERM;
-use crate::http_util::HeadersMap;
 use crate::util;
 use crate::util::fs::atomic_write_file;
+use crate::util::http_util::HeadersMap;
 
 use super::common::base_url_to_filename_parts;
 use super::common::read_file_bytes;

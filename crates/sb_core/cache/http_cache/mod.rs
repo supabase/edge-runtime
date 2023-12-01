@@ -7,12 +7,11 @@ use deno_core::url::Url;
 use std::path::PathBuf;
 use std::time::SystemTime;
 
-use crate::http_util::HeadersMap;
-
 mod common;
 mod global;
 mod local;
 
+use crate::util::http_util::HeadersMap;
 pub use global::url_to_filename;
 pub use global::GlobalHttpCache;
 pub use local::LocalHttpCache;

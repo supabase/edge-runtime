@@ -1,19 +1,15 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
-pub use crate::args::CacheSetting;
-use crate::auth_tokens::AuthToken;
-use crate::auth_tokens::AuthTokens;
-use crate::cache::HttpCache;
-use crate::http_util;
-use crate::http_util::resolve_redirect_from_response;
-use crate::http_util::CacheSemantics;
-use crate::http_util::HeadersMap;
-use crate::http_util::HttpClient;
-use crate::util::text_encoding;
-
-use crate::permissions::Permissions;
+use crate::auth_tokens::{AuthToken, AuthTokens};
+use crate::cache::fc_permissions::FcPermissions;
+use crate::cache::CacheSetting;
+use crate::util::http_util::{
+    resolve_redirect_from_response, CacheSemantics, HeadersMap, HttpClient,
+};
+use crate::util::{http_util, text_encoding};
 use data_url::DataUrl;
 use deno_ast::MediaType;
+use deno_cache_dir::HttpCache;
 use deno_core::error::custom_error;
 use deno_core::error::generic_error;
 use deno_core::error::uri_error;
@@ -156,7 +152,7 @@ pub fn map_content_type(
 
 pub struct FetchOptions {
     pub specifier: ModuleSpecifier,
-    pub permissions: Permissions,
+    pub permissions: FcPermissions,
     pub maybe_accept: Option<String>,
     pub maybe_cache_setting: Option<CacheSetting>,
 }
@@ -312,7 +308,7 @@ impl FileFetcher {
     fn fetch_remote(
         &self,
         specifier: &ModuleSpecifier,
-        mut permissions: Permissions,
+        mut permissions: FcPermissions,
         redirect_limit: i64,
         maybe_accept: Option<String>,
         cache_setting: &CacheSetting,
@@ -486,7 +482,7 @@ impl FileFetcher {
     pub async fn fetch(
         &self,
         specifier: &ModuleSpecifier,
-        permissions: Permissions,
+        permissions: FcPermissions,
     ) -> Result<File, AnyError> {
         self.fetch_with_options(FetchOptions {
             specifier: specifier.clone(),

@@ -1,13 +1,10 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-
 use deno_core::anyhow::Context;
 use deno_core::error::AnyError;
 pub use deno_core::normalize_path;
 use deno_core::unsync::spawn_blocking;
-use deno_core::ModuleSpecifier;
 use deno_crypto::rand;
+use log::debug;
 use sb_node::PathClean;
-use std::borrow::Cow;
 use std::env::current_dir;
 use std::fs::OpenOptions;
 use std::io::Error;
@@ -17,9 +14,6 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use walkdir::WalkDir;
-
-use super::path::specifier_to_file_path;
 
 /// Writes the file to the file system at a temporary path, then
 /// renames it to the destination in a single sys call in order
@@ -173,168 +167,6 @@ pub fn resolve_from_cwd(path: &Path) -> Result<PathBuf, AnyError> {
     };
 
     Ok(normalize_path(resolved_path))
-}
-
-/// Collects file paths that satisfy the given predicate, by recursively walking `files`.
-/// If the walker visits a path that is listed in `ignore`, it skips descending into the directory.
-pub struct FileCollector<TFilter: Fn(&Path) -> bool> {
-    canonicalized_ignore: Vec<PathBuf>,
-    file_filter: TFilter,
-    ignore_git_folder: bool,
-    ignore_node_modules: bool,
-    ignore_vendor_folder: bool,
-}
-
-impl<TFilter: Fn(&Path) -> bool> FileCollector<TFilter> {
-    pub fn new(file_filter: TFilter) -> Self {
-        Self {
-            canonicalized_ignore: Default::default(),
-            file_filter,
-            ignore_git_folder: false,
-            ignore_node_modules: false,
-            ignore_vendor_folder: false,
-        }
-    }
-
-    pub fn add_ignore_paths(mut self, paths: &[PathBuf]) -> Self {
-        // retain only the paths which exist and ignore the rest
-        self.canonicalized_ignore
-            .extend(paths.iter().filter_map(|i| canonicalize_path(i).ok()));
-        self
-    }
-
-    pub fn ignore_node_modules(mut self) -> Self {
-        self.ignore_node_modules = true;
-        self
-    }
-
-    pub fn ignore_vendor_folder(mut self) -> Self {
-        self.ignore_vendor_folder = true;
-        self
-    }
-
-    pub fn ignore_git_folder(mut self) -> Self {
-        self.ignore_git_folder = true;
-        self
-    }
-
-    pub fn collect_files(&self, files: Option<&[PathBuf]>) -> Result<Vec<PathBuf>, AnyError> {
-        let mut target_files = Vec::new();
-        let files = if let Some(files) = files {
-            Cow::Borrowed(files)
-        } else {
-            Cow::Owned(vec![PathBuf::from(".")])
-        };
-        for file in files.iter() {
-            if let Ok(file) = canonicalize_path(file) {
-                // use an iterator like this in order to minimize the number of file system operations
-                let mut iterator = WalkDir::new(&file).into_iter();
-                loop {
-                    let e = match iterator.next() {
-                        None => break,
-                        Some(Err(_)) => continue,
-                        Some(Ok(entry)) => entry,
-                    };
-                    let file_type = e.file_type();
-                    let is_dir = file_type.is_dir();
-                    if let Ok(c) = canonicalize_path(e.path()) {
-                        if self.canonicalized_ignore.iter().any(|i| c.starts_with(i)) {
-                            if is_dir {
-                                iterator.skip_current_dir();
-                            }
-                        } else if is_dir {
-                            let should_ignore_dir = c
-                                .file_name()
-                                .map(|dir_name| {
-                                    let dir_name = dir_name.to_string_lossy().to_lowercase();
-                                    let is_ignored_file = match dir_name.as_str() {
-                                        "node_modules" => self.ignore_node_modules,
-                                        "vendor" => self.ignore_vendor_folder,
-                                        ".git" => self.ignore_git_folder,
-                                        _ => false,
-                                    };
-                                    // allow the user to opt out of ignoring by explicitly specifying the dir
-                                    file != c && is_ignored_file
-                                })
-                                .unwrap_or(false);
-                            if should_ignore_dir {
-                                iterator.skip_current_dir();
-                            }
-                        } else if (self.file_filter)(e.path()) {
-                            target_files.push(c);
-                        }
-                    } else if is_dir {
-                        // failed canonicalizing, so skip it
-                        iterator.skip_current_dir();
-                    }
-                }
-            }
-        }
-        Ok(target_files)
-    }
-}
-
-/// Collects module specifiers that satisfy the given predicate as a file path, by recursively walking `include`.
-/// Specifiers that start with http and https are left intact.
-/// Note: This ignores all .git and node_modules folders.
-pub fn collect_specifiers(
-    files: &deno_config::FilesConfig,
-    predicate: impl Fn(&Path) -> bool,
-) -> Result<Vec<ModuleSpecifier>, AnyError> {
-    let mut prepared = vec![];
-    let file_collector = FileCollector::new(predicate)
-        .add_ignore_paths(&files.exclude)
-        .ignore_git_folder()
-        .ignore_node_modules()
-        .ignore_vendor_folder();
-
-    let root_path = current_dir()?;
-    let include_files = if let Some(include) = &files.include {
-        Cow::Borrowed(include)
-    } else {
-        Cow::Owned(vec![root_path.clone()])
-    };
-    for path in include_files.iter() {
-        let path = path.to_string_lossy();
-        let lowercase_path = path.to_lowercase();
-        if lowercase_path.starts_with("http://") || lowercase_path.starts_with("https://") {
-            let url = ModuleSpecifier::parse(&path)?;
-            prepared.push(url);
-            continue;
-        }
-
-        let p = if lowercase_path.starts_with("file://") {
-            specifier_to_file_path(&ModuleSpecifier::parse(&path)?)?
-        } else {
-            root_path.join(path.as_ref())
-        };
-        let p = normalize_path(p);
-        if p.is_dir() {
-            let test_files = file_collector.collect_files(Some(&[p]))?;
-            let mut test_files_as_urls = test_files
-                .iter()
-                .map(|f| ModuleSpecifier::from_file_path(f).unwrap())
-                .collect::<Vec<ModuleSpecifier>>();
-
-            test_files_as_urls.sort();
-            prepared.extend(test_files_as_urls);
-        } else {
-            let url = ModuleSpecifier::from_file_path(p).unwrap();
-            prepared.push(url);
-        }
-    }
-
-    Ok(prepared)
-}
-
-/// Asynchronously removes a directory and all its descendants, but does not error
-/// when the directory does not exist.
-pub async fn remove_dir_all_if_exists(path: &Path) -> std::io::Result<()> {
-    let result = tokio::fs::remove_dir_all(path).await;
-    match result {
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        _ => result,
-    }
 }
 
 /// Copies a directory to another directory.
@@ -513,7 +345,7 @@ pub struct LaxSingleProcessFsFlag(Option<LaxSingleProcessFsFlagInner>);
 
 impl LaxSingleProcessFsFlag {
     pub async fn lock(file_path: PathBuf, _long_wait_message: &str) -> Self {
-        log::debug!("Acquiring file lock at {}", file_path.display());
+        debug!("Acquiring file lock at {}", file_path.display());
         use fs3::FileExt;
         let last_updated_path = file_path.with_extension("lock.poll");
         let _start_instant = std::time::Instant::now();

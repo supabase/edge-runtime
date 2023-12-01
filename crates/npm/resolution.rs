@@ -30,10 +30,10 @@ use deno_npm::NpmSystemInfo;
 use deno_semver::package::PackageNv;
 use deno_semver::package::PackageReq;
 use deno_semver::VersionReq;
-use module_fetcher::util::sync::TaskQueue;
+use sb_core::util::sync::TaskQueue;
 
 use super::registry::CliNpmRegistryApi;
-use module_fetcher::args::lockfile::Lockfile;
+use deno_lockfile::Lockfile;
 
 /// Handles updating and storing npm resolution in memory where the underlying
 /// snapshot can be updated concurrently. Additionally handles updating the lockfile

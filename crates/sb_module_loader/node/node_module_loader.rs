@@ -1,10 +1,10 @@
+use crate::node::cjs_code_anaylzer::CliNodeCodeTranslator;
 use anyhow::Context;
 use deno_ast::MediaType;
 use deno_core::error::{generic_error, AnyError};
 use deno_core::parking_lot::Mutex;
 use deno_core::{ModuleCode, ModuleSpecifier};
 use deno_semver::npm::{NpmPackageNvReference, NpmPackageReqReference};
-use module_fetcher::node::CliNodeCodeTranslator;
 use sb_node::{NodePermissions, NodeResolution, NodeResolutionMode, NodeResolver};
 use std::collections::HashSet;
 use std::sync::Arc;

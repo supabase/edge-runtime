@@ -11,6 +11,7 @@ license = "MIT"
 path = "lib.rs"
 
 [dependencies]
+walkdir = "=2.3.2"
 deno_ast.workspace = true
 deno_net.workspace = true
 deno_web.workspace = true
@@ -27,3 +28,21 @@ bytes.workspace = true
 deno_tls.workspace = true
 thiserror.workspace = true
 sb_node = { version = "0.1.0", path = "../node" }
+deno_crypto.workspace = true
+fs3 = "0.5.0"
+log.workspace = true
+tokio-util.workspace = true
+ring.workspace = true
+deno_graph.workspace = true
+once_cell.workspace = true
+import_map.workspace = true
+data-url = { version= "=0.3.0" }
+cache_control = { version = "=0.2.0" }
+chrono = { version = "=0.4.22", default-features = false, features = ["clock"] }
+deno_cache_dir = "=0.6.0"
+libc = { workspace = true }
+twox-hash = { version = "=1.6.3" }
+deno_webstorage.workspace = true
+indexmap.workspace = true
+encoding_rs = { version = "=0.8.33" }
+base64.workspace = true

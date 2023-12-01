@@ -2,15 +2,15 @@
 
 use std::path::PathBuf;
 
+use crate::cache::common::FastInsecureHasher;
+use crate::cache::disk_cache::DiskCache;
+use crate::util::versions_util::deno;
 use deno_ast::ModuleSpecifier;
 use deno_core::anyhow::anyhow;
 use deno_core::error::AnyError;
 use deno_core::serde_json;
 use serde::Deserialize;
 use serde::Serialize;
-
-use super::DiskCache;
-use super::FastInsecureHasher;
 
 #[derive(Debug, Deserialize, Serialize)]
 struct EmitMetadata {
@@ -29,7 +29,7 @@ impl EmitCache {
     pub fn new(disk_cache: DiskCache) -> Self {
         Self {
             disk_cache,
-            cli_version: crate::version::deno(),
+            cli_version: deno(),
         }
     }
 

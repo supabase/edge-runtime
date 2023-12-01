@@ -1,4 +1,5 @@
 use crate::metadata::Metadata;
+use crate::node::cjs_code_anaylzer::CliCjsCodeAnalyzer;
 use crate::node::node_module_loader::{CjsResolutionStore, NpmModuleLoader};
 use crate::standalone::standalone_module_loader::{EmbeddedModuleLoader, SharedModuleLoaderState};
 use crate::RuntimeProviders;
@@ -10,18 +11,19 @@ use deno_npm::NpmSystemInfo;
 use deno_tls::rustls::RootCertStore;
 use deno_tls::RootCertStoreProvider;
 use import_map::{parse_from_json, ImportMap};
-use module_fetcher::args::package_json::PackageJsonDepsProvider;
-use module_fetcher::cache::{Caches, DenoDirProvider, NodeAnalysisCache};
-use module_fetcher::file_fetcher::CacheSetting;
-use module_fetcher::http_util::HttpClient;
-use module_fetcher::node::CliCjsCodeAnalyzer;
+use sb_core::cache::caches::Caches;
+use sb_core::cache::deno_dir::DenoDirProvider;
+use sb_core::cache::node::NodeAnalysisCache;
+use sb_core::cache::CacheSetting;
 use sb_core::cert::{get_root_cert_store, CaData};
+use sb_core::util::http_util::HttpClient;
 use sb_fs::file_system::DenoCompileFileSystem;
 use sb_fs::load_npm_vfs;
 use sb_graph::graph_resolver::MappedSpecifierResolver;
 use sb_graph::{EszipPayloadKind, SOURCE_CODE_ESZIP_KEY, VFS_ESZIP_KEY};
 use sb_node::analyze::NodeCodeTranslator;
 use sb_node::NodeResolver;
+use sb_npm::package_json::PackageJsonDepsProvider;
 use sb_npm::{
     create_npm_fs_resolver, CliNpmRegistryApi, CliNpmResolver, NpmCache, NpmCacheDir, NpmResolution,
 };

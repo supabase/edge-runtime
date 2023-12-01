@@ -7,12 +7,11 @@ use deno_ast::MediaType;
 use deno_ast::ModuleSpecifier;
 use deno_core::error::AnyError;
 use deno_fs;
+use sb_core::cache::node::NodeAnalysisCache;
+use sb_core::util::fs::canonicalize_path_maybe_not_exists;
 use sb_node::analyze::CjsAnalysis as ExtNodeCjsAnalysis;
 use sb_node::analyze::CjsCodeAnalyzer;
 use sb_node::analyze::NodeCodeTranslator;
-
-use crate::cache::NodeAnalysisCache;
-use crate::util::fs::canonicalize_path_maybe_not_exists;
 
 pub type CliNodeCodeTranslator = NodeCodeTranslator<CliCjsCodeAnalyzer>;
 

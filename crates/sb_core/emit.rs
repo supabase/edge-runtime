@@ -1,9 +1,8 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
-use crate::cache::EmitCache;
-use crate::cache::FastInsecureHasher;
-use crate::cache::ParsedSourceCache;
-
+use crate::cache::common::FastInsecureHasher;
+use crate::cache::emit::EmitCache;
+use crate::cache::parsed_source::ParsedSourceCache;
 use deno_core::error::AnyError;
 use deno_core::ModuleCode;
 use deno_core::ModuleSpecifier;

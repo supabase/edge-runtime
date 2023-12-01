@@ -16,9 +16,9 @@ use indexmap::IndexMap;
 use once_cell::sync::Lazy;
 
 use crate::cache::CACHE_PERM;
-use crate::http_util::HeadersMap;
 use crate::util;
 use crate::util::fs::atomic_write_file;
+use crate::util::http_util::HeadersMap;
 
 use super::common::base_url_to_filename_parts;
 use super::common::read_file_bytes;
@@ -145,12 +145,7 @@ impl HttpCache for LocalHttpCache {
             .map(|m| m.map(|m| m.time))
     }
 
-    fn set(
-        &self,
-        url: &Url,
-        headers: crate::http_util::HeadersMap,
-        content: &[u8],
-    ) -> Result<(), AnyError> {
+    fn set(&self, url: &Url, headers: HeadersMap, content: &[u8]) -> Result<(), AnyError> {
         let is_redirect = headers.contains_key("location");
         if !is_redirect {
             let cache_filepath = self.get_cache_filepath(url, &headers)?;

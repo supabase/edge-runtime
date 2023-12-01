@@ -1,94 +1,30 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
-
-use crate::args::CacheSetting;
-use crate::file_fetcher::FetchOptions;
-use crate::file_fetcher::FileFetcher;
+use crate::cache::emit::EmitCache;
+use crate::cache::fc_permissions::FcPermissions;
+use crate::cache::parsed_source::ParsedSourceCache;
+use crate::cache::{CacheSetting, GlobalHttpCache};
+use crate::file_fetcher::{FetchOptions, FileFetcher};
 use crate::util::errors::get_error_class_name;
-use crate::util::fs::atomic_write_file;
-
-use crate::permissions::Permissions;
-use deno_ast::MediaType;
+use crate::util::fs::canonicalize_path_maybe_not_exists;
+use deno_ast::{MediaType, ModuleSpecifier};
 use deno_core::futures;
 use deno_core::futures::FutureExt;
 use deno_core::url::Url;
-use deno_core::ModuleSpecifier;
-use deno_graph::source::CacheInfo;
-use deno_graph::source::LoadFuture;
-use deno_graph::source::LoadResponse;
-use deno_graph::source::Loader;
+use deno_graph::source::{CacheInfo, LoadFuture, LoadResponse, Loader};
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
-use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::SystemTime;
 
-mod cache_db;
-mod caches;
-mod check;
-mod common;
-mod deno_dir;
-mod disk_cache;
-mod emit;
-mod http_cache;
-mod incremental;
-mod node;
-mod parsed_source;
-
-pub use caches::Caches;
-pub use check::TypeCheckCache;
-pub use common::FastInsecureHasher;
-pub use deno_dir::DenoDir;
-pub use deno_dir::DenoDirProvider;
-pub use disk_cache::DiskCache;
-pub use emit::EmitCache;
-pub use incremental::IncrementalCache;
-pub use node::NodeAnalysisCache;
-pub use parsed_source::ParsedSourceCache;
-
-/// Permissions used to save a file in the disk caches.
-pub const CACHE_PERM: u32 = 0o644;
-
-#[derive(Debug, Clone)]
-pub struct RealDenoCacheEnv;
-
-impl deno_cache_dir::DenoCacheEnv for RealDenoCacheEnv {
-    fn read_file_bytes(&self, path: &Path) -> std::io::Result<Option<Vec<u8>>> {
-        match std::fs::read(path) {
-            Ok(s) => Ok(Some(s)),
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(err) => Err(err),
-        }
-    }
-
-    fn atomic_write_file(&self, path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-        atomic_write_file(path, bytes, CACHE_PERM)
-    }
-
-    fn modified(&self, path: &Path) -> std::io::Result<Option<SystemTime>> {
-        match std::fs::metadata(path) {
-            Ok(metadata) => Ok(Some(
-                metadata.modified().unwrap_or_else(|_| SystemTime::now()),
-            )),
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(err) => Err(err),
-        }
-    }
-
-    fn is_file(&self, path: &Path) -> bool {
-        path.is_file()
-    }
-
-    fn time_now(&self) -> SystemTime {
-        SystemTime::now()
-    }
+pub fn resolve_specifier_into_node_modules(specifier: &ModuleSpecifier) -> ModuleSpecifier {
+    specifier
+        .to_file_path()
+        .ok()
+        // this path might not exist at the time the graph is being created
+        // because the node_modules folder might not yet exist
+        .and_then(|path| canonicalize_path_maybe_not_exists(&path).ok())
+        .and_then(|path| ModuleSpecifier::from_file_path(path).ok())
+        .unwrap_or_else(|| specifier.clone())
 }
-
-pub type GlobalHttpCache = deno_cache_dir::GlobalHttpCache<RealDenoCacheEnv>;
-pub type LocalHttpCache = deno_cache_dir::LocalHttpCache<RealDenoCacheEnv>;
-pub type LocalLspHttpCache = deno_cache_dir::LocalLspHttpCache<RealDenoCacheEnv>;
-pub use deno_cache_dir::CachedUrlMetadata;
-pub use deno_cache_dir::HttpCache;
 
 /// A "wrapper" for the FileFetcher and DiskCache for the Deno CLI that provides
 /// a concise interface to the DENO_DIR when building module graphs.
@@ -98,7 +34,7 @@ pub struct FetchCacher {
     file_header_overrides: HashMap<ModuleSpecifier, HashMap<String, String>>,
     global_http_cache: Arc<GlobalHttpCache>,
     parsed_source_cache: Arc<ParsedSourceCache>,
-    permissions: Permissions,
+    permissions: FcPermissions,
     cache_info_enabled: bool,
     maybe_local_node_modules_url: Option<ModuleSpecifier>,
 }
@@ -110,7 +46,7 @@ impl FetchCacher {
         file_header_overrides: HashMap<ModuleSpecifier, HashMap<String, String>>,
         global_http_cache: Arc<GlobalHttpCache>,
         parsed_source_cache: Arc<ParsedSourceCache>,
-        permissions: Permissions,
+        permissions: FcPermissions,
         maybe_local_node_modules_url: Option<ModuleSpecifier>,
     ) -> Self {
         Self {
@@ -216,7 +152,7 @@ impl Loader for FetchCacher {
             // is in a node_modules dir to avoid needlessly canonicalizing, then compare
             // against the canonicalized specifier.
             if specifier.path().contains("/node_modules/") {
-                let specifier = crate::node::resolve_specifier_into_node_modules(specifier);
+                let specifier = resolve_specifier_into_node_modules(specifier);
                 if specifier.as_str().starts_with(node_modules_url.as_str()) {
                     return Box::pin(futures::future::ready(Ok(Some(LoadResponse::External {
                         specifier,

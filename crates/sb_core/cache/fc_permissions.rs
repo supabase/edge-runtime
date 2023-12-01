@@ -4,11 +4,11 @@ use deno_core::ModuleSpecifier;
 use std::path::PathBuf;
 
 #[derive(Default, Clone, Debug)]
-pub struct Permissions {
+pub struct FcPermissions {
     root_path: PathBuf,
 }
 
-impl Permissions {
+impl FcPermissions {
     pub fn new(root_path: PathBuf) -> Self {
         Self { root_path }
     }

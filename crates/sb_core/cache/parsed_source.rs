@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::cache::common::FastInsecureHasher;
 use deno_ast::MediaType;
 use deno_ast::ModuleSpecifier;
 use deno_ast::ParsedSource;
@@ -18,7 +19,6 @@ use deno_webstorage::rusqlite::params;
 use super::cache_db::CacheDB;
 use super::cache_db::CacheDBConfiguration;
 use super::cache_db::CacheFailure;
-use super::FastInsecureHasher;
 
 const SELECT_MODULE_INFO: &str = "
 SELECT
@@ -75,8 +75,9 @@ pub struct ParsedSourceCache {
 impl ParsedSourceCache {
     #[cfg(test)]
     pub fn new_in_memory() -> Self {
+        use crate::util::versions_util::deno;
         Self {
-            db: CacheDB::in_memory(&PARSED_SOURCE_CACHE_DB, crate::version::deno()),
+            db: CacheDB::in_memory(&PARSED_SOURCE_CACHE_DB, deno()),
             sources: Default::default(),
         }
     }

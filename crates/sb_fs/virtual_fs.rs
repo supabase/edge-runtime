@@ -21,8 +21,8 @@ use deno_io;
 use deno_io::fs::FsError;
 use deno_io::fs::FsResult;
 use deno_io::fs::FsStat;
-use module_fetcher::util;
-use module_fetcher::util::fs::canonicalize_path;
+use sb_core::util::checksum;
+use sb_core::util::fs::canonicalize_path;
 use serde::Deserialize;
 use serde::Serialize;
 use thiserror::Error;
@@ -90,7 +90,7 @@ impl VfsBuilder {
                     std::fs::read(&path).with_context(|| format!("Reading {}", path.display()))?;
                 self.add_file(&path, file_bytes)?;
             } else if file_type.is_symlink() {
-                let target = util::fs::canonicalize_path(&path)
+                let target = canonicalize_path(&path)
                     .with_context(|| format!("Reading symlink {}", path.display()))?;
                 if let Err(StripRootError { .. }) = self.add_symlink(&path, &target) {
                     if target.is_file() {
@@ -156,7 +156,7 @@ impl VfsBuilder {
 
     fn add_file(&mut self, path: &Path, data: Vec<u8>) -> Result<(), AnyError> {
         log::debug!("Adding file '{}'", path.display());
-        let checksum = util::checksum::gen(&[&data]);
+        let checksum = checksum::gen(&[&data]);
         let offset = if let Some(offset) = self.file_offsets.get(&checksum) {
             // duplicate file, reuse an old offset
             *offset

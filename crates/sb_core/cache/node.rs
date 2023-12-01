@@ -1,5 +1,6 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
+use crate::cache::common::FastInsecureHasher;
 use deno_ast::CjsAnalysis;
 use deno_core::error::AnyError;
 use deno_core::serde_json;
@@ -8,7 +9,6 @@ use deno_webstorage::rusqlite::params;
 use super::cache_db::CacheDB;
 use super::cache_db::CacheDBConfiguration;
 use super::cache_db::CacheFailure;
-use super::FastInsecureHasher;
 
 pub static NODE_ANALYSIS_CACHE_DB: CacheDBConfiguration = CacheDBConfiguration {
     table_initializer: "CREATE TABLE IF NOT EXISTS cjsanalysiscache (

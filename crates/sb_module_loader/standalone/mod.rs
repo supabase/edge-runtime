@@ -11,7 +11,6 @@ use deno_npm::NpmSystemInfo;
 use deno_tls::rustls::RootCertStore;
 use deno_tls::RootCertStoreProvider;
 use import_map::{parse_from_json, ImportMap};
-use module_fetcher::args::package_json::PackageJsonDepsProvider;
 use sb_core::cache::caches::Caches;
 use sb_core::cache::deno_dir::DenoDirProvider;
 use sb_core::cache::node::NodeAnalysisCache;
@@ -24,6 +23,7 @@ use sb_graph::graph_resolver::MappedSpecifierResolver;
 use sb_graph::{EszipPayloadKind, SOURCE_CODE_ESZIP_KEY, VFS_ESZIP_KEY};
 use sb_node::analyze::NodeCodeTranslator;
 use sb_node::NodeResolver;
+use sb_npm::package_json::PackageJsonDepsProvider;
 use sb_npm::{
     create_npm_fs_resolver, CliNpmRegistryApi, CliNpmResolver, NpmCache, NpmCacheDir, NpmResolution,
 };

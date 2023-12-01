@@ -29,7 +29,7 @@ use sb_node::NpmResolver;
 use serde::Deserialize;
 use serde::Serialize;
 
-use module_fetcher::args::lockfile::Lockfile;
+use deno_lockfile::Lockfile;
 use sb_core::util::fs::canonicalize_path_maybe_not_exists_with_fs;
 
 use self::local::LocalNpmPackageResolver;

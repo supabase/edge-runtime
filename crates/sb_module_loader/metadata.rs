@@ -1,7 +1,7 @@
 use deno_npm::registry::PackageDepNpmSchemeValueParseError;
 use deno_semver::package::PackageReq;
 use deno_semver::VersionReqSpecifierParseError;
-use module_fetcher::args::package_json::{PackageJsonDepValueParseError, PackageJsonDeps};
+use sb_npm::package_json::{PackageJsonDepValueParseError, PackageJsonDeps};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 

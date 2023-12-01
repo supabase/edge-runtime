@@ -1,5 +1,6 @@
 use crate::EmitterFactory;
 use anyhow::{anyhow, bail};
+use deno_config::JsxImportSourceConfig;
 use deno_core::error::AnyError;
 use deno_core::futures::future::LocalBoxFuture;
 use deno_core::futures::FutureExt;
@@ -12,10 +13,9 @@ use eszip::deno_graph::source::{
 };
 use eszip::deno_graph::NpmPackageReqResolution;
 use import_map::ImportMap;
-use module_fetcher::args::package_json::{PackageJsonDeps, PackageJsonDepsProvider};
-use module_fetcher::args::JsxImportSourceConfig;
 use sb_core::util::sync::AtomicFlag;
 use sb_node::is_builtin_node_module;
+use sb_npm::package_json::{PackageJsonDeps, PackageJsonDepsProvider};
 use sb_npm::{CliNpmRegistryApi, NpmResolution, PackageJsonDepsInstaller};
 use std::path::PathBuf;
 use std::sync::Arc;

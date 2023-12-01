@@ -2,6 +2,7 @@
 
 pub mod cache;
 pub mod installer;
+pub mod package_json;
 pub mod registry;
 pub mod resolution;
 pub mod resolvers;

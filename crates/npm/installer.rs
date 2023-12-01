@@ -3,13 +3,13 @@
 use std::future::Future;
 use std::sync::Arc;
 
+use crate::package_json::PackageJsonDepsProvider;
 use deno_core::error::AnyError;
 use deno_core::futures::stream::FuturesOrdered;
 use deno_core::futures::StreamExt;
 use deno_npm::registry::NpmRegistryApi;
 use deno_npm::registry::NpmRegistryPackageInfoLoadError;
 use deno_semver::package::PackageReq;
-use module_fetcher::args::package_json::PackageJsonDepsProvider;
 use sb_core::util::sync::AtomicFlag;
 
 use super::CliNpmRegistryApi;

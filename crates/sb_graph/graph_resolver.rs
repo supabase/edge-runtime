@@ -14,7 +14,7 @@ use eszip::deno_graph::NpmPackageReqResolution;
 use import_map::ImportMap;
 use module_fetcher::args::package_json::{PackageJsonDeps, PackageJsonDepsProvider};
 use module_fetcher::args::JsxImportSourceConfig;
-use module_fetcher::util::sync::AtomicFlag;
+use sb_core::util::sync::AtomicFlag;
 use sb_node::is_builtin_node_module;
 use sb_npm::{CliNpmRegistryApi, NpmResolution, PackageJsonDepsInstaller};
 use std::path::PathBuf;

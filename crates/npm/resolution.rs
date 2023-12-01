@@ -30,7 +30,7 @@ use deno_npm::NpmSystemInfo;
 use deno_semver::package::PackageNv;
 use deno_semver::package::PackageReq;
 use deno_semver::VersionReq;
-use module_fetcher::util::sync::TaskQueue;
+use sb_core::util::sync::TaskQueue;
 
 use super::registry::CliNpmRegistryApi;
 use module_fetcher::args::lockfile::Lockfile;

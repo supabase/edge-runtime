@@ -24,9 +24,9 @@ use deno_npm::registry::NpmRegistryPackageInfoLoadError;
 use module_fetcher::args::CacheSetting;
 use module_fetcher::cache::CACHE_PERM;
 use module_fetcher::http_util::HttpClient;
-use module_fetcher::util::sync::AtomicFlag;
 use once_cell::sync::Lazy;
 use sb_core::util::fs::atomic_write_file;
+use sb_core::util::sync::AtomicFlag;
 
 use super::cache::NpmCache;
 

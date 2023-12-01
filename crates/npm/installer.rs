@@ -10,7 +10,7 @@ use deno_npm::registry::NpmRegistryApi;
 use deno_npm::registry::NpmRegistryPackageInfoLoadError;
 use deno_semver::package::PackageReq;
 use module_fetcher::args::package_json::PackageJsonDepsProvider;
-use module_fetcher::util::sync::AtomicFlag;
+use sb_core::util::sync::AtomicFlag;
 
 use super::CliNpmRegistryApi;
 use super::NpmResolution;

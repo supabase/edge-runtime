@@ -18,9 +18,9 @@ use deno_npm::registry::NpmPackageVersionDistInfo;
 use deno_npm::NpmPackageCacheFolderId;
 use deno_semver::package::PackageNv;
 use deno_semver::Version;
-use module_fetcher::args::CacheSetting;
-use module_fetcher::http_util::HttpClient;
+use sb_core::cache::CacheSetting;
 use sb_core::util::fs::{canonicalize_path, hard_link_dir_recursive};
+use sb_core::util::http_util::HttpClient;
 use sb_core::util::path::root_url_to_safe_local_dirname;
 
 use super::tarball::verify_and_extract_tarball;

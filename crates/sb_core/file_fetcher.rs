@@ -2,7 +2,6 @@
 
 use crate::auth_tokens::{AuthToken, AuthTokens};
 use crate::cache::fc_permissions::FcPermissions;
-use crate::cache::http_cache::HttpCache;
 use crate::cache::CacheSetting;
 use crate::util::http_util::{
     resolve_redirect_from_response, CacheSemantics, HeadersMap, HttpClient,
@@ -10,6 +9,7 @@ use crate::util::http_util::{
 use crate::util::{http_util, text_encoding};
 use data_url::DataUrl;
 use deno_ast::MediaType;
+use deno_cache_dir::HttpCache;
 use deno_core::error::custom_error;
 use deno_core::error::generic_error;
 use deno_core::error::uri_error;

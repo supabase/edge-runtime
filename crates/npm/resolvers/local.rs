@@ -28,7 +28,7 @@ use deno_npm::NpmPackageId;
 use deno_npm::NpmResolutionPackage;
 use deno_npm::NpmSystemInfo;
 use deno_semver::package::PackageNv;
-use module_fetcher::cache::CACHE_PERM;
+use sb_core::cache::CACHE_PERM;
 use sb_core::util::fs::{
     atomic_write_file, canonicalize_path_maybe_not_exists_with_fs, copy_dir_recursive,
     hard_link_dir_recursive, symlink_dir, LaxSingleProcessFsFlag,

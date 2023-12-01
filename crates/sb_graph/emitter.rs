@@ -10,15 +10,16 @@ use module_fetcher::args::lockfile::{snapshot_from_lockfile, Lockfile};
 use module_fetcher::args::package_json::{
     get_local_package_json_version_reqs, PackageJsonDeps, PackageJsonDepsProvider,
 };
-use module_fetcher::args::CacheSetting;
-use module_fetcher::cache::{
-    Caches, DenoDir, DenoDirProvider, EmitCache, GlobalHttpCache, ParsedSourceCache,
-    RealDenoCacheEnv,
-};
-use module_fetcher::emit::Emitter;
-use module_fetcher::file_fetcher::{FileCache, FileFetcher};
-use module_fetcher::http_util::HttpClient;
-use module_fetcher::permissions::Permissions;
+use sb_core::cache::caches::Caches;
+use sb_core::cache::deno_dir::{DenoDir, DenoDirProvider};
+use sb_core::cache::emit::EmitCache;
+use sb_core::cache::fc_permissions::FcPermissions;
+use sb_core::cache::fetch_cacher::FetchCacher;
+use sb_core::cache::parsed_source::ParsedSourceCache;
+use sb_core::cache::{CacheSetting, GlobalHttpCache, HttpCache, RealDenoCacheEnv};
+use sb_core::emit::Emitter;
+use sb_core::file_fetcher::{FileCache, FileFetcher};
+use sb_core::util::http_util::HttpClient;
 use sb_node::{NodeResolver, PackageJson};
 use sb_npm::{
     create_npm_fs_resolver, CliNpmRegistryApi, CliNpmResolver, NpmCache, NpmCacheDir,
@@ -350,7 +351,6 @@ impl EmitterFactory {
     }
 
     pub fn file_fetcher(&self) -> FileFetcher {
-        use module_fetcher::cache::*;
         let global_cache_struct =
             GlobalHttpCache::new(self.deno_dir.deps_folder_path(), RealDenoCacheEnv);
         let global_cache: Arc<dyn HttpCache> = Arc::new(global_cache_struct);
@@ -370,7 +370,6 @@ impl EmitterFactory {
     }
 
     pub fn file_fetcher_loader(&self) -> Box<dyn Loader> {
-        use module_fetcher::cache::*;
         let global_cache_struct =
             GlobalHttpCache::new(self.deno_dir.deps_folder_path(), RealDenoCacheEnv);
         let parsed_source = self.parsed_source_cache().unwrap();
@@ -381,7 +380,7 @@ impl EmitterFactory {
             HashMap::new(),
             Arc::new(global_cache_struct),
             parsed_source,
-            Permissions::allow_all(),
+            FcPermissions::allow_all(),
             None, // TODO: NPM
         ))
     }

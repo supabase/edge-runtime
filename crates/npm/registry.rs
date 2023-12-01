@@ -21,11 +21,11 @@ use deno_core::url::Url;
 use deno_npm::registry::NpmPackageInfo;
 use deno_npm::registry::NpmRegistryApi;
 use deno_npm::registry::NpmRegistryPackageInfoLoadError;
-use module_fetcher::args::CacheSetting;
-use module_fetcher::cache::CACHE_PERM;
-use module_fetcher::http_util::HttpClient;
 use once_cell::sync::Lazy;
+use sb_core::cache::CacheSetting;
+use sb_core::cache::CACHE_PERM;
 use sb_core::util::fs::atomic_write_file;
+use sb_core::util::http_util::HttpClient;
 use sb_core::util::sync::AtomicFlag;
 
 use super::cache::NpmCache;

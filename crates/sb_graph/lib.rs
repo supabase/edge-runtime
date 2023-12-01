@@ -5,7 +5,7 @@ use deno_core::error::AnyError;
 use deno_core::{serde_json, FastString, JsBuffer, ModuleSpecifier};
 use deno_fs::{FileSystem, RealFs};
 use deno_npm::NpmSystemInfo;
-use eszip::EszipV2;
+use eszip::{EszipV2, ModuleKind};
 use sb_fs::{build_vfs, VfsOpts};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -13,6 +13,7 @@ use std::sync::Arc;
 pub mod emitter;
 pub mod graph_resolver;
 pub mod graph_util;
+pub mod import_map;
 
 pub const VFS_ESZIP_KEY: &str = "---SUPABASE-VFS-DATA-ESZIP---";
 pub const SOURCE_CODE_ESZIP_KEY: &str = "---SUPABASE-SOURCE-CODE-ESZIP---";
@@ -28,6 +29,7 @@ pub async fn generate_binary_eszip(
     file: PathBuf,
     emitter_factory: Arc<EmitterFactory>,
     maybe_module_code: Option<FastString>,
+    maybe_import_map_url: Option<String>,
 ) -> Result<EszipV2, AnyError> {
     let graph = create_graph(file.clone(), emitter_factory.clone(), &maybe_module_code).await;
     let eszip = create_eszip_from_graph_raw(graph, Some(emitter_factory.clone())).await;
@@ -71,6 +73,22 @@ pub async fn generate_binary_eszip(
 
         eszip.add_opaque_data(String::from(VFS_ESZIP_KEY), Arc::from(boxed_slice));
         eszip.add_opaque_data(String::from(SOURCE_CODE_ESZIP_KEY), bin_code);
+
+        // add import map
+        if emitter_factory.maybe_import_map.is_some() {
+            eszip.add_import_map(
+                ModuleKind::Json,
+                maybe_import_map_url.unwrap(),
+                Arc::from(
+                    emitter_factory
+                        .maybe_import_map
+                        .as_ref()
+                        .unwrap()
+                        .to_json()
+                        .as_bytes(),
+                ),
+            );
+        };
 
         Ok(eszip)
     } else {

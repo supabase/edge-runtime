@@ -9,24 +9,20 @@ use deno_tls::rustls;
 use deno_tls::rustls::RootCertStore;
 use deno_tls::rustls_native_certs::load_native_certs;
 use deno_tls::RootCertStoreProvider;
-use import_map::{parse_from_json, ImportMap};
 use log::error;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
-use std::path::Path;
+use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
-use std::{fmt, fs};
 use tokio::net::UnixStream;
 use tokio::sync::mpsc;
-use urlencoding::decode;
 
 use crate::snapshot;
 use event_worker::events::{EventMetadata, WorkerEventWithMetadata};
 use event_worker::js_interceptors::sb_events_js_interceptors;
 use event_worker::sb_user_event_worker;
 use module_fetcher::file_fetcher::CacheSetting;
-use module_fetcher::util::diagnostic::print_import_map_diagnostics;
 use sb_core::cert::ValueRootCertStoreProvider;
 use sb_core::http_start::sb_core_http;
 use sb_core::net::sb_core_net;
@@ -35,42 +31,13 @@ use sb_core::runtime::sb_core_runtime;
 use sb_core::sb_core_main_js;
 use sb_env::sb_env as sb_env_op;
 use sb_graph::emitter::EmitterFactory;
+use sb_graph::import_map::load_import_map;
 use sb_graph::{generate_binary_eszip, EszipPayloadKind};
 use sb_module_loader::standalone::create_module_loader_for_standalone_from_eszip_kind;
 use sb_module_loader::RuntimeProviders;
 use sb_node::deno_node;
 use sb_workers::context::{UserWorkerMsgs, WorkerContextInitOpts, WorkerRuntimeOpts};
 use sb_workers::sb_user_workers;
-
-fn load_import_map(maybe_path: Option<String>) -> Result<Option<ImportMap>, Error> {
-    if let Some(path_str) = maybe_path {
-        let json_str;
-        let base_url;
-
-        // check if the path is a data URI (prefixed with data:)
-        // the data URI takes the following format
-        // data:{encodeURIComponent(mport_map.json)?{encodeURIComponent(base_path)}
-        if path_str.starts_with("data:") {
-            let data_uri = Url::parse(&path_str)?;
-            json_str = decode(data_uri.path())?.into_owned();
-            base_url =
-                Url::from_directory_path(decode(data_uri.query().unwrap_or(""))?.into_owned())
-                    .map_err(|_| anyhow!("invalid import map base url"))?;
-        } else {
-            let path = Path::new(&path_str);
-            let abs_path = std::env::current_dir().map(|p| p.join(path))?;
-            json_str = fs::read_to_string(abs_path.clone())?;
-            base_url = Url::from_directory_path(abs_path.parent().unwrap())
-                .map_err(|_| anyhow!("invalid import map base url"))?;
-        }
-
-        let result = parse_from_json(&base_url, json_str.as_str())?;
-        print_import_map_diagnostics(&result.diagnostics);
-        Ok(Some(result.import_map))
-    } else {
-        Ok(None)
-    }
-}
 
 pub struct DenoRuntimeError(Error);
 
@@ -180,9 +147,13 @@ impl DenoRuntime {
                 None
             };
 
-            let eszip =
-                generate_binary_eszip(main_module_url_file_path, arc_emitter_factory, maybe_code)
-                    .await?;
+            let eszip = generate_binary_eszip(
+                main_module_url_file_path,
+                arc_emitter_factory,
+                maybe_code,
+                import_map_path.clone(),
+            )
+            .await?;
 
             EszipPayloadKind::Eszip(eszip)
         };
@@ -491,7 +462,7 @@ mod test {
             .unwrap();
         let path_buf = PathBuf::from("./test_cases/eszip-source-test.ts");
         let emitter_factory = Arc::new(EmitterFactory::new());
-        let bin_eszip = generate_binary_eszip(path_buf, emitter_factory.clone(), None)
+        let bin_eszip = generate_binary_eszip(path_buf, emitter_factory.clone(), None, None)
             .await
             .unwrap();
         fs::remove_file("./test_cases/eszip-source-test.ts").unwrap();
@@ -540,7 +511,7 @@ mod test {
         let file = PathBuf::from("./test_cases/eszip-silly-test/index.ts");
         let service_path = PathBuf::from("./test_cases/eszip-silly-test");
         let emitter_factory = Arc::new(EmitterFactory::new());
-        let binary_eszip = generate_binary_eszip(file, emitter_factory.clone(), None)
+        let binary_eszip = generate_binary_eszip(file, emitter_factory.clone(), None, None)
             .await
             .unwrap();
 

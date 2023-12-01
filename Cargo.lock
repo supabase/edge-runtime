@@ -674,6 +674,7 @@ dependencies = [
  "anyhow",
  "base",
  "clap 4.3.21",
+ "deno_core",
  "env_logger 0.10.0",
  "log",
  "sb_graph",
@@ -3809,6 +3810,7 @@ dependencies = [
  "sb_npm",
  "serde",
  "tokio",
+ "urlencoding",
 ]
 
 [[package]]

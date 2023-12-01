@@ -28,3 +28,4 @@ deno_fs.workspace = true
 deno_npm.workspace = true
 once_cell.workspace = true
 deno_web.workspace = true
+urlencoding.workspace = true

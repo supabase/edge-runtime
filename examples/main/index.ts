@@ -47,7 +47,9 @@ serve(async (req: Request) => {
 		const netAccessDisabled = false;
 
 		// load source from an eszip
-		// const maybeEszip = await Deno.readFile('./sample.eszip');
+		//const maybeEszip = await Deno.readFile('./bin.eszip');
+		//const maybeEntrypoint = 'file:///src/index.ts';
+
 		// const maybeEntrypoint = 'file:///src/index.ts';
 		// or load module source from an inline module
 		// const maybeModuleCode = 'Deno.serve((req) => new Response("Hello from Module Code"));';

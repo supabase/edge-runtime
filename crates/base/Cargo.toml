@@ -48,12 +48,12 @@ sb_os = { version = "0.1.0", path = "../sb_os" }
 sb_npm = { version = "0.1.0", path = "../npm" }
 sb_graph = { version = "0.1.0", path = "../sb_graph" }
 sb_module_loader = { version = "0.1.0", path = "../sb_module_loader" }
-urlencoding = { version = "2.1.2" }
 uuid = { workspace = true }
 deno_broadcast_channel.workspace = true
 sb_node = { version = "0.1.0", path = "../node" }
 eszip.workspace = true
 notify = { version = "6.1.1", default-features = false, features = ["macos_kqueue"] }
+urlencoding.workspace = true
 
 [dev-dependencies]
 futures-util = { version = "0.3.28" }
@@ -79,7 +79,6 @@ deno_websocket = { workspace = true }
 httparse = { version = "1.8.0" }
 hyper = { version = "0.14.26", features = ["full"] }
 http = { version = "0.2" }
-import_map = { version = "0.15.0" }
 log = { workspace = true }
 module_fetcher = { path = "../module_fetcher" }
 reqwest.workspace = true

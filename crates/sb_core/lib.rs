@@ -3,6 +3,7 @@ pub mod cache;
 pub mod cert;
 pub mod emit;
 pub mod errors_rt;
+pub mod external_memory;
 pub mod file_fetcher;
 pub mod http_start;
 pub mod net;

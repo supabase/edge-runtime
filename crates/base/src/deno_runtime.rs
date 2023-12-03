@@ -24,6 +24,7 @@ use event_worker::js_interceptors::sb_events_js_interceptors;
 use event_worker::sb_user_event_worker;
 use sb_core::cache::CacheSetting;
 use sb_core::cert::ValueRootCertStoreProvider;
+use sb_core::external_memory::custom_allocator;
 use sb_core::http_start::sb_core_http;
 use sb_core::net::sb_core_net;
 use sb_core::permissions::{sb_core_permissions, Permissions};
@@ -265,19 +266,20 @@ impl DenoRuntime {
             sb_core_runtime::init_ops(Some(main_module_url.clone())),
         ];
 
+        let mut create_params = None;
+        if conf.is_user_worker() {
+            let memory_limit =
+                mib_to_bytes(conf.as_user_worker().unwrap().memory_limit_mb) as usize;
+            create_params = Some(
+                deno_core::v8::CreateParams::default()
+                    .heap_limits(mib_to_bytes(0) as usize, memory_limit)
+                    .array_buffer_allocator(custom_allocator(memory_limit)),
+            )
+        };
         let runtime_options = RuntimeOptions {
             extensions,
             is_main: true,
-            create_params: {
-                if conf.is_user_worker() {
-                    Some(deno_core::v8::CreateParams::default().heap_limits(
-                        mib_to_bytes(0) as usize,
-                        mib_to_bytes(conf.as_user_worker().unwrap().memory_limit_mb) as usize,
-                    ))
-                } else {
-                    None
-                }
-            },
+            create_params,
             get_error_class_fn: Some(&get_error_class_name),
             shared_array_buffer_store: None,
             compiled_wasm_module_store: Default::default(),
@@ -899,6 +901,29 @@ mod test {
                 assert!(err
                     .to_string()
                     .contains("TypeError: Deno.readFileSync is not a function"));
+            }
+            _ => panic!("Invalid Result"),
+        };
+    }
+
+    #[tokio::test]
+    async fn test_array_buffer_allocation_below_limit() {
+        let user_rt = create_basic_user_runtime("./test_cases/array_buffers", 20, 1000).await;
+        let (_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
+        let result = user_rt.run(unix_stream_rx).await;
+        assert!(result.is_ok(), "expected no errors");
+    }
+
+    #[tokio::test]
+    async fn test_array_buffer_allocation_above_limit() {
+        let user_rt = create_basic_user_runtime("./test_cases/array_buffers", 15, 1000).await;
+        let (_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
+        let result = user_rt.run(unix_stream_rx).await;
+        match result {
+            Err(err) => {
+                assert!(err
+                    .to_string()
+                    .contains("RangeError: Array buffer allocation failed"));
             }
             _ => panic!("Invalid Result"),
         };

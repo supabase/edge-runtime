@@ -2,12 +2,16 @@ use crate::emitter::EmitterFactory;
 use crate::graph_util::{create_eszip_from_graph_raw, create_graph};
 use deno_ast::MediaType;
 use deno_core::error::AnyError;
+use deno_core::futures::io::{AllowStdIo, BufReader};
 use deno_core::{serde_json, FastString, JsBuffer, ModuleSpecifier};
 use deno_fs::{FileSystem, RealFs};
 use deno_npm::NpmSystemInfo;
 use eszip::{EszipV2, ModuleKind};
 use sb_fs::{build_vfs, VfsOpts};
-use std::path::PathBuf;
+use std::fs;
+use std::fs::{create_dir_all, File};
+use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 pub mod emitter;
@@ -23,6 +27,26 @@ pub enum EszipPayloadKind {
     JsBufferKind(JsBuffer),
     VecKind(Vec<u8>),
     Eszip(EszipV2),
+}
+
+pub async fn payload_to_eszip(eszip_payload_kind: EszipPayloadKind) -> EszipV2 {
+    match eszip_payload_kind {
+        EszipPayloadKind::Eszip(data) => data,
+        _ => {
+            let bytes = match eszip_payload_kind {
+                EszipPayloadKind::JsBufferKind(js_buffer) => Vec::from(&*js_buffer),
+                EszipPayloadKind::VecKind(vec) => vec,
+                _ => panic!("It should not get here"),
+            };
+
+            let bufreader = BufReader::new(AllowStdIo::new(bytes.as_slice()));
+            let (eszip, loader) = eszip::EszipV2::parse(bufreader).await.unwrap();
+
+            loader.await.unwrap();
+
+            eszip
+        }
+    }
 }
 
 pub async fn generate_binary_eszip(
@@ -93,5 +117,118 @@ pub async fn generate_binary_eszip(
         Ok(eszip)
     } else {
         eszip
+    }
+}
+
+fn extract_file_specifiers(eszip: &EszipV2) -> Vec<String> {
+    eszip
+        .specifiers()
+        .iter()
+        .filter(|specifier| specifier.starts_with("file:"))
+        .cloned()
+        .collect()
+}
+
+pub struct ExtractEszipPayload {
+    pub data: EszipPayloadKind,
+    pub folder: PathBuf,
+}
+
+fn create_module_path(
+    global_specifier: &str,
+    entry_path: &Path,
+    output_folder: &Path,
+) -> PathBuf {
+    let cleaned_specifier = global_specifier.replace(entry_path.to_str().unwrap(), "");
+    let module_path = PathBuf::from(cleaned_specifier);
+
+    if let Some(parent) = module_path.parent() {
+        if parent.parent().is_some() {
+            let output_folder_and_mod_folder =
+                output_folder.join(parent.strip_prefix("/").unwrap());
+            if !output_folder_and_mod_folder.exists() {
+                create_dir_all(&output_folder_and_mod_folder).unwrap();
+            }
+        }
+    }
+
+    output_folder.join(module_path.strip_prefix("/").unwrap())
+}
+
+async fn extract_modules(
+    eszip: &EszipV2,
+    specifiers: &[String],
+    lowest_path: &str,
+    output_folder: &Path,
+) {
+    let main_path = PathBuf::from(lowest_path);
+    let entry_path = main_path.parent().unwrap();
+    for global_specifier in specifiers {
+        let module_path = create_module_path(global_specifier, entry_path, output_folder);
+        let module_content = eszip
+            .get_module(global_specifier)
+            .unwrap()
+            .take_source()
+            .await
+            .unwrap();
+
+        let mut file = File::create(&module_path).unwrap();
+        file.write_all(module_content.as_ref()).unwrap();
+    }
+}
+
+pub async fn extract_eszip(payload: ExtractEszipPayload) {
+    let eszip = payload_to_eszip(payload.data).await;
+    let output_folder = payload.folder;
+
+    if !output_folder.exists() {
+        create_dir_all(&output_folder).unwrap();
+    }
+
+    let file_specifiers = extract_file_specifiers(&eszip);
+    if let Some(lowest_path) = sb_core::util::path::find_lowest_path(&file_specifiers) {
+        extract_modules(&eszip, &file_specifiers, &lowest_path, &output_folder).await;
+    } else {
+        panic!("Path seems to be invalid");
+    }
+}
+
+pub async fn extract_from_file(eszip_file: PathBuf, output_path: PathBuf) {
+    let eszip_content = fs::read(eszip_file).expect("File does not exist");
+    extract_eszip(ExtractEszipPayload {
+        data: EszipPayloadKind::VecKind(eszip_content),
+        folder: output_path,
+    })
+    .await;
+}
+
+#[cfg(test)]
+mod test {
+    use crate::{
+        extract_eszip, generate_binary_eszip, EmitterFactory, EszipPayloadKind, ExtractEszipPayload,
+    };
+    use std::fs::remove_dir_all;
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    #[allow(clippy::arc_with_non_send_sync)]
+    async fn test_module_code_no_eszip() {
+        let eszip = generate_binary_eszip(
+            PathBuf::from("../base/test_cases/npm/index.ts"),
+            Arc::new(EmitterFactory::new()),
+            None,
+            None,
+        )
+        .await;
+        let eszip = eszip.unwrap();
+        extract_eszip(ExtractEszipPayload {
+            data: EszipPayloadKind::Eszip(eszip),
+            folder: PathBuf::from("../base/test_cases/extracted-npm/"),
+        })
+        .await;
+
+        assert!(PathBuf::from("../base/test_cases/extracted-npm/hello.js").exists());
+        remove_dir_all(PathBuf::from("../base/test_cases/extracted-npm/")).unwrap();
     }
 }

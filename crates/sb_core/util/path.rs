@@ -1,5 +1,5 @@
 use deno_ast::ModuleSpecifier;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Gets if the provided character is not supported on all
 /// kinds of file systems.
@@ -40,4 +40,23 @@ pub fn root_url_to_safe_local_dirname(root: &ModuleSpecifier) -> PathBuf {
     }
 
     result
+}
+
+pub fn find_lowest_path(paths: &Vec<String>) -> Option<String> {
+    let mut lowest_path: Option<(&str, usize)> = None;
+
+    for path_str in paths {
+        // Extract the path part from the URL
+        let path = Path::new(path_str);
+
+        // Count the components
+        let component_count = path.components().count();
+
+        // Update the lowest path if this one has fewer components
+        if lowest_path.is_none() || component_count < lowest_path.unwrap().1 {
+            lowest_path = Some((path_str, component_count));
+        }
+    }
+
+    lowest_path.map(|(path, _)| path.to_string())
 }

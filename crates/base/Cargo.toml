@@ -17,7 +17,7 @@ anyhow = { workspace = true }
 bytes = { version = "1.2.1" }
 cityhash = { version = "0.1.1" }
 deno_ast = { workspace = true }
-deno_fs = { workspace = true, features = ["sync_fs"] }
+deno_fs.workspace = true
 deno_io = { workspace = true }
 deno_core = { workspace = true }
 deno_console = { workspace = true }
@@ -69,7 +69,7 @@ sb_node = { version = "0.1.0", path = "../node" }
 anyhow = { workspace = true }
 bytes = { version = "1.2.1" }
 deno_ast = { workspace = true }
-deno_fs = { workspace = true, features = ["sync_fs"] }
+deno_fs.workspace = true
 deno_io = { workspace = true }
 deno_core = { workspace = true }
 deno_console = { workspace = true }

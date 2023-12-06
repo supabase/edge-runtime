@@ -7,8 +7,8 @@ use clap::builder::FalseyValueParser;
 use clap::{arg, crate_version, value_parser, ArgAction, Command};
 use deno_core::url::Url;
 use sb_graph::emitter::EmitterFactory;
-use sb_graph::generate_binary_eszip;
 use sb_graph::import_map::load_import_map;
+use sb_graph::{extract_from_file, generate_binary_eszip};
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
@@ -58,7 +58,12 @@ fn cli() -> Command {
                 .arg(arg!(--"output" <DIR> "Path to output eszip file").default_value("bin.eszip"))
                 .arg(arg!(--"entrypoint" <Path> "Path to entrypoint to bundle as an eszip").required(true))
                 .arg(arg!(--"import-map" <Path> "Path to import map file"))
-        )
+        ).subcommand(
+        Command::new("unbundle")
+            .about("Unbundles an .eszip file into the specified directory")
+            .arg(arg!(--"output" <DIR> "Path to extract the ESZIP content").default_value("./"))
+            .arg(arg!(--"eszip" <DIR> "Path of eszip to extract").required(true))
+    )
 }
 
 //async fn exit_with_code(result: Result<(), Error>) {
@@ -161,6 +166,20 @@ fn main() -> Result<(), anyhow::Error> {
 
                 let mut file = File::create(output_path.as_str()).unwrap();
                 file.write_all(&bin).unwrap();
+            }
+            Some(("unbundle", sub_matches)) => {
+                let output_path = sub_matches.get_one::<String>("output").cloned().unwrap();
+                let eszip_path = sub_matches.get_one::<String>("eszip").cloned().unwrap();
+
+                let output_path = PathBuf::from(output_path.as_str());
+                let eszip_path = PathBuf::from(eszip_path.as_str());
+
+                extract_from_file(eszip_path, output_path.clone()).await;
+
+                println!(
+                    "Eszip extracted successfully inside path {}",
+                    output_path.to_str().unwrap()
+                );
             }
             _ => {
                 // unrecognized command

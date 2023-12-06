@@ -1,6 +1,6 @@
 mod logger;
 
-use anyhow::{anyhow, Error};
+use anyhow::{anyhow, bail, Error};
 use base::commands::start_server;
 use base::server::WorkerEntrypoints;
 use clap::builder::FalseyValueParser;
@@ -136,8 +136,13 @@ fn main() -> Result<(), anyhow::Error> {
                     .unwrap();
 
                 let path = PathBuf::from(entry_point_path.as_str());
+                if !path.exists() {
+                    bail!("entrypoint path does not exist ({})", path.display());
+                }
+
                 let mut emitter_factory = EmitterFactory::new();
-                let maybe_import_map = load_import_map(import_map_path.clone())?;
+                let maybe_import_map = load_import_map(import_map_path.clone())
+                    .map_err(|e| anyhow!("import map path is invalid ({})", e))?;
                 let mut maybe_import_map_url = None;
                 if maybe_import_map.is_some() {
                     let abs_import_map_path =

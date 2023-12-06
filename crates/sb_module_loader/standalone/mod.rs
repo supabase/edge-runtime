@@ -20,7 +20,7 @@ use sb_core::util::http_util::HttpClient;
 use sb_fs::file_system::DenoCompileFileSystem;
 use sb_fs::load_npm_vfs;
 use sb_graph::graph_resolver::MappedSpecifierResolver;
-use sb_graph::{EszipPayloadKind, SOURCE_CODE_ESZIP_KEY, VFS_ESZIP_KEY};
+use sb_graph::{payload_to_eszip, EszipPayloadKind, SOURCE_CODE_ESZIP_KEY, VFS_ESZIP_KEY};
 use sb_node::analyze::NodeCodeTranslator;
 use sb_node::NodeResolver;
 use sb_npm::package_json::PackageJsonDepsProvider;
@@ -198,25 +198,7 @@ pub async fn create_module_loader_for_standalone_from_eszip_kind(
     maybe_import_map_arc: Option<Arc<ImportMap>>,
     maybe_import_map_path: Option<String>,
 ) -> Result<RuntimeProviders, AnyError> {
-    use deno_core::futures::io::{AllowStdIo, BufReader};
-
-    let eszip = match eszip_payload_kind {
-        EszipPayloadKind::Eszip(data) => data,
-        _ => {
-            let bytes = match eszip_payload_kind {
-                EszipPayloadKind::JsBufferKind(js_buffer) => Vec::from(&*js_buffer),
-                EszipPayloadKind::VecKind(vec) => vec,
-                _ => panic!("It should not get here"),
-            };
-
-            let bufreader = BufReader::new(AllowStdIo::new(bytes.as_slice()));
-            let (eszip, loader) = eszip::EszipV2::parse(bufreader).await.unwrap();
-
-            loader.await.unwrap();
-
-            eszip
-        }
-    };
+    let eszip = payload_to_eszip(eszip_payload_kind).await;
 
     let mut maybe_import_map: Option<ImportMap> = None;
 

@@ -34,6 +34,7 @@ use sb_core::util::sync::TaskQueue;
 
 use super::registry::CliNpmRegistryApi;
 use deno_lockfile::Lockfile;
+use log::debug;
 
 /// Handles updating and storing npm resolution in memory where the underlying
 /// snapshot can be updated concurrently. Additionally handles updating the lockfile
@@ -292,7 +293,7 @@ async fn add_package_reqs_to_snapshot(
             .iter()
             .all(|req| snapshot.package_reqs().contains_key(req))
     {
-        println!("Snapshot already up to date. Skipping pending resolution.");
+        debug!("Snapshot already up to date. Skipping pending resolution.");
         snapshot
     } else {
         let pending_resolver = get_npm_pending_resolver(api);
@@ -303,8 +304,8 @@ async fn add_package_reqs_to_snapshot(
         match result {
             Ok(snapshot) => snapshot,
             Err(NpmResolutionError::Resolution(err)) if api.mark_force_reload() => {
-                println!("{err:#}");
-                println!("npm resolution failed. Trying again...");
+                log::error!("{err:#}");
+                log::warn!("npm resolution failed. Trying again...");
 
                 // try again
                 let snapshot = get_new_snapshot();

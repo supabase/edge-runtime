@@ -248,13 +248,13 @@ fn is_managed_key(scope: &mut v8::HandleScope, key: v8::Local<v8::Name>) -> bool
 
 fn current_mode(scope: &mut v8::HandleScope) -> Mode {
     let Some(v8_string) = v8::StackTrace::current_script_name_or_source_url(scope) else {
-        println!("current_script_name_or_source_url, Using Deno");
+        log::debug!("current_script_name_or_source_url, Using SB");
         return Mode::Deno;
     };
     let op_state = deno_core::JsRuntime::op_state_from(scope);
     let op_state = op_state.borrow();
     let Some(node_resolver) = op_state.try_borrow::<Rc<NodeResolver>>() else {
-        println!("Node resolver not available, using Deno");
+        log::debug!("Node resolver not available, using SB");
         return Mode::Deno;
     };
     let mut buffer = [MaybeUninit::uninit(); 2048];

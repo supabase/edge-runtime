@@ -21,6 +21,7 @@ use deno_core::url::Url;
 use deno_npm::registry::NpmPackageInfo;
 use deno_npm::registry::NpmRegistryApi;
 use deno_npm::registry::NpmRegistryPackageInfoLoadError;
+use log::debug;
 use once_cell::sync::Lazy;
 use sb_core::cache::CacheSetting;
 use sb_core::cache::CACHE_PERM;
@@ -288,7 +289,7 @@ impl CliNpmRegistryApiInner {
         &self,
         name: &str,
     ) -> Result<Option<NpmPackageInfo>, AnyError> {
-        println!("Downloading load_package_info_from_registry_inner");
+        debug!("Downloading load_package_info_from_registry_inner");
         if *self.cache.cache_setting() == CacheSetting::Only {
             return Err(custom_error(
                 "NotCached",

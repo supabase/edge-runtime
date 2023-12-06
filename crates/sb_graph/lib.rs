@@ -134,11 +134,7 @@ pub struct ExtractEszipPayload {
     pub folder: PathBuf,
 }
 
-fn create_module_path(
-    global_specifier: &str,
-    entry_path: &Path,
-    output_folder: &Path,
-) -> PathBuf {
+fn create_module_path(global_specifier: &str, entry_path: &Path, output_folder: &Path) -> PathBuf {
     let cleaned_specifier = global_specifier.replace(entry_path.to_str().unwrap(), "");
     let module_path = PathBuf::from(cleaned_specifier);
 

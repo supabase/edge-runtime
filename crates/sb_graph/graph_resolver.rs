@@ -312,7 +312,6 @@ impl NpmResolver for CliGraphResolver {
             Ok(nv) => NpmPackageReqResolution::Ok(nv),
             Err(err) => {
                 if self.npm_registry_api.mark_force_reload() {
-                    println!("Restarting npm specifier resolution to check for new registry information. Error: {:#}", err);
                     NpmPackageReqResolution::ReloadRegistryInfo(err.into())
                 } else {
                     NpmPackageReqResolution::Err(err.into())

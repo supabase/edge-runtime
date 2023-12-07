@@ -169,8 +169,15 @@ fn main() -> Result<(), anyhow::Error> {
                 .await?;
                 let bin = eszip.into_bytes();
 
-                let mut file = File::create(output_path.as_str()).unwrap();
-                file.write_all(&bin).unwrap();
+                if output_path == "-" {
+                    let stdout = std::io::stdout();
+                    let mut handle = stdout.lock();
+
+                    handle.write_all(&bin)?
+                } else {
+                    let mut file = File::create(output_path.as_str())?;
+                    file.write_all(&bin)?
+                }
             }
             Some(("unbundle", sub_matches)) => {
                 let output_path = sub_matches.get_one::<String>("output").cloned().unwrap();

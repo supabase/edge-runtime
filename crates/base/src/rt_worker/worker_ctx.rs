@@ -21,7 +21,7 @@ use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
 use tokio::net::UnixStream;
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 
@@ -91,6 +91,7 @@ pub fn create_supervisor(
     worker_runtime: &mut DenoRuntime,
     termination_event_tx: oneshot::Sender<WorkerEvents>,
     pool_msg_tx: Option<UnboundedSender<UserWorkerMsgs>>,
+    timing_rx_pair: Option<(UnboundedReceiver<()>, UnboundedReceiver<()>)>,
 ) -> Result<CPUTimer, Error> {
     let (memory_limit_tx, mut memory_limit_rx) = mpsc::unbounded_channel::<()>();
     let (waker, thread_safe_handle) = {
@@ -99,6 +100,15 @@ pub fn create_supervisor(
             js_runtime.op_state().borrow().waker.clone(),
             js_runtime.v8_isolate().thread_safe_handle(),
         )
+    };
+
+    let (mut req_start_rx, mut req_end_rx) = if let Some((start, end)) = timing_rx_pair {
+        (start, end)
+    } else {
+        let (_, dumb_start_rx) = unbounded_channel::<()>();
+        let (_, dumb_end_rx) = unbounded_channel::<()>();
+
+        (dumb_start_rx, dumb_end_rx)
     };
 
     // we assert supervisor is only run for user workers
@@ -142,6 +152,8 @@ pub fn create_supervisor(
             let future = async move {
                 let mut cpu_time_soft_limit_reached = false;
                 let mut wall_clock_alerts = 0;
+                let mut req_count = 0u64;
+                let mut req_ack_count = 0u64;
 
                 // reduce 100ms from wall clock duration, so the interrupt can be handled before
                 // isolate is dropped
@@ -164,6 +176,17 @@ pub fn create_supervisor(
                                 }
                                 error!("CPU time soft limit reached. isolate: {:?}", key);
                                 cpu_time_soft_limit_reached = true;
+
+                                if req_count == req_ack_count {
+                                    let interrupt_data = IsolateInterruptData {
+                                        should_terminate: true,
+                                        isolate_memory_usage_tx
+                                    };
+
+                                    thread_safe_handle.request_interrupt(handle_interrupt, Box::into_raw(Box::new(interrupt_data)) as *mut std::ffi::c_void);
+                                    error!("early termination due to the last request being completed. isolate: {:?}", key);
+                                    return ShutdownReason::EarlyDrop;
+                                }
                             } else {
                                 // shutdown worker
                                 let interrupt_data = IsolateInterruptData {
@@ -174,6 +197,26 @@ pub fn create_supervisor(
                                 error!("CPU time hard limit reached. isolate: {:?}", key);
                                 return ShutdownReason::CPUTime;
                             }
+                        }
+
+                        Some(_) = req_start_rx.recv() => {
+                            req_count += 1;
+                        }
+
+                        Some(_) = req_end_rx.recv() => {
+                            req_ack_count += 1;
+                            if !cpu_time_soft_limit_reached || req_count != req_ack_count {
+                                continue;
+                            }
+
+                            let interrupt_data = IsolateInterruptData {
+                                should_terminate: true,
+                                isolate_memory_usage_tx
+                            };
+
+                            thread_safe_handle.request_interrupt(handle_interrupt, Box::into_raw(Box::new(interrupt_data)) as *mut std::ffi::c_void);
+                            error!("early termination due to the last request being completed. isolate: {:?}", key);
+                            return ShutdownReason::EarlyDrop;
                         }
 
                         // wall clock warning
@@ -363,6 +406,7 @@ pub async fn create_main_worker(
         import_map_path,
         no_module_cache,
         events_rx: None,
+        timing_rx_pair: None,
         maybe_eszip,
         maybe_entrypoint,
         maybe_module_code: None,
@@ -402,6 +446,7 @@ pub async fn create_events_worker(
         import_map_path,
         env_vars: std::env::vars().collect(),
         events_rx: Some(events_rx),
+        timing_rx_pair: None,
         maybe_eszip,
         maybe_entrypoint,
         maybe_module_code: None,

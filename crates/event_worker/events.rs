@@ -25,6 +25,7 @@ pub enum ShutdownReason {
     WallClockTime,
     CPUTime,
     Memory,
+    EarlyDrop,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

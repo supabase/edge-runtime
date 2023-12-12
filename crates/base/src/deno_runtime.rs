@@ -79,6 +79,7 @@ impl DenoRuntime {
             maybe_eszip,
             maybe_entrypoint,
             maybe_module_code,
+            ..
         } = opts;
 
         let user_agent = "supabase-edge-runtime".to_string();
@@ -428,6 +429,7 @@ mod test {
             import_map_path: None,
             env_vars: Default::default(),
             events_rx: None,
+            timing_rx_pair: None,
             maybe_eszip: None,
             maybe_entrypoint: None,
             maybe_module_code: Some(FastString::from(String::from(
@@ -461,6 +463,7 @@ mod test {
             import_map_path: None,
             env_vars: Default::default(),
             events_rx: None,
+            timing_rx_pair: None,
             maybe_eszip: Some(EszipPayloadKind::VecKind(eszip_code)),
             maybe_entrypoint: None,
             maybe_module_code: None,
@@ -509,6 +512,7 @@ mod test {
             import_map_path: None,
             env_vars: Default::default(),
             events_rx: None,
+            timing_rx_pair: None,
             maybe_eszip: Some(EszipPayloadKind::VecKind(eszip_code)),
             maybe_entrypoint: None,
             maybe_module_code: None,
@@ -551,6 +555,7 @@ mod test {
             import_map_path: None,
             env_vars: env_vars.unwrap_or_default(),
             events_rx: None,
+            timing_rx_pair: None,
             maybe_eszip: None,
             maybe_entrypoint: None,
             maybe_module_code: None,

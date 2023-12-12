@@ -56,6 +56,7 @@ impl Default for UserWorkerRuntimeOpts {
 #[derive(Debug, Clone)]
 pub struct UserWorkerProfile {
     pub worker_request_msg_tx: mpsc::UnboundedSender<WorkerRequestMsg>,
+    pub timing_tx_pair: (mpsc::UnboundedSender<()>, mpsc::UnboundedSender<()>),
     pub service_path: String,
 }
 
@@ -81,6 +82,7 @@ pub struct WorkerContextInitOpts {
     pub import_map_path: Option<String>,
     pub env_vars: HashMap<String, String>,
     pub events_rx: Option<mpsc::UnboundedReceiver<WorkerEventWithMetadata>>,
+    pub timing_rx_pair: Option<(mpsc::UnboundedReceiver<()>, mpsc::UnboundedReceiver<()>)>,
     pub conf: WorkerRuntimeOpts,
     pub maybe_eszip: Option<EszipPayloadKind>,
     pub maybe_module_code: Option<FastString>,
@@ -97,11 +99,13 @@ pub enum UserWorkerMsgs {
     SendRequest(
         Uuid,
         Request<Body>,
-        oneshot::Sender<Result<Response<Body>, Error>>,
+        oneshot::Sender<Result<SendRequestResult, Error>>,
     ),
     Retire(Uuid),
     Shutdown(Uuid),
 }
+
+pub type SendRequestResult = (Response<Body>, mpsc::UnboundedSender<()>);
 
 #[derive(Debug)]
 pub struct CreateUserWorkerResult {

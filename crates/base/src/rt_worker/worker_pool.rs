@@ -1,12 +1,12 @@
 use crate::rt_worker::worker_ctx::{create_worker, send_user_worker_request};
 use anyhow::{anyhow, Error};
 use event_worker::events::WorkerEventWithMetadata;
-use http::{Request, Response};
+use http::Request;
 use hyper::Body;
 use log::error;
 use sb_workers::context::{
-    CreateUserWorkerResult, UserWorkerMsgs, UserWorkerProfile, WorkerContextInitOpts,
-    WorkerRuntimeOpts,
+    CreateUserWorkerResult, SendRequestResult, UserWorkerMsgs, UserWorkerProfile,
+    WorkerContextInitOpts, WorkerRuntimeOpts,
 };
 use std::collections::HashMap;
 use tokio::sync::mpsc;
@@ -74,6 +74,8 @@ impl WorkerPool {
         }
 
         let uuid = uuid::Uuid::new_v4();
+        let (req_start_timing_tx, req_start_timing_rx) = mpsc::unbounded_channel::<()>();
+        let (req_end_timing_tx, req_end_timing_rx) = mpsc::unbounded_channel::<()>();
 
         user_worker_rt_opts.service_path = Some(service_path.clone());
         user_worker_rt_opts.key = Some(uuid);
@@ -81,6 +83,7 @@ impl WorkerPool {
         user_worker_rt_opts.pool_msg_tx = Some(self.worker_pool_msgs_tx.clone());
         user_worker_rt_opts.events_msg_tx = self.worker_event_sender.clone();
 
+        worker_options.timing_rx_pair = Some((req_start_timing_rx, req_end_timing_rx));
         worker_options.conf = WorkerRuntimeOpts::UserWorker(user_worker_rt_opts);
         let worker_pool_msgs_tx = self.worker_pool_msgs_tx.clone();
 
@@ -90,6 +93,7 @@ impl WorkerPool {
                 Ok(worker_request_msg_tx) => {
                     let profile = UserWorkerProfile {
                         worker_request_msg_tx,
+                        timing_tx_pair: (req_start_timing_tx, req_end_timing_tx),
                         service_path,
                     };
                     if worker_pool_msgs_tx
@@ -123,18 +127,21 @@ impl WorkerPool {
         &self,
         key: &Uuid,
         req: Request<Body>,
-        res_tx: Sender<Result<Response<Body>, Error>>,
+        res_tx: Sender<Result<SendRequestResult, Error>>,
     ) {
         let _: Result<(), Error> = match self.user_workers.get(key) {
             Some(worker) => {
                 let profile = worker.clone();
+                let (start_req_tx, end_req_tx) = profile.timing_tx_pair.clone();
 
                 // Create a closure to handle the request and send the response
                 let request_handler = async move {
+                    let _ = start_req_tx.send(());
                     let result = send_user_worker_request(profile.worker_request_msg_tx, req).await;
                     match result {
-                        Ok(rep) => Ok(rep),
+                        Ok(rep) => Ok((rep, end_req_tx)),
                         Err(err) => {
+                            let _ = end_req_tx.send(());
                             error!("failed to send request to user worker: {}", err.to_string());
                             Err(err)
                         }

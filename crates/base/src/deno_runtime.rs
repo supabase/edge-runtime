@@ -58,20 +58,6 @@ fn get_error_class_name(e: &AnyError) -> &'static str {
     sb_core::errors_rt::get_error_class_name(e).unwrap_or("Error")
 }
 
-fn set_v8_flags() {
-    let v8_flags = std::env::var("V8_FLAGS").unwrap_or("".to_string());
-    let mut vec = vec!["IGNORED"];
-    if v8_flags.is_empty() {
-        return;
-    }
-
-    vec.append(&mut v8_flags.split(' ').collect());
-    error!(
-        "v8 flags unrecognized {:?}",
-        deno_core::v8_set_flags(vec.iter().map(|v| v.to_string()).collect())
-    );
-}
-
 pub struct DenoRuntime {
     pub js_runtime: JsRuntime,
     pub env_vars: HashMap<String, String>, // TODO: does this need to be pub?
@@ -93,9 +79,8 @@ impl DenoRuntime {
             maybe_eszip,
             maybe_entrypoint,
             maybe_module_code,
+            ..
         } = opts;
-
-        set_v8_flags();
 
         let user_agent = "supabase-edge-runtime".to_string();
         let base_dir_path = std::env::current_dir().map(|p| p.join(&service_path))?;
@@ -444,6 +429,7 @@ mod test {
             import_map_path: None,
             env_vars: Default::default(),
             events_rx: None,
+            timing_rx_pair: None,
             maybe_eszip: None,
             maybe_entrypoint: None,
             maybe_module_code: Some(FastString::from(String::from(
@@ -477,6 +463,7 @@ mod test {
             import_map_path: None,
             env_vars: Default::default(),
             events_rx: None,
+            timing_rx_pair: None,
             maybe_eszip: Some(EszipPayloadKind::VecKind(eszip_code)),
             maybe_entrypoint: None,
             maybe_module_code: None,
@@ -525,6 +512,7 @@ mod test {
             import_map_path: None,
             env_vars: Default::default(),
             events_rx: None,
+            timing_rx_pair: None,
             maybe_eszip: Some(EszipPayloadKind::VecKind(eszip_code)),
             maybe_entrypoint: None,
             maybe_module_code: None,
@@ -567,6 +555,7 @@ mod test {
             import_map_path: None,
             env_vars: env_vars.unwrap_or_default(),
             events_rx: None,
+            timing_rx_pair: None,
             maybe_eszip: None,
             maybe_entrypoint: None,
             maybe_module_code: None,

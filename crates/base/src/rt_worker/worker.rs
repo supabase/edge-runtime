@@ -63,7 +63,7 @@ impl Worker {
 
     pub fn start(
         &self,
-        opts: WorkerContextInitOpts,
+        mut opts: WorkerContextInitOpts,
         unix_channel_rx: UnboundedReceiver<UnixStream>,
         booter_signal: Sender<Result<(), Error>>,
     ) {
@@ -72,6 +72,7 @@ impl Worker {
         let event_metadata = self.event_metadata.clone();
         let worker_key = self.worker_key;
         let pool_msg_tx = self.pool_msg_tx.clone();
+        let timing_pair_rx = opts.timing_rx_pair.take();
         let method_cloner = self.clone();
 
         let _handle: thread::JoinHandle<Result<(), Error>> = thread::Builder::new()
@@ -103,6 +104,7 @@ impl Worker {
                                     &mut new_runtime,
                                     termination_event_tx,
                                     pool_msg_tx.clone(),
+                                    timing_pair_rx,
                                 )?;
                             }
 

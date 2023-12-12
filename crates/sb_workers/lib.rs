@@ -5,6 +5,7 @@ use crate::context::{
     WorkerRuntimeOpts,
 };
 use anyhow::Error;
+use context::SendRequestResult;
 use deno_core::error::{custom_error, type_error, AnyError};
 use deno_core::futures::stream::Peekable;
 use deno_core::futures::{Stream, StreamExt};
@@ -15,7 +16,7 @@ use deno_core::{
 };
 use hyper::body::HttpBody;
 use hyper::header::{HeaderName, HeaderValue};
-use hyper::{Body, Request, Response};
+use hyper::{Body, Request};
 use sb_graph::EszipPayloadKind;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
@@ -103,6 +104,7 @@ pub async fn op_user_worker_create(
             import_map_path,
             env_vars: env_vars_map,
             events_rx: None,
+            timing_rx_pair: None,
             maybe_eszip: maybe_eszip.map(EszipPayloadKind::JsBufferKind),
             maybe_entrypoint,
             maybe_module_code: maybe_module_code.map(|v| v.into()),
@@ -230,6 +232,7 @@ struct UserWorkerResponseBodyResource {
     reader: AsyncRefCell<Peekable<BytesStream>>,
     cancel: CancelHandle,
     size: Option<u64>,
+    end_req_tx: mpsc::UnboundedSender<()>,
 }
 
 impl Resource for UserWorkerResponseBodyResource {
@@ -271,7 +274,8 @@ impl Resource for UserWorkerResponseBodyResource {
     }
 
     fn close(self: Rc<Self>) {
-        self.cancel.cancel()
+        self.cancel.cancel();
+        let _ = self.end_req_tx.send(());
     }
 
     fn size_hint(&self) -> (u64, Option<u64>) {
@@ -350,7 +354,7 @@ pub async fn op_user_worker_fetch_send(
     let request = Rc::try_unwrap(request)
         .ok()
         .expect("multiple op_user_worker_fetch_send ongoing");
-    let (result_tx, result_rx) = oneshot::channel::<Result<Response<Body>, Error>>();
+    let (result_tx, result_rx) = oneshot::channel::<Result<SendRequestResult, Error>>();
     let key_parsed = Uuid::try_parse(key.as_str())?;
     tx.send(UserWorkerMsgs::SendRequest(
         key_parsed, request.0, result_tx,
@@ -364,7 +368,7 @@ pub async fn op_user_worker_fetch_send(
         ));
     }
 
-    let result = result.unwrap();
+    let (result, end_req_tx) = result.unwrap();
 
     let mut headers = vec![];
     for (key, value) in result.headers().iter() {
@@ -393,6 +397,7 @@ pub async fn op_user_worker_fetch_send(
         reader: AsyncRefCell::new(stream.peekable()),
         cancel: CancelHandle::default(),
         size,
+        end_req_tx,
     });
 
     let response = UserWorkerResponse {
@@ -402,6 +407,7 @@ pub async fn op_user_worker_fetch_send(
         body_rid,
         size,
     };
+
     Ok(response)
 }
 

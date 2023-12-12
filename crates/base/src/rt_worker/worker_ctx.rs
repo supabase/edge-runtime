@@ -93,7 +93,13 @@ pub fn create_supervisor(
     pool_msg_tx: Option<UnboundedSender<UserWorkerMsgs>>,
 ) -> Result<CPUTimer, Error> {
     let (memory_limit_tx, mut memory_limit_rx) = mpsc::unbounded_channel::<()>();
-    let thread_safe_handle = worker_runtime.js_runtime.v8_isolate().thread_safe_handle();
+    let (waker, thread_safe_handle) = {
+        let js_runtime = &mut worker_runtime.js_runtime;
+        (
+            js_runtime.op_state().borrow().waker.clone(),
+            js_runtime.v8_isolate().thread_safe_handle(),
+        )
+    };
 
     // we assert supervisor is only run for user workers
     let conf = worker_runtime.conf.as_user_worker().unwrap().clone();
@@ -213,6 +219,18 @@ pub fn create_supervisor(
             };
 
             let reason = local.block_on(&rt, future);
+
+            // NOTE: If we issue a hard CPU time limit, It's OK because it is
+            // still possible the worker's context is in the v8 event loop. The
+            // interrupt callback would be invoked from the V8 engine
+            // gracefully. But some case doesn't.
+            //
+            // Such as the worker going to a retired state due to the soft CPU
+            // time limit but not hitting the hard CPU time limit. In this case,
+            // we must wake up the worker's event loop manually. Otherwise, the
+            // supervisor has to wait until the wall clock future that we placed
+            // out on the runtime side is times out.
+            waker.wake();
 
             let memory_used = match isolate_memory_usage_rx.blocking_recv() {
                 Ok(v) => {

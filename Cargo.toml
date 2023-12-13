@@ -67,5 +67,8 @@ base64 = { version = "=0.13.1" }
 futures = { version = "0.3.28" }
 futures-util = { version = "0.3.28" }
 
+[patch.crates-io]
+deno_core = { git = "https://github.com/nyannyacha/deno_core", branch = "222" }
+
 [profile.release]
 lto = true

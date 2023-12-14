@@ -118,6 +118,7 @@ impl WorkerPool {
     }
 
     pub fn add_user_worker(&mut self, key: Uuid, profile: UserWorkerProfile) {
+        // TODO: Check before insert
         self.active_workers
             .insert(profile.service_path.clone(), key);
         self.user_workers.insert(key, profile);
@@ -172,7 +173,13 @@ impl WorkerPool {
 
     pub fn retire(&mut self, key: &Uuid) {
         if let Some(profile) = self.user_workers.get(key) {
-            self.active_workers.remove(&profile.service_path);
+            if self
+                .active_workers
+                .get(&profile.service_path)
+                .is_some_and(|it| it == key)
+            {
+                self.active_workers.remove(&profile.service_path);
+            }
         }
     }
 

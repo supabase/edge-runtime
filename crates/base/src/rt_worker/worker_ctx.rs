@@ -92,7 +92,7 @@ pub fn create_supervisor(
     termination_event_tx: oneshot::Sender<WorkerEvents>,
     pool_msg_tx: Option<UnboundedSender<UserWorkerMsgs>>,
     timing_rx_pair: Option<(UnboundedReceiver<()>, UnboundedReceiver<()>)>,
-) -> Result<CPUTimer, Error> {
+) -> Result<Option<CPUTimer>, Error> {
     let (memory_limit_tx, mut memory_limit_rx) = mpsc::unbounded_channel::<()>();
     let (waker, thread_safe_handle) = {
         let js_runtime = &mut worker_runtime.js_runtime;
@@ -130,12 +130,22 @@ pub fn create_supervisor(
     });
 
     // Note: CPU timer must be started in the same thread as the worker runtime
-    let (cpu_alarms_tx, mut cpu_alarms_rx) = mpsc::unbounded_channel::<()>();
-    let cputimer = CPUTimer::start(
-        conf.cpu_time_soft_limit_ms,
-        conf.cpu_time_hard_limit_ms,
-        CPUAlarmVal { cpu_alarms_tx },
-    )?;
+    let (cputimer, mut cpu_alarms_rx) = {
+        let (cpu_alarms_tx, cpu_alarms_rx) = mpsc::unbounded_channel::<()>();
+
+        (
+            if conf.cpu_time_soft_limit_ms != 0 && conf.cpu_time_hard_limit_ms != 0 {
+                Some(CPUTimer::start(
+                    conf.cpu_time_soft_limit_ms,
+                    conf.cpu_time_hard_limit_ms,
+                    CPUAlarmVal { cpu_alarms_tx },
+                )?)
+            } else {
+                None
+            },
+            cpu_alarms_rx,
+        )
+    };
 
     let thread_name = format!("sb-sup-{:?}", key);
     let _handle = thread::Builder::new()

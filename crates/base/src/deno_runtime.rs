@@ -357,11 +357,7 @@ impl DenoRuntime {
         let future = async move {
             let mod_result_rx = js_runtime.mod_evaluate(self.main_module_id);
             match js_runtime.run_event_loop(false).await {
-                Err(err) => {
-                    // usually this happens because isolate is terminated
-                    error!("event loop error: {}", err);
-                    Err(anyhow!("event loop error: {}", err))
-                }
+                Err(err) => Err(anyhow!("event loop error: {}", err)),
                 Ok(_) => match mod_result_rx.await {
                     Err(_) => Err(anyhow!("mod result sender dropped")),
                     Ok(Err(err)) => {

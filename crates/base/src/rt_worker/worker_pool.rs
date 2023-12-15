@@ -8,11 +8,37 @@ use sb_workers::context::{
     CreateUserWorkerResult, SendRequestResult, UserWorkerMsgs, UserWorkerProfile,
     WorkerContextInitOpts, WorkerRuntimeOpts,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::oneshot::Sender;
 use uuid::Uuid;
+
+// Simple implementation of Round Robin for the Active Workers
+#[derive(Default)]
+pub struct ActiveWorkerRegistry {
+    workers: HashSet<Uuid>,
+    next: Option<usize>,
+}
+
+impl ActiveWorkerRegistry {
+    fn get_next_and_try_advance(&mut self) -> Option<&Uuid> {
+        if self.workers.is_empty() {
+            let _ = self.next.take();
+            return None;
+        }
+
+        let len = self.workers.len();
+        let idx = self
+            .next
+            .map(|it| if it + 1 > len { 0 } else { it })
+            .unwrap_or(0);
+
+        let _ = self.next.insert(idx + 1);
+
+        return self.workers.iter().nth(idx);
+    }
+}
 
 // every new worker gets a new UUID (can reuse execution_id)
 // user_workers - maintain a hashmap of (uuid - workerProfile (include service path))
@@ -24,7 +50,7 @@ use uuid::Uuid;
 // send_request is called with UUID
 pub struct WorkerPool {
     pub user_workers: HashMap<Uuid, UserWorkerProfile>,
-    pub active_workers: HashMap<String, Uuid>,
+    pub active_workers: HashMap<String, ActiveWorkerRegistry>,
     pub worker_pool_msgs_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
 
     // TODO: refactor this out of worker pool
@@ -45,7 +71,7 @@ impl WorkerPool {
     }
 
     pub fn create_user_worker(
-        &self,
+        &mut self,
         mut worker_options: WorkerContextInitOpts,
         tx: Sender<Result<CreateUserWorkerResult, Error>>,
     ) {
@@ -59,6 +85,7 @@ impl WorkerPool {
             .to_str()
             .unwrap_or("")
             .to_string();
+
         if let Some(active_worker_uuid) =
             self.maybe_active_worker(&service_path, user_worker_rt_opts.force_create)
         {
@@ -118,9 +145,12 @@ impl WorkerPool {
     }
 
     pub fn add_user_worker(&mut self, key: Uuid, profile: UserWorkerProfile) {
-        // TODO: Check before insert
         self.active_workers
-            .insert(profile.service_path.clone(), key);
+            .entry(profile.service_path.clone())
+            .or_default()
+            .workers
+            .insert(key);
+
         self.user_workers.insert(key, profile);
     }
 
@@ -173,12 +203,13 @@ impl WorkerPool {
 
     pub fn retire(&mut self, key: &Uuid) {
         if let Some(profile) = self.user_workers.get(key) {
-            if self
+            let registry = self
                 .active_workers
-                .get(&profile.service_path)
-                .is_some_and(|it| it == key)
-            {
-                self.active_workers.remove(&profile.service_path);
+                .get_mut(&profile.service_path)
+                .expect("registry must be initialized at this point");
+
+            if registry.workers.contains(key) {
+                registry.workers.remove(key);
             }
         }
     }
@@ -188,10 +219,13 @@ impl WorkerPool {
         self.user_workers.remove(key);
     }
 
-    fn maybe_active_worker(&self, service_path: &String, force_create: bool) -> Option<&Uuid> {
+    fn maybe_active_worker(&mut self, service_path: &String, force_create: bool) -> Option<&Uuid> {
         if force_create {
             return None;
         }
-        self.active_workers.get(service_path)
+
+        self.active_workers
+            .get_mut(service_path)
+            .and_then(|it| it.get_next_and_try_advance())
     }
 }

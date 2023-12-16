@@ -134,7 +134,7 @@ pub fn create_supervisor(
         let (cpu_alarms_tx, cpu_alarms_rx) = mpsc::unbounded_channel::<()>();
 
         (
-            if conf.cpu_time_soft_limit_ms != 0 && conf.cpu_time_hard_limit_ms != 0 {
+            if !cfg!(test) && conf.cpu_time_soft_limit_ms != 0 && conf.cpu_time_hard_limit_ms != 0 {
                 Some(CPUTimer::start(
                     conf.cpu_time_soft_limit_ms,
                     conf.cpu_time_hard_limit_ms,

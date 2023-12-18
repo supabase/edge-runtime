@@ -3,9 +3,9 @@ use deno_core::FastString;
 use enum_as_inner::EnumAsInner;
 use event_worker::events::WorkerEventWithMetadata;
 use hyper::{Body, Request, Response};
-use std::collections::HashMap;
 use std::path::PathBuf;
-use tokio::sync::{mpsc, oneshot};
+use std::{collections::HashMap, sync::Arc};
+use tokio::sync::{mpsc, oneshot, Notify, OwnedSemaphorePermit};
 use uuid::Uuid;
 
 use sb_graph::EszipPayloadKind;
@@ -17,6 +17,7 @@ pub struct UserWorkerRuntimeOpts {
 
     pub pool_msg_tx: Option<mpsc::UnboundedSender<UserWorkerMsgs>>,
     pub events_msg_tx: Option<mpsc::UnboundedSender<WorkerEventWithMetadata>>,
+    pub cancel: Option<Arc<Notify>>,
 
     pub memory_limit_mb: u64,
     pub low_memory_multiplier: u64,
@@ -45,6 +46,7 @@ impl Default for UserWorkerRuntimeOpts {
             key: None,
             pool_msg_tx: None,
             events_msg_tx: None,
+            cancel: None,
             net_access_disabled: false,
             allow_remote_modules: true,
             custom_module_root: None,
@@ -58,6 +60,8 @@ pub struct UserWorkerProfile {
     pub worker_request_msg_tx: mpsc::UnboundedSender<WorkerRequestMsg>,
     pub timing_tx_pair: (mpsc::UnboundedSender<()>, mpsc::UnboundedSender<()>),
     pub service_path: String,
+    pub permit: Arc<OwnedSemaphorePermit>,
+    pub cancel: Arc<Notify>,
 }
 
 #[derive(Debug, Clone)]
@@ -102,6 +106,7 @@ pub enum UserWorkerMsgs {
         oneshot::Sender<Result<SendRequestResult, Error>>,
     ),
     Retire(Uuid),
+    Idle(Uuid),
     Shutdown(Uuid),
 }
 

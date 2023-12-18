@@ -1,3 +1,5 @@
+#![allow(clippy::arc_with_non_send_sync)]
+
 pub mod timerid;
 
 use std::{cell::RefCell, sync::Arc};
@@ -68,11 +70,10 @@ impl CPUTimer {
             interval,
         };
 
-        if let Err(ex) = this.reset() {
-            return Err(ex);
-        }
-
-        Ok(this)
+        Ok({
+            this.reset()?;
+            this
+        })
     }
 
     #[cfg(target_os = "linux")]

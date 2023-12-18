@@ -1,6 +1,7 @@
 use crate::rt_worker::worker_ctx::{
     create_events_worker, create_main_worker, create_user_worker_pool,
 };
+use crate::rt_worker::worker_pool::WorkerPoolPolicy;
 use anyhow::Error;
 use event_worker::events::WorkerEventWithMetadata;
 use hyper::{server::conn::Http, service::Service, Body, Request, Response};
@@ -92,6 +93,7 @@ impl Server {
         port: u16,
         main_service_path: String,
         maybe_events_service_path: Option<String>,
+        maybe_user_worker_policy: Option<WorkerPoolPolicy>,
         import_map_path: Option<String>,
         no_module_cache: bool,
         callback_tx: Option<Sender<ServerCodes>>,
@@ -118,7 +120,11 @@ impl Server {
         }
 
         // Create a user worker pool
-        let user_worker_msgs_tx = create_user_worker_pool(worker_events_sender).await?;
+        let user_worker_msgs_tx = create_user_worker_pool(
+            maybe_user_worker_policy.unwrap_or_default(),
+            worker_events_sender,
+        )
+        .await?;
 
         // create main worker
         let main_worker_path = Path::new(&main_service_path).to_path_buf();

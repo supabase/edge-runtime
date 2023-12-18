@@ -25,6 +25,7 @@ macro_rules! integration_test {
                 String::from($main_file),
                 None,
                 None,
+                None,
                 false,
                 Some(tx.clone()),
                 $crate::server::WorkerEntrypoints {

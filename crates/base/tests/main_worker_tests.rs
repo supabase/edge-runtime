@@ -9,7 +9,10 @@ use tokio::sync::oneshot;
 #[tokio::test]
 async fn test_main_worker_options_request() {
     // create a user worker pool
-    let user_worker_msgs_tx = create_user_worker_pool(None).await.unwrap();
+    let user_worker_msgs_tx = create_user_worker_pool(Default::default(), None)
+        .await
+        .unwrap();
+
     let opts = WorkerContextInitOpts {
         service_path: "./test_cases/main".into(),
         no_module_cache: false,
@@ -52,7 +55,10 @@ async fn test_main_worker_options_request() {
 #[tokio::test]
 async fn test_main_worker_post_request() {
     // create a user worker pool
-    let user_worker_msgs_tx = create_user_worker_pool(None).await.unwrap();
+    let user_worker_msgs_tx = create_user_worker_pool(Default::default(), None)
+        .await
+        .unwrap();
+
     let opts = WorkerContextInitOpts {
         service_path: "./test_cases/main".into(),
         no_module_cache: false,
@@ -99,7 +105,10 @@ async fn test_main_worker_post_request() {
 #[tokio::test]
 async fn test_main_worker_boot_error() {
     // create a user worker pool
-    let user_worker_msgs_tx = create_user_worker_pool(None).await.unwrap();
+    let user_worker_msgs_tx = create_user_worker_pool(Default::default(), None)
+        .await
+        .unwrap();
+
     let opts = WorkerContextInitOpts {
         service_path: "./test_cases/main".into(),
         no_module_cache: false,
@@ -123,7 +132,10 @@ async fn test_main_worker_boot_error() {
 #[tokio::test]
 async fn test_main_worker_abort_request() {
     // create a user worker pool
-    let user_worker_msgs_tx = create_user_worker_pool(None).await.unwrap();
+    let user_worker_msgs_tx = create_user_worker_pool(Default::default(), None)
+        .await
+        .unwrap();
+
     let opts = WorkerContextInitOpts {
         service_path: "./test_cases/main_with_abort".into(),
         no_module_cache: false,

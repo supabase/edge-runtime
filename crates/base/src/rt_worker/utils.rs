@@ -1,12 +1,15 @@
+use std::sync::Arc;
+
 use event_worker::events::{EventMetadata, WorkerEventWithMetadata};
 use sb_workers::context::{UserWorkerMsgs, WorkerRuntimeOpts};
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::{mpsc::UnboundedSender, Notify};
 use uuid::Uuid;
 
 type WorkerCoreConfig = (
     Option<Uuid>,
     Option<UnboundedSender<UserWorkerMsgs>>,
     Option<UnboundedSender<WorkerEventWithMetadata>>,
+    Option<Arc<Notify>>,
     String,
 );
 
@@ -16,13 +19,14 @@ pub fn parse_worker_conf(conf: &WorkerRuntimeOpts) -> WorkerCoreConfig {
             worker_opts.key,
             worker_opts.pool_msg_tx.clone(),
             worker_opts.events_msg_tx.clone(),
+            worker_opts.cancel.clone(),
             worker_opts
                 .key
                 .map(|k| format!("sb-iso-{:?}", k))
                 .unwrap_or("isolate-worker-unknown".to_string()),
         ),
-        WorkerRuntimeOpts::MainWorker(_) => (None, None, None, "main-worker".to_string()),
-        WorkerRuntimeOpts::EventsWorker(_) => (None, None, None, "events-worker".to_string()),
+        WorkerRuntimeOpts::MainWorker(_) => (None, None, None, None, "main-worker".to_string()),
+        WorkerRuntimeOpts::EventsWorker(_) => (None, None, None, None, "events-worker".to_string()),
     };
 
     worker_core

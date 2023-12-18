@@ -7,23 +7,33 @@ use crate::rt_worker::worker_pool::WorkerPool;
 use anyhow::{anyhow, bail, Error};
 use cpu_timer::{CPUAlarmVal, CPUTimer};
 use event_worker::events::{
-    BootEvent, ShutdownEvent, ShutdownReason, WorkerEventWithMetadata, WorkerEvents,
-    WorkerMemoryUsed,
+    BootEvent, ShutdownEvent, WorkerEventWithMetadata, WorkerEvents, WorkerMemoryUsed,
 };
 use hyper::{Body, Request, Response};
 use log::{debug, error};
+use once_cell::sync::Lazy;
 use sb_graph::EszipPayloadKind;
 use sb_workers::context::{
     EventWorkerRuntimeOpts, MainWorkerRuntimeOpts, UserWorkerMsgs, WorkerContextInitOpts,
     WorkerRequestMsg, WorkerRuntimeOpts,
 };
 use std::path::PathBuf;
-use std::thread;
-use std::time::Duration;
+use std::sync::Arc;
 use tokio::net::UnixStream;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, Notify};
 use uuid::Uuid;
+
+use super::supervisor;
+use super::worker_pool::{CPUTimerPolicy, WorkerPoolPolicy};
+
+static SUPERVISOR_RT: Lazy<tokio::runtime::Runtime> = Lazy::new(|| {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .thread_name("sb-supervisor")
+        .build()
+        .unwrap()
+});
 
 async fn handle_request(
     unix_stream_tx: mpsc::UnboundedSender<UnixStream>,
@@ -40,9 +50,10 @@ async fn handle_request(
     // spawn a task to poll the connection and drive the HTTP state
     tokio::task::spawn(async move {
         if let Err(e) = connection.without_shutdown().await {
-            error!("Error in worker connection: {}", e);
+            error!("Error in worker connection: {}", e.message());
         }
     });
+
     tokio::task::yield_now().await;
 
     let result = request_sender.send_request(msg.req).await;
@@ -51,49 +62,16 @@ async fn handle_request(
     Ok(())
 }
 
-#[repr(C)]
-pub struct IsolateMemoryStats {
-    pub used_heap_size: usize,
-    pub external_memory: usize,
-}
-
-#[repr(C)]
-pub struct IsolateInterruptData {
-    pub should_terminate: bool,
-    pub isolate_memory_usage_tx: oneshot::Sender<IsolateMemoryStats>,
-}
-
-extern "C" fn handle_interrupt(isolate: &mut deno_core::v8::Isolate, data: *mut std::ffi::c_void) {
-    let boxed_data: Box<IsolateInterruptData>;
-    unsafe {
-        boxed_data = Box::from_raw(data as *mut IsolateInterruptData);
-    }
-
-    // log memory usage
-    let mut heap_stats = deno_core::v8::HeapStatistics::default();
-    isolate.get_heap_statistics(&mut heap_stats);
-    let usage = IsolateMemoryStats {
-        used_heap_size: heap_stats.used_heap_size(),
-        external_memory: heap_stats.external_memory(),
-    };
-
-    if boxed_data.isolate_memory_usage_tx.send(usage).is_err() {
-        error!("failed to send isolate memory usage - receiver may have been dropped");
-    };
-
-    if boxed_data.should_terminate {
-        isolate.terminate_execution();
-    }
-}
-
 pub fn create_supervisor(
     key: Uuid,
     worker_runtime: &mut DenoRuntime,
+    cpu_timer_policy: CPUTimerPolicy,
     termination_event_tx: oneshot::Sender<WorkerEvents>,
     pool_msg_tx: Option<UnboundedSender<UserWorkerMsgs>>,
+    cancel: Option<Arc<Notify>>,
     timing_rx_pair: Option<(UnboundedReceiver<()>, UnboundedReceiver<()>)>,
 ) -> Result<Option<CPUTimer>, Error> {
-    let (memory_limit_tx, mut memory_limit_rx) = mpsc::unbounded_channel::<()>();
+    let (memory_limit_tx, memory_limit_rx) = mpsc::unbounded_channel::<()>();
     let (waker, thread_safe_handle) = {
         let js_runtime = &mut worker_runtime.js_runtime;
         (
@@ -102,7 +80,7 @@ pub fn create_supervisor(
         )
     };
 
-    let (mut req_start_rx, mut req_end_rx) = if let Some((start, end)) = timing_rx_pair {
+    let (req_start_rx, req_end_rx) = if let Some((start, end)) = timing_rx_pair {
         (start, end)
     } else {
         let (_, dumb_start_rx) = unbounded_channel::<()>();
@@ -113,6 +91,7 @@ pub fn create_supervisor(
 
     // we assert supervisor is only run for user workers
     let conf = worker_runtime.conf.as_user_worker().unwrap().clone();
+    let cancel = cancel.unwrap();
 
     worker_runtime.js_runtime.add_near_heap_limit_callback(move |cur, _| {
         debug!(
@@ -130,13 +109,17 @@ pub fn create_supervisor(
     });
 
     // Note: CPU timer must be started in the same thread as the worker runtime
-    let (cputimer, mut cpu_alarms_rx) = {
+    let (cpu_timer, cpu_alarms_rx) = {
         let (cpu_alarms_tx, cpu_alarms_rx) = mpsc::unbounded_channel::<()>();
 
         (
             if !cfg!(test) && conf.cpu_time_soft_limit_ms != 0 && conf.cpu_time_hard_limit_ms != 0 {
                 Some(CPUTimer::start(
-                    conf.cpu_time_soft_limit_ms,
+                    if cpu_timer_policy.is_per_worker() {
+                        conf.cpu_time_soft_limit_ms
+                    } else {
+                        conf.cpu_time_hard_limit_ms
+                    },
                     conf.cpu_time_hard_limit_ms,
                     CPUAlarmVal { cpu_alarms_tx },
                 )?)
@@ -147,181 +130,103 @@ pub fn create_supervisor(
         )
     };
 
-    let thread_name = format!("sb-sup-{:?}", key);
-    let _handle = thread::Builder::new()
-        .name(thread_name)
-        .spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap();
-            let local = tokio::task::LocalSet::new();
+    let cpu_timer_inner = cpu_timer.clone();
+    let _rt_guard = SUPERVISOR_RT.enter();
+    let _ = tokio::spawn(async move {
+        let (isolate_memory_usage_tx, isolate_memory_usage_rx) =
+            oneshot::channel::<supervisor::IsolateMemoryStats>();
 
-            let (isolate_memory_usage_tx, isolate_memory_usage_rx) = oneshot::channel::<IsolateMemoryStats>();
+        let args = supervisor::Arguments {
+            key,
+            runtime_opts: conf.clone(),
+            cpu_timer: cpu_timer_inner,
+            cpu_timer_policy,
+            cpu_alarms_rx,
+            req_start_rx,
+            req_end_rx,
+            memory_limit_rx,
+            pool_msg_tx,
+            isolate_memory_usage_tx,
+            thread_safe_handle,
+            waker: waker.clone(),
+        };
 
-            let future = async move {
-                let mut cpu_time_soft_limit_reached = false;
-                let mut wall_clock_alerts = 0;
-                let mut req_count = 0u64;
-                let mut req_ack_count = 0u64;
+        let reason = {
+            use supervisor::*;
+            match cpu_timer_policy {
+                CPUTimerPolicy::PerWorker => strategy_per_worker::supervise(args).await,
+                CPUTimerPolicy::PerRequest => strategy_per_request::supervise(args).await,
+            }
+        };
 
-                // reduce 100ms from wall clock duration, so the interrupt can be handled before
-                // isolate is dropped
-                let wall_clock_duration = Duration::from_millis(conf.worker_timeout_ms) - Duration::from_millis(100);
+        cancel.notify_waiters();
 
-                // Split wall clock duration into 2 intervals.
-                // At the first interval, we will send a msg to retire the worker.
-                let wall_clock_duration_alert = tokio::time::interval(wall_clock_duration.checked_div(2).unwrap_or(Duration::from_millis(0)));
-                tokio::pin!(wall_clock_duration_alert);
+        // NOTE: If we issue a hard CPU time limit, It's OK because it is
+        // still possible the worker's context is in the v8 event loop. The
+        // interrupt callback would be invoked from the V8 engine
+        // gracefully. But some case doesn't.
+        //
+        // Such as the worker going to a retired state due to the soft CPU
+        // time limit but not hitting the hard CPU time limit. In this case,
+        // we must wake up the worker's event loop manually. Otherwise, the
+        // supervisor has to wait until the wall clock future that we placed
+        // out on the runtime side is times out.
+        waker.wake();
 
-                loop {
-                    tokio::select! {
-                        Some(_) = cpu_alarms_rx.recv() => {
-                            if !cpu_time_soft_limit_reached {
-                                // retire worker
-                                if let Some(tx) = pool_msg_tx.clone() {
-                                    if tx.send(UserWorkerMsgs::Retire(key)).is_err() {
-                                        error!("failed to send retire msg to pool: {:?}", key);
-                                    }
-                                }
-                                error!("CPU time soft limit reached. isolate: {:?}", key);
-                                cpu_time_soft_limit_reached = true;
-
-                                if req_count == req_ack_count {
-                                    let interrupt_data = IsolateInterruptData {
-                                        should_terminate: true,
-                                        isolate_memory_usage_tx
-                                    };
-
-                                    thread_safe_handle.request_interrupt(handle_interrupt, Box::into_raw(Box::new(interrupt_data)) as *mut std::ffi::c_void);
-                                    error!("early termination due to the last request being completed. isolate: {:?}", key);
-                                    return ShutdownReason::EarlyDrop;
-                                }
-                            } else {
-                                // shutdown worker
-                                let interrupt_data = IsolateInterruptData {
-                                    should_terminate: true,
-                                    isolate_memory_usage_tx
-                                };
-                                thread_safe_handle.request_interrupt(handle_interrupt, Box::into_raw(Box::new(interrupt_data)) as *mut std::ffi::c_void);
-                                error!("CPU time hard limit reached. isolate: {:?}", key);
-                                return ShutdownReason::CPUTime;
-                            }
-                        }
-
-                        Some(_) = req_start_rx.recv() => {
-                            req_count += 1;
-                        }
-
-                        Some(_) = req_end_rx.recv() => {
-                            req_ack_count += 1;
-                            if !cpu_time_soft_limit_reached || req_count != req_ack_count {
-                                continue;
-                            }
-
-                            let interrupt_data = IsolateInterruptData {
-                                should_terminate: true,
-                                isolate_memory_usage_tx
-                            };
-
-                            thread_safe_handle.request_interrupt(handle_interrupt, Box::into_raw(Box::new(interrupt_data)) as *mut std::ffi::c_void);
-                            error!("early termination due to the last request being completed. isolate: {:?}", key);
-                            return ShutdownReason::EarlyDrop;
-                        }
-
-                        // wall clock warning
-                        _ = wall_clock_duration_alert.tick() => {
-                            if wall_clock_alerts == 0 {
-                                // first tick completes immediately
-                                wall_clock_alerts += 1;
-                            } else if wall_clock_alerts == 1 {
-                                if let Some(tx) = pool_msg_tx.clone() {
-                                    if tx.send(UserWorkerMsgs::Retire(key)).is_err() {
-                                        error!("failed to send retire msg to pool: {:?}", key);
-                                    }
-                                }
-                                error!("wall clock duration warning. isolate: {:?}", key);
-                                wall_clock_alerts += 1;
-                            } else {
-                                // wall-clock limit reached
-                                // Don't terminate isolate from supervisor when wall-clock
-                                // duration reached. It's dropped in deno_runtime.rs
-                                let interrupt_data = IsolateInterruptData {
-                                    should_terminate: false,
-                                    isolate_memory_usage_tx
-                                };
-                                thread_safe_handle.request_interrupt(handle_interrupt, Box::into_raw(Box::new(interrupt_data)) as *mut std::ffi::c_void);
-                                error!("wall clock duration reached. isolate: {:?}", key);
-                                return ShutdownReason::WallClockTime;
-                            }
-                        }
-
-
-                        // memory usage
-                        Some(_) = memory_limit_rx.recv() => {
-                            let interrupt_data = IsolateInterruptData {
-                                should_terminate: true,
-                                isolate_memory_usage_tx
-                            };
-                            thread_safe_handle.request_interrupt(handle_interrupt, Box::into_raw(Box::new(interrupt_data)) as *mut std::ffi::c_void);
-                            error!("memory limit reached for the worker. isolate: {:?}", key);
-                            return ShutdownReason::Memory;
-                        }
-                    }
+        let memory_used = match isolate_memory_usage_rx.await {
+            Ok(v) => WorkerMemoryUsed {
+                total: v.used_heap_size + v.external_memory,
+                heap: v.used_heap_size,
+                external: v.external_memory,
+            },
+            Err(_) => {
+                error!("isolate memory usage sender dropped");
+                WorkerMemoryUsed {
+                    total: 0,
+                    heap: 0,
+                    external: 0,
                 }
-            };
+            }
+        };
 
-            let reason = local.block_on(&rt, future);
+        // send termination reason
+        let termination_event = WorkerEvents::Shutdown(ShutdownEvent {
+            reason,
+            memory_used,
+            cpu_time_used: 0, // this will be set later
+        });
 
-            // NOTE: If we issue a hard CPU time limit, It's OK because it is
-            // still possible the worker's context is in the v8 event loop. The
-            // interrupt callback would be invoked from the V8 engine
-            // gracefully. But some case doesn't.
-            //
-            // Such as the worker going to a retired state due to the soft CPU
-            // time limit but not hitting the hard CPU time limit. In this case,
-            // we must wake up the worker's event loop manually. Otherwise, the
-            // supervisor has to wait until the wall clock future that we placed
-            // out on the runtime side is times out.
-            waker.wake();
+        let _ = termination_event_tx.send(termination_event);
+    });
 
-            let memory_used = match isolate_memory_usage_rx.blocking_recv() {
-                Ok(v) => {
-                    WorkerMemoryUsed {
-                        total: v.used_heap_size + v.external_memory,
-                        heap: v.used_heap_size,
-                        external: v.external_memory,
-                    }
-                },
-                Err(_) => {
-                    error!("isolate memory usage sender dropped");
-                    WorkerMemoryUsed {
-                        total: 0,
-                        heap: 0,
-                        external: 0,
-                    }
-                }
-            };
-
-            // send termination reason
-            let termination_event = WorkerEvents::Shutdown(ShutdownEvent{
-                reason,
-                memory_used,
-                cpu_time_used: 0, // this will be set later
-            });
-            let _ = termination_event_tx.send(termination_event);
-        })
-        .unwrap();
-
-    Ok(cputimer)
+    Ok(cpu_timer)
 }
 
-pub async fn create_worker(
-    init_opts: WorkerContextInitOpts,
+pub struct CreateWorkerArgs(WorkerContextInitOpts, Option<CPUTimerPolicy>);
+
+impl From<WorkerContextInitOpts> for CreateWorkerArgs {
+    fn from(val: WorkerContextInitOpts) -> Self {
+        CreateWorkerArgs(val, None)
+    }
+}
+
+impl From<(WorkerContextInitOpts, CPUTimerPolicy)> for CreateWorkerArgs {
+    fn from(val: (WorkerContextInitOpts, CPUTimerPolicy)) -> Self {
+        CreateWorkerArgs(val.0, Some(val.1))
+    }
+}
+
+pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
+    init_opts: Opt,
 ) -> Result<mpsc::UnboundedSender<WorkerRequestMsg>, Error> {
     let (worker_boot_result_tx, worker_boot_result_rx) = oneshot::channel::<Result<(), Error>>();
     let (unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
-    let worker_init = Worker::new(&init_opts)?;
+    let CreateWorkerArgs(init_opts, maybe_cpu_timer_policy) = init_opts.into();
+    let mut worker_init = Worker::new(&init_opts)?;
+
+    if init_opts.conf.is_user_worker() {
+        worker_init.set_cpu_timer_policy(maybe_cpu_timer_policy);
+    }
 
     let worker: Box<dyn WorkerHandler> = Box::new(worker_init);
 
@@ -379,6 +284,7 @@ pub async fn create_worker(
 
 pub async fn send_user_worker_request(
     worker_request_msg_tx: mpsc::UnboundedSender<WorkerRequestMsg>,
+    cancel: Arc<Notify>,
     req: Request<Body>,
 ) -> Result<Response<Body>, Error> {
     let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
@@ -388,10 +294,12 @@ pub async fn send_user_worker_request(
     worker_request_msg_tx.send(msg)?;
 
     // wait for the response back from the worker
-    let res = res_rx.await??;
+    let res = tokio::select! {
+        () = cancel.notified() => bail!("request has been cancelled"),
+        res = res_rx => res,
+    }??;
 
     // send the response back to the caller
-
     Ok(res)
 }
 
@@ -469,6 +377,7 @@ pub async fn create_events_worker(
 }
 
 pub async fn create_user_worker_pool(
+    policy: WorkerPoolPolicy,
     worker_event_sender: Option<mpsc::UnboundedSender<WorkerEventWithMetadata>>,
 ) -> Result<mpsc::UnboundedSender<UserWorkerMsgs>, Error> {
     let (user_worker_msgs_tx, mut user_worker_msgs_rx) =
@@ -477,7 +386,8 @@ pub async fn create_user_worker_pool(
     let user_worker_msgs_tx_clone = user_worker_msgs_tx.clone();
 
     let _handle: tokio::task::JoinHandle<Result<(), Error>> = tokio::spawn(async move {
-        let mut worker_pool = WorkerPool::new(worker_event_sender, user_worker_msgs_tx_clone);
+        let mut worker_pool =
+            WorkerPool::new(policy, worker_event_sender, user_worker_msgs_tx_clone);
 
         // Note: Keep this loop non-blocking. Spawn a task to run blocking calls.
         // Handle errors within tasks and log them - do not bubble up errors.
@@ -495,6 +405,9 @@ pub async fn create_user_worker_pool(
                 }
                 Some(UserWorkerMsgs::Retire(key)) => {
                     worker_pool.retire(&key);
+                }
+                Some(UserWorkerMsgs::Idle(key)) => {
+                    worker_pool.idle(&key);
                 }
                 Some(UserWorkerMsgs::Shutdown(key)) => {
                     worker_pool.shutdown(&key);

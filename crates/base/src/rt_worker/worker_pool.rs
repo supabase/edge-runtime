@@ -9,20 +9,117 @@ use sb_workers::context::{
     WorkerContextInitOpts, WorkerRuntimeOpts,
 };
 use std::collections::{HashMap, HashSet};
-use tokio::sync::mpsc;
+use std::convert::Infallible;
+use std::str::FromStr;
+use std::sync::Arc;
+use std::time::Duration;
+use strum::EnumIs;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::oneshot::Sender;
+use tokio::sync::{mpsc, Notify, OwnedSemaphorePermit, Semaphore};
 use uuid::Uuid;
 
+#[derive(Clone, Copy, EnumIs)]
+pub enum CPUTimerPolicy {
+    PerWorker,
+    PerRequest,
+}
+
+impl Default for CPUTimerPolicy {
+    fn default() -> Self {
+        Self::PerWorker
+    }
+}
+
+impl FromStr for CPUTimerPolicy {
+    type Err = Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "per_worker" => Ok(Self::PerWorker),
+            "per_request" => Ok(Self::PerRequest),
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct WorkerPoolPolicy {
+    cpu_timer: CPUTimerPolicy,
+    max_parallelism: usize,
+    request_wait_timeout_ms: u64,
+}
+
+impl Default for WorkerPoolPolicy {
+    fn default() -> Self {
+        Self {
+            cpu_timer: CPUTimerPolicy::default(),
+            max_parallelism: 5,
+            request_wait_timeout_ms: 1000 * 5,
+        }
+    }
+}
+
+impl WorkerPoolPolicy {
+    pub fn new(
+        cpu_timer: impl Into<Option<CPUTimerPolicy>>,
+        max_parallelism: impl Into<Option<usize>>,
+        request_wait_timeout_ms: impl Into<Option<u64>>,
+    ) -> Self {
+        let default = Self::default();
+
+        Self {
+            cpu_timer: cpu_timer.into().unwrap_or(default.cpu_timer),
+            max_parallelism: max_parallelism.into().unwrap_or(default.max_parallelism),
+            request_wait_timeout_ms: request_wait_timeout_ms
+                .into()
+                .unwrap_or(default.request_wait_timeout_ms),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct WorkerId(Uuid, bool);
+
+impl Eq for WorkerId {}
+
+impl PartialEq for WorkerId {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl std::borrow::Borrow<Uuid> for WorkerId {
+    fn borrow(&self) -> &Uuid {
+        &self.0
+    }
+}
+
+impl std::hash::Hash for WorkerId {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
+    }
+}
+
 // Simple implementation of Round Robin for the Active Workers
-#[derive(Default)]
 pub struct ActiveWorkerRegistry {
-    workers: HashSet<Uuid>,
+    workers: HashSet<WorkerId>,
     next: Option<usize>,
+    notify_pair: (flume::Sender<Option<Uuid>>, flume::Receiver<Option<Uuid>>),
+    sem: Arc<Semaphore>,
 }
 
 impl ActiveWorkerRegistry {
-    fn get_next_and_try_advance(&mut self) -> Option<&Uuid> {
+    fn new(max_parallelism: usize) -> Self {
+        Self {
+            workers: HashSet::default(),
+            next: Option::default(),
+            notify_pair: flume::unbounded(),
+            sem: Arc::new(Semaphore::const_new(max_parallelism)),
+        }
+    }
+
+    fn mark_used_and_try_advance(&mut self, policy: CPUTimerPolicy) -> Option<&Uuid> {
         if self.workers.is_empty() {
             let _ = self.next.take();
             return None;
@@ -34,9 +131,36 @@ impl ActiveWorkerRegistry {
             .map(|it| if it + 1 > len { 0 } else { it })
             .unwrap_or(0);
 
-        let _ = self.next.insert(idx + 1);
+        match self.workers.iter().nth(idx).cloned() {
+            Some(WorkerId(key, true)) => match policy {
+                CPUTimerPolicy::PerWorker => {
+                    self.next = Some(idx + 1);
+                    self.workers.get(&key).map(|it| &it.0)
+                }
 
-        return self.workers.iter().nth(idx);
+                CPUTimerPolicy::PerRequest => {
+                    let key = self
+                        .workers
+                        .replace(WorkerId(key, false))
+                        .and_then(|WorkerId(ref key, _)| self.workers.get(key).map(|it| &it.0));
+
+                    self.next = self.workers.iter().position(|it| it.1);
+                    key
+                }
+            },
+            _ => {
+                let _ = self.next.take();
+                None
+            }
+        }
+    }
+
+    fn mark_idle(&mut self, key: &Uuid) {
+        if let Some(WorkerId(key, false)) = self.workers.get(key).cloned() {
+            let _ = self.workers.replace(WorkerId(key, true));
+            let (notify_tx, _) = self.notify_pair.clone();
+            let _ = notify_tx.send(Some(key));
+        }
     }
 }
 
@@ -49,6 +173,7 @@ impl ActiveWorkerRegistry {
 // retires current one adds new one)
 // send_request is called with UUID
 pub struct WorkerPool {
+    pub policy: WorkerPoolPolicy,
     pub user_workers: HashMap<Uuid, UserWorkerProfile>,
     pub active_workers: HashMap<String, ActiveWorkerRegistry>,
     pub worker_pool_msgs_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
@@ -59,10 +184,12 @@ pub struct WorkerPool {
 
 impl WorkerPool {
     pub(crate) fn new(
+        policy: WorkerPoolPolicy,
         worker_event_sender: Option<UnboundedSender<WorkerEventWithMetadata>>,
         worker_pool_msgs_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
     ) -> Self {
         Self {
+            policy,
             worker_event_sender,
             user_workers: HashMap::new(),
             active_workers: HashMap::new(),
@@ -75,20 +202,19 @@ impl WorkerPool {
         mut worker_options: WorkerContextInitOpts,
         tx: Sender<Result<CreateUserWorkerResult, Error>>,
     ) {
-        let mut user_worker_rt_opts = match worker_options.conf {
-            WorkerRuntimeOpts::UserWorker(opts) => opts,
-            _ => unreachable!(),
-        };
-
         let service_path = worker_options
             .service_path
             .to_str()
             .unwrap_or("")
             .to_string();
 
-        if let Some(active_worker_uuid) =
-            self.maybe_active_worker(&service_path, user_worker_rt_opts.force_create)
-        {
+        if let Some(active_worker_uuid) = self.maybe_active_worker(
+            &service_path,
+            worker_options
+                .conf
+                .as_user_worker()
+                .map_or(false, |it| it.force_create),
+        ) {
             if tx
                 .send(Ok(CreateUserWorkerResult {
                     key: *active_worker_uuid,
@@ -100,28 +226,138 @@ impl WorkerPool {
             return;
         }
 
-        let uuid = uuid::Uuid::new_v4();
-        let (req_start_timing_tx, req_start_timing_rx) = mpsc::unbounded_channel::<()>();
-        let (req_end_timing_tx, req_end_timing_rx) = mpsc::unbounded_channel::<()>();
+        enum FlowAfterFence {
+            Stop,
+            Resend(Sender<Result<CreateUserWorkerResult, Error>>),
+            Create(
+                OwnedSemaphorePermit,
+                Sender<Result<CreateUserWorkerResult, Error>>,
+            ),
+        }
 
-        user_worker_rt_opts.service_path = Some(service_path.clone());
-        user_worker_rt_opts.key = Some(uuid);
+        let wait_fence_fut = {
+            let registry = self
+                .active_workers
+                .entry(service_path.clone())
+                .or_insert_with(|| ActiveWorkerRegistry::new(self.policy.max_parallelism));
 
-        user_worker_rt_opts.pool_msg_tx = Some(self.worker_pool_msgs_tx.clone());
-        user_worker_rt_opts.events_msg_tx = self.worker_event_sender.clone();
+            let sem = registry.sem.clone();
+            let (_, notify_rx) = registry.notify_pair.clone();
+            let wait_timeout =
+                tokio::time::sleep(Duration::from_millis(self.policy.request_wait_timeout_ms));
 
-        worker_options.timing_rx_pair = Some((req_start_timing_rx, req_end_timing_rx));
-        worker_options.conf = WorkerRuntimeOpts::UserWorker(user_worker_rt_opts);
+            async move {
+                use FlowAfterFence::*;
+                if let Ok(permit) = sem.clone().try_acquire_owned() {
+                    return Create(permit, tx);
+                }
+
+                tokio::pin!(wait_timeout);
+                loop {
+                    tokio::select! {
+                        maybe_key = notify_rx.recv_async() => {
+                            match maybe_key {
+                                Err(x) => {
+                                    if tx.send(Err(anyhow!("worker channel is no longer valid: {}", x))).is_err() {
+                                        error!("main worker receiver dropped");
+                                    }
+                                    return Stop;
+                                }
+
+                                Ok(Some(_)) => return Resend(tx),
+                                Ok(None) => {
+                                    if let Ok(permit) = sem.clone().try_acquire_owned() {
+                                        return Create(permit, tx);
+                                    }
+                                }
+                            }
+                        },
+
+                        () = &mut wait_timeout => {
+                            if tx.send(Err(anyhow!("worker did not respond in time"))).is_err() {
+                                error!("main worker receiver dropped");
+                            }
+                            return Stop;
+                        }
+                    }
+                }
+            }
+        };
+
         let worker_pool_msgs_tx = self.worker_pool_msgs_tx.clone();
+        let events_msg_tx = self.worker_event_sender.clone();
+        let cpu_timer_policy = self.policy.cpu_timer;
 
-        tokio::task::spawn(async move {
-            let result = create_worker(worker_options).await;
-            match result {
+        drop(tokio::spawn(async move {
+            let (permit, tx) = match wait_fence_fut.await {
+                FlowAfterFence::Stop => return,
+                FlowAfterFence::Resend(tx) => {
+                    let WorkerContextInitOpts {
+                        service_path,
+                        no_module_cache,
+                        import_map_path,
+                        env_vars,
+                        conf,
+                        maybe_eszip,
+                        maybe_module_code,
+                        maybe_entrypoint,
+                        ..
+                    } = worker_options;
+
+                    if worker_pool_msgs_tx
+                        .send(UserWorkerMsgs::Create(
+                            WorkerContextInitOpts {
+                                service_path,
+                                no_module_cache,
+                                import_map_path,
+                                env_vars,
+                                events_rx: None,
+                                timing_rx_pair: None,
+                                conf,
+                                maybe_eszip,
+                                maybe_module_code,
+                                maybe_entrypoint,
+                            },
+                            tx,
+                        ))
+                        .is_err()
+                    {
+                        error!("main worker receiver dropped");
+                    }
+
+                    return;
+                }
+
+                FlowAfterFence::Create(permit, tx) => (permit, tx),
+            };
+
+            let Ok(mut user_worker_rt_opts) = worker_options.conf.into_user_worker() else {
+                return;
+            };
+
+            let uuid = uuid::Uuid::new_v4();
+            let cancel = Arc::<Notify>::default();
+            let (req_start_timing_tx, req_start_timing_rx) = mpsc::unbounded_channel::<()>();
+            let (req_end_timing_tx, req_end_timing_rx) = mpsc::unbounded_channel::<()>();
+
+            user_worker_rt_opts.service_path = Some(service_path.clone());
+            user_worker_rt_opts.key = Some(uuid);
+
+            user_worker_rt_opts.pool_msg_tx = Some(worker_pool_msgs_tx.clone());
+            user_worker_rt_opts.events_msg_tx = events_msg_tx;
+            user_worker_rt_opts.cancel = Some(cancel.clone());
+
+            worker_options.timing_rx_pair = Some((req_start_timing_rx, req_end_timing_rx));
+            worker_options.conf = WorkerRuntimeOpts::UserWorker(user_worker_rt_opts);
+
+            match create_worker((worker_options, cpu_timer_policy)).await {
                 Ok(worker_request_msg_tx) => {
                     let profile = UserWorkerProfile {
                         worker_request_msg_tx,
                         timing_tx_pair: (req_start_timing_tx, req_end_timing_tx),
                         service_path,
+                        permit: Arc::new(permit),
+                        cancel,
                     };
                     if worker_pool_msgs_tx
                         .send(UserWorkerMsgs::Created(uuid, profile))
@@ -141,15 +377,18 @@ impl WorkerPool {
                     }
                 }
             }
-        });
+        }));
     }
 
     pub fn add_user_worker(&mut self, key: Uuid, profile: UserWorkerProfile) {
-        self.active_workers
+        let registry = self
+            .active_workers
             .entry(profile.service_path.clone())
-            .or_default()
+            .or_insert_with(|| ActiveWorkerRegistry::new(self.policy.max_parallelism));
+
+        registry
             .workers
-            .insert(key);
+            .insert(WorkerId(key, self.policy.cpu_timer.is_per_worker()));
 
         self.user_workers.insert(key, profile);
     }
@@ -163,12 +402,15 @@ impl WorkerPool {
         let _: Result<(), Error> = match self.user_workers.get(key) {
             Some(worker) => {
                 let profile = worker.clone();
+                let cancel = worker.cancel.clone();
                 let (start_req_tx, end_req_tx) = profile.timing_tx_pair.clone();
 
                 // Create a closure to handle the request and send the response
                 let request_handler = async move {
                     let _ = start_req_tx.send(());
-                    let result = send_user_worker_request(profile.worker_request_msg_tx, req).await;
+                    let result =
+                        send_user_worker_request(profile.worker_request_msg_tx, cancel, req).await;
+
                     match result {
                         Ok(rep) => Ok((rep, end_req_tx)),
                         Err(err) => {
@@ -214,9 +456,29 @@ impl WorkerPool {
         }
     }
 
+    pub fn idle(&mut self, key: &Uuid) {
+        if let Some(registry) = self
+            .user_workers
+            .get_mut(key)
+            .and_then(|it| self.active_workers.get_mut(&it.service_path))
+        {
+            registry.mark_idle(key);
+        }
+    }
+
     pub fn shutdown(&mut self, key: &Uuid) {
         self.retire(key);
-        self.user_workers.remove(key);
+
+        let Some((notify_tx, _)) = self
+            .user_workers
+            .remove(key)
+            .and_then(|it| self.active_workers.get(&it.service_path))
+            .map(|it| it.notify_pair.clone())
+        else {
+            return;
+        };
+
+        let _ = notify_tx.send(None);
     }
 
     fn maybe_active_worker(&mut self, service_path: &String, force_create: bool) -> Option<&Uuid> {
@@ -226,6 +488,6 @@ impl WorkerPool {
 
         self.active_workers
             .get_mut(service_path)
-            .and_then(|it| it.get_next_and_try_advance())
+            .and_then(|it| it.mark_used_and_try_advance(self.policy.cpu_timer))
     }
 }

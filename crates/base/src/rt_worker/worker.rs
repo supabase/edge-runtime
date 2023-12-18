@@ -12,21 +12,26 @@ use sb_workers::context::{UserWorkerMsgs, WorkerContextInitOpts};
 use std::any::Any;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::thread;
 use tokio::net::UnixStream;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
-use tokio::sync::oneshot;
 use tokio::sync::oneshot::{Receiver, Sender};
+use tokio::sync::{oneshot, Notify};
 use tokio::time::Instant;
 use uuid::Uuid;
+
+use super::worker_pool::CPUTimerPolicy;
 
 #[derive(Clone)]
 pub struct Worker {
     pub worker_boot_start_time: Instant,
     pub events_msg_tx: Option<UnboundedSender<WorkerEventWithMetadata>>,
     pub pool_msg_tx: Option<UnboundedSender<UserWorkerMsgs>>,
+    pub cancel: Option<Arc<Notify>>,
     pub event_metadata: EventMetadata,
     pub worker_key: Option<Uuid>,
+    pub cpu_timer_policy: Option<CPUTimerPolicy>,
     pub thread_name: String,
 }
 
@@ -45,20 +50,26 @@ pub trait WorkerHandler: Send {
 
 impl Worker {
     pub fn new(init_opts: &WorkerContextInitOpts) -> Result<Self, Error> {
-        let (worker_key, pool_msg_tx, events_msg_tx, thread_name) =
+        let (worker_key, pool_msg_tx, events_msg_tx, cancel, thread_name) =
             parse_worker_conf(&init_opts.conf);
         let event_metadata = get_event_metadata(&init_opts.conf);
 
         let worker_boot_start_time = Instant::now();
 
         Ok(Self {
+            cpu_timer_policy: None,
             worker_boot_start_time,
             events_msg_tx,
             pool_msg_tx,
+            cancel,
             event_metadata,
             worker_key,
             thread_name,
         })
+    }
+
+    pub fn set_cpu_timer_policy(&mut self, cpu_timer_policy: Option<CPUTimerPolicy>) {
+        self.cpu_timer_policy = cpu_timer_policy;
     }
 
     pub fn start(
@@ -70,6 +81,8 @@ impl Worker {
         let thread_name = self.thread_name.clone();
         let events_msg_tx = self.events_msg_tx.clone();
         let event_metadata = self.event_metadata.clone();
+        let cancel = self.cancel.clone();
+        let cpu_timer_policy = self.cpu_timer_policy.unwrap_or_default();
         let worker_key = self.worker_key;
         let pool_msg_tx = self.pool_msg_tx.clone();
         let timing_pair_rx = opts.timing_rx_pair.take();
@@ -102,8 +115,10 @@ impl Worker {
                                 _cputimer = create_supervisor(
                                     worker_key.unwrap_or(Uuid::nil()),
                                     &mut new_runtime,
+                                    cpu_timer_policy,
                                     termination_event_tx,
                                     pool_msg_tx.clone(),
+                                    cancel,
                                     timing_pair_rx,
                                 )?;
                             }

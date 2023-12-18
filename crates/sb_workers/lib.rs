@@ -121,6 +121,7 @@ pub async fn op_user_worker_create(
                 key: None,
                 pool_msg_tx: None,
                 events_msg_tx: None,
+                cancel: None,
                 service_path: None,
             }),
         };

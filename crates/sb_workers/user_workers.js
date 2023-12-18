@@ -61,7 +61,19 @@ class UserWorker {
 		}
 
 		const resPromise = core.opAsync('op_user_worker_fetch_send', this.key, requestRid);
-		const [, res] = await Promise.all([reqBodyPromise, resPromise]);
+		let [sent, res] = await Promise.allSettled([reqBodyPromise, resPromise]);
+		
+		if (sent.status === "rejected") {
+			if (res.status === "fulfilled") {
+				core.close(res.value.bodyRid);
+			}
+
+			throw sent.reason;
+		} else if (res.status === "rejected") {
+			throw res.reason;
+		} else {
+			res = res.value;
+		}
 
 		const response = {
 			headers: res.headers,

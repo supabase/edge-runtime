@@ -1,5 +1,7 @@
 pub mod timerid;
 
+use std::{cell::RefCell, sync::Arc};
+
 #[cfg(target_os = "linux")]
 use crate::timerid::TimerId;
 
@@ -16,12 +18,19 @@ pub struct CPUAlarmVal {
 }
 
 #[cfg(target_os = "linux")]
+#[derive(Clone)]
 pub struct CPUTimer {
-    _timerid: TimerId,
-    val_ptr: *mut CPUAlarmVal,
+    _timerid: Arc<TimerId>,
+    _cpu_alarm_val: Arc<RefCell<CPUAlarmVal>>,
+    initial_expiry: u64,
+    interval: u64,
 }
+
 #[cfg(not(target_os = "linux"))]
+#[derive(Clone)]
 pub struct CPUTimer {}
+
+unsafe impl Send for CPUTimer {}
 
 impl CPUTimer {
     #[cfg(target_os = "linux")]
@@ -31,8 +40,9 @@ impl CPUTimer {
         cpu_alarm_val: CPUAlarmVal,
     ) -> Result<Self, Error> {
         let mut timerid = TimerId(std::ptr::null_mut());
-        let val_ptr = Box::into_raw(Box::new(cpu_alarm_val));
-        let sival_ptr: *mut libc::c_void = val_ptr as *mut libc::c_void;
+        let cpu_alarm_val = Arc::new(RefCell::new(cpu_alarm_val));
+        let cpu_alarm_ptr = cpu_alarm_val.as_ptr();
+        let sival_ptr: *mut libc::c_void = cpu_alarm_ptr as *mut libc::c_void;
 
         let mut sigev: libc::sigevent = unsafe { std::mem::zeroed() };
         sigev.sigev_notify = libc::SIGEV_SIGNAL;
@@ -51,11 +61,28 @@ impl CPUTimer {
             bail!(std::io::Error::last_os_error())
         }
 
-        let initial_expiry_secs = initial_expiry / 1000;
-        let initial_expiry_msecs = initial_expiry % 1000;
-        let interval_secs = interval / 1000;
-        let interval_msecs = interval % 1000;
+        let this = Self {
+            _timerid: Arc::new(timerid),
+            _cpu_alarm_val: cpu_alarm_val,
+            initial_expiry,
+            interval,
+        };
+
+        if let Err(ex) = this.reset() {
+            return Err(ex);
+        }
+
+        Ok(this)
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn reset(&self) -> Result<(), Error> {
+        let initial_expiry_secs = self.initial_expiry / 1000;
+        let initial_expiry_msecs = self.initial_expiry % 1000;
+        let interval_secs = self.interval / 1000;
+        let interval_msecs = self.interval % 1000;
         let mut tmspec: libc::itimerspec = unsafe { std::mem::zeroed() };
+
         tmspec.it_value.tv_sec = initial_expiry_secs as i64;
         tmspec.it_value.tv_nsec = (initial_expiry_msecs as i64) * 1_000_000;
         tmspec.it_interval.tv_sec = interval_secs as i64;
@@ -63,16 +90,13 @@ impl CPUTimer {
 
         if unsafe {
             // start the timer with an expiry
-            libc::timer_settime(timerid.0, 0, &tmspec, std::ptr::null_mut())
+            libc::timer_settime(self._timerid.0, 0, &tmspec, std::ptr::null_mut())
         } < 0
         {
             bail!(std::io::Error::last_os_error())
         }
 
-        Ok(Self {
-            _timerid: timerid,
-            val_ptr,
-        })
+        Ok(())
     }
 
     #[cfg(not(target_os = "linux"))]
@@ -80,15 +104,10 @@ impl CPUTimer {
         log::error!("CPU timer: not enabled (need Linux)");
         Ok(Self {})
     }
-}
 
-#[cfg(target_os = "linux")]
-impl Drop for CPUTimer {
-    fn drop(&mut self) {
-        // reconstruct the CPUAlarmVal so its memory freed up correctly
-        unsafe {
-            let _ = Box::from_raw(self.val_ptr);
-        }
+    #[cfg(not(target_os = "linux"))]
+    pub fn reset() -> Result<(), Error> {
+        Ok(())
     }
 }
 

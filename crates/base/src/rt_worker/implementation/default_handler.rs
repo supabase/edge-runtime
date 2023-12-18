@@ -26,9 +26,7 @@ impl WorkerHandler for Worker {
                 // if the error is execution terminated, check termination event reason
                 Err(err) => {
                     let err_string = err.to_string();
-                    if err_string.ends_with("execution terminated")
-                        || err_string.ends_with("wall clock duration reached")
-                    {
+                    if err_string.ends_with("execution terminated") {
                         Ok(termination_event_rx.await.unwrap())
                     } else {
                         Ok(WorkerEvents::UncaughtException(UncaughtExceptionEvent {

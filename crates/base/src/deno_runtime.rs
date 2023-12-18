@@ -14,7 +14,6 @@ use serde::de::DeserializeOwned;
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::net::UnixStream;
 use tokio::sync::mpsc;
 
@@ -353,31 +352,18 @@ impl DenoRuntime {
         }
 
         let mut js_runtime = self.js_runtime;
+        let mod_result_rx = js_runtime.mod_evaluate(self.main_module_id);
 
-        let future = async move {
-            let mod_result_rx = js_runtime.mod_evaluate(self.main_module_id);
-            match js_runtime.run_event_loop(false).await {
-                Err(err) => Err(anyhow!("event loop error: {}", err)),
-                Ok(_) => match mod_result_rx.await {
-                    Err(_) => Err(anyhow!("mod result sender dropped")),
-                    Ok(Err(err)) => {
-                        error!("{}", err.to_string());
-                        Err(err)
-                    }
-                    Ok(Ok(_)) => Ok(()),
-                },
-            }
-        };
-
-        // need to set an explicit timeout here in case the event loop idle
-        let mut duration = Duration::MAX;
-        if self.conf.is_user_worker() {
-            let worker_timeout_ms = self.conf.as_user_worker().unwrap().worker_timeout_ms;
-            duration = Duration::from_millis(worker_timeout_ms);
-        }
-        match tokio::time::timeout(duration, future).await {
-            Err(_) => Err(anyhow!("wall clock duration reached")),
-            Ok(res) => res,
+        match js_runtime.run_event_loop(false).await {
+            Err(err) => Err(anyhow!("event loop error: {}", err)),
+            Ok(_) => match mod_result_rx.await {
+                Err(_) => Err(anyhow!("mod result sender dropped")),
+                Ok(Err(err)) => {
+                    error!("{}", err.to_string());
+                    Err(err)
+                }
+                Ok(Ok(_)) => Ok(()),
+            },
         }
     }
 

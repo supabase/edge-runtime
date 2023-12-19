@@ -17,13 +17,13 @@ use std::sync::Arc;
 fn cli() -> Command {
     Command::new("edge-runtime")
         .about("A server based on Deno runtime, capable of running JavaScript, TypeScript, and WASM services")
-        .version(String::from(format!(
+        .version(format!(
             "{}\ndeno {} ({}, {})",
             crate_version!(),
             env!("DENO_VERSION"),
             env!("PROFILE"),
             env!("TARGET")
-        )))
+        ))
         .arg_required_else_help(true)
         .arg(
             arg!(-v --verbose "Use verbose output")

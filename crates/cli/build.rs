@@ -8,7 +8,6 @@ fn main() {
         filename: Path::new(".env.build"),
         recursive_search: false,
         fail_if_missing_dotenv: true,
-        ..Default::default()
     })
     .unwrap();
 }

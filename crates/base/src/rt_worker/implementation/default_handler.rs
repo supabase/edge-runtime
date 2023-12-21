@@ -17,11 +17,11 @@ impl WorkerHandler for Worker {
 
     fn handle_creation(
         &self,
-        created_rt: DenoRuntime,
+        mut created_rt: DenoRuntime,
         unix_stream_rx: UnboundedReceiver<UnixStream>,
         termination_event_rx: Receiver<WorkerEvents>,
     ) -> HandleCreationType {
-        let run_worker_rt = async {
+        let run_worker_rt = async move {
             match created_rt.run(unix_stream_rx).await {
                 // if the error is execution terminated, check termination event reason
                 Err(err) => {

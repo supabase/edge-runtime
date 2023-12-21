@@ -336,7 +336,7 @@ impl DenoRuntime {
     }
 
     pub async fn run(
-        mut self,
+        &mut self,
         unix_stream_rx: mpsc::UnboundedReceiver<UnixStream>,
     ) -> Result<(), Error> {
         {
@@ -351,7 +351,7 @@ impl DenoRuntime {
             }
         }
 
-        let mut js_runtime = self.js_runtime;
+        let js_runtime = &mut self.js_runtime;
         let mod_result_rx = js_runtime.mod_evaluate(self.main_module_id);
 
         match js_runtime.run_event_loop(false).await {
@@ -856,6 +856,7 @@ mod test {
                 key: None,
                 pool_msg_tx: None,
                 events_msg_tx: None,
+                cancel: None,
                 service_path: None,
             })),
         )
@@ -864,7 +865,7 @@ mod test {
 
     #[tokio::test]
     async fn test_read_file_user_rt() {
-        let user_rt = create_basic_user_runtime("./test_cases/readFile", 20, 1000).await;
+        let mut user_rt = create_basic_user_runtime("./test_cases/readFile", 20, 1000).await;
         let (_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
         let result = user_rt.run(unix_stream_rx).await;
         match result {
@@ -879,7 +880,7 @@ mod test {
 
     #[tokio::test]
     async fn test_array_buffer_allocation_below_limit() {
-        let user_rt = create_basic_user_runtime("./test_cases/array_buffers", 20, 1000).await;
+        let mut user_rt = create_basic_user_runtime("./test_cases/array_buffers", 20, 1000).await;
         let (_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
         let result = user_rt.run(unix_stream_rx).await;
         assert!(result.is_ok(), "expected no errors");
@@ -887,7 +888,7 @@ mod test {
 
     #[tokio::test]
     async fn test_array_buffer_allocation_above_limit() {
-        let user_rt = create_basic_user_runtime("./test_cases/array_buffers", 15, 1000).await;
+        let mut user_rt = create_basic_user_runtime("./test_cases/array_buffers", 15, 1000).await;
         let (_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
         let result = user_rt.run(unix_stream_rx).await;
         match result {

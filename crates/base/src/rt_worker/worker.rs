@@ -8,6 +8,7 @@ use event_worker::events::{
     EventMetadata, ShutdownEvent, UncaughtExceptionEvent, WorkerEventWithMetadata, WorkerEvents,
 };
 use log::{debug, error};
+use sb_core::conn_sync::ConnSync;
 use sb_workers::context::{UserWorkerMsgs, WorkerContextInitOpts};
 use std::any::Any;
 use std::future::Future;
@@ -17,7 +18,7 @@ use std::thread;
 use tokio::net::UnixStream;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot::{Receiver, Sender};
-use tokio::sync::{oneshot, Notify};
+use tokio::sync::{oneshot, watch, Notify};
 use tokio::time::Instant;
 use uuid::Uuid;
 
@@ -42,7 +43,7 @@ pub trait WorkerHandler: Send {
     fn handle_creation(
         &self,
         created_rt: DenoRuntime,
-        unix_stream_rx: UnboundedReceiver<UnixStream>,
+        unix_stream_rx: UnboundedReceiver<(UnixStream, Option<watch::Receiver<ConnSync>>)>,
         termination_event_rx: Receiver<WorkerEvents>,
     ) -> HandleCreationType;
     fn as_any(&self) -> &dyn Any;
@@ -75,7 +76,7 @@ impl Worker {
     pub fn start(
         &self,
         mut opts: WorkerContextInitOpts,
-        unix_channel_rx: UnboundedReceiver<UnixStream>,
+        unix_channel_rx: UnboundedReceiver<(UnixStream, Option<watch::Receiver<ConnSync>>)>,
         booter_signal: Sender<Result<(), Error>>,
     ) {
         let thread_name = self.thread_name.clone();

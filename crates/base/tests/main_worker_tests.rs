@@ -36,7 +36,12 @@ async fn test_main_worker_options_request() {
         .body(Body::empty())
         .unwrap();
 
-    let msg = WorkerRequestMsg { req, res_tx };
+    let msg = WorkerRequestMsg {
+        req,
+        res_tx,
+        conn_watch: None,
+    };
+
     let _ = worker_req_tx.send(msg);
 
     let res = res_rx.await.unwrap().unwrap();
@@ -91,7 +96,12 @@ async fn test_main_worker_post_request() {
         .body(body)
         .unwrap();
 
-    let msg = WorkerRequestMsg { req, res_tx };
+    let msg = WorkerRequestMsg {
+        req,
+        res_tx,
+        conn_watch: None,
+    };
+
     let _ = worker_req_tx.send(msg);
 
     let res = res_rx.await.unwrap().unwrap();
@@ -168,7 +178,12 @@ async fn test_main_worker_abort_request() {
         .body(body)
         .unwrap();
 
-    let msg = WorkerRequestMsg { req, res_tx };
+    let msg = WorkerRequestMsg {
+        req,
+        res_tx,
+        conn_watch: None,
+    };
+
     let _ = worker_req_tx.send(msg);
 
     let res = res_rx.await.unwrap().unwrap();

@@ -4,6 +4,7 @@ use event_worker::events::WorkerEventWithMetadata;
 use http::Request;
 use hyper::Body;
 use log::error;
+use sb_core::conn_sync::ConnSync;
 use sb_workers::context::{
     CreateUserWorkerResult, SendRequestResult, UserWorkerMsgs, UserWorkerProfile,
     WorkerContextInitOpts, WorkerRuntimeOpts,
@@ -16,7 +17,7 @@ use std::time::Duration;
 use strum::EnumIs;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::oneshot::Sender;
-use tokio::sync::{mpsc, Notify, OwnedSemaphorePermit, Semaphore};
+use tokio::sync::{mpsc, watch, Notify, OwnedSemaphorePermit, Semaphore};
 use uuid::Uuid;
 
 #[derive(Clone, Copy, EnumIs)]
@@ -398,6 +399,7 @@ impl WorkerPool {
         key: &Uuid,
         req: Request<Body>,
         res_tx: Sender<Result<SendRequestResult, Error>>,
+        conn_watch: Option<watch::Receiver<ConnSync>>,
     ) {
         let _: Result<(), Error> = match self.user_workers.get(key) {
             Some(worker) => {
@@ -408,8 +410,13 @@ impl WorkerPool {
                 // Create a closure to handle the request and send the response
                 let request_handler = async move {
                     let _ = start_req_tx.send(());
-                    let result =
-                        send_user_worker_request(profile.worker_request_msg_tx, cancel, req).await;
+                    let result = send_user_worker_request(
+                        profile.worker_request_msg_tx,
+                        cancel,
+                        req,
+                        conn_watch,
+                    )
+                    .await;
 
                     match result {
                         Ok(rep) => Ok((rep, end_req_tx)),

@@ -30,7 +30,12 @@ async fn test_null_body_with_204_status() {
         .body(Body::empty())
         .unwrap();
 
-    let msg = WorkerRequestMsg { req, res_tx };
+    let msg = WorkerRequestMsg {
+        req,
+        res_tx,
+        conn_watch: None,
+    };
+
     let _ = worker_req_tx.send(msg);
 
     let res = res_rx.await.unwrap().unwrap();
@@ -68,7 +73,12 @@ async fn test_null_body_with_204_status_post() {
         .body(Body::empty())
         .unwrap();
 
-    let msg = WorkerRequestMsg { req, res_tx };
+    let msg = WorkerRequestMsg {
+        req,
+        res_tx,
+        conn_watch: None,
+    };
+
     let _ = worker_req_tx.send(msg);
 
     let res = res_rx.await.unwrap().unwrap();

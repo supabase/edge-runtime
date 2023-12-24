@@ -8,15 +8,17 @@ use anyhow::Error;
 use context::SendRequestResult;
 use deno_core::error::{custom_error, type_error, AnyError};
 use deno_core::futures::stream::Peekable;
-use deno_core::futures::{Stream, StreamExt};
+use deno_core::futures::{FutureExt, Stream, StreamExt};
 use deno_core::op2;
 use deno_core::{
     AsyncRefCell, AsyncResult, BufView, ByteString, CancelFuture, CancelHandle, CancelTryFuture,
     JsBuffer, OpState, RcRef, Resource, ResourceId, WriteOutcome,
 };
 use hyper::body::HttpBody;
-use hyper::header::{HeaderName, HeaderValue};
-use hyper::{Body, Request};
+use hyper::header::{HeaderName, HeaderValue, CONTENT_LENGTH};
+use hyper::{Body, Method, Request};
+use log::error;
+use sb_core::conn_sync::{ConnSync, ConnWatcher};
 use sb_graph::EszipPayloadKind;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
@@ -26,7 +28,7 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::rc::Rc;
 use std::task::{Context, Poll};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 use uuid::Uuid;
 
 deno_core::extension!(
@@ -149,7 +151,7 @@ pub async fn op_user_worker_create(
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct UserWorkerRequest {
-    method: String,
+    method: ByteString,
     url: String,
     headers: Vec<(String, String)>,
     has_body: bool,
@@ -181,7 +183,7 @@ impl Resource for UserWorkerRequestResource {
 }
 
 struct UserWorkerRequestBodyResource {
-    body: AsyncRefCell<mpsc::Sender<Option<bytes::Bytes>>>,
+    body: AsyncRefCell<Option<mpsc::Sender<Result<bytes::Bytes, Error>>>>,
     cancel: CancelHandle,
 }
 
@@ -195,35 +197,46 @@ impl Resource for UserWorkerRequestBodyResource {
             let bytes: bytes::Bytes = buf.into();
             let nwritten = bytes.len();
             let body = RcRef::map(&self, |r| &r.body).borrow_mut().await;
+            let body = (*body).as_ref();
             let cancel = RcRef::map(self, |r| &r.cancel);
-            body.send(Some(bytes))
+            let body = body.ok_or(type_error(
+                "request body receiver not connected (request closed)",
+            ))?;
+
+            body.send(Ok(bytes))
                 .or_cancel(cancel)
                 .await?
                 .map_err(|_| type_error("request body receiver not connected (request closed)"))?;
+
             Ok(WriteOutcome::Full { nwritten })
         })
     }
 
-    fn shutdown(self: Rc<Self>) -> AsyncResult<()> {
-        Box::pin(async move {
+    fn write_error(self: Rc<Self>, error: Error) -> AsyncResult<()> {
+        async move {
             let body = RcRef::map(&self, |r| &r.body).borrow_mut().await;
+            let body = (*body).as_ref();
             let cancel = RcRef::map(self, |r| &r.cancel);
-            // There is a case where hyper knows the size of the response body up
-            // front (through content-length header on the resp), where it will drop
-            // the body once that content length has been reached, regardless of if
-            // the stream is complete or not. This is expected behaviour, but it means
-            // that if you stream a body with an up front known size (eg a Blob),
-            // explicit shutdown can never succeed because the body (and by extension
-            // the receiver) will have dropped by the time we try to shutdown. As such
-            // we ignore if the receiver is closed, because we know that the request
-            // is complete in good health in that case.
-            body.send(None).or_cancel(cancel).await?.ok();
+            let body = body.ok_or(type_error(
+                "request body receiver not connected (request closed)",
+            ))?;
+            body.send(Err(error)).or_cancel(cancel).await??;
             Ok(())
-        })
+        }
+        .boxed_local()
+    }
+
+    fn shutdown(self: Rc<Self>) -> AsyncResult<()> {
+        async move {
+            let mut body = RcRef::map(&self, |r| &r.body).borrow_mut().await;
+            body.take();
+            Ok(())
+        }
+        .boxed_local()
     }
 
     fn close(self: Rc<Self>) {
-        self.cancel.cancel()
+        self.cancel.cancel();
     }
 }
 
@@ -234,6 +247,7 @@ struct UserWorkerResponseBodyResource {
     cancel: CancelHandle,
     size: Option<u64>,
     end_req_tx: mpsc::UnboundedSender<()>,
+    conn_watch: Option<watch::Receiver<ConnSync>>,
 }
 
 impl Resource for UserWorkerResponseBodyResource {
@@ -276,7 +290,28 @@ impl Resource for UserWorkerResponseBodyResource {
 
     fn close(self: Rc<Self>) {
         self.cancel.cancel();
-        let _ = self.end_req_tx.send(());
+
+        let this = match Rc::try_unwrap(self) {
+            Ok(this) => this,
+            Err(this) => {
+                let _ = this.end_req_tx.send(());
+                return;
+            }
+        };
+
+        tokio::spawn(async move {
+            if let Some(mut watch) = this.conn_watch.clone() {
+                match watch.wait_for(|it| *it == ConnSync::Recv).await {
+                    Ok(_) => {}
+                    Err(ex) => error!(
+                        "error while waiting for the outbound connection to be finished: {}",
+                        ex.to_string()
+                    ),
+                }
+            }
+
+            let _ = this.end_req_tx.send(());
+        });
     }
 
     fn size_hint(&self) -> (u64, Option<u64>) {
@@ -290,23 +325,21 @@ pub fn op_user_worker_fetch_build(
     state: &mut OpState,
     #[serde] req: UserWorkerRequest,
 ) -> Result<UserWorkerBuiltRequest, AnyError> {
+    let method = Method::from_bytes(&req.method)?;
+
+    let mut request = Request::builder().uri(req.url).method(&method);
     let mut body = Body::empty();
     let mut request_body_rid = None;
-    if req.has_body {
-        let (stream, tx) = MpscByteStream::new();
-        body = Body::wrap_stream(stream);
 
+    if req.has_body {
+        let (tx, stream) = mpsc::channel(1);
+
+        body = Body::wrap_stream(BodyStream(stream));
         request_body_rid = Some(state.resource_table.add(UserWorkerRequestBodyResource {
-            body: AsyncRefCell::new(tx),
+            body: AsyncRefCell::new(Some(tx)),
             cancel: CancelHandle::default(),
         }));
     }
-
-    let mut request = Request::builder()
-        .uri(req.url)
-        .method(req.method.as_str())
-        .body(body)
-        .unwrap();
 
     // set the request headers
     for (key, value) in req.headers {
@@ -316,14 +349,18 @@ pub fn op_user_worker_fetch_build(
                 HeaderValue::try_from(value).unwrap_or(HeaderValue::from_static(""));
 
             // if request has no body explicitly set the content-length to 0
-            if !req.has_body && header_name.eq("content-length") {
+            if !req.has_body
+                && header_name == CONTENT_LENGTH
+                && matches!(method, Method::POST | Method::PUT)
+            {
                 header_value = HeaderValue::from(0);
             }
 
-            request.headers_mut().append(header_name, header_value);
+            request = request.header(header_name, header_value);
         }
     }
 
+    let request = request.body(body)?;
     let request_rid = state.resource_table.add(UserWorkerRequestResource(request));
 
     Ok(UserWorkerBuiltRequest {
@@ -338,6 +375,7 @@ pub async fn op_user_worker_fetch_send(
     state: Rc<RefCell<OpState>>,
     #[string] key: String,
     #[smi] rid: ResourceId,
+    #[smi] watcher_rid: ResourceId,
 ) -> Result<UserWorkerResponse, AnyError> {
     let (tx, request) = {
         let mut op_state = state.borrow_mut();
@@ -355,10 +393,22 @@ pub async fn op_user_worker_fetch_send(
     let request = Rc::try_unwrap(request)
         .ok()
         .expect("multiple op_user_worker_fetch_send ongoing");
+
     let (result_tx, result_rx) = oneshot::channel::<Result<SendRequestResult, Error>>();
     let key_parsed = Uuid::try_parse(key.as_str())?;
+    let watcher = Rc::try_unwrap(
+        state
+            .borrow_mut()
+            .resource_table
+            .take::<ConnWatcher>(watcher_rid)?,
+    )
+    .map_err(|_| custom_error("InvalidWorkerResponse", "failed to get connection watcher"))?;
+
     tx.send(UserWorkerMsgs::SendRequest(
-        key_parsed, request.0, result_tx,
+        key_parsed,
+        request.0,
+        result_tx,
+        watcher.get(),
     ))?;
 
     let result = result_rx.await?;
@@ -394,11 +444,13 @@ pub async fn op_user_worker_fetch_send(
     );
 
     let mut op_state = state.borrow_mut();
+
     let body_rid = op_state.resource_table.add(UserWorkerResponseBodyResource {
         reader: AsyncRefCell::new(stream.peekable()),
         cancel: CancelHandle::default(),
         size,
         end_req_tx,
+        conn_watch: watcher.get(),
     });
 
     let response = UserWorkerResponse {
@@ -412,44 +464,13 @@ pub async fn op_user_worker_fetch_send(
     Ok(response)
 }
 
-// [copied from https://github.com/denoland/deno/blob/v1.31.3/ext/fetch/byte_stream.rs]
-// [MpscByteStream] is a stream of bytes that is backed by a mpsc channel. It is
-// used to bridge between the fetch task and the HTTP body stream. The stream
-// has the special property that it errors if the channel is closed before an
-// explicit EOF is sent (in the form of a [None] value on the sender).
-pub struct MpscByteStream {
-    receiver: mpsc::Receiver<Option<bytes::Bytes>>,
-    shutdown: bool,
-}
+/// Wraps a [`mpsc::Receiver`] in a [`Stream`] that can be used as a Hyper [`Body`].
+pub struct BodyStream(pub mpsc::Receiver<Result<bytes::Bytes, Error>>);
 
-impl MpscByteStream {
-    pub fn new() -> (Self, mpsc::Sender<Option<bytes::Bytes>>) {
-        let (sender, receiver) = mpsc::channel::<Option<bytes::Bytes>>(1);
-        let this = Self {
-            receiver,
-            shutdown: false,
-        };
-        (this, sender)
-    }
-}
-
-impl Stream for MpscByteStream {
-    type Item = Result<bytes::Bytes, std::io::Error>;
+impl Stream for BodyStream {
+    type Item = Result<bytes::Bytes, Error>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let val = std::task::ready!(self.receiver.poll_recv(cx));
-        match val {
-            None if self.shutdown => Poll::Ready(None),
-            // handle chunked readable streams
-            None => {
-                self.shutdown = true;
-                Poll::Ready(None)
-            }
-            Some(None) => {
-                self.shutdown = true;
-                Poll::Ready(None)
-            }
-            Some(Some(val)) => Poll::Ready(Some(Ok(val))),
-        }
+        self.0.poll_recv(cx)
     }
 }

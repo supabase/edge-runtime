@@ -10,12 +10,14 @@ use deno_tls::rustls::RootCertStore;
 use deno_tls::rustls_native_certs::load_native_certs;
 use deno_tls::RootCertStoreProvider;
 use log::error;
+use sb_core::conn_sync::ConnSync;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
 use std::fmt;
+use std::os::fd::RawFd;
 use std::sync::Arc;
 use tokio::net::UnixStream;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 
 use crate::snapshot;
 use event_worker::events::{EventMetadata, WorkerEventWithMetadata};
@@ -302,6 +304,10 @@ impl DenoRuntime {
                     .put::<mpsc::UnboundedReceiver<WorkerEventWithMetadata>>(events_rx.unwrap());
             }
 
+            if conf.is_main_worker() || conf.is_user_worker() {
+                op_state.put::<HashMap<RawFd, watch::Receiver<ConnSync>>>(HashMap::new());
+            }
+
             if conf.is_user_worker() {
                 let conf = conf.as_user_worker().unwrap();
 
@@ -337,12 +343,15 @@ impl DenoRuntime {
 
     pub async fn run(
         &mut self,
-        unix_stream_rx: mpsc::UnboundedReceiver<UnixStream>,
+        unix_stream_rx: mpsc::UnboundedReceiver<(UnixStream, Option<watch::Receiver<ConnSync>>)>,
     ) -> Result<(), Error> {
         {
             let op_state_rc = self.js_runtime.op_state();
             let mut op_state = op_state_rc.borrow_mut();
-            op_state.put::<mpsc::UnboundedReceiver<UnixStream>>(unix_stream_rx);
+            op_state
+                .put::<mpsc::UnboundedReceiver<(UnixStream, Option<watch::Receiver<ConnSync>>)>>(
+                    unix_stream_rx,
+                );
 
             if self.conf.is_main_worker() {
                 op_state.put::<mpsc::UnboundedSender<UserWorkerMsgs>>(
@@ -387,6 +396,7 @@ impl DenoRuntime {
 mod test {
     use crate::deno_runtime::DenoRuntime;
     use deno_core::{FastString, ModuleCode};
+    use sb_core::conn_sync::ConnSync;
     use sb_graph::emitter::EmitterFactory;
     use sb_graph::{generate_binary_eszip, EszipPayloadKind};
     use sb_workers::context::{
@@ -400,7 +410,7 @@ mod test {
     use std::path::PathBuf;
     use std::sync::Arc;
     use tokio::net::UnixStream;
-    use tokio::sync::mpsc;
+    use tokio::sync::{mpsc, watch};
 
     #[tokio::test]
     async fn test_module_code_no_eszip() {
@@ -866,7 +876,9 @@ mod test {
     #[tokio::test]
     async fn test_read_file_user_rt() {
         let mut user_rt = create_basic_user_runtime("./test_cases/readFile", 20, 1000).await;
-        let (_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
+        let (_tx, unix_stream_rx) =
+            mpsc::unbounded_channel::<(UnixStream, Option<watch::Receiver<ConnSync>>)>();
+
         let result = user_rt.run(unix_stream_rx).await;
         match result {
             Err(err) => {
@@ -881,7 +893,8 @@ mod test {
     #[tokio::test]
     async fn test_array_buffer_allocation_below_limit() {
         let mut user_rt = create_basic_user_runtime("./test_cases/array_buffers", 20, 1000).await;
-        let (_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
+        let (_tx, unix_stream_rx) =
+            mpsc::unbounded_channel::<(UnixStream, Option<watch::Receiver<ConnSync>>)>();
         let result = user_rt.run(unix_stream_rx).await;
         assert!(result.is_ok(), "expected no errors");
     }
@@ -889,7 +902,8 @@ mod test {
     #[tokio::test]
     async fn test_array_buffer_allocation_above_limit() {
         let mut user_rt = create_basic_user_runtime("./test_cases/array_buffers", 15, 1000).await;
-        let (_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
+        let (_tx, unix_stream_rx) =
+            mpsc::unbounded_channel::<(UnixStream, Option<watch::Receiver<ConnSync>>)>();
         let result = user_rt.run(unix_stream_rx).await;
         match result {
             Err(err) => {

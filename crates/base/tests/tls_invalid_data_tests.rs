@@ -30,7 +30,12 @@ async fn test_tls_throw_invalid_data() {
         .body(Body::empty())
         .unwrap();
 
-    let msg = WorkerRequestMsg { req, res_tx };
+    let msg = WorkerRequestMsg {
+        req,
+        res_tx,
+        conn_watch: None,
+    };
+
     let _ = worker_req_tx.send(msg);
 
     let res = res_rx.await.unwrap().unwrap();

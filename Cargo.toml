@@ -64,6 +64,8 @@ ring = "=0.16.20"
 urlencoding = { version = "2.1.2" }
 import_map = { version = "0.15.0" }
 base64 = { version = "=0.13.1" }
+futures = { version = "0.3.28" }
+futures-util = { version = "0.3.28" }
 
 [profile.release]
 lto = true

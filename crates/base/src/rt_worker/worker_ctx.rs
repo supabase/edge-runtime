@@ -12,6 +12,7 @@ use event_worker::events::{
 use hyper::{Body, Request, Response};
 use log::{debug, error};
 use once_cell::sync::Lazy;
+use sb_core::conn_sync::ConnSync;
 use sb_graph::EszipPayloadKind;
 use sb_workers::context::{
     EventWorkerRuntimeOpts, MainWorkerRuntimeOpts, UserWorkerMsgs, WorkerContextInitOpts,
@@ -21,7 +22,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::net::UnixStream;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
-use tokio::sync::{mpsc, oneshot, Notify};
+use tokio::sync::{mpsc, oneshot, watch, Notify};
 use uuid::Uuid;
 
 use super::supervisor;
@@ -36,28 +37,45 @@ static SUPERVISOR_RT: Lazy<tokio::runtime::Runtime> = Lazy::new(|| {
 });
 
 async fn handle_request(
-    unix_stream_tx: mpsc::UnboundedSender<UnixStream>,
+    unix_stream_tx: mpsc::UnboundedSender<(UnixStream, Option<watch::Receiver<ConnSync>>)>,
     msg: WorkerRequestMsg,
 ) -> Result<(), Error> {
     // create a unix socket pair
     let (sender_stream, recv_stream) = UnixStream::pair()?;
+    let WorkerRequestMsg {
+        req,
+        res_tx,
+        conn_watch,
+    } = msg;
 
-    let _ = unix_stream_tx.send(recv_stream);
+    let _ = unix_stream_tx.send((recv_stream, conn_watch.clone()));
 
     // send the HTTP request to the worker over Unix stream
     let (mut request_sender, connection) = hyper::client::conn::handshake(sender_stream).await?;
 
     // spawn a task to poll the connection and drive the HTTP state
     tokio::task::spawn(async move {
-        if let Err(e) = connection.without_shutdown().await {
-            error!("Error in worker connection: {}", e.message());
+        match connection.without_shutdown().await {
+            Err(e) => {
+                error!("Error in worker connection: {}", e.message(),);
+            }
+
+            Ok(parts) => {
+                if let Some(mut watcher) = conn_watch {
+                    if let Err(_) = watcher.wait_for(|it| *it == ConnSync::Recv).await {
+                        error!("cannot track outbound connection correctly");
+                    }
+                }
+
+                drop(parts);
+            }
         }
     });
 
     tokio::task::yield_now().await;
 
-    let result = request_sender.send_request(msg.req).await;
-    let _ = msg.res_tx.send(result);
+    let result = request_sender.send_request(req).await;
+    let _ = res_tx.send(result);
 
     Ok(())
 }
@@ -220,7 +238,9 @@ pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
     init_opts: Opt,
 ) -> Result<mpsc::UnboundedSender<WorkerRequestMsg>, Error> {
     let (worker_boot_result_tx, worker_boot_result_rx) = oneshot::channel::<Result<(), Error>>();
-    let (unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
+    let (unix_stream_tx, unix_stream_rx) =
+        mpsc::unbounded_channel::<(UnixStream, Option<watch::Receiver<ConnSync>>)>();
+
     let CreateWorkerArgs(init_opts, maybe_cpu_timer_policy) = init_opts.into();
     let mut worker_init = Worker::new(&init_opts)?;
 
@@ -286,9 +306,14 @@ pub async fn send_user_worker_request(
     worker_request_msg_tx: mpsc::UnboundedSender<WorkerRequestMsg>,
     cancel: Arc<Notify>,
     req: Request<Body>,
+    conn_watch: Option<watch::Receiver<ConnSync>>,
 ) -> Result<Response<Body>, Error> {
     let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
-    let msg = WorkerRequestMsg { req, res_tx };
+    let msg = WorkerRequestMsg {
+        req,
+        res_tx,
+        conn_watch,
+    };
 
     // send the message to worker
     worker_request_msg_tx.send(msg)?;
@@ -400,8 +425,8 @@ pub async fn create_user_worker_pool(
                 Some(UserWorkerMsgs::Created(key, profile)) => {
                     worker_pool.add_user_worker(key, profile);
                 }
-                Some(UserWorkerMsgs::SendRequest(key, req, res_tx)) => {
-                    worker_pool.send_request(&key, req, res_tx);
+                Some(UserWorkerMsgs::SendRequest(key, req, res_tx, conn_watch)) => {
+                    worker_pool.send_request(&key, req, res_tx, conn_watch);
                 }
                 Some(UserWorkerMsgs::Retire(key)) => {
                     worker_pool.retire(&key);

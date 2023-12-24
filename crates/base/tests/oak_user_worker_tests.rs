@@ -33,7 +33,12 @@ async fn test_oak_server() {
         .body(Body::empty())
         .unwrap();
 
-    let msg = WorkerRequestMsg { req, res_tx };
+    let msg = WorkerRequestMsg {
+        req,
+        res_tx,
+        conn_watch: None,
+    };
+
     let _ = worker_req_tx.send(msg);
 
     let res = res_rx.await.unwrap().unwrap();
@@ -80,7 +85,12 @@ async fn test_file_upload() {
         .body(body)
         .unwrap();
 
-    let msg = WorkerRequestMsg { req, res_tx };
+    let msg = WorkerRequestMsg {
+        req,
+        res_tx,
+        conn_watch: None,
+    };
+
     let _ = worker_req_tx.send(msg);
 
     let res = res_rx.await.unwrap().unwrap();

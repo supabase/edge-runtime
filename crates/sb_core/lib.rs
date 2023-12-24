@@ -1,6 +1,7 @@
 pub mod auth_tokens;
 pub mod cache;
 pub mod cert;
+pub mod conn_sync;
 pub mod emit;
 pub mod errors_rt;
 pub mod external_memory;

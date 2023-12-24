@@ -3,9 +3,10 @@ use deno_core::FastString;
 use enum_as_inner::EnumAsInner;
 use event_worker::events::WorkerEventWithMetadata;
 use hyper::{Body, Request, Response};
+use sb_core::conn_sync::ConnSync;
 use std::path::PathBuf;
 use std::{collections::HashMap, sync::Arc};
-use tokio::sync::{mpsc, oneshot, Notify, OwnedSemaphorePermit};
+use tokio::sync::{mpsc, oneshot, watch, Notify, OwnedSemaphorePermit};
 use uuid::Uuid;
 
 use sb_graph::EszipPayloadKind;
@@ -104,6 +105,7 @@ pub enum UserWorkerMsgs {
         Uuid,
         Request<Body>,
         oneshot::Sender<Result<SendRequestResult, Error>>,
+        Option<watch::Receiver<ConnSync>>,
     ),
     Retire(Uuid),
     Idle(Uuid),
@@ -121,4 +123,5 @@ pub struct CreateUserWorkerResult {
 pub struct WorkerRequestMsg {
     pub req: Request<Body>,
     pub res_tx: oneshot::Sender<Result<Response<Body>, hyper::Error>>,
+    pub conn_watch: Option<watch::Receiver<ConnSync>>,
 }

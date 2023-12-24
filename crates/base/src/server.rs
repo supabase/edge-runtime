@@ -4,8 +4,10 @@ use crate::rt_worker::worker_ctx::{
 use crate::rt_worker::worker_pool::WorkerPoolPolicy;
 use anyhow::Error;
 use event_worker::events::WorkerEventWithMetadata;
+use futures_util::Stream;
 use hyper::{server::conn::Http, service::Service, Body, Request, Response};
 use log::{debug, error, info};
+use sb_core::conn_sync::ConnSync;
 use sb_workers::context::WorkerRequestMsg;
 use std::future::Future;
 use std::net::IpAddr;
@@ -18,11 +20,36 @@ use std::str::FromStr;
 use std::task::Poll;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc::Sender;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
+use tokio_util::sync::CancellationToken;
 
 pub enum ServerCodes {
     Listening,
     Failure,
+}
+
+struct NotifyOnEos<S> {
+    inner: S,
+    cancel: Option<CancellationToken>,
+}
+
+impl<S> Drop for NotifyOnEos<S> {
+    fn drop(&mut self) {
+        if let Some(cancel) = self.cancel.take() {
+            cancel.cancel();
+        }
+    }
+}
+
+impl<S: Stream + Unpin> Stream for NotifyOnEos<S> {
+    type Item = S::Item;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        Pin::new(&mut self.as_mut().inner).poll_next(cx)
+    }
 }
 
 struct WorkerService {
@@ -46,27 +73,67 @@ impl Service<Request<Body>> for WorkerService {
 
     fn call(&mut self, req: Request<Body>) -> Self::Future {
         // create a response in a future.
+        let cancel = CancellationToken::new();
         let worker_req_tx = self.worker_req_tx.clone();
         let fut = async move {
-            let req_uri = req.uri().clone();
-
             let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
-            let msg = WorkerRequestMsg { req, res_tx };
+            let (ob_conn_watch_tx, ob_conn_watch_rx) = watch::channel(ConnSync::Want);
+
+            let req_uri = req.uri().clone();
+            let msg = WorkerRequestMsg {
+                req,
+                res_tx,
+                conn_watch: Some(ob_conn_watch_rx),
+            };
 
             worker_req_tx.send(msg)?;
-            let result = res_rx.await?;
-            match result {
-                Ok(res) => Ok(res),
+
+            tokio::spawn({
+                let cancel = cancel.clone();
+                async move {
+                    tokio::select! {
+                        _ = cancel.cancelled() => {
+                            if let Err(ex) = ob_conn_watch_tx.send(ConnSync::Recv) {
+                                error!("can't update connection watcher: {}", ex.to_string());
+                            }
+                        }
+                        // TODO: I think it would be good to introduce the hard
+                        // timeout here to prevent the requester's inability to get
+                        // the response for any reason.
+                    }
+                }
+            });
+
+            let res = match res_rx.await? {
+                Ok(res) => res,
                 Err(e) => {
                     error!(
                         "request failed (uri: {:?} reason: {:?})",
                         req_uri.to_string(),
                         e
                     );
+
                     // FIXME: add an error body
-                    Ok(Response::builder().status(500).body(Body::empty()).unwrap())
+                    return Ok(Response::builder()
+                        .status(500)
+                        .body(Body::wrap_stream(NotifyOnEos {
+                            inner: Body::empty(),
+                            cancel: Some(cancel.clone()),
+                        }))
+                        .unwrap());
                 }
-            }
+            };
+
+            let (parts, body) = res.into_parts();
+            let res = Response::from_parts(
+                parts,
+                Body::wrap_stream(NotifyOnEos {
+                    inner: body,
+                    cancel: Some(cancel.clone()),
+                }),
+            );
+
+            Ok(res)
         };
 
         // Return the response as an immediate future
@@ -164,21 +231,21 @@ impl Server {
             tokio::select! {
                 msg = listener.accept() => {
                     match msg {
-                       Ok((conn, _)) => {
-                           tokio::task::spawn(async move {
-                             let service = WorkerService::new(main_worker_req_tx);
+                        Ok((conn, _)) => {
+                            tokio::task::spawn(async move {
+                                let service = WorkerService::new(main_worker_req_tx);
+                                let conn_fut = Http::new()
+                                    .serve_connection(conn, service);
 
-                             let conn_fut = Http::new()
-                                .serve_connection(conn, service);
-
-                             if let Err(e) = conn_fut.await {
-                                 // Most common cause for these errors are when the client closes the connection before
-                                 // we could send a response
-                                 error!("client connection error ({:?})", e);
-                             }
-                           });
-                       }
-                       Err(e) => error!("socket error: {}", e)
+                                if let Err(e) = conn_fut.await {
+                                    // Most common cause for these errors are
+                                    // when the client closes the connection
+                                    // before we could send a response
+                                    error!("client connection error ({:?})", e);
+                                }
+                            });
+                        }
+                        Err(e) => error!("socket error: {}", e)
                     }
                 }
                 // wait for shutdown signal...

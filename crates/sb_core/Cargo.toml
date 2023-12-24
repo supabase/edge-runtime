@@ -46,3 +46,4 @@ deno_webstorage.workspace = true
 indexmap.workspace = true
 encoding_rs = { version = "=0.8.33" }
 base64.workspace = true
+futures.workspace = true

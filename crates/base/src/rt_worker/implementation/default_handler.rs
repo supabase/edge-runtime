@@ -2,10 +2,12 @@ use crate::deno_runtime::DenoRuntime;
 use crate::rt_worker::worker::{HandleCreationType, Worker, WorkerHandler};
 use anyhow::Error;
 use event_worker::events::{BootFailureEvent, PseudoEvent, UncaughtExceptionEvent, WorkerEvents};
+use sb_core::conn_sync::ConnSync;
 use std::any::Any;
 use tokio::net::UnixStream;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::oneshot::Receiver;
+use tokio::sync::watch;
 
 impl WorkerHandler for Worker {
     fn handle_error(&self, error: Error) -> Result<WorkerEvents, Error> {
@@ -18,7 +20,7 @@ impl WorkerHandler for Worker {
     fn handle_creation(
         &self,
         mut created_rt: DenoRuntime,
-        unix_stream_rx: UnboundedReceiver<UnixStream>,
+        unix_stream_rx: UnboundedReceiver<(UnixStream, Option<watch::Receiver<ConnSync>>)>,
         termination_event_rx: Receiver<WorkerEvents>,
     ) -> HandleCreationType {
         let run_worker_rt = async move {

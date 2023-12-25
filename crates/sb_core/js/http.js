@@ -48,6 +48,10 @@ function serveHttp(conn) {
 	httpConn.nextRequest = async () => {
 		const nextRequest = await HttpConnPrototypeNextRequest.call(httpConn);
 
+		if (nextRequest === null) {
+			return null;
+		}
+
 		nextRequest.request[watcher] = watcherRid;
 
 		return nextRequest;

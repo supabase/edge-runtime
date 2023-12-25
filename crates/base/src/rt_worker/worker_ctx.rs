@@ -87,7 +87,7 @@ pub fn create_supervisor(
     termination_event_tx: oneshot::Sender<WorkerEvents>,
     pool_msg_tx: Option<UnboundedSender<UserWorkerMsgs>>,
     cancel: Option<Arc<Notify>>,
-    timing_rx_pair: Option<(UnboundedReceiver<()>, UnboundedReceiver<()>)>,
+    timing_rx_pair: Option<(UnboundedReceiver<Arc<Notify>>, UnboundedReceiver<()>)>,
 ) -> Result<Option<CPUTimer>, Error> {
     let (memory_limit_tx, memory_limit_rx) = mpsc::unbounded_channel::<()>();
     let (waker, thread_safe_handle) = {
@@ -101,7 +101,7 @@ pub fn create_supervisor(
     let (req_start_rx, req_end_rx) = if let Some((start, end)) = timing_rx_pair {
         (start, end)
     } else {
-        let (_, dumb_start_rx) = unbounded_channel::<()>();
+        let (_, dumb_start_rx) = unbounded_channel::<Arc<Notify>>();
         let (_, dumb_end_rx) = unbounded_channel::<()>();
 
         (dumb_start_rx, dumb_end_rx)

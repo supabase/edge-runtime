@@ -75,8 +75,9 @@ pub async fn supervise(args: Arguments) -> ShutdownReason {
                 }
             }
 
-            Some(_) = req_start_rx.recv() => {
+            Some(notify) = req_start_rx.recv() => {
                 req_count += 1;
+                notify.notify_one();
             }
 
             Some(_) = req_end_rx.recv() => {

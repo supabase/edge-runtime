@@ -44,10 +44,12 @@ pub async fn supervise(args: Arguments) -> ShutdownReason {
                 }
             }
 
-            Some(_) = req_start_rx.recv() => {
+            Some(notify) = req_start_rx.recv() => {
                 // INVARIANT: This branch MUST not be satisfied more than once
                 // during the same request cycle.
                 assert!(!req_start_ack, "supervisor has seen request start signal twice");
+
+                notify.notify_one();
 
                 if let Some(x) = cpu_timer.as_ref() {
                     if let Err(ex) = x.reset() {

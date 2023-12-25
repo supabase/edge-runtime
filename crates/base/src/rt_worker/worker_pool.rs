@@ -338,7 +338,9 @@ impl WorkerPool {
 
             let uuid = uuid::Uuid::new_v4();
             let cancel = Arc::<Notify>::default();
-            let (req_start_timing_tx, req_start_timing_rx) = mpsc::unbounded_channel::<()>();
+            let (req_start_timing_tx, req_start_timing_rx) =
+                mpsc::unbounded_channel::<Arc<Notify>>();
+
             let (req_end_timing_tx, req_end_timing_rx) = mpsc::unbounded_channel::<()>();
 
             user_worker_rt_opts.service_path = Some(service_path.clone());
@@ -405,11 +407,15 @@ impl WorkerPool {
             Some(worker) => {
                 let profile = worker.clone();
                 let cancel = worker.cancel.clone();
-                let (start_req_tx, end_req_tx) = profile.timing_tx_pair.clone();
+                let (req_start_tx, req_end_tx) = profile.timing_tx_pair.clone();
 
                 // Create a closure to handle the request and send the response
                 let request_handler = async move {
-                    let _ = start_req_tx.send(());
+                    let fence = Arc::new(Notify::const_new());
+                    let _ = req_start_tx.send(fence.clone());
+
+                    fence.notified().await;
+
                     let result = send_user_worker_request(
                         profile.worker_request_msg_tx,
                         cancel,
@@ -419,9 +425,9 @@ impl WorkerPool {
                     .await;
 
                     match result {
-                        Ok(rep) => Ok((rep, end_req_tx)),
+                        Ok(rep) => Ok((rep, req_end_tx)),
                         Err(err) => {
-                            let _ = end_req_tx.send(());
+                            let _ = req_end_tx.send(());
                             error!("failed to send request to user worker: {}", err.to_string());
                             Err(err)
                         }

@@ -246,7 +246,7 @@ struct UserWorkerResponseBodyResource {
     reader: AsyncRefCell<Peekable<BytesStream>>,
     cancel: CancelHandle,
     size: Option<u64>,
-    end_req_tx: mpsc::UnboundedSender<()>,
+    req_end_tx: mpsc::UnboundedSender<()>,
     conn_watch: Option<watch::Receiver<ConnSync>>,
 }
 
@@ -294,7 +294,7 @@ impl Resource for UserWorkerResponseBodyResource {
         let this = match Rc::try_unwrap(self) {
             Ok(this) => this,
             Err(this) => {
-                let _ = this.end_req_tx.send(());
+                let _ = this.req_end_tx.send(());
                 return;
             }
         };
@@ -310,7 +310,7 @@ impl Resource for UserWorkerResponseBodyResource {
                 }
             }
 
-            let _ = this.end_req_tx.send(());
+            let _ = this.req_end_tx.send(());
         });
     }
 
@@ -419,7 +419,7 @@ pub async fn op_user_worker_fetch_send(
         ));
     }
 
-    let (result, end_req_tx) = result.unwrap();
+    let (result, req_end_tx) = result.unwrap();
 
     let mut headers = vec![];
     for (key, value) in result.headers().iter() {
@@ -449,7 +449,7 @@ pub async fn op_user_worker_fetch_send(
         reader: AsyncRefCell::new(stream.peekable()),
         cancel: CancelHandle::default(),
         size,
-        end_req_tx,
+        req_end_tx,
         conn_watch: watcher.get(),
     });
 

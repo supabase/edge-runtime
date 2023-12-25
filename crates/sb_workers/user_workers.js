@@ -43,7 +43,8 @@ class UserWorker {
 		signal?.throwIfAborted();
 
 		if (watcherRid === void 0) {
-			throw new ReferenceError("Cannot find connection watcher");
+			console.warn(`Unable to find the connection watcher from the request instance.\n\
+Invoke \`EdgeRuntime.applyConnectionWatcher(origReq, newReq)\` if you have cloned the original request.`);
 		} 
 
 		const headersArray = Array.from(headers.entries());

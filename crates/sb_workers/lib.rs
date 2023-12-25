@@ -375,7 +375,7 @@ pub async fn op_user_worker_fetch_send(
     state: Rc<RefCell<OpState>>,
     #[string] key: String,
     #[smi] rid: ResourceId,
-    #[smi] watcher_rid: ResourceId,
+    #[smi] watcher_rid: Option<ResourceId>,
 ) -> Result<UserWorkerResponse, AnyError> {
     let (tx, request) = {
         let mut op_state = state.borrow_mut();
@@ -396,19 +396,32 @@ pub async fn op_user_worker_fetch_send(
 
     let (result_tx, result_rx) = oneshot::channel::<Result<SendRequestResult, Error>>();
     let key_parsed = Uuid::try_parse(key.as_str())?;
-    let watcher = Rc::try_unwrap(
-        state
-            .borrow_mut()
-            .resource_table
-            .take::<ConnWatcher>(watcher_rid)?,
-    )
-    .map_err(|_| custom_error("InvalidWorkerResponse", "failed to get connection watcher"))?;
+
+    let watcher = watcher_rid
+        .and_then(|it| {
+            state
+                .borrow_mut()
+                .resource_table
+                .take::<ConnWatcher>(it)
+                .ok()
+        })
+        .map(|it| Rc::try_unwrap(it));
+
+    let watcher = match watcher {
+        Some(Ok(it)) => it.get(),
+        Some(Err(_)) => {
+            error!("failed to unwrap connection watcher");
+            None
+        }
+
+        None => None,
+    };
 
     tx.send(UserWorkerMsgs::SendRequest(
         key_parsed,
         request.0,
         result_tx,
-        watcher.get(),
+        watcher.clone(),
     ))?;
 
     let result = result_rx.await?;
@@ -450,7 +463,7 @@ pub async fn op_user_worker_fetch_send(
         cancel: CancelHandle::default(),
         size,
         req_end_tx,
-        conn_watch: watcher.get(),
+        conn_watch: watcher,
     });
 
     let response = UserWorkerResponse {

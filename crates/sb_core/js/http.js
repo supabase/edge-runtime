@@ -1,4 +1,7 @@
 import { HttpConn } from 'ext:deno_http/01_http.js';
+import { RequestPrototype } from 'ext:deno_fetch/23_request.js';
+
+const { ObjectPrototypeIsPrototypeOf } = globalThis.__bootstrap.primordials;
 
 const HttpConnPrototypeNextRequest = HttpConn.prototype.nextRequest;
 const HttpConnPrototypeClose = HttpConn.prototype.close;
@@ -118,4 +121,15 @@ function getWatcherRid(req) {
 	return req[watcher];
 }
 
-export { serve, serveHttp, getWatcherRid };
+function applyWatcherRid(src, dest) {
+	if (
+		!ObjectPrototypeIsPrototypeOf(RequestPrototype, src) 
+		|| !ObjectPrototypeIsPrototypeOf(RequestPrototype, dest)
+	) {
+		throw new TypeError("Only Request instance can apply the connection watcher");
+	}
+
+	dest[watcher] = src[watcher];
+}
+
+export { serve, serveHttp, getWatcherRid, applyWatcherRid };

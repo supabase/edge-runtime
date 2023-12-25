@@ -62,7 +62,7 @@ async fn handle_request(
 
             Ok(parts) => {
                 if let Some(mut watcher) = conn_watch {
-                    if let Err(_) = watcher.wait_for(|it| *it == ConnSync::Recv).await {
+                    if watcher.wait_for(|it| *it == ConnSync::Recv).await.is_err() {
                         error!("cannot track outbound connection correctly");
                     }
                 }
@@ -150,7 +150,8 @@ pub fn create_supervisor(
 
     let cpu_timer_inner = cpu_timer.clone();
     let _rt_guard = SUPERVISOR_RT.enter();
-    let _ = tokio::spawn(async move {
+
+    drop(tokio::spawn(async move {
         let (isolate_memory_usage_tx, isolate_memory_usage_rx) =
             oneshot::channel::<supervisor::IsolateMemoryStats>();
 
@@ -215,7 +216,7 @@ pub fn create_supervisor(
         });
 
         let _ = termination_event_tx.send(termination_event);
-    });
+    }));
 
     Ok(cpu_timer)
 }

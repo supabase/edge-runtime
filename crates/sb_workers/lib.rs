@@ -405,7 +405,7 @@ pub async fn op_user_worker_fetch_send(
                 .take::<ConnWatcher>(it)
                 .ok()
         })
-        .map(|it| Rc::try_unwrap(it));
+        .map(Rc::try_unwrap);
 
     let watcher = match watcher {
         Some(Ok(it)) => it.get(),

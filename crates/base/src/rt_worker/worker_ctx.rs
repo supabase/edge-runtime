@@ -109,7 +109,7 @@ pub fn create_supervisor(
 
     // we assert supervisor is only run for user workers
     let conf = worker_runtime.conf.as_user_worker().unwrap().clone();
-    let cancel = cancel.unwrap();
+    let cancel = cancel.clone();
 
     worker_runtime.js_runtime.add_near_heap_limit_callback(move |cur, _| {
         debug!(
@@ -178,7 +178,13 @@ pub fn create_supervisor(
             }
         };
 
-        cancel.notify_waiters();
+        if !cfg!(test) {
+            // NOTE: It's not a big deal in unit testing because it is nothing
+            // but sending just a message to the pooler that it is the user
+            // worker going disposed down and will not accept awaiting
+            // subsequent requests and they must be re-polled again.
+            cancel.as_ref().unwrap().notify_waiters();
+        }
 
         // NOTE: If we issue a hard CPU time limit, It's OK because it is
         // still possible the worker's context is in the v8 event loop. The

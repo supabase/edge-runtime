@@ -2,7 +2,7 @@ mod logger;
 
 use anyhow::{anyhow, bail, Error};
 use base::commands::start_server;
-use base::rt_worker::worker_pool::{CPUTimerPolicy, WorkerPoolPolicy};
+use base::rt_worker::worker_pool::{SupervisorPolicy, WorkerPoolPolicy};
 use base::server::WorkerEntrypoints;
 use clap::builder::FalseyValueParser;
 use clap::{arg, crate_version, value_parser, ArgAction, Command};
@@ -61,7 +61,7 @@ fn cli() -> Command {
                 .arg(
                     arg!(--"policy" <POLICY> "Policy to enforce in the worker pool")
                         .default_value("per_worker")
-                        .value_parser(["per_worker", "per_request"])
+                        .value_parser(["per_worker", "per_request", "oneshot"])
                 )
                 .arg(
                     arg!(--"max-parallelism" <COUNT> "Maximum count of workers that can exist in the worker pool simultaneously")
@@ -135,9 +135,9 @@ fn main() -> Result<(), anyhow::Error> {
                     sub_matches.get_one::<String>("main-entrypoint").cloned();
                 let maybe_events_entrypoint =
                     sub_matches.get_one::<String>("events-entrypoint").cloned();
-                let maybe_cpu_timer_policy = sub_matches
+                let maybe_supervisor_policy = sub_matches
                     .get_one::<String>("policy")
-                    .map(|it| it.parse::<CPUTimerPolicy>().unwrap());
+                    .map(|it| it.parse::<SupervisorPolicy>().unwrap());
                 let maybe_max_parallelism =
                     sub_matches.get_one::<usize>("max-parallelism").cloned();
                 let maybe_request_wait_timeout =
@@ -149,8 +149,15 @@ fn main() -> Result<(), anyhow::Error> {
                     main_service_path,
                     event_service_manager_path,
                     Some(WorkerPoolPolicy::new(
-                        maybe_cpu_timer_policy,
-                        maybe_max_parallelism,
+                        maybe_supervisor_policy,
+                        if let Some(true) = maybe_supervisor_policy
+                            .as_ref()
+                            .map(SupervisorPolicy::is_oneshot)
+                        {
+                            Some(1)
+                        } else {
+                            maybe_max_parallelism
+                        },
                         maybe_request_wait_timeout,
                     )),
                     import_map_path,

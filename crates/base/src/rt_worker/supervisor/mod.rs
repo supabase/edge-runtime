@@ -11,7 +11,7 @@ use sb_workers::context::{UserWorkerMsgs, UserWorkerRuntimeOpts};
 use tokio::sync::{mpsc, oneshot, Notify};
 use uuid::Uuid;
 
-use super::worker_pool::CPUTimerPolicy;
+use super::worker_pool::SupervisorPolicy;
 
 #[repr(C)]
 struct IsolateInterruptData {
@@ -52,7 +52,7 @@ pub struct Arguments {
     pub key: Uuid,
     pub runtime_opts: UserWorkerRuntimeOpts,
     pub cpu_timer: Option<CPUTimer>,
-    pub cpu_timer_policy: CPUTimerPolicy,
+    pub supervisor_policy: SupervisorPolicy,
     pub cpu_alarms_rx: mpsc::UnboundedReceiver<()>,
     pub req_start_rx: mpsc::UnboundedReceiver<Arc<Notify>>,
     pub req_end_rx: mpsc::UnboundedReceiver<()>,

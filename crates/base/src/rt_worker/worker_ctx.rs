@@ -26,7 +26,7 @@ use tokio::sync::{mpsc, oneshot, watch, Notify};
 use uuid::Uuid;
 
 use super::supervisor;
-use super::worker_pool::{CPUTimerPolicy, WorkerPoolPolicy};
+use super::worker_pool::{SupervisorPolicy, WorkerPoolPolicy};
 
 static SUPERVISOR_RT: Lazy<tokio::runtime::Runtime> = Lazy::new(|| {
     tokio::runtime::Builder::new_multi_thread()
@@ -83,7 +83,7 @@ async fn handle_request(
 pub fn create_supervisor(
     key: Uuid,
     worker_runtime: &mut DenoRuntime,
-    cpu_timer_policy: CPUTimerPolicy,
+    supervisor_policy: SupervisorPolicy,
     termination_event_tx: oneshot::Sender<WorkerEvents>,
     pool_msg_tx: Option<UnboundedSender<UserWorkerMsgs>>,
     cancel: Option<Arc<Notify>>,
@@ -133,7 +133,7 @@ pub fn create_supervisor(
         (
             if !cfg!(test) && conf.cpu_time_soft_limit_ms != 0 && conf.cpu_time_hard_limit_ms != 0 {
                 Some(CPUTimer::start(
-                    if cpu_timer_policy.is_per_worker() {
+                    if supervisor_policy.is_per_worker() {
                         conf.cpu_time_soft_limit_ms
                     } else {
                         conf.cpu_time_hard_limit_ms
@@ -159,7 +159,7 @@ pub fn create_supervisor(
             key,
             runtime_opts: conf.clone(),
             cpu_timer: cpu_timer_inner,
-            cpu_timer_policy,
+            supervisor_policy,
             cpu_alarms_rx,
             req_start_rx,
             req_end_rx,
@@ -172,9 +172,11 @@ pub fn create_supervisor(
 
         let reason = {
             use supervisor::*;
-            match cpu_timer_policy {
-                CPUTimerPolicy::PerWorker => strategy_per_worker::supervise(args).await,
-                CPUTimerPolicy::PerRequest => strategy_per_request::supervise(args).await,
+            match supervisor_policy {
+                SupervisorPolicy::PerWorker => strategy_per_worker::supervise(args).await,
+                SupervisorPolicy::PerRequest { oneshot } => {
+                    strategy_per_request::supervise(args, oneshot).await
+                }
             }
         };
 
@@ -227,7 +229,7 @@ pub fn create_supervisor(
     Ok(cpu_timer)
 }
 
-pub struct CreateWorkerArgs(WorkerContextInitOpts, Option<CPUTimerPolicy>);
+pub struct CreateWorkerArgs(WorkerContextInitOpts, Option<SupervisorPolicy>);
 
 impl From<WorkerContextInitOpts> for CreateWorkerArgs {
     fn from(val: WorkerContextInitOpts) -> Self {
@@ -235,8 +237,8 @@ impl From<WorkerContextInitOpts> for CreateWorkerArgs {
     }
 }
 
-impl From<(WorkerContextInitOpts, CPUTimerPolicy)> for CreateWorkerArgs {
-    fn from(val: (WorkerContextInitOpts, CPUTimerPolicy)) -> Self {
+impl From<(WorkerContextInitOpts, SupervisorPolicy)> for CreateWorkerArgs {
+    fn from(val: (WorkerContextInitOpts, SupervisorPolicy)) -> Self {
         CreateWorkerArgs(val.0, Some(val.1))
     }
 }
@@ -248,11 +250,11 @@ pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
     let (unix_stream_tx, unix_stream_rx) =
         mpsc::unbounded_channel::<(UnixStream, Option<watch::Receiver<ConnSync>>)>();
 
-    let CreateWorkerArgs(init_opts, maybe_cpu_timer_policy) = init_opts.into();
+    let CreateWorkerArgs(init_opts, maybe_supervisor_policy) = init_opts.into();
     let mut worker_init = Worker::new(&init_opts)?;
 
     if init_opts.conf.is_user_worker() {
-        worker_init.set_cpu_timer_policy(maybe_cpu_timer_policy);
+        worker_init.set_supervisor_policy(maybe_supervisor_policy);
     }
 
     let worker: Box<dyn WorkerHandler> = Box::new(worker_init);

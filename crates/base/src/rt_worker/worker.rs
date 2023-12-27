@@ -22,7 +22,7 @@ use tokio::sync::{oneshot, watch, Notify};
 use tokio::time::Instant;
 use uuid::Uuid;
 
-use super::worker_pool::CPUTimerPolicy;
+use super::worker_pool::SupervisorPolicy;
 
 #[derive(Clone)]
 pub struct Worker {
@@ -32,7 +32,7 @@ pub struct Worker {
     pub cancel: Option<Arc<Notify>>,
     pub event_metadata: EventMetadata,
     pub worker_key: Option<Uuid>,
-    pub cpu_timer_policy: Option<CPUTimerPolicy>,
+    pub supervisor_policy: Option<SupervisorPolicy>,
     pub thread_name: String,
 }
 
@@ -58,7 +58,7 @@ impl Worker {
         let worker_boot_start_time = Instant::now();
 
         Ok(Self {
-            cpu_timer_policy: None,
+            supervisor_policy: None,
             worker_boot_start_time,
             events_msg_tx,
             pool_msg_tx,
@@ -69,8 +69,8 @@ impl Worker {
         })
     }
 
-    pub fn set_cpu_timer_policy(&mut self, cpu_timer_policy: Option<CPUTimerPolicy>) {
-        self.cpu_timer_policy = cpu_timer_policy;
+    pub fn set_supervisor_policy(&mut self, supervisor_policy: Option<SupervisorPolicy>) {
+        self.supervisor_policy = supervisor_policy;
     }
 
     pub fn start(
@@ -83,7 +83,7 @@ impl Worker {
         let events_msg_tx = self.events_msg_tx.clone();
         let event_metadata = self.event_metadata.clone();
         let cancel = self.cancel.clone();
-        let cpu_timer_policy = self.cpu_timer_policy.unwrap_or_default();
+        let supervisor_policy = self.supervisor_policy.unwrap_or_default();
         let worker_key = self.worker_key;
         let pool_msg_tx = self.pool_msg_tx.clone();
         let timing_pair_rx = opts.timing_rx_pair.take();
@@ -116,7 +116,7 @@ impl Worker {
                                 _cputimer = create_supervisor(
                                     worker_key.unwrap_or(Uuid::nil()),
                                     &mut new_runtime,
-                                    cpu_timer_policy,
+                                    supervisor_policy,
                                     termination_event_tx,
                                     pool_msg_tx.clone(),
                                     cancel,

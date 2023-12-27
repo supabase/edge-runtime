@@ -21,32 +21,39 @@ use tokio::sync::{mpsc, watch, Notify, OwnedSemaphorePermit, Semaphore, TryAcqui
 use uuid::Uuid;
 
 #[derive(Clone, Copy, EnumIs)]
-pub enum CPUTimerPolicy {
+pub enum SupervisorPolicy {
     PerWorker,
-    PerRequest,
+    PerRequest { oneshot: bool },
 }
 
-impl Default for CPUTimerPolicy {
+impl Default for SupervisorPolicy {
     fn default() -> Self {
         Self::PerWorker
     }
 }
 
-impl FromStr for CPUTimerPolicy {
+impl FromStr for SupervisorPolicy {
     type Err = Infallible;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "per_worker" => Ok(Self::PerWorker),
-            "per_request" => Ok(Self::PerRequest),
+            "per_request" => Ok(Self::PerRequest { oneshot: false }),
+            "oneshot" => Ok(Self::PerRequest { oneshot: true }),
             _ => unreachable!(),
         }
     }
 }
 
+impl SupervisorPolicy {
+    pub fn is_oneshot(&self) -> bool {
+        matches!(self, Self::PerRequest { oneshot: true })
+    }
+}
+
 #[derive(Clone)]
 pub struct WorkerPoolPolicy {
-    cpu_timer: CPUTimerPolicy,
+    supervisor_policy: SupervisorPolicy,
     max_parallelism: usize,
     request_wait_timeout_ms: u64,
 }
@@ -54,7 +61,7 @@ pub struct WorkerPoolPolicy {
 impl Default for WorkerPoolPolicy {
     fn default() -> Self {
         Self {
-            cpu_timer: CPUTimerPolicy::default(),
+            supervisor_policy: SupervisorPolicy::default(),
             max_parallelism: 5,
             request_wait_timeout_ms: 1000 * 5,
         }
@@ -63,14 +70,14 @@ impl Default for WorkerPoolPolicy {
 
 impl WorkerPoolPolicy {
     pub fn new(
-        cpu_timer: impl Into<Option<CPUTimerPolicy>>,
+        supervisor: impl Into<Option<SupervisorPolicy>>,
         max_parallelism: impl Into<Option<usize>>,
         request_wait_timeout_ms: impl Into<Option<u64>>,
     ) -> Self {
         let default = Self::default();
 
         Self {
-            cpu_timer: cpu_timer.into().unwrap_or(default.cpu_timer),
+            supervisor_policy: supervisor.into().unwrap_or(default.supervisor_policy),
             max_parallelism: max_parallelism.into().unwrap_or(default.max_parallelism),
             request_wait_timeout_ms: request_wait_timeout_ms
                 .into()
@@ -120,7 +127,7 @@ impl ActiveWorkerRegistry {
         }
     }
 
-    fn mark_used_and_try_advance(&mut self, policy: CPUTimerPolicy) -> Option<&Uuid> {
+    fn mark_used_and_try_advance(&mut self, policy: SupervisorPolicy) -> Option<&Uuid> {
         if self.workers.is_empty() {
             let _ = self.next.take();
             return None;
@@ -134,12 +141,12 @@ impl ActiveWorkerRegistry {
 
         match self.workers.iter().nth(idx).cloned() {
             Some(WorkerId(key, true)) => match policy {
-                CPUTimerPolicy::PerWorker => {
+                SupervisorPolicy::PerWorker => {
                     self.next = Some(idx + 1);
                     self.workers.get(&key).map(|it| &it.0)
                 }
 
-                CPUTimerPolicy::PerRequest => {
+                SupervisorPolicy::PerRequest { .. } => {
                     let key = self
                         .workers
                         .replace(WorkerId(key, false))
@@ -209,10 +216,11 @@ impl WorkerPool {
             .unwrap_or("")
             .to_string();
 
+        let is_oneshot_policy = self.policy.supervisor_policy.is_oneshot();
         let force_create = worker_options
             .conf
             .as_user_worker()
-            .map_or(false, |it| it.force_create);
+            .map_or(false, |it| !is_oneshot_policy && it.force_create);
 
         if let Some(active_worker_uuid) = self.maybe_active_worker(&service_path, force_create) {
             if tx
@@ -295,7 +303,7 @@ impl WorkerPool {
 
         let worker_pool_msgs_tx = self.worker_pool_msgs_tx.clone();
         let events_msg_tx = self.worker_event_sender.clone();
-        let cpu_timer_policy = self.policy.cpu_timer;
+        let supervisor_policy = self.policy.supervisor_policy;
 
         drop(tokio::spawn(async move {
             let (permit, tx) = match wait_fence_fut.await {
@@ -361,7 +369,7 @@ impl WorkerPool {
             worker_options.timing_rx_pair = Some((req_start_timing_rx, req_end_timing_rx));
             worker_options.conf = WorkerRuntimeOpts::UserWorker(user_worker_rt_opts);
 
-            match create_worker((worker_options, cpu_timer_policy)).await {
+            match create_worker((worker_options, supervisor_policy)).await {
                 Ok(worker_request_msg_tx) => {
                     let profile = UserWorkerProfile {
                         worker_request_msg_tx,
@@ -399,7 +407,7 @@ impl WorkerPool {
 
         registry
             .workers
-            .insert(WorkerId(key, self.policy.cpu_timer.is_per_worker()));
+            .insert(WorkerId(key, self.policy.supervisor_policy.is_per_worker()));
 
         self.user_workers.insert(key, profile);
     }
@@ -509,6 +517,6 @@ impl WorkerPool {
 
         self.active_workers
             .get_mut(service_path)
-            .and_then(|it| it.mark_used_and_try_advance(self.policy.cpu_timer))
+            .and_then(|it| it.mark_used_and_try_advance(self.policy.supervisor_policy))
     }
 }

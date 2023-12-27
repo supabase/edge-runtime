@@ -9,7 +9,7 @@ use crate::rt_worker::supervisor::{handle_interrupt, IsolateInterruptData};
 
 use super::Arguments;
 
-pub async fn supervise(args: Arguments) -> ShutdownReason {
+pub async fn supervise(args: Arguments, oneshot: bool) -> ShutdownReason {
     let Arguments {
         key,
         runtime_opts,
@@ -81,7 +81,7 @@ pub async fn supervise(args: Arguments) -> ShutdownReason {
         }
 
         match complete_reason.take() {
-            Some(ShutdownReason::EarlyDrop) => {
+            Some(ShutdownReason::EarlyDrop) if !oneshot => {
                 req_start_ack = false;
                 wall_clock_duration_alert
                     .as_mut()

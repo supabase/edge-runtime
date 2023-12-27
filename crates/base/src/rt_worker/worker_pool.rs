@@ -60,10 +60,15 @@ pub struct WorkerPoolPolicy {
 
 impl Default for WorkerPoolPolicy {
     fn default() -> Self {
+        let available_parallelism = std::thread::available_parallelism()
+            .ok()
+            .map(|it| it.get())
+            .unwrap_or(1);
+
         Self {
             supervisor_policy: SupervisorPolicy::default(),
-            max_parallelism: 5,
-            request_wait_timeout_ms: 1000 * 5,
+            max_parallelism: available_parallelism,
+            request_wait_timeout_ms: 10000,
         }
     }
 }

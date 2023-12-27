@@ -64,7 +64,7 @@ pub struct UserWorkerProfile {
         mpsc::UnboundedSender<()>,
     ),
     pub service_path: String,
-    pub permit: Arc<OwnedSemaphorePermit>,
+    pub permit: Option<Arc<OwnedSemaphorePermit>>,
     pub cancel: Arc<Notify>,
 }
 

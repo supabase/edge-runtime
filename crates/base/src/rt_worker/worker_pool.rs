@@ -17,7 +17,7 @@ use std::time::Duration;
 use strum::EnumIs;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::oneshot::Sender;
-use tokio::sync::{mpsc, watch, Notify, OwnedSemaphorePermit, Semaphore};
+use tokio::sync::{mpsc, watch, Notify, OwnedSemaphorePermit, Semaphore, TryAcquireError};
 use uuid::Uuid;
 
 #[derive(Clone, Copy, EnumIs)]
@@ -209,13 +209,12 @@ impl WorkerPool {
             .unwrap_or("")
             .to_string();
 
-        if let Some(active_worker_uuid) = self.maybe_active_worker(
-            &service_path,
-            worker_options
-                .conf
-                .as_user_worker()
-                .map_or(false, |it| it.force_create),
-        ) {
+        let force_create = worker_options
+            .conf
+            .as_user_worker()
+            .map_or(false, |it| it.force_create);
+
+        if let Some(active_worker_uuid) = self.maybe_active_worker(&service_path, force_create) {
             if tx
                 .send(Ok(CreateUserWorkerResult {
                     key: *active_worker_uuid,
@@ -231,7 +230,7 @@ impl WorkerPool {
             Stop,
             Resend(Sender<Result<CreateUserWorkerResult, Error>>),
             Create(
-                OwnedSemaphorePermit,
+                Option<OwnedSemaphorePermit>,
                 Sender<Result<CreateUserWorkerResult, Error>>,
             ),
         }
@@ -249,8 +248,17 @@ impl WorkerPool {
 
             async move {
                 use FlowAfterFence::*;
-                if let Ok(permit) = sem.clone().try_acquire_owned() {
-                    return Create(permit, tx);
+
+                match sem.clone().try_acquire_owned() {
+                    Ok(permit) => return Create(Some(permit), tx),
+                    Err(TryAcquireError::NoPermits) if force_create => {
+                        // NOTE(Nyannyacha): Do we need to consider counting the
+                        // permit count (that means it affects maximum
+                        // parallelism) if in the force creation mode?
+                        return Create(None, tx);
+                    }
+
+                    _ => {}
                 }
 
                 tokio::pin!(wait_timeout);
@@ -268,7 +276,7 @@ impl WorkerPool {
                                 Ok(Some(_)) => return Resend(tx),
                                 Ok(None) => {
                                     if let Ok(permit) = sem.clone().try_acquire_owned() {
-                                        return Create(permit, tx);
+                                        return Create(Some(permit), tx);
                                     }
                                 }
                             }
@@ -359,7 +367,7 @@ impl WorkerPool {
                         worker_request_msg_tx,
                         timing_tx_pair: (req_start_timing_tx, req_end_timing_tx),
                         service_path,
-                        permit: Arc::new(permit),
+                        permit: permit.map(Arc::new),
                         cancel,
                     };
                     if worker_pool_msgs_tx

@@ -138,7 +138,11 @@ pub fn create_supervisor(
                     } else {
                         conf.cpu_time_hard_limit_ms
                     },
-                    conf.cpu_time_hard_limit_ms,
+                    if supervisor_policy.is_per_request() {
+                        0
+                    } else {
+                        conf.cpu_time_hard_limit_ms
+                    },
                     CPUAlarmVal { cpu_alarms_tx },
                 )?)
             } else {

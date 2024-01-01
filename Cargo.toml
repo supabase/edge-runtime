@@ -69,6 +69,7 @@ futures-util = { version = "0.3.28" }
 
 [patch.crates-io]
 deno_core = { git = "https://github.com/nyannyacha/deno_core", branch = "222" }
+v8 = { git = "https://github.com/nyannyacha/rusty_v8", branch = "rokat" }
 
 [profile.release]
 lto = true

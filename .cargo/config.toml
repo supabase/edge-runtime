@@ -1,0 +1,2 @@
+[env]
+RUSTY_V8_MIRROR = "https://github.com/nyannyacha/rusty_v8/releases/download"

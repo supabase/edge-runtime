@@ -984,7 +984,7 @@ dependencies = [
 [[package]]
 name = "deno_core"
 version = "0.222.0"
-source = "git+https://github.com/nyannyacha/deno_core?branch=222#fd51ad55de7f24ac450af31a429a9902e40ad4b1"
+source = "git+https://github.com/nyannyacha/deno_core?branch=222#7a458bb373095e79aa744a0daa28624ddf98145b"
 dependencies = [
  "anyhow",
  "bytes",
@@ -1217,7 +1217,7 @@ dependencies = [
 [[package]]
 name = "deno_ops"
 version = "0.98.0"
-source = "git+https://github.com/nyannyacha/deno_core?branch=222#fd51ad55de7f24ac450af31a429a9902e40ad4b1"
+source = "git+https://github.com/nyannyacha/deno_core?branch=222#7a458bb373095e79aa744a0daa28624ddf98145b"
 dependencies = [
  "deno-proc-macro-rules",
  "lazy-regex",
@@ -4051,7 +4051,7 @@ dependencies = [
 [[package]]
 name = "serde_v8"
 version = "0.131.0"
-source = "git+https://github.com/nyannyacha/deno_core?branch=222#fd51ad55de7f24ac450af31a429a9902e40ad4b1"
+source = "git+https://github.com/nyannyacha/deno_core?branch=222#7a458bb373095e79aa744a0daa28624ddf98145b"
 dependencies = [
  "bytes",
  "derive_more",
@@ -5067,7 +5067,7 @@ version = "1.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "97fee6b57c6a41524a810daee9286c02d7752c4253064d0b05472833a438f675"
 dependencies = [
- "cfg-if 1.0.0",
+ "cfg-if 0.1.10",
  "rand",
  "static_assertions",
 ]
@@ -5241,9 +5241,8 @@ dependencies = [
 
 [[package]]
 name = "v8"
-version = "0.79.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b15561535230812a1db89a696f1f16a12ae6c2c370c6b2241c68d4cb33963faf"
+version = "0.79.2-rokat.2"
+source = "git+https://github.com/nyannyacha/rusty_v8?branch=rokat#886506686112d1b41cc699a5bdd825cbf414b3d5"
 dependencies = [
  "bitflags 1.3.2",
  "fslock",

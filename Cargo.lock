@@ -662,6 +662,7 @@ dependencies = [
  "base",
  "clap 4.3.21",
  "deno_core",
+ "dotenv-build",
  "env_logger 0.10.0",
  "log",
  "sb_graph",
@@ -1444,6 +1445,12 @@ dependencies = [
  "quote 1.0.32",
  "syn 2.0.28",
 ]
+
+[[package]]
+name = "dotenv-build"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f4547f16c17f6051a12cdb8c62b803f94bee6807c74aa7c530b30b737df981fc"
 
 [[package]]
 name = "dprint-swc-ext"

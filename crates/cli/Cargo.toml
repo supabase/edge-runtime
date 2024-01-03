@@ -11,8 +11,11 @@ path = "src/main.rs"
 anyhow = { workspace = true }
 base = { path = "../base" }
 deno_core = { workspace = true }
-clap = { version = "4.0.29", features = ["cargo"] }
+clap = { version = "4.0.29", features = ["cargo", "string"] }
 env_logger = "0.10.0"
 log = { workspace = true }
 sb_graph = { path = "../sb_graph" }
 tokio.workspace = true
+
+[build-dependencies]
+dotenv-build = { version = "0.1.1" }

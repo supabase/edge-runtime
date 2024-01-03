@@ -7,8 +7,8 @@ use cpu_timer::CPUTimer;
 use deno_core::v8::IsolateHandle;
 use futures_util::task::AtomicWaker;
 use log::error;
-use sb_workers::context::{UserWorkerMsgs, UserWorkerRuntimeOpts};
-use tokio::sync::{mpsc, oneshot, Notify};
+use sb_workers::context::{Timing, UserWorkerMsgs, UserWorkerRuntimeOpts};
+use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 
 use super::worker_pool::SupervisorPolicy;
@@ -54,8 +54,7 @@ pub struct Arguments {
     pub cpu_timer: Option<CPUTimer>,
     pub supervisor_policy: SupervisorPolicy,
     pub cpu_alarms_rx: mpsc::UnboundedReceiver<()>,
-    pub req_start_rx: mpsc::UnboundedReceiver<Arc<Notify>>,
-    pub req_end_rx: mpsc::UnboundedReceiver<()>,
+    pub timing: Option<Timing>,
     pub memory_limit_rx: mpsc::UnboundedReceiver<()>,
     pub pool_msg_tx: Option<mpsc::UnboundedSender<UserWorkerMsgs>>,
     pub isolate_memory_usage_tx: oneshot::Sender<IsolateMemoryStats>,

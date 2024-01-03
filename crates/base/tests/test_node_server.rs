@@ -15,7 +15,7 @@ async fn test_node_server() {
         import_map_path: None,
         env_vars: HashMap::new(),
         events_rx: None,
-        timing_rx_pair: None,
+        timing: None,
         maybe_eszip: None,
         maybe_entrypoint: None,
         maybe_module_code: None,

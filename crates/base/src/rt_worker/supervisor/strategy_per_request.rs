@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use event_worker::events::ShutdownReason;
 use log::error;
-use sb_workers::context::UserWorkerMsgs;
+use sb_workers::context::{Timing, UserWorkerMsgs};
 use tokio::time::Instant;
 
 use crate::rt_worker::supervisor::{handle_interrupt, IsolateInterruptData};
@@ -13,9 +13,8 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> ShutdownReason {
     let Arguments {
         key,
         runtime_opts,
+        timing,
         mut cpu_alarms_rx,
-        mut req_start_rx,
-        mut req_end_rx,
         mut memory_limit_rx,
         pool_msg_tx,
         isolate_memory_usage_tx,
@@ -23,6 +22,11 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> ShutdownReason {
         cpu_timer,
         ..
     } = args;
+
+    let Timing {
+        req: (mut req_start_rx, mut req_end_rx),
+        ..
+    } = timing.unwrap_or_default();
 
     let mut complete_reason = None::<ShutdownReason>;
     let mut req_start_ack = false;

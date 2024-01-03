@@ -1,8 +1,8 @@
-use std::time::Duration;
+use std::{sync::atomic::Ordering, time::Duration};
 
 use event_worker::events::ShutdownReason;
 use log::error;
-use sb_workers::context::UserWorkerMsgs;
+use sb_workers::context::{Timing, TimingStatus, UserWorkerMsgs};
 
 use super::{handle_interrupt, Arguments, IsolateInterruptData};
 
@@ -10,9 +10,8 @@ pub async fn supervise(args: Arguments) -> ShutdownReason {
     let Arguments {
         key,
         runtime_opts,
+        timing,
         mut cpu_alarms_rx,
-        mut req_start_rx,
-        mut req_end_rx,
         mut memory_limit_rx,
         pool_msg_tx,
         isolate_memory_usage_tx,
@@ -20,10 +19,16 @@ pub async fn supervise(args: Arguments) -> ShutdownReason {
         ..
     } = args;
 
+    let Timing {
+        status: TimingStatus { demand, is_retired },
+        req: (mut req_start_rx, mut req_end_rx),
+    } = timing.unwrap_or_default();
+
+    let is_retired = is_retired.unwrap();
+
     let mut cpu_time_soft_limit_reached = false;
     let mut wall_clock_alerts = 0;
-    let mut req_count = 0u64;
-    let mut req_ack_count = 0u64;
+    let mut req_ack_count = 0usize;
 
     // reduce 100ms from wall clock duration, so the interrupt can be handled before
     // isolate is dropped
@@ -45,15 +50,17 @@ pub async fn supervise(args: Arguments) -> ShutdownReason {
             Some(_) = cpu_alarms_rx.recv() => {
                 if !cpu_time_soft_limit_reached {
                     // retire worker
+                    is_retired.raise();
                     if let Some(tx) = pool_msg_tx.clone() {
                         if tx.send(UserWorkerMsgs::Retire(key)).is_err() {
                             error!("failed to send retire msg to pool: {:?}", key);
                         }
                     }
+
                     error!("CPU time soft limit reached. isolate: {:?}", key);
                     cpu_time_soft_limit_reached = true;
 
-                    if req_count == req_ack_count {
+                    if req_ack_count == demand.load(Ordering::Acquire) {
                         let interrupt_data = IsolateInterruptData {
                             should_terminate: true,
                             isolate_memory_usage_tx
@@ -76,13 +83,21 @@ pub async fn supervise(args: Arguments) -> ShutdownReason {
             }
 
             Some(notify) = req_start_rx.recv() => {
-                req_count += 1;
                 notify.notify_one();
             }
 
             Some(_) = req_end_rx.recv() => {
                 req_ack_count += 1;
-                if !cpu_time_soft_limit_reached || req_count != req_ack_count {
+
+                if !cpu_time_soft_limit_reached {
+                    if let Some(tx) = pool_msg_tx.clone() {
+                        if tx.send(UserWorkerMsgs::Idle(key)).is_err() {
+                            error!("failed to send idle msg to pool: {:?}", key);
+                        }
+                    }
+                }
+
+                if !cpu_time_soft_limit_reached || req_ack_count != demand.load(Ordering::Acquire) {
                     continue;
                 }
 
@@ -102,6 +117,8 @@ pub async fn supervise(args: Arguments) -> ShutdownReason {
                     // first tick completes immediately
                     wall_clock_alerts += 1;
                 } else if wall_clock_alerts == 1 {
+                    // retire worker
+                    is_retired.raise();
                     if let Some(tx) = pool_msg_tx.clone() {
                         if tx.send(UserWorkerMsgs::Retire(key)).is_err() {
                             error!("failed to send retire msg to pool: {:?}", key);
@@ -118,7 +135,7 @@ pub async fn supervise(args: Arguments) -> ShutdownReason {
                         // pending requests, so we must compare the request
                         // count here to judge whether we need to terminate the
                         // isolate.
-                        should_terminate: req_count == req_ack_count,
+                        should_terminate: req_ack_count == demand.load(Ordering::Acquire),
                         isolate_memory_usage_tx
                     };
                     thread_safe_handle.request_interrupt(handle_interrupt, Box::into_raw(Box::new(interrupt_data)) as *mut std::ffi::c_void);

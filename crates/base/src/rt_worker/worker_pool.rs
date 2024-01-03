@@ -1,17 +1,19 @@
 use crate::rt_worker::worker_ctx::{create_worker, send_user_worker_request};
-use anyhow::{anyhow, Error};
+use anyhow::{anyhow, Context, Error};
 use event_worker::events::WorkerEventWithMetadata;
 use http::Request;
 use hyper::Body;
 use log::error;
 use sb_core::conn_sync::ConnSync;
+use sb_core::util::sync::AtomicFlag;
 use sb_workers::context::{
-    CreateUserWorkerResult, SendRequestResult, UserWorkerMsgs, UserWorkerProfile,
-    WorkerContextInitOpts, WorkerRuntimeOpts,
+    CreateUserWorkerResult, SendRequestResult, Timing, TimingStatus, UserWorkerMsgs,
+    UserWorkerProfile, WorkerContextInitOpts, WorkerRuntimeOpts,
 };
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use std::str::FromStr;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use strum::EnumIs;
@@ -132,7 +134,7 @@ impl ActiveWorkerRegistry {
         }
     }
 
-    fn mark_used_and_try_advance(&mut self, policy: SupervisorPolicy) -> Option<&Uuid> {
+    fn mark_used_and_try_advance(&mut self) -> Option<&Uuid> {
         if self.workers.is_empty() {
             let _ = self.next.take();
             return None;
@@ -145,22 +147,15 @@ impl ActiveWorkerRegistry {
             .unwrap_or(0);
 
         match self.workers.iter().nth(idx).cloned() {
-            Some(WorkerId(key, true)) => match policy {
-                SupervisorPolicy::PerWorker => {
-                    self.next = Some(idx + 1);
-                    self.workers.get(&key).map(|it| &it.0)
-                }
+            Some(WorkerId(key, true)) => {
+                let key = self
+                    .workers
+                    .replace(WorkerId(key, false))
+                    .and_then(|WorkerId(ref key, _)| self.workers.get(key).map(|it| &it.0));
 
-                SupervisorPolicy::PerRequest { .. } => {
-                    let key = self
-                        .workers
-                        .replace(WorkerId(key, false))
-                        .and_then(|WorkerId(ref key, _)| self.workers.get(key).map(|it| &it.0));
-
-                    self.next = self.workers.iter().position(|it| it.1);
-                    key
-                }
-            },
+                self.next = self.workers.iter().position(|it| it.1);
+                key
+            }
             _ => {
                 let _ = self.next.take();
                 None
@@ -227,7 +222,8 @@ impl WorkerPool {
             .as_user_worker()
             .map_or(false, |it| !is_oneshot_policy && it.force_create);
 
-        if let Some(active_worker_uuid) = self.maybe_active_worker(&service_path, force_create) {
+        if let Some(ref active_worker_uuid) = self.maybe_active_worker(&service_path, force_create)
+        {
             if tx
                 .send(Ok(CreateUserWorkerResult {
                     key: *active_worker_uuid,
@@ -334,7 +330,7 @@ impl WorkerPool {
                                 import_map_path,
                                 env_vars,
                                 events_rx: None,
-                                timing_rx_pair: None,
+                                timing: None,
                                 conf,
                                 maybe_eszip,
                                 maybe_module_code,
@@ -362,6 +358,11 @@ impl WorkerPool {
             let (req_start_timing_tx, req_start_timing_rx) =
                 mpsc::unbounded_channel::<Arc<Notify>>();
 
+            let status = TimingStatus {
+                demand: Arc::new(AtomicUsize::new(0)),
+                is_retired: Some(Arc::new(AtomicFlag::default())),
+            };
+
             let (req_end_timing_tx, req_end_timing_rx) = mpsc::unbounded_channel::<()>();
 
             user_worker_rt_opts.service_path = Some(service_path.clone());
@@ -371,7 +372,11 @@ impl WorkerPool {
             user_worker_rt_opts.events_msg_tx = events_msg_tx;
             user_worker_rt_opts.cancel = Some(cancel.clone());
 
-            worker_options.timing_rx_pair = Some((req_start_timing_rx, req_end_timing_rx));
+            worker_options.timing = Some(Timing {
+                status: status.clone(),
+                req: (req_start_timing_rx, req_end_timing_rx),
+            });
+
             worker_options.conf = WorkerRuntimeOpts::UserWorker(user_worker_rt_opts);
 
             match create_worker((worker_options, supervisor_policy)).await {
@@ -381,6 +386,7 @@ impl WorkerPool {
                         timing_tx_pair: (req_start_timing_tx, req_end_timing_tx),
                         service_path,
                         permit: permit.map(Arc::new),
+                        status: status.clone(),
                         cancel,
                     };
                     if worker_pool_msgs_tx
@@ -392,6 +398,8 @@ impl WorkerPool {
                     if tx.send(Ok(CreateUserWorkerResult { key: uuid })).is_err() {
                         error!("main worker receiver dropped")
                     };
+
+                    status.demand.fetch_add(1, Ordering::Release);
                 }
                 Err(e) => {
                     if tx.send(Err(e)).is_err() {
@@ -410,10 +418,7 @@ impl WorkerPool {
             .entry(profile.service_path.clone())
             .or_insert_with(|| ActiveWorkerRegistry::new(self.policy.max_parallelism));
 
-        registry
-            .workers
-            .insert(WorkerId(key, self.policy.supervisor_policy.is_per_worker()));
-
+        registry.workers.insert(WorkerId(key, false));
         self.user_workers.insert(key, profile);
     }
 
@@ -433,7 +438,12 @@ impl WorkerPool {
                 // Create a closure to handle the request and send the response
                 let request_handler = async move {
                     let fence = Arc::new(Notify::const_new());
-                    let _ = req_start_tx.send(fence.clone());
+
+                    if let Err(ex) = req_start_tx.send(fence.clone()) {
+                        error!("failed to notify the fence to the supervisor");
+                        return Err(ex)
+                            .with_context(|| "failed to notify the fence to the supervisor");
+                    }
 
                     fence.notified().await;
 
@@ -515,13 +525,43 @@ impl WorkerPool {
         let _ = notify_tx.send(None);
     }
 
-    fn maybe_active_worker(&mut self, service_path: &String, force_create: bool) -> Option<&Uuid> {
+    fn maybe_active_worker(&mut self, service_path: &String, force_create: bool) -> Option<Uuid> {
         if force_create {
             return None;
         }
 
-        self.active_workers
-            .get_mut(service_path)
-            .and_then(|it| it.mark_used_and_try_advance(self.policy.supervisor_policy))
+        let Some(registry) = self.active_workers.get_mut(service_path) else {
+            return None;
+        };
+
+        let mut advance_fn = move || registry.mark_used_and_try_advance().copied();
+
+        if self.policy.supervisor_policy.is_per_request() {
+            return advance_fn();
+        }
+
+        loop {
+            let Some(worker_uuid) = advance_fn() else {
+                return None;
+            };
+
+            match self
+                .user_workers
+                .get(&worker_uuid)
+                .and_then(|it| it.status.is_retired.as_ref())
+            {
+                Some(is_retired) if !is_retired.is_raised() => {
+                    self.user_workers
+                        .get(&worker_uuid)
+                        .map(|it| it.status.demand.as_ref())
+                        .unwrap()
+                        .fetch_add(1, Ordering::Release);
+
+                    return Some(worker_uuid);
+                }
+
+                _ => {}
+            }
+        }
     }
 }

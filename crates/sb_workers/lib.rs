@@ -106,7 +106,7 @@ pub async fn op_user_worker_create(
             import_map_path,
             env_vars: env_vars_map,
             events_rx: None,
-            timing_rx_pair: None,
+            timing: None,
             maybe_eszip: maybe_eszip.map(EszipPayloadKind::JsBufferKind),
             maybe_entrypoint,
             maybe_module_code: maybe_module_code.map(|v| v.into()),

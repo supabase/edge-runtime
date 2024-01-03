@@ -15,13 +15,13 @@ use once_cell::sync::Lazy;
 use sb_core::conn_sync::ConnSync;
 use sb_graph::EszipPayloadKind;
 use sb_workers::context::{
-    EventWorkerRuntimeOpts, MainWorkerRuntimeOpts, UserWorkerMsgs, WorkerContextInitOpts,
+    EventWorkerRuntimeOpts, MainWorkerRuntimeOpts, Timing, UserWorkerMsgs, WorkerContextInitOpts,
     WorkerRequestMsg, WorkerRuntimeOpts,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::net::UnixStream;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::{mpsc, oneshot, watch, Notify};
 use uuid::Uuid;
 
@@ -87,7 +87,7 @@ pub fn create_supervisor(
     termination_event_tx: oneshot::Sender<WorkerEvents>,
     pool_msg_tx: Option<UnboundedSender<UserWorkerMsgs>>,
     cancel: Option<Arc<Notify>>,
-    timing_rx_pair: Option<(UnboundedReceiver<Arc<Notify>>, UnboundedReceiver<()>)>,
+    timing: Option<Timing>,
 ) -> Result<Option<CPUTimer>, Error> {
     let (memory_limit_tx, memory_limit_rx) = mpsc::unbounded_channel::<()>();
     let (waker, thread_safe_handle) = {
@@ -96,15 +96,6 @@ pub fn create_supervisor(
             js_runtime.op_state().borrow().waker.clone(),
             js_runtime.v8_isolate().thread_safe_handle(),
         )
-    };
-
-    let (req_start_rx, req_end_rx) = if let Some((start, end)) = timing_rx_pair {
-        (start, end)
-    } else {
-        let (_, dumb_start_rx) = unbounded_channel::<Arc<Notify>>();
-        let (_, dumb_end_rx) = unbounded_channel::<()>();
-
-        (dumb_start_rx, dumb_end_rx)
     };
 
     // we assert supervisor is only run for user workers
@@ -165,8 +156,7 @@ pub fn create_supervisor(
             cpu_timer: cpu_timer_inner,
             supervisor_policy,
             cpu_alarms_rx,
-            req_start_rx,
-            req_end_rx,
+            timing,
             memory_limit_rx,
             pool_msg_tx,
             isolate_memory_usage_tx,
@@ -362,7 +352,7 @@ pub async fn create_main_worker(
         import_map_path,
         no_module_cache,
         events_rx: None,
-        timing_rx_pair: None,
+        timing: None,
         maybe_eszip,
         maybe_entrypoint,
         maybe_module_code: None,
@@ -402,7 +392,7 @@ pub async fn create_events_worker(
         import_map_path,
         env_vars: std::env::vars().collect(),
         events_rx: Some(events_rx),
-        timing_rx_pair: None,
+        timing: None,
         maybe_eszip,
         maybe_entrypoint,
         maybe_module_code: None,

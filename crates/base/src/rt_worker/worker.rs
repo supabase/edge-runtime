@@ -86,7 +86,7 @@ impl Worker {
         let supervisor_policy = self.supervisor_policy.unwrap_or_default();
         let worker_key = self.worker_key;
         let pool_msg_tx = self.pool_msg_tx.clone();
-        let timing_pair_rx = opts.timing_rx_pair.take();
+        let timing = opts.timing.take();
         let method_cloner = self.clone();
 
         let _handle: thread::JoinHandle<Result<(), Error>> = thread::Builder::new()
@@ -120,7 +120,7 @@ impl Worker {
                                     termination_event_tx,
                                     pool_msg_tx.clone(),
                                     cancel,
-                                    timing_pair_rx,
+                                    timing,
                                 )?;
                             }
 

@@ -114,7 +114,11 @@ pub async fn supervise(args: Arguments) -> ShutdownReason {
                     // Don't terminate isolate from supervisor when wall-clock
                     // duration reached. It's dropped in deno_runtime.rs
                     let interrupt_data = IsolateInterruptData {
-                        should_terminate: false,
+                        // NOTE: Wall clock is also triggered when no more
+                        // pending requests, so we must compare the request
+                        // count here to judge whether we need to terminate the
+                        // isolate.
+                        should_terminate: req_count == req_ack_count,
                         isolate_memory_usage_tx
                     };
                     thread_safe_handle.request_interrupt(handle_interrupt, Box::into_raw(Box::new(interrupt_data)) as *mut std::ffi::c_void);

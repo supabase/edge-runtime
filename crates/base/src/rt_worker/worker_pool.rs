@@ -134,7 +134,7 @@ impl ActiveWorkerRegistry {
         }
     }
 
-    fn mark_used_and_try_advance(&mut self) -> Option<&Uuid> {
+    fn mark_used_and_try_advance(&mut self, policy: SupervisorPolicy) -> Option<&Uuid> {
         if self.workers.is_empty() {
             let _ = self.next.take();
             return None;
@@ -147,15 +147,23 @@ impl ActiveWorkerRegistry {
             .unwrap_or(0);
 
         match self.workers.iter().nth(idx).cloned() {
-            Some(WorkerId(key, true)) => {
-                let key = self
-                    .workers
-                    .replace(WorkerId(key, false))
-                    .and_then(|WorkerId(ref key, _)| self.workers.get(key).map(|it| &it.0));
+            Some(WorkerId(key, true)) => match policy {
+                SupervisorPolicy::PerWorker => {
+                    self.next = Some(idx + 1);
+                    self.workers.get(&key).map(|it| &it.0)
+                }
 
-                self.next = self.workers.iter().position(|it| it.1);
-                key
-            }
+                SupervisorPolicy::PerRequest { .. } => {
+                    let key = self
+                        .workers
+                        .replace(WorkerId(key, false))
+                        .and_then(|WorkerId(ref key, _)| self.workers.get(key).map(|it| &it.0));
+
+                    self.next = self.workers.iter().position(|it| it.1);
+                    key
+                }
+            },
+
             _ => {
                 let _ = self.next.take();
                 None
@@ -163,9 +171,16 @@ impl ActiveWorkerRegistry {
         }
     }
 
-    fn mark_idle(&mut self, key: &Uuid) {
-        if let Some(WorkerId(key, false)) = self.workers.get(key).cloned() {
-            let _ = self.workers.replace(WorkerId(key, true));
+    fn mark_idle(&mut self, key: &Uuid, policy: SupervisorPolicy) {
+        if let Some(WorkerId(key, mark)) = self.workers.get(key).cloned() {
+            if policy.is_per_request() {
+                if mark != false {
+                    return;
+                }
+
+                let _ = self.workers.replace(WorkerId(key, true));
+            }
+
             let (notify_tx, _) = self.notify_pair.clone();
             let _ = notify_tx.send(Some(key));
         }
@@ -418,7 +433,10 @@ impl WorkerPool {
             .entry(profile.service_path.clone())
             .or_insert_with(|| ActiveWorkerRegistry::new(self.policy.max_parallelism));
 
-        registry.workers.insert(WorkerId(key, false));
+        registry
+            .workers
+            .insert(WorkerId(key, self.policy.supervisor_policy.is_per_worker()));
+
         self.user_workers.insert(key, profile);
     }
 
@@ -431,21 +449,24 @@ impl WorkerPool {
     ) {
         let _: Result<(), Error> = match self.user_workers.get(key) {
             Some(worker) => {
+                let policy = self.policy.supervisor_policy;
                 let profile = worker.clone();
                 let cancel = worker.cancel.clone();
                 let (req_start_tx, req_end_tx) = profile.timing_tx_pair.clone();
 
                 // Create a closure to handle the request and send the response
                 let request_handler = async move {
-                    let fence = Arc::new(Notify::const_new());
+                    if !policy.is_per_worker() {
+                        let fence = Arc::new(Notify::const_new());
 
-                    if let Err(ex) = req_start_tx.send(fence.clone()) {
-                        error!("failed to notify the fence to the supervisor");
-                        return Err(ex)
-                            .with_context(|| "failed to notify the fence to the supervisor");
+                        if let Err(ex) = req_start_tx.send(fence.clone()) {
+                            error!("failed to notify the fence to the supervisor");
+                            return Err(ex)
+                                .with_context(|| "failed to notify the fence to the supervisor");
+                        }
+
+                        fence.notified().await;
                     }
-
-                    fence.notified().await;
 
                     let result = send_user_worker_request(
                         profile.worker_request_msg_tx,
@@ -487,26 +508,13 @@ impl WorkerPool {
         };
     }
 
-    pub fn retire(&mut self, key: &Uuid) {
-        if let Some(profile) = self.user_workers.get(key) {
-            let registry = self
-                .active_workers
-                .get_mut(&profile.service_path)
-                .expect("registry must be initialized at this point");
-
-            if registry.workers.contains(key) {
-                registry.workers.remove(key);
-            }
-        }
-    }
-
     pub fn idle(&mut self, key: &Uuid) {
         if let Some(registry) = self
             .user_workers
             .get_mut(key)
             .and_then(|it| self.active_workers.get_mut(&it.service_path))
         {
-            registry.mark_idle(key);
+            registry.mark_idle(key, self.policy.supervisor_policy);
         }
     }
 
@@ -525,6 +533,19 @@ impl WorkerPool {
         let _ = notify_tx.send(None);
     }
 
+    fn retire(&mut self, key: &Uuid) {
+        if let Some(profile) = self.user_workers.get(key) {
+            let registry = self
+                .active_workers
+                .get_mut(&profile.service_path)
+                .expect("registry must be initialized at this point");
+
+            if registry.workers.contains(key) {
+                registry.workers.remove(key);
+            }
+        }
+    }
+
     fn maybe_active_worker(&mut self, service_path: &String, force_create: bool) -> Option<Uuid> {
         if force_create {
             return None;
@@ -534,33 +555,35 @@ impl WorkerPool {
             return None;
         };
 
-        let mut advance_fn = move || registry.mark_used_and_try_advance().copied();
+        let policy = self.policy.supervisor_policy;
+        let mut advance_fn = move || registry.mark_used_and_try_advance(policy).copied();
 
-        if self.policy.supervisor_policy.is_per_request() {
+        if policy.is_per_request() {
             return advance_fn();
         }
 
-        loop {
-            let Some(worker_uuid) = advance_fn() else {
-                return None;
-            };
+        let Some(worker_uuid) = advance_fn() else {
+            return None;
+        };
 
-            match self
-                .user_workers
-                .get(&worker_uuid)
-                .and_then(|it| it.status.is_retired.as_ref())
-            {
-                Some(is_retired) if !is_retired.is_raised() => {
-                    self.user_workers
-                        .get(&worker_uuid)
-                        .map(|it| it.status.demand.as_ref())
-                        .unwrap()
-                        .fetch_add(1, Ordering::Release);
+        match self
+            .user_workers
+            .get(&worker_uuid)
+            .and_then(|it| it.status.is_retired.as_ref())
+        {
+            Some(is_retired) if !is_retired.is_raised() => {
+                self.user_workers
+                    .get(&worker_uuid)
+                    .map(|it| it.status.demand.as_ref())
+                    .unwrap()
+                    .fetch_add(1, Ordering::Release);
 
-                    return Some(worker_uuid);
-                }
+                return Some(worker_uuid);
+            }
 
-                _ => {}
+            _ => {
+                self.retire(&worker_uuid);
+                self.maybe_active_worker(service_path, force_create)
             }
         }
     }

@@ -21,7 +21,7 @@ pub async fn supervise(args: Arguments) -> ShutdownReason {
 
     let Timing {
         status: TimingStatus { demand, is_retired },
-        req: (mut req_start_rx, mut req_end_rx),
+        req: (_, mut req_end_rx),
     } = timing.unwrap_or_default();
 
     let is_retired = is_retired.unwrap();
@@ -51,12 +51,6 @@ pub async fn supervise(args: Arguments) -> ShutdownReason {
                 if !cpu_time_soft_limit_reached {
                     // retire worker
                     is_retired.raise();
-                    if let Some(tx) = pool_msg_tx.clone() {
-                        if tx.send(UserWorkerMsgs::Retire(key)).is_err() {
-                            error!("failed to send retire msg to pool: {:?}", key);
-                        }
-                    }
-
                     error!("CPU time soft limit reached. isolate: {:?}", key);
                     cpu_time_soft_limit_reached = true;
 
@@ -80,10 +74,6 @@ pub async fn supervise(args: Arguments) -> ShutdownReason {
                     error!("CPU time hard limit reached. isolate: {:?}", key);
                     return ShutdownReason::CPUTime;
                 }
-            }
-
-            Some(notify) = req_start_rx.recv() => {
-                notify.notify_one();
             }
 
             Some(_) = req_end_rx.recv() => {
@@ -119,11 +109,6 @@ pub async fn supervise(args: Arguments) -> ShutdownReason {
                 } else if wall_clock_alerts == 1 {
                     // retire worker
                     is_retired.raise();
-                    if let Some(tx) = pool_msg_tx.clone() {
-                        if tx.send(UserWorkerMsgs::Retire(key)).is_err() {
-                            error!("failed to send retire msg to pool: {:?}", key);
-                        }
-                    }
                     error!("wall clock duration warning. isolate: {:?}", key);
                     wall_clock_alerts += 1;
                 } else {

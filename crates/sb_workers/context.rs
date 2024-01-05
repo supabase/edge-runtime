@@ -141,7 +141,6 @@ pub enum UserWorkerMsgs {
         oneshot::Sender<Result<SendRequestResult, Error>>,
         Option<watch::Receiver<ConnSync>>,
     ),
-    Retire(Uuid),
     Idle(Uuid),
     Shutdown(Uuid),
 }

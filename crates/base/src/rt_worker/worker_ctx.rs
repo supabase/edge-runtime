@@ -431,9 +431,6 @@ pub async fn create_user_worker_pool(
                 Some(UserWorkerMsgs::SendRequest(key, req, res_tx, conn_watch)) => {
                     worker_pool.send_request(&key, req, res_tx, conn_watch);
                 }
-                Some(UserWorkerMsgs::Retire(key)) => {
-                    worker_pool.retire(&key);
-                }
                 Some(UserWorkerMsgs::Idle(key)) => {
                     worker_pool.idle(&key);
                 }

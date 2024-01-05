@@ -291,12 +291,9 @@ impl Resource for UserWorkerResponseBodyResource {
     fn close(self: Rc<Self>) {
         self.cancel.cancel();
 
-        let this = match Rc::try_unwrap(self) {
-            Ok(this) => this,
-            Err(this) => {
-                let _ = this.req_end_tx.send(());
-                return;
-            }
+        let _ = self.req_end_tx.send(());
+        let Ok(this) = Rc::try_unwrap(self) else {
+            return;
         };
 
         tokio::spawn(async move {
@@ -309,8 +306,6 @@ impl Resource for UserWorkerResponseBodyResource {
                     ),
                 }
             }
-
-            let _ = this.req_end_tx.send(());
         });
     }
 

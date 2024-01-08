@@ -54,11 +54,19 @@ impl<S: Stream + Unpin> Stream for NotifyOnEos<S> {
 
 struct WorkerService {
     worker_req_tx: mpsc::UnboundedSender<WorkerRequestMsg>,
+    cancel: CancellationToken,
 }
 
 impl WorkerService {
-    fn new(worker_req_tx: mpsc::UnboundedSender<WorkerRequestMsg>) -> Self {
-        Self { worker_req_tx }
+    fn new(worker_req_tx: mpsc::UnboundedSender<WorkerRequestMsg>) -> (Self, CancellationToken) {
+        let cancel = CancellationToken::new();
+        (
+            Self {
+                worker_req_tx,
+                cancel: cancel.clone(),
+            },
+            cancel,
+        )
     }
 }
 
@@ -73,7 +81,7 @@ impl Service<Request<Body>> for WorkerService {
 
     fn call(&mut self, req: Request<Body>) -> Self::Future {
         // create a response in a future.
-        let cancel = CancellationToken::new();
+        let cancel = self.cancel.child_token();
         let worker_req_tx = self.worker_req_tx.clone();
         let fut = async move {
             let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
@@ -83,7 +91,7 @@ impl Service<Request<Body>> for WorkerService {
             let msg = WorkerRequestMsg {
                 req,
                 res_tx,
-                conn_watch: Some(ob_conn_watch_rx),
+                conn_watch: Some(ob_conn_watch_rx.clone()),
             };
 
             worker_req_tx.send(msg)?;
@@ -235,7 +243,9 @@ impl Server {
                     match msg {
                         Ok((conn, _)) => {
                             tokio::task::spawn(async move {
-                                let service = WorkerService::new(main_worker_req_tx);
+                                let (service, cancel) = WorkerService::new(main_worker_req_tx);
+                                let _guard = cancel.drop_guard();
+
                                 let conn_fut = Http::new()
                                     .serve_connection(conn, service);
 
@@ -243,7 +253,11 @@ impl Server {
                                     // Most common cause for these errors are
                                     // when the client closes the connection
                                     // before we could send a response
-                                    error!("client connection error ({:?})", e);
+                                    if e.is_incomplete_message() {
+                                        debug!("connection reset ({:?})", e);
+                                    } else {
+                                        error!("client connection error ({:?})", e);
+                                    }
                                 }
                             });
                         }

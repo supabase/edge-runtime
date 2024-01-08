@@ -174,7 +174,7 @@ impl ActiveWorkerRegistry {
     fn mark_idle(&mut self, key: &Uuid, policy: SupervisorPolicy) {
         if let Some(WorkerId(key, mark)) = self.workers.get(key).cloned() {
             if policy.is_per_request() {
-                if mark != false {
+                if mark {
                     return;
                 }
 
@@ -578,7 +578,7 @@ impl WorkerPool {
                     .unwrap()
                     .fetch_add(1, Ordering::Release);
 
-                return Some(worker_uuid);
+                Some(worker_uuid)
             }
 
             _ => {

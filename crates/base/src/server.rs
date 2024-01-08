@@ -204,8 +204,10 @@ impl Server {
         )
         .await?;
 
-        // register alarm signal handler
-        cpu_timer::register_alarm()?;
+        if !cfg!(test) {
+            // register alarm signal handler
+            cpu_timer::register_alarm()?;
+        }
 
         let ip = Ipv4Addr::from_str(ip)?;
         Ok(Self {

@@ -534,11 +534,18 @@ impl WorkerPool {
     }
 
     fn retire(&mut self, key: &Uuid) {
-        if let Some(profile) = self.user_workers.get(key) {
+        if let Some(profile) = self.user_workers.get_mut(key) {
             let registry = self
                 .active_workers
                 .get_mut(&profile.service_path)
                 .expect("registry must be initialized at this point");
+
+            let _ = profile.permit.take();
+            let (notify_tx, _) = registry.notify_pair.clone();
+
+            for _ in 0..notify_tx.receiver_count() {
+                let _ = notify_tx.send(None);
+            }
 
             if registry.workers.contains(key) {
                 registry.workers.remove(key);

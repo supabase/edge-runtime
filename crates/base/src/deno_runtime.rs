@@ -709,7 +709,7 @@ mod test {
             .as_array()
             .unwrap()
             .to_vec();
-        assert_eq!(loadavg_array.get(0).unwrap().as_f64().unwrap(), 0.0);
+        assert_eq!(loadavg_array.first().unwrap().as_f64().unwrap(), 0.0);
         assert_eq!(loadavg_array.get(1).unwrap().as_f64().unwrap(), 0.0);
         assert_eq!(loadavg_array.get(2).unwrap().as_f64().unwrap(), 0.0);
 
@@ -728,7 +728,7 @@ mod test {
             .unwrap()
             .to_vec();
         assert_eq!(
-            deno_version_array.get(0).unwrap().as_str().unwrap(),
+            deno_version_array.first().unwrap().as_str().unwrap(),
             "supabase-edge-runtime-0.1.0"
         );
         assert_eq!(

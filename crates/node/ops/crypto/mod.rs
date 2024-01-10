@@ -410,16 +410,16 @@ pub fn op_node_verify(
             };
             Ok(match digest_type {
                 "sha224" => VerifyingKey::<sha2::Sha224>::new_with_prefix(key)
-                    .verify_prehash(digest, &signature.to_vec().try_into()?)
+                    .verify_prehash(digest, &signature.to_vec().into())
                     .is_ok(),
                 "sha256" => VerifyingKey::<sha2::Sha256>::new_with_prefix(key)
-                    .verify_prehash(digest, &signature.to_vec().try_into()?)
+                    .verify_prehash(digest, &signature.to_vec().into())
                     .is_ok(),
                 "sha384" => VerifyingKey::<sha2::Sha384>::new_with_prefix(key)
-                    .verify_prehash(digest, &signature.to_vec().try_into()?)
+                    .verify_prehash(digest, &signature.to_vec().into())
                     .is_ok(),
                 "sha512" => VerifyingKey::<sha2::Sha512>::new_with_prefix(key)
-                    .verify_prehash(digest, &signature.to_vec().try_into()?)
+                    .verify_prehash(digest, &signature.to_vec().into())
                     .is_ok(),
                 _ => {
                     return Err(type_error(format!(

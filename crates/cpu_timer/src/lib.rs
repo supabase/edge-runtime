@@ -118,7 +118,7 @@ impl CPUTimer {
     }
 
     #[cfg(not(target_os = "linux"))]
-    pub fn reset() -> Result<(), Error> {
+    pub fn reset(&self) -> Result<(), Error> {
         Ok(())
     }
 }

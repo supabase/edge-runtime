@@ -123,7 +123,7 @@ pub async fn supervise(args: Arguments) -> ShutdownReason {
                         // isolate.
                         req_ack_count == demand.load(Ordering::Acquire),
                     );
-
+                    error!("wall clock duration reached. isolate: {:?}", key);
                     return ShutdownReason::WallClockTime;
                 }
             }

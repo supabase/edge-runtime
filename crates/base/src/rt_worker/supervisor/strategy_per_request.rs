@@ -55,8 +55,8 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> ShutdownReason {
 
                 notify.notify_one();
 
-                if let Some(x) = cpu_timer.as_ref() {
-                    if let Err(ex) = x.reset() {
+                if let Some(cpu_timer) = cpu_timer.as_ref() {
+                    if let Err(ex) = cpu_timer.reset() {
                         error!("cannot reset the cpu timer: {}", ex);
                     }
                 }
@@ -100,7 +100,7 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> ShutdownReason {
                 continue;
             }
 
-            Some(x) => {
+            Some(reason) => {
                 thread_safe_handle.request_interrupt(
                     handle_interrupt,
                     Box::into_raw(Box::new(IsolateInterruptData {
@@ -109,7 +109,7 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> ShutdownReason {
                     })) as *mut std::ffi::c_void,
                 );
 
-                return x;
+                return reason;
             }
 
             None => continue,

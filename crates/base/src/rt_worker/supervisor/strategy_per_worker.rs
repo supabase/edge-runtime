@@ -43,6 +43,21 @@ pub async fn supervise(args: Arguments) -> ShutdownReason {
             .unwrap_or(Duration::from_millis(0)),
     );
 
+    let interrupt_fn = {
+        let thread_safe_handle = thread_safe_handle.clone();
+        move |should_terminate: bool| {
+            let interrupt_data = IsolateInterruptData {
+                should_terminate,
+                isolate_memory_usage_tx,
+            };
+
+            thread_safe_handle.request_interrupt(
+                handle_interrupt,
+                Box::into_raw(Box::new(interrupt_data)) as *mut std::ffi::c_void,
+            );
+        }
+    };
+
     tokio::pin!(wall_clock_duration_alert);
 
     loop {
@@ -55,22 +70,13 @@ pub async fn supervise(args: Arguments) -> ShutdownReason {
                     cpu_time_soft_limit_reached = true;
 
                     if req_ack_count == demand.load(Ordering::Acquire) {
-                        let interrupt_data = IsolateInterruptData {
-                            should_terminate: true,
-                            isolate_memory_usage_tx
-                        };
-
-                        thread_safe_handle.request_interrupt(handle_interrupt, Box::into_raw(Box::new(interrupt_data)) as *mut std::ffi::c_void);
+                        interrupt_fn(true);
                         error!("early termination due to the last request being completed. isolate: {:?}", key);
                         return ShutdownReason::EarlyDrop;
                     }
                 } else {
                     // shutdown worker
-                    let interrupt_data = IsolateInterruptData {
-                        should_terminate: true,
-                        isolate_memory_usage_tx
-                    };
-                    thread_safe_handle.request_interrupt(handle_interrupt, Box::into_raw(Box::new(interrupt_data)) as *mut std::ffi::c_void);
+                    interrupt_fn(true);
                     error!("CPU time hard limit reached. isolate: {:?}", key);
                     return ShutdownReason::CPUTime;
                 }
@@ -91,12 +97,7 @@ pub async fn supervise(args: Arguments) -> ShutdownReason {
                     continue;
                 }
 
-                let interrupt_data = IsolateInterruptData {
-                    should_terminate: true,
-                    isolate_memory_usage_tx
-                };
-
-                thread_safe_handle.request_interrupt(handle_interrupt, Box::into_raw(Box::new(interrupt_data)) as *mut std::ffi::c_void);
+                interrupt_fn(true);
                 error!("early termination due to the last request being completed. isolate: {:?}", key);
                 return ShutdownReason::EarlyDrop;
             }
@@ -115,27 +116,21 @@ pub async fn supervise(args: Arguments) -> ShutdownReason {
                     // wall-clock limit reached
                     // Don't terminate isolate from supervisor when wall-clock
                     // duration reached. It's dropped in deno_runtime.rs
-                    let interrupt_data = IsolateInterruptData {
+                    interrupt_fn(
                         // NOTE: Wall clock is also triggered when no more
                         // pending requests, so we must compare the request
                         // count here to judge whether we need to terminate the
                         // isolate.
-                        should_terminate: req_ack_count == demand.load(Ordering::Acquire),
-                        isolate_memory_usage_tx
-                    };
-                    thread_safe_handle.request_interrupt(handle_interrupt, Box::into_raw(Box::new(interrupt_data)) as *mut std::ffi::c_void);
-                    error!("wall clock duration reached. isolate: {:?}", key);
+                        req_ack_count == demand.load(Ordering::Acquire),
+                    );
+
                     return ShutdownReason::WallClockTime;
                 }
             }
 
             // memory usage
             Some(_) = memory_limit_rx.recv() => {
-                let interrupt_data = IsolateInterruptData {
-                    should_terminate: true,
-                    isolate_memory_usage_tx
-                };
-                thread_safe_handle.request_interrupt(handle_interrupt, Box::into_raw(Box::new(interrupt_data)) as *mut std::ffi::c_void);
+                interrupt_fn(true);
                 error!("memory limit reached for the worker. isolate: {:?}", key);
                 return ShutdownReason::Memory;
             }

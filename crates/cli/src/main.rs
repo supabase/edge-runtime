@@ -13,6 +13,7 @@ use sb_graph::import_map::load_import_map;
 use sb_graph::{extract_from_file, generate_binary_eszip};
 use std::fs::File;
 use std::io::Write;
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -75,7 +76,25 @@ fn cli() -> Command {
                 )
                 .arg(
                     arg!(--"request-wait-timeout" <MILLISECONDS> "Maximum time in milliseconds that can wait to establish a connection with a worker")
-                    .value_parser(value_parser!(u64))
+                        .value_parser(value_parser!(u64))
+                )
+                .arg(
+                    arg!(--"inspect" [HOST_AND_PORT] "Activate inspector on host:port (default: 127.0.0.1:9229)")
+                        .num_args(0..=1)
+                        .require_equals(true)
+                        .value_parser(value_parser!(SocketAddr))
+                )
+                .arg(
+                    arg!(--"inspect-brk" [HOST_AND_PORT] "Activate inspector on host:port, wait for debugger to connect and break at the start of user script")
+                        .num_args(0..=1)
+                        .require_equals(true)
+                        .value_parser(value_parser!(SocketAddr))
+                )
+                .arg(
+                    arg!(--"inspect-wait" [HOST_AND_PORT] "Activate inspector on host:port and wait for debugger to connect before running user code")
+                        .num_args(0..=1)
+                        .require_equals(true)
+                        .value_parser(value_parser!(SocketAddr))
                 )
         )
         .subcommand(

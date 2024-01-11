@@ -460,6 +460,17 @@ impl WorkerPool {
                         let fence = Arc::new(Notify::const_new());
 
                         if let Err(ex) = req_start_tx.send(fence.clone()) {
+                            // NOTE(Nyannyacha): The only way to be trapped in
+                            // this branch is if the supervisor associated with
+                            // the isolate has been terminated for some reason,
+                            // such as a wall-clock timeout.
+                            //
+                            // It can be expected enough if many isolates are
+                            // created at once due to requests rapidly
+                            // increasing.
+                            //
+                            // To prevent this, we must give a wall-clock time
+                            // limit enough to each supervisor.
                             error!("failed to notify the fence to the supervisor");
                             return Err(ex)
                                 .with_context(|| "failed to notify the fence to the supervisor");

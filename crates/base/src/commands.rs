@@ -16,6 +16,7 @@ pub async fn start_server(
     user_worker_policy: Option<WorkerPoolPolicy>,
     import_map_path: Option<String>,
     no_module_cache: bool,
+    no_signal_handler: bool,
     callback_tx: Option<Sender<ServerCodes>>,
     entrypoints: WorkerEntrypoints,
 ) -> Result<(), Error> {
@@ -34,6 +35,7 @@ pub async fn start_server(
         user_worker_policy,
         import_map_path,
         no_module_cache,
+        no_signal_handler,
         callback_tx,
         entrypoints,
     )

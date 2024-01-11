@@ -24,7 +24,7 @@ pub async fn supervise(args: Arguments) -> ShutdownReason {
         req: (_, mut req_end_rx),
     } = timing.unwrap_or_default();
 
-    let is_retired = is_retired.unwrap();
+    let is_retired = is_retired.unwrap_or_default();
 
     let mut cpu_time_soft_limit_reached = false;
     let mut wall_clock_alerts = 0;

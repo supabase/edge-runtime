@@ -122,7 +122,7 @@ pub fn create_supervisor(
         let (cpu_alarms_tx, cpu_alarms_rx) = mpsc::unbounded_channel::<()>();
 
         (
-            if !cfg!(test) && conf.cpu_time_soft_limit_ms != 0 && conf.cpu_time_hard_limit_ms != 0 {
+            if conf.cpu_time_soft_limit_ms != 0 && conf.cpu_time_hard_limit_ms != 0 {
                 Some(CPUTimer::start(
                     if supervisor_policy.is_per_worker() {
                         conf.cpu_time_soft_limit_ms
@@ -174,12 +174,11 @@ pub fn create_supervisor(
             }
         };
 
-        if !cfg!(test) {
-            // NOTE: It's not a big deal in unit testing because it is nothing
-            // but sending just a message to the pooler that it is the user
-            // worker going disposed down and will not accept awaiting
-            // subsequent requests and they must be re-polled again.
-            cancel.as_ref().unwrap().notify_waiters();
+        // NOTE: Sending a signal to the pooler that it is the user worker going
+        // disposed down and will not accept awaiting subsequent requests, so
+        // they must be re-polled again.
+        if let Some(cancel) = cancel.as_ref() {
+            cancel.notify_waiters();
         }
 
         // NOTE: If we issue a hard CPU time limit, It's OK because it is

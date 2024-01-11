@@ -4,7 +4,7 @@ use anyhow::{anyhow, bail, Error};
 use base::commands::start_server;
 use base::rt_worker::worker_pool::{SupervisorPolicy, WorkerPoolPolicy};
 use base::server::WorkerEntrypoints;
-use clap::builder::FalseyValueParser;
+use clap::builder::{FalseyValueParser, TypedValueParser};
 use clap::{arg, crate_version, value_parser, ArgAction, Command};
 use deno_core::url::Url;
 use sb_graph::emitter::EmitterFactory;
@@ -65,7 +65,12 @@ fn cli() -> Command {
                 )
                 .arg(
                     arg!(--"max-parallelism" <COUNT> "Maximum count of workers that can exist in the worker pool simultaneously")
-                        .value_parser(value_parser!(usize))
+                        .value_parser(
+                            // NOTE: Acceptable bounds were chosen arbitrarily.
+                            value_parser!(u32)
+                                .range(1..9999)
+                                .map(|it| -> usize { it as usize })
+                        )
                 )
                 .arg(
                     arg!(--"request-wait-timeout" <MILLISECONDS> "Maximum time in milliseconds that can wait to establish a connection with a worker")

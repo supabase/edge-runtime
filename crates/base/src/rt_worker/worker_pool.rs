@@ -4,7 +4,7 @@ use enum_as_inner::EnumAsInner;
 use event_worker::events::WorkerEventWithMetadata;
 use http::Request;
 use hyper::Body;
-use log::{error, trace};
+use log::error;
 use sb_core::conn_sync::ConnSync;
 use sb_core::util::sync::AtomicFlag;
 use sb_workers::context::{

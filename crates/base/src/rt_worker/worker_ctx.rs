@@ -72,6 +72,7 @@ async fn handle_request(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn create_supervisor(
     key: Uuid,
     worker_runtime: &mut DenoRuntime,

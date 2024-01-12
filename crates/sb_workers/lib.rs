@@ -420,14 +420,16 @@ pub async fn op_user_worker_fetch_send(
     ))?;
 
     let result = result_rx.await?;
-    if result.is_err() {
-        return Err(custom_error(
-            "InvalidWorkerResponse",
-            "user worker failed to respond",
-        ));
-    }
-
-    let (result, req_end_tx) = result.unwrap();
+    let (result, req_end_tx) = match result {
+        Ok((result, req_end_tx)) => (result, req_end_tx),
+        Err(err) => {
+            error!("user worker failed to respond: {}", err);
+            return Err(custom_error(
+                "InvalidWorkerResponse",
+                "user worker failed to respond",
+            ));
+        }
+    };
 
     let mut headers = vec![];
     for (key, value) in result.headers().iter() {

@@ -96,7 +96,7 @@ impl Worker {
             rt::WORKER_RT.spawn_pinned(move || {
                 tokio::task::spawn_local(async move {
                     let (maybe_cpu_usage_metrics_tx, maybe_cpu_usage_metrics_rx) = is_user_worker
-                        .then(|| unbounded_channel::<CPUUsageMetrics>())
+                        .then(unbounded_channel::<CPUUsageMetrics>)
                         .unzip();
 
                     let result = match DenoRuntime::new(opts).await {

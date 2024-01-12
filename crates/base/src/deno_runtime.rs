@@ -1,6 +1,8 @@
+use crate::rt_worker::supervisor::CPUUsageMetrics;
 use crate::utils::units::mib_to_bytes;
 
-use anyhow::{anyhow, bail, Error};
+use anyhow::{anyhow, bail, Context, Error};
+use cpu_timer::get_thread_time;
 use deno_core::error::AnyError;
 use deno_core::url::Url;
 use deno_core::{located_script_name, serde_v8, JsRuntime, ModuleCode, ModuleId, RuntimeOptions};
@@ -9,13 +11,15 @@ use deno_tls::rustls;
 use deno_tls::rustls::RootCertStore;
 use deno_tls::rustls_native_certs::load_native_certs;
 use deno_tls::RootCertStoreProvider;
-use log::error;
+use futures_util::future::poll_fn;
+use log::{error, trace};
 use sb_core::conn_sync::ConnSync;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
 use std::fmt;
 use std::os::fd::RawFd;
 use std::sync::Arc;
+use std::task::Poll;
 use tokio::net::UnixStream;
 use tokio::sync::{mpsc, watch};
 
@@ -87,6 +91,8 @@ impl DenoRuntime {
         let base_dir_path = std::env::current_dir().map(|p| p.join(&service_path))?;
         let base_url = Url::from_directory_path(&base_dir_path).unwrap();
 
+        let is_user_worker = conf.is_user_worker();
+
         // TODO: check for other potential main paths (eg: index.js, index.tsx)
         let mut main_module_url = base_url.join("index.ts")?;
         let is_some_entry_point = maybe_entrypoint.is_some();
@@ -96,7 +102,7 @@ impl DenoRuntime {
 
         let mut net_access_disabled = false;
         let mut allow_remote_modules = true;
-        if conf.is_user_worker() {
+        if is_user_worker {
             let user_conf = conf.as_user_worker().unwrap();
             net_access_disabled = user_conf.net_access_disabled;
             allow_remote_modules = user_conf.allow_remote_modules;
@@ -185,7 +191,7 @@ impl DenoRuntime {
             Arc::new(ValueRootCertStoreProvider::new(root_cert_store.clone()));
 
         let mut stdio = Some(Default::default());
-        if conf.is_user_worker() {
+        if is_user_worker {
             stdio = Some(deno_io::Stdio {
                 stdin: deno_io::StdioPipe::File(std::fs::File::create("/dev/null")?),
                 stdout: deno_io::StdioPipe::File(std::fs::File::create("/dev/null")?),
@@ -344,7 +350,8 @@ impl DenoRuntime {
     pub async fn run(
         &mut self,
         unix_stream_rx: mpsc::UnboundedReceiver<(UnixStream, Option<watch::Receiver<ConnSync>>)>,
-    ) -> Result<(), Error> {
+        maybe_cpu_usage_metrics_tx: Option<mpsc::UnboundedSender<CPUUsageMetrics>>,
+    ) -> (Result<(), Error>, i64) {
         {
             let op_state_rc = self.js_runtime.op_state();
             let mut op_state = op_state_rc.borrow_mut();
@@ -362,8 +369,77 @@ impl DenoRuntime {
 
         let js_runtime = &mut self.js_runtime;
         let mod_result_rx = js_runtime.mod_evaluate(self.main_module_id);
+        let is_user_worker = self.conf.is_user_worker();
 
-        match js_runtime.run_event_loop(false).await {
+        #[cfg(debug_assertions)]
+        let current_thread_id = std::thread::current().id();
+        let mut current_cpu_time_ns = 0i64;
+        let mut accumulated_cpu_time_ns = 0i64;
+
+        // NOTE: This is unnecessary on the LIFO task scheduler that can't steal
+        // the task from the other threads.
+        // let mut current_thread_id = std::thread::current().id();
+
+        let result = match poll_fn(|cx| {
+            // INVARIANT: Only can steal current task by other threads when LIFO
+            // task scheduler heuristic disabled. Turning off the heuristic is
+            // unstable now, so it's not considered.
+            #[cfg(debug_assertions)]
+            assert_eq!(current_thread_id, std::thread::current().id());
+
+            let thread_id = std::thread::current().id();
+            let send_cpu_metrics_fn = |metric: CPUUsageMetrics| {
+                if let Some(cpu_metric_tx) = maybe_cpu_usage_metrics_tx.as_ref() {
+                    if let Err(err) = cpu_metric_tx.send(metric) {
+                        return Err(anyhow!("can't send cpu metrics to supervisor: {}", err));
+                    }
+                }
+
+                Ok(())
+            };
+
+            let get_current_cpu_time_ns_fn =
+                || get_thread_time().context("can't get current thread time");
+
+            match send_cpu_metrics_fn(CPUUsageMetrics::Enter(thread_id)) {
+                Err(err) => return Poll::Ready(Err(err)),
+                _ => {}
+            }
+
+            current_cpu_time_ns = match get_current_cpu_time_ns_fn() {
+                Ok(value) => value,
+                Err(err) => return Poll::Ready(Err(err)),
+            };
+
+            let poll_result = js_runtime.poll_event_loop(cx, false);
+
+            let cpu_time_after_poll_ns = match get_current_cpu_time_ns_fn() {
+                Ok(value) => value,
+                Err(err) => return Poll::Ready(Err(err)),
+            };
+
+            let diff_cpu_time_ns = cpu_time_after_poll_ns - current_cpu_time_ns;
+
+            accumulated_cpu_time_ns += diff_cpu_time_ns;
+            current_cpu_time_ns = current_cpu_time_ns;
+
+            match send_cpu_metrics_fn(CPUUsageMetrics::Leave(accumulated_cpu_time_ns)) {
+                Err(err) => return Poll::Ready(Err(err)),
+                _ => {}
+            }
+
+            if is_user_worker {
+                trace!(
+                    "thread_id: {:?}, accumulated_cpu_time: {}ms",
+                    thread_id,
+                    accumulated_cpu_time_ns / 1_000_000
+                );
+            }
+
+            poll_result
+        })
+        .await
+        {
             Err(err) => Err(anyhow!("event loop error: {}", err)),
             Ok(_) => match mod_result_rx.await {
                 Err(_) => Err(anyhow!("mod result sender dropped")),
@@ -373,7 +449,9 @@ impl DenoRuntime {
                 }
                 Ok(Ok(_)) => Ok(()),
             },
-        }
+        };
+
+        (result, accumulated_cpu_time_ns)
     }
 
     #[allow(clippy::wrong_self_convention)]
@@ -879,7 +957,7 @@ mod test {
         let (_tx, unix_stream_rx) =
             mpsc::unbounded_channel::<(UnixStream, Option<watch::Receiver<ConnSync>>)>();
 
-        let result = user_rt.run(unix_stream_rx).await;
+        let (result, _) = user_rt.run(unix_stream_rx, None).await;
         match result {
             Err(err) => {
                 assert!(err
@@ -895,7 +973,7 @@ mod test {
         let mut user_rt = create_basic_user_runtime("./test_cases/array_buffers", 20, 1000).await;
         let (_tx, unix_stream_rx) =
             mpsc::unbounded_channel::<(UnixStream, Option<watch::Receiver<ConnSync>>)>();
-        let result = user_rt.run(unix_stream_rx).await;
+        let (result, _) = user_rt.run(unix_stream_rx, None).await;
         assert!(result.is_ok(), "expected no errors");
     }
 
@@ -904,7 +982,7 @@ mod test {
         let mut user_rt = create_basic_user_runtime("./test_cases/array_buffers", 15, 1000).await;
         let (_tx, unix_stream_rx) =
             mpsc::unbounded_channel::<(UnixStream, Option<watch::Receiver<ConnSync>>)>();
-        let result = user_rt.run(unix_stream_rx).await;
+        let (result, _) = user_rt.run(unix_stream_rx, None).await;
         match result {
             Err(err) => {
                 assert!(err

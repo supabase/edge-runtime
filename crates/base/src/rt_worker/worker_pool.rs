@@ -1,5 +1,6 @@
 use crate::rt_worker::worker_ctx::{create_worker, send_user_worker_request};
 use anyhow::{anyhow, Context, Error};
+use enum_as_inner::EnumAsInner;
 use event_worker::events::WorkerEventWithMetadata;
 use http::Request;
 use hyper::Body;
@@ -16,13 +17,12 @@ use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use strum::EnumIs;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::oneshot::Sender;
 use tokio::sync::{mpsc, watch, Notify, OwnedSemaphorePermit, Semaphore, TryAcquireError};
 use uuid::Uuid;
 
-#[derive(Clone, Copy, EnumIs)]
+#[derive(Clone, Copy, EnumAsInner)]
 pub enum SupervisorPolicy {
     PerWorker,
     PerRequest { oneshot: bool },

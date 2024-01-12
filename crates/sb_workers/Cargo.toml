@@ -20,8 +20,8 @@ hyper.workspace = true
 serde.workspace = true
 bytes.workspace = true
 log.workspace = true
+enum-as-inner.workspace = true
 futures-util.workspace = true
 event_worker = { version = "0.1.0", path = "../event_worker" }
 sb_graph = { version = "0.1.0", path = "../sb_graph" }
 sb_core = { version = "0.1.0", path = "../sb_core" }
-enum-as-inner = "0.6.0"

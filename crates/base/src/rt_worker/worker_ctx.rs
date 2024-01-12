@@ -5,13 +5,12 @@ use crate::utils::units::bytes_to_display;
 use crate::rt_worker::worker::{Worker, WorkerHandler};
 use crate::rt_worker::worker_pool::WorkerPool;
 use anyhow::{anyhow, bail, Error};
-use cpu_timer::{CPUAlarmVal, CPUTimer};
+use cpu_timer::CPUTimer;
 use event_worker::events::{
     BootEvent, ShutdownEvent, WorkerEventWithMetadata, WorkerEvents, WorkerMemoryUsed,
 };
 use hyper::{Body, Request, Response};
 use log::{debug, error};
-use once_cell::sync::Lazy;
 use sb_core::conn_sync::ConnSync;
 use sb_graph::EszipPayloadKind;
 use sb_workers::context::{
@@ -21,20 +20,13 @@ use sb_workers::context::{
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::net::UnixStream;
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::{mpsc, oneshot, watch, Notify};
 use uuid::Uuid;
 
-use super::supervisor;
+use super::rt;
+use super::supervisor::{self, CPUTimerParam, CPUUsageMetrics};
 use super::worker_pool::{SupervisorPolicy, WorkerPoolPolicy};
-
-static SUPERVISOR_RT: Lazy<tokio::runtime::Runtime> = Lazy::new(|| {
-    tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .thread_name("sb-supervisor")
-        .build()
-        .unwrap()
-});
 
 async fn handle_request(
     unix_stream_tx: mpsc::UnboundedSender<(UnixStream, Option<watch::Receiver<ConnSync>>)>,
@@ -86,6 +78,7 @@ pub fn create_supervisor(
     supervisor_policy: SupervisorPolicy,
     termination_event_tx: oneshot::Sender<WorkerEvents>,
     pool_msg_tx: Option<UnboundedSender<UserWorkerMsgs>>,
+    cpu_usage_metrics_rx: Option<UnboundedReceiver<CPUUsageMetrics>>,
     cancel: Option<Arc<Notify>>,
     timing: Option<Timing>,
 ) -> Result<Option<CPUTimer>, Error> {
@@ -118,108 +111,93 @@ pub fn create_supervisor(
     });
 
     // Note: CPU timer must be started in the same thread as the worker runtime
-    let (cpu_timer, cpu_alarms_rx) = {
-        let (cpu_alarms_tx, cpu_alarms_rx) = mpsc::unbounded_channel::<()>();
 
-        (
-            if conf.cpu_time_soft_limit_ms != 0 && conf.cpu_time_hard_limit_ms != 0 {
-                Some(CPUTimer::start(
-                    if supervisor_policy.is_per_worker() {
-                        conf.cpu_time_soft_limit_ms
-                    } else {
-                        conf.cpu_time_hard_limit_ms
-                    },
-                    if supervisor_policy.is_per_request() {
-                        0
-                    } else {
-                        conf.cpu_time_hard_limit_ms
-                    },
-                    CPUAlarmVal { cpu_alarms_tx },
-                )?)
-            } else {
-                None
-            },
-            cpu_alarms_rx,
-        )
-    };
+    let cpu_timer_param =
+        CPUTimerParam::new(conf.cpu_time_soft_limit_ms, conf.cpu_time_hard_limit_ms);
 
-    let cpu_timer_inner = cpu_timer.clone();
-    let _rt_guard = SUPERVISOR_RT.enter();
+    let (maybe_cpu_timer, maybe_cpu_alarms_rx) =
+        cpu_timer_param.get_cpu_timer(supervisor_policy).unzip();
 
-    drop(tokio::spawn(async move {
-        let (isolate_memory_usage_tx, isolate_memory_usage_rx) =
-            oneshot::channel::<supervisor::IsolateMemoryStats>();
+    drop({
+        let _rt_guard = rt::SUPERVISOR_RT.enter();
+        let maybe_cpu_timer_inner = maybe_cpu_timer.clone();
 
-        let args = supervisor::Arguments {
-            key,
-            runtime_opts: conf.clone(),
-            cpu_timer: cpu_timer_inner,
-            supervisor_policy,
-            cpu_alarms_rx,
-            timing,
-            memory_limit_rx,
-            pool_msg_tx,
-            isolate_memory_usage_tx,
-            thread_safe_handle,
-            waker: waker.clone(),
-        };
+        tokio::spawn(async move {
+            let (isolate_memory_usage_tx, isolate_memory_usage_rx) =
+                oneshot::channel::<supervisor::IsolateMemoryStats>();
 
-        let reason = {
-            use supervisor::*;
-            match supervisor_policy {
-                SupervisorPolicy::PerWorker => strategy_per_worker::supervise(args).await,
-                SupervisorPolicy::PerRequest { oneshot } => {
-                    strategy_per_request::supervise(args, oneshot).await
+            let args = supervisor::Arguments {
+                key,
+                runtime_opts: conf.clone(),
+                cpu_timer: maybe_cpu_timer_inner.zip(maybe_cpu_alarms_rx),
+                cpu_usage_metrics_rx,
+                cpu_timer_param,
+                supervisor_policy,
+                timing,
+                memory_limit_rx,
+                pool_msg_tx,
+                isolate_memory_usage_tx,
+                thread_safe_handle,
+                waker: waker.clone(),
+            };
+
+            let (reason, cpu_usage_ms) = {
+                use supervisor::*;
+                match supervisor_policy {
+                    SupervisorPolicy::PerWorker => strategy_per_worker::supervise(args).await,
+                    SupervisorPolicy::PerRequest { oneshot } => {
+                        strategy_per_request::supervise(args, oneshot).await
+                    }
                 }
+            };
+
+            // NOTE: Sending a signal to the pooler that it is the user worker going
+            // disposed down and will not accept awaiting subsequent requests, so
+            // they must be re-polled again.
+            if let Some(cancel) = cancel.as_ref() {
+                cancel.notify_waiters();
             }
-        };
 
-        // NOTE: Sending a signal to the pooler that it is the user worker going
-        // disposed down and will not accept awaiting subsequent requests, so
-        // they must be re-polled again.
-        if let Some(cancel) = cancel.as_ref() {
-            cancel.notify_waiters();
-        }
+            // NOTE: If we issue a hard CPU time limit, It's OK because it is
+            // still possible the worker's context is in the v8 event loop. The
+            // interrupt callback would be invoked from the V8 engine
+            // gracefully. But some case doesn't.
+            //
+            // Such as the worker going to a retired state due to the soft CPU
+            // time limit but not hitting the hard CPU time limit. In this case,
+            // we must wake up the worker's event loop manually. Otherwise, the
+            // supervisor has to wait until the wall clock future that we placed
+            // out on the runtime side is times out.
+            waker.wake();
 
-        // NOTE: If we issue a hard CPU time limit, It's OK because it is
-        // still possible the worker's context is in the v8 event loop. The
-        // interrupt callback would be invoked from the V8 engine
-        // gracefully. But some case doesn't.
-        //
-        // Such as the worker going to a retired state due to the soft CPU
-        // time limit but not hitting the hard CPU time limit. In this case,
-        // we must wake up the worker's event loop manually. Otherwise, the
-        // supervisor has to wait until the wall clock future that we placed
-        // out on the runtime side is times out.
-        waker.wake();
-
-        let memory_used = match isolate_memory_usage_rx.await {
-            Ok(v) => WorkerMemoryUsed {
-                total: v.used_heap_size + v.external_memory,
-                heap: v.used_heap_size,
-                external: v.external_memory,
-            },
-            Err(_) => {
-                error!("isolate memory usage sender dropped");
-                WorkerMemoryUsed {
-                    total: 0,
-                    heap: 0,
-                    external: 0,
+            let memory_used = match isolate_memory_usage_rx.await {
+                Ok(v) => WorkerMemoryUsed {
+                    total: v.used_heap_size + v.external_memory,
+                    heap: v.used_heap_size,
+                    external: v.external_memory,
+                },
+                Err(_) => {
+                    error!("isolate memory usage sender dropped");
+                    WorkerMemoryUsed {
+                        total: 0,
+                        heap: 0,
+                        external: 0,
+                    }
                 }
-            }
-        };
+            };
 
-        // send termination reason
-        let termination_event = WorkerEvents::Shutdown(ShutdownEvent {
-            reason,
-            memory_used,
-            cpu_time_used: 0, // this will be set later
-        });
+            // send termination reason
+            let termination_event = WorkerEvents::Shutdown(ShutdownEvent {
+                reason,
+                memory_used,
+                cpu_time_used: cpu_usage_ms as usize,
+            });
 
-        let _ = termination_event_tx.send(termination_event);
-    }));
+            let _ = termination_event_tx.send(termination_event);
+        })
+    });
 
-    Ok(cpu_timer)
+    Ok(maybe_cpu_timer)
 }
 
 pub struct CreateWorkerArgs(WorkerContextInitOpts, Option<SupervisorPolicy>);

@@ -31,8 +31,6 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
     let (cpu_timer, mut cpu_alarms_rx) = cpu_timer.unzip();
     let (soft_limit_ms, hard_limit_ms) = cpu_timer_param.limits();
 
-    let is_retired = is_retired.unwrap_or_default();
-
     let mut current_thread_id = Option::<ThreadId>::None;
     let mut is_worker_entered = false;
     let mut cpu_usage_metrics_rx = cpu_usage_metrics_rx.unwrap();

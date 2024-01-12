@@ -4,7 +4,7 @@ use enum_as_inner::EnumAsInner;
 use event_worker::events::WorkerEventWithMetadata;
 use http::Request;
 use hyper::Body;
-use log::error;
+use log::{error, trace};
 use sb_core::conn_sync::ConnSync;
 use sb_core::util::sync::AtomicFlag;
 use sb_workers::context::{
@@ -375,7 +375,7 @@ impl WorkerPool {
 
             let status = TimingStatus {
                 demand: Arc::new(AtomicUsize::new(0)),
-                is_retired: Some(Arc::new(AtomicFlag::default())),
+                is_retired: Arc::new(AtomicFlag::default()),
             };
 
             let (req_end_timing_tx, req_end_timing_rx) = mpsc::unbounded_channel::<()>();
@@ -506,6 +506,7 @@ impl WorkerPool {
 
                 Ok(())
             }
+
             None => {
                 if res_tx
                     .send(Err(anyhow!("user worker not available")))
@@ -576,10 +577,6 @@ impl WorkerPool {
         let policy = self.policy.supervisor_policy;
         let mut advance_fn = move || registry.mark_used_and_try_advance(policy).copied();
 
-        if policy.is_per_request() {
-            return advance_fn();
-        }
-
         let Some(worker_uuid) = advance_fn() else {
             return None;
         };
@@ -587,7 +584,7 @@ impl WorkerPool {
         match self
             .user_workers
             .get(&worker_uuid)
-            .and_then(|it| it.status.is_retired.as_ref())
+            .map(|it| it.status.is_retired.clone())
         {
             Some(is_retired) if !is_retired.is_raised() => {
                 self.user_workers

@@ -1,8 +1,8 @@
-use std::{thread::ThreadId, time::Duration};
+use std::{sync::atomic::Ordering, thread::ThreadId, time::Duration};
 
 use event_worker::events::ShutdownReason;
 use log::error;
-use sb_workers::context::{Timing, UserWorkerMsgs};
+use sb_workers::context::{Timing, TimingStatus, UserWorkerMsgs};
 use tokio::time::Instant;
 
 use crate::rt_worker::supervisor::{
@@ -27,6 +27,7 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
     } = args;
 
     let Timing {
+        status: TimingStatus { demand, is_retired },
         req: (mut req_start_rx, mut req_end_rx),
         ..
     } = timing.unwrap_or_default();
@@ -40,6 +41,7 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
     let mut cpu_usage_ms = 0i64;
 
     let mut complete_reason = None::<ShutdownReason>;
+    let mut req_ack_count = 0usize;
     let mut req_start_ack = false;
 
     // reduce 100ms from wall clock duration, so the interrupt can be handled before
@@ -118,12 +120,22 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
                 // request start signal has arrived during the same request
                 // cycle.
                 assert!(req_start_ack, "supervisor observed the request end signal but did not see request start signal");
+
+                req_ack_count += 1;
                 complete_reason = Some(ShutdownReason::EarlyDrop);
             }
 
             _ = &mut wall_clock_duration_alert => {
-                error!("wall clock duraiton reached. isolate: {:?}", key);
-                complete_reason = Some(ShutdownReason::WallClockTime);
+                if req_ack_count != demand.load(Ordering::Acquire) {
+                    wall_clock_duration_alert
+                        .as_mut()
+                        .reset(Instant::now() + wall_clock_duration);
+
+                    continue;
+                } else {
+                    error!("wall clock duraiton reached. isolate: {:?}", key);
+                    complete_reason = Some(ShutdownReason::WallClockTime);
+                }
             }
 
             Some(_) = memory_limit_rx.recv() => {
@@ -149,6 +161,7 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
             }
 
             Some(reason) => {
+                is_retired.raise();
                 thread_safe_handle.request_interrupt(
                     handle_interrupt,
                     Box::into_raw(Box::new(IsolateInterruptData {

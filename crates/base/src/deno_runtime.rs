@@ -281,7 +281,6 @@ impl DenoRuntime {
         };
 
         let mut js_runtime = JsRuntime::new(runtime_options);
-
         let version: Option<&str> = option_env!("GIT_V_TAG");
 
         // Bootstrapping stage
@@ -335,9 +334,15 @@ impl DenoRuntime {
             op_state.put::<sb_env::EnvVars>(env_vars);
         }
 
-        let main_module_id = js_runtime
+        let mut js_runtime_mut = scopeguard::guard(&mut js_runtime, |it| unsafe {
+            it.v8_isolate().exit();
+        });
+
+        let main_module_id = js_runtime_mut
             .load_main_module(&main_module_url, mod_code)
             .await?;
+
+        drop(js_runtime_mut);
 
         Ok(Self {
             js_runtime,
@@ -351,6 +356,7 @@ impl DenoRuntime {
         &mut self,
         unix_stream_rx: mpsc::UnboundedReceiver<(UnixStream, Option<watch::Receiver<ConnSync>>)>,
         maybe_cpu_usage_metrics_tx: Option<mpsc::UnboundedSender<CPUUsageMetrics>>,
+        name: Option<String>,
     ) -> (Result<(), Error>, i64) {
         {
             let op_state_rc = self.js_runtime.op_state();
@@ -367,7 +373,7 @@ impl DenoRuntime {
             }
         }
 
-        let js_runtime = &mut self.js_runtime;
+        let mut js_runtime = &mut self.js_runtime;
         let mod_result_rx = js_runtime.mod_evaluate(self.main_module_id);
         let is_user_worker = self.conf.is_user_worker();
 
@@ -390,21 +396,19 @@ impl DenoRuntime {
             let thread_id = std::thread::current().id();
             let send_cpu_metrics_fn = |metric: CPUUsageMetrics| {
                 if let Some(cpu_metric_tx) = maybe_cpu_usage_metrics_tx.as_ref() {
-                    if let Err(err) = cpu_metric_tx.send(metric) {
-                        return Err(anyhow!("can't send cpu metrics to supervisor: {}", err));
-                    }
+                    let _ = cpu_metric_tx.send(metric);
                 }
-
-                Ok(())
             };
 
             let get_current_cpu_time_ns_fn =
                 || get_thread_time().context("can't get current thread time");
 
-            match send_cpu_metrics_fn(CPUUsageMetrics::Enter(thread_id)) {
-                Err(err) => return Poll::Ready(Err(err)),
-                _ => {}
-            }
+            unsafe { js_runtime.v8_isolate().enter() };
+            let mut js_runtime = scopeguard::guard(&mut js_runtime, |it| unsafe {
+                it.v8_isolate().exit();
+            });
+
+            send_cpu_metrics_fn(CPUUsageMetrics::Enter(thread_id));
 
             current_cpu_time_ns = match get_current_cpu_time_ns_fn() {
                 Ok(value) => value,
@@ -423,14 +427,12 @@ impl DenoRuntime {
             accumulated_cpu_time_ns += diff_cpu_time_ns;
             current_cpu_time_ns = current_cpu_time_ns;
 
-            match send_cpu_metrics_fn(CPUUsageMetrics::Leave(accumulated_cpu_time_ns)) {
-                Err(err) => return Poll::Ready(Err(err)),
-                _ => {}
-            }
+            send_cpu_metrics_fn(CPUUsageMetrics::Leave(accumulated_cpu_time_ns));
 
             if is_user_worker {
                 trace!(
-                    "thread_id: {:?}, accumulated_cpu_time: {}ms",
+                    "name: {:?}, thread_id: {:?}, accumulated_cpu_time: {}ms",
+                    name.as_ref(),
                     thread_id,
                     accumulated_cpu_time_ns / 1_000_000
                 );
@@ -957,7 +959,7 @@ mod test {
         let (_tx, unix_stream_rx) =
             mpsc::unbounded_channel::<(UnixStream, Option<watch::Receiver<ConnSync>>)>();
 
-        let (result, _) = user_rt.run(unix_stream_rx, None).await;
+        let (result, _) = user_rt.run(unix_stream_rx, None, None).await;
         match result {
             Err(err) => {
                 assert!(err
@@ -973,7 +975,7 @@ mod test {
         let mut user_rt = create_basic_user_runtime("./test_cases/array_buffers", 20, 1000).await;
         let (_tx, unix_stream_rx) =
             mpsc::unbounded_channel::<(UnixStream, Option<watch::Receiver<ConnSync>>)>();
-        let (result, _) = user_rt.run(unix_stream_rx, None).await;
+        let (result, _) = user_rt.run(unix_stream_rx, None, None).await;
         assert!(result.is_ok(), "expected no errors");
     }
 
@@ -982,7 +984,7 @@ mod test {
         let mut user_rt = create_basic_user_runtime("./test_cases/array_buffers", 15, 1000).await;
         let (_tx, unix_stream_rx) =
             mpsc::unbounded_channel::<(UnixStream, Option<watch::Receiver<ConnSync>>)>();
-        let (result, _) = user_rt.run(unix_stream_rx, None).await;
+        let (result, _) = user_rt.run(unix_stream_rx, None, None).await;
         match result {
             Err(err) => {
                 assert!(err

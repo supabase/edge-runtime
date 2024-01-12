@@ -1,4 +1,4 @@
-use std::{sync::atomic::Ordering, time::Duration};
+use std::{sync::atomic::Ordering, thread::ThreadId, time::Duration};
 
 use event_worker::events::ShutdownReason;
 use log::error;
@@ -33,6 +33,7 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
 
     let is_retired = is_retired.unwrap_or_default();
 
+    let mut current_thread_id = Option::<ThreadId>::None;
     let mut is_worker_entered = false;
     let mut cpu_usage_metrics_rx = cpu_usage_metrics_rx.unwrap();
     let mut cpu_usage_ms = 0i64;
@@ -79,8 +80,9 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
                         // INVARIANT: Thread ID MUST equal with previously captured
                         // Thread ID.
                         #[cfg(debug_assertions)]
-                        assert_eq!(thread_id, std::thread::current().id());
+                        assert!(current_thread_id.unwrap_or(thread_id) == thread_id);
 
+                        current_thread_id = Some(thread_id);
                         is_worker_entered = true;
 
                         if let Some(Err(err)) = cpu_timer.as_ref().map(|it| it.reset()) {
@@ -117,23 +119,25 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
                 }
             }
 
-            Some(_) = wait_cpu_alarm(cpu_alarms_rx.as_mut()), if is_worker_entered => {
-                if !cpu_time_soft_limit_reached {
-                    // retire worker
-                    is_retired.raise();
-                    error!("CPU time soft limit reached. isolate: {:?}", key);
-                    cpu_time_soft_limit_reached = true;
+            Some(_) = wait_cpu_alarm(cpu_alarms_rx.as_mut()) => {
+                if is_worker_entered {
+                    if !cpu_time_soft_limit_reached {
+                        // retire worker
+                        is_retired.raise();
+                        error!("CPU time soft limit reached. isolate: {:?}", key);
+                        cpu_time_soft_limit_reached = true;
 
-                    if req_ack_count == demand.load(Ordering::Acquire) {
+                        if req_ack_count == demand.load(Ordering::Acquire) {
+                            interrupt_fn(true);
+                            error!("early termination due to the last request being completed. isolate: {:?}", key);
+                            return (ShutdownReason::EarlyDrop, cpu_usage_ms);
+                        }
+                    } else {
+                        // shutdown worker
                         interrupt_fn(true);
-                        error!("early termination due to the last request being completed. isolate: {:?}", key);
-                        return (ShutdownReason::EarlyDrop, cpu_usage_ms);
+                        error!("CPU time hard limit reached. isolate: {:?}", key);
+                        return (ShutdownReason::CPUTime, cpu_usage_ms);
                     }
-                } else {
-                    // shutdown worker
-                    interrupt_fn(true);
-                    error!("CPU time hard limit reached. isolate: {:?}", key);
-                    return (ShutdownReason::CPUTime, cpu_usage_ms);
                 }
             }
 

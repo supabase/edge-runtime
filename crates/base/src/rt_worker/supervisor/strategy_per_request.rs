@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{thread::ThreadId, time::Duration};
 
 use event_worker::events::ShutdownReason;
 use log::error;
@@ -34,6 +34,7 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
     let (cpu_timer, mut cpu_alarms_rx) = cpu_timer.unzip();
     let (_, hard_limit_ms) = cpu_timer_param.limits();
 
+    let mut current_thread_id = Option::<ThreadId>::None;
     let mut is_worker_entered = false;
     let mut cpu_usage_metrics_rx = cpu_usage_metrics_rx.unwrap();
     let mut cpu_usage_ms = 0i64;
@@ -58,8 +59,10 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
                         // INVARIANT: Thread ID MUST equal with previously captured
                         // Thread ID.
                         #[cfg(debug_assertions)]
-                        assert_eq!(thread_id, std::thread::current().id());
+                        assert!(current_thread_id.unwrap_or(thread_id) == thread_id);
+                        assert!(!is_worker_entered);
 
+                        current_thread_id = Some(thread_id);
                         is_worker_entered = true;
 
                         if let Some(Err(err)) = cpu_timer.as_ref().map(|it| it.reset()) {
@@ -77,12 +80,16 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
                             error!("CPU time limit reached. isolate: {:?}", key);
                             complete_reason = Some(ShutdownReason::CPUTime);
                         }
+
+                        if let Some(Err(err)) = cpu_timer.as_ref().map(|it| it.reset()) {
+                            error!("can't reset cpu timer: {}", err);
+                        }
                     }
                 }
             }
 
-            Some(_) = wait_cpu_alarm(cpu_alarms_rx.as_mut()), if is_worker_entered => {
-                if req_start_ack {
+            Some(_) = wait_cpu_alarm(cpu_alarms_rx.as_mut()) => {
+                if is_worker_entered && req_start_ack {
                     error!("CPU time limit reached. isolate: {:?}", key);
                     complete_reason = Some(ShutdownReason::CPUTime);
                 }

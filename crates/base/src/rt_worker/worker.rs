@@ -33,7 +33,7 @@ pub struct Worker {
     pub event_metadata: EventMetadata,
     pub worker_key: Option<Uuid>,
     pub supervisor_policy: Option<SupervisorPolicy>,
-    pub thread_name: String,
+    pub worker_name: String,
 }
 
 pub type HandleCreationType = Pin<Box<dyn Future<Output = Result<WorkerEvents, Error>>>>;
@@ -46,6 +46,7 @@ pub trait WorkerHandler: Send {
         unix_stream_rx: UnboundedReceiver<(UnixStream, Option<watch::Receiver<ConnSync>>)>,
         termination_event_rx: Receiver<WorkerEvents>,
         maybe_cpu_metrics_tx: Option<UnboundedSender<CPUUsageMetrics>>,
+        name: Option<String>,
     ) -> HandleCreationType;
     fn as_any(&self) -> &dyn Any;
 }
@@ -66,7 +67,7 @@ impl Worker {
             cancel,
             event_metadata,
             worker_key,
-            thread_name,
+            worker_name: thread_name,
         })
     }
 
@@ -80,6 +81,7 @@ impl Worker {
         unix_channel_rx: UnboundedReceiver<(UnixStream, Option<watch::Receiver<ConnSync>>)>,
         booter_signal: Sender<Result<(), Error>>,
     ) {
+        let worker_name = self.worker_name.clone();
         let events_msg_tx = self.events_msg_tx.clone();
         let event_metadata = self.event_metadata.clone();
         let cancel = self.cancel.clone();
@@ -91,90 +93,92 @@ impl Worker {
         let is_user_worker = opts.conf.is_user_worker();
 
         drop({
-            let _rt_guard = rt::WORKER_RT.enter();
-            let local = tokio::task::LocalSet::new();
+            rt::WORKER_RT.spawn_pinned(move || {
+                tokio::task::spawn_local(async move {
+                    let (maybe_cpu_usage_metrics_tx, maybe_cpu_usage_metrics_rx) = is_user_worker
+                        .then(|| unbounded_channel::<CPUUsageMetrics>())
+                        .unzip();
 
-            local.spawn_local(async move {
-                let (maybe_cpu_usage_metrics_tx, maybe_cpu_usage_metrics_rx) = is_user_worker
-                    .then(|| unbounded_channel::<CPUUsageMetrics>())
-                    .unzip();
+                    let result = match DenoRuntime::new(opts).await {
+                        Ok(mut new_runtime) => {
+                            let _ = booter_signal.send(Ok(()));
 
-                let result = match DenoRuntime::new(opts).await {
-                    Ok(mut new_runtime) => {
-                        let _ = booter_signal.send(Ok(()));
+                            // CPU TIMER
+                            let (termination_event_tx, termination_event_rx) =
+                                oneshot::channel::<WorkerEvents>();
 
-                        // CPU TIMER
-                        let (termination_event_tx, termination_event_rx) =
-                            oneshot::channel::<WorkerEvents>();
+                            let _cpu_timer;
 
-                        let _cpu_timer;
-
-                        // TODO: Allow customization of supervisor
-                        if is_user_worker {
-                            // cputimer is returned from supervisor and assigned here to keep it in scope.
-                            _cpu_timer = create_supervisor(
-                                worker_key.unwrap_or(Uuid::nil()),
-                                &mut new_runtime,
-                                supervisor_policy,
-                                termination_event_tx,
-                                pool_msg_tx.clone(),
-                                maybe_cpu_usage_metrics_rx,
-                                cancel,
-                                timing,
-                            )?;
-                        }
-
-                        let data = method_cloner.handle_creation(
-                            new_runtime,
-                            unix_channel_rx,
-                            termination_event_rx,
-                            maybe_cpu_usage_metrics_tx,
-                        );
-
-                        data.await
-                    }
-
-                    Err(err) => {
-                        let _ = booter_signal.send(Err(anyhow!("worker boot error")));
-                        method_cloner.handle_error(err)
-                    }
-                };
-
-                match result {
-                    Ok(event) => {
-                        match event {
-                            WorkerEvents::Shutdown(ShutdownEvent { cpu_time_used, .. })
-                            | WorkerEvents::UncaughtException(UncaughtExceptionEvent {
-                                cpu_time_used,
-                                ..
-                            }) => {
-                                debug!("CPU time used: {:?}ms", cpu_time_used);
+                            // TODO: Allow customization of supervisor
+                            if is_user_worker {
+                                // cputimer is returned from supervisor and assigned here to keep it in scope.
+                                _cpu_timer = create_supervisor(
+                                    worker_key.unwrap_or(Uuid::nil()),
+                                    &mut new_runtime,
+                                    supervisor_policy,
+                                    termination_event_tx,
+                                    pool_msg_tx.clone(),
+                                    maybe_cpu_usage_metrics_rx,
+                                    cancel,
+                                    timing,
+                                )?;
                             }
 
-                            _ => {}
-                        };
+                            let data = method_cloner.handle_creation(
+                                new_runtime,
+                                unix_channel_rx,
+                                termination_event_rx,
+                                maybe_cpu_usage_metrics_tx,
+                                Some(worker_name),
+                            );
 
-                        send_event_if_event_worker_available(
-                            events_msg_tx.clone(),
-                            event,
-                            event_metadata.clone(),
-                        );
-                    }
-                    Err(err) => error!("unexpected worker error {}", err),
-                };
+                            data.await
+                        }
 
-                worker_key.and_then(|worker_key_unwrapped| {
-                    pool_msg_tx.map(|tx| {
-                        if let Err(err) = tx.send(UserWorkerMsgs::Shutdown(worker_key_unwrapped)) {
-                            error!(
-                                "failed to send the shutdown signal to user worker pool: {:?}",
-                                err
+                        Err(err) => {
+                            let _ = booter_signal.send(Err(anyhow!("worker boot error")));
+                            method_cloner.handle_error(err)
+                        }
+                    };
+
+                    match result {
+                        Ok(event) => {
+                            match event {
+                                WorkerEvents::Shutdown(ShutdownEvent { cpu_time_used, .. })
+                                | WorkerEvents::UncaughtException(UncaughtExceptionEvent {
+                                    cpu_time_used,
+                                    ..
+                                }) => {
+                                    debug!("CPU time used: {:?}ms", cpu_time_used);
+                                }
+
+                                _ => {}
+                            };
+
+                            send_event_if_event_worker_available(
+                                events_msg_tx.clone(),
+                                event,
+                                event_metadata.clone(),
                             );
                         }
-                    })
-                });
+                        Err(err) => error!("unexpected worker error {}", err),
+                    };
 
-                Ok::<(), Error>(())
+                    worker_key.and_then(|worker_key_unwrapped| {
+                        pool_msg_tx.map(|tx| {
+                            if let Err(err) =
+                                tx.send(UserWorkerMsgs::Shutdown(worker_key_unwrapped))
+                            {
+                                error!(
+                                    "failed to send the shutdown signal to user worker pool: {:?}",
+                                    err
+                                );
+                            }
+                        })
+                    });
+
+                    Ok::<(), Error>(())
+                })
             })
         });
     }

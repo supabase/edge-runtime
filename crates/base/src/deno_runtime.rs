@@ -1,4 +1,4 @@
-use crate::rt_worker::supervisor::CPUUsageMetrics;
+use crate::rt_worker::supervisor::{CPUUsage, CPUUsageMetrics};
 use crate::utils::units::mib_to_bytes;
 
 use anyhow::{anyhow, bail, Context, Error};
@@ -425,9 +425,11 @@ impl DenoRuntime {
             let diff_cpu_time_ns = cpu_time_after_poll_ns - current_cpu_time_ns;
 
             accumulated_cpu_time_ns += diff_cpu_time_ns;
-            current_cpu_time_ns = current_cpu_time_ns;
 
-            send_cpu_metrics_fn(CPUUsageMetrics::Leave(accumulated_cpu_time_ns));
+            send_cpu_metrics_fn(CPUUsageMetrics::Leave(CPUUsage {
+                accumulated: accumulated_cpu_time_ns,
+                diff: diff_cpu_time_ns,
+            }));
 
             if is_user_worker {
                 trace!(

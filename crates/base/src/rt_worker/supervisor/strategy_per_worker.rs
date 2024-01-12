@@ -4,7 +4,7 @@ use event_worker::events::ShutdownReason;
 use log::error;
 use sb_workers::context::{Timing, TimingStatus, UserWorkerMsgs};
 
-use crate::rt_worker::supervisor::wait_cpu_alarm;
+use crate::rt_worker::supervisor::{wait_cpu_alarm, CPUUsage};
 
 use super::{handle_interrupt, Arguments, CPUUsageMetrics, IsolateInterruptData};
 
@@ -88,19 +88,18 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
                         }
                     }
 
-                    CPUUsageMetrics::Leave(accumulated_cpu_usage_ns) => {
+                    CPUUsageMetrics::Leave(CPUUsage { accumulated, .. }) => {
                         assert!(is_worker_entered);
 
                         is_worker_entered = false;
-                        cpu_usage_ms = accumulated_cpu_usage_ns / 1_000_000;
+                        cpu_usage_ms = accumulated / 1_000_000;
 
                         if cpu_usage_ms >= hard_limit_ms as i64 {
                             // shutdown worker
                             interrupt_fn(true);
                             error!("CPU time hard limit reached. isolate: {:?}", key);
                             return (ShutdownReason::CPUTime, cpu_usage_ms);
-                        } else if cpu_usage_ms >= soft_limit_ms as i64 {
-                            if !cpu_time_soft_limit_reached {
+                        } else if cpu_usage_ms >= soft_limit_ms as i64 && !cpu_time_soft_limit_reached {
                                 // retire worker
                                 is_retired.raise();
                                 error!("CPU time soft limit reached. isolate: {:?}", key);
@@ -111,7 +110,6 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
                                     error!("early termination due to the last request being completed. isolate: {:?}", key);
                                     return (ShutdownReason::EarlyDrop, cpu_usage_ms);
                                 }
-                            }
                         }
                     }
                 }

@@ -114,10 +114,15 @@ pub struct Arguments {
     pub waker: Arc<AtomicWaker>,
 }
 
+pub struct CPUUsage {
+    pub accumulated: i64,
+    pub diff: i64,
+}
+
 #[derive(EnumAsInner)]
 pub enum CPUUsageMetrics {
     Enter(std::thread::ThreadId),
-    Leave(i64),
+    Leave(CPUUsage),
 }
 
 async fn wait_cpu_alarm(maybe_alarm: Option<&mut UnboundedReceiver<()>>) -> Option<()> {

@@ -6,7 +6,7 @@ use sb_workers::context::{Timing, TimingStatus, UserWorkerMsgs};
 use tokio::time::Instant;
 
 use crate::rt_worker::supervisor::{
-    handle_interrupt, wait_cpu_alarm, CPUUsageMetrics, IsolateInterruptData,
+    handle_interrupt, wait_cpu_alarm, CPUUsage, CPUUsageMetrics, IsolateInterruptData,
 };
 
 use super::Arguments;
@@ -39,6 +39,7 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
     let mut is_worker_entered = false;
     let mut cpu_usage_metrics_rx = cpu_usage_metrics_rx.unwrap();
     let mut cpu_usage_ms = 0i64;
+    let mut cpu_usage_accumulated_ms = 0i64;
 
     let mut complete_reason = None::<ShutdownReason>;
     let mut req_ack_count = 0usize;
@@ -72,11 +73,12 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
                         }
                     }
 
-                    CPUUsageMetrics::Leave(accumulated_cpu_usage_ns) => {
+                    CPUUsageMetrics::Leave(CPUUsage { accumulated, diff }) => {
                         assert!(is_worker_entered);
 
                         is_worker_entered = false;
-                        cpu_usage_ms = accumulated_cpu_usage_ns / 1_000_000;
+                        cpu_usage_ms += diff / 1_000_000;
+                        cpu_usage_accumulated_ms = accumulated / 1_000_000;
 
                         if cpu_usage_ms >= hard_limit_ms as i64 {
                             error!("CPU time limit reached. isolate: {:?}", key);
@@ -170,7 +172,7 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
                     })) as *mut std::ffi::c_void,
                 );
 
-                return (reason, cpu_usage_ms);
+                return (reason, cpu_usage_accumulated_ms);
             }
 
             None => continue,

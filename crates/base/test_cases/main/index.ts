@@ -43,6 +43,11 @@ serve(async (req: Request) => {
       return await worker.fetch(req);
     } catch (e) {
       console.error(e);
+
+			if (e instanceof Deno.errors.RequestCancelled) {
+				return await callWorker();
+			}
+
       const error = { msg: e.toString() }
       return new Response(
           JSON.stringify(error),

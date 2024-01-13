@@ -1,3 +1,6 @@
+#[path = "../src/utils/integration_test_helper.rs"]
+mod integration_test_helper;
+
 use base::rt_worker::worker_ctx::create_worker;
 use hyper::{Body, Request, Response};
 use sb_workers::context::{
@@ -30,10 +33,11 @@ async fn test_tls_throw_invalid_data() {
         .body(Body::empty())
         .unwrap();
 
+    let (_conn_tx, conn_rx) = integration_test_helper::create_conn_watch();
     let msg = WorkerRequestMsg {
         req,
         res_tx,
-        conn_watch: None,
+        conn_watch: Some(conn_rx),
     };
 
     let _ = worker_req_tx.send(msg);

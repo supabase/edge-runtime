@@ -1,3 +1,6 @@
+#[path = "../src/utils/integration_test_helper.rs"]
+mod integration_test_helper;
+
 use hyper::{Body, Request, Response};
 use std::collections::HashMap;
 use std::path::Path;
@@ -33,10 +36,11 @@ async fn test_import_map_file_path() {
         .body(Body::empty())
         .unwrap();
 
+    let (_conn_tx, conn_rx) = integration_test_helper::create_conn_watch();
     let msg = WorkerRequestMsg {
         req,
         res_tx,
-        conn_watch: None,
+        conn_watch: Some(conn_rx),
     };
 
     let _ = worker_req_tx.send(msg);
@@ -90,10 +94,11 @@ async fn test_import_map_inline() {
         .body(Body::empty())
         .unwrap();
 
+    let (_conn_tx, conn_rx) = integration_test_helper::create_conn_watch();
     let msg = WorkerRequestMsg {
         req,
         res_tx,
-        conn_watch: None,
+        conn_watch: Some(conn_rx),
     };
 
     let _ = worker_req_tx.send(msg);

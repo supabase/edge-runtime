@@ -44,9 +44,9 @@ serve(async (req: Request) => {
     } catch (e) {
       console.error(e);
 
-			if (e instanceof Deno.errors.RequestCancelled) {
-				return await callWorker();
-			}
+			// if (e instanceof Deno.errors.WorkerRequestCancelled) {
+			// 	return await callWorker();
+			// }
 
       const error = { msg: e.toString() }
       return new Response(

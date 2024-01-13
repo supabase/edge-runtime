@@ -1,4 +1,5 @@
 pub mod context;
+pub mod errors;
 
 use crate::context::{
     CreateUserWorkerResult, UserWorkerMsgs, UserWorkerRuntimeOpts, WorkerContextInitOpts,
@@ -14,6 +15,7 @@ use deno_core::{
     AsyncRefCell, AsyncResult, BufView, ByteString, CancelFuture, CancelHandle, CancelTryFuture,
     JsBuffer, OpState, RcRef, Resource, ResourceId, WriteOutcome,
 };
+use errors::WorkerError;
 use hyper::body::HttpBody;
 use hyper::header::{HeaderName, HeaderValue, CONTENT_LENGTH};
 use hyper::{Body, Method, Request};
@@ -424,10 +426,18 @@ pub async fn op_user_worker_fetch_send(
         Ok((result, req_end_tx)) => (result, req_end_tx),
         Err(err) => {
             error!("user worker failed to respond: {}", err);
-            return Err(custom_error(
-                "InvalidWorkerResponse",
-                "user worker failed to respond",
-            ));
+            match err.downcast_ref() {
+                Some(err @ WorkerError::RequestCancelledBySupervisor) => {
+                    return Err(custom_error("WorkerRequestCancelled", err.to_string()));
+                }
+
+                None => {
+                    return Err(custom_error(
+                        "InvalidWorkerResponse",
+                        "user worker failed to respond",
+                    ));
+                }
+            }
         }
     };
 

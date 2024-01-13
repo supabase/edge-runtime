@@ -89,6 +89,18 @@ serve(async (req: Request) => {
 			return await worker.fetch(req, { signal });
 		} catch (e) {
 			console.error(e);
+			
+			if (e instanceof Deno.errors.RequestCancelled) {
+				// XXX(Nyannyacha): I can't think right now how to re-poll
+				// inside the worker pool without exposing the error to the
+				// surface.
+
+				// The current request to the worker has been canceled due to
+				// some internal reasons. We should repoll the worker and call
+				// `fetch` again.
+				return await callWorker();
+			}
+
 			const error = { msg: e.toString() };
 			return new Response(
 				JSON.stringify(error),

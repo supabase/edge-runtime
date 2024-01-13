@@ -17,6 +17,7 @@ use sb_workers::context::{
     EventWorkerRuntimeOpts, MainWorkerRuntimeOpts, Timing, UserWorkerMsgs, WorkerContextInitOpts,
     WorkerRequestMsg, WorkerRuntimeOpts,
 };
+use sb_workers::errors::WorkerError;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::net::UnixStream;
@@ -301,7 +302,7 @@ pub async fn send_user_worker_request(
 
     // wait for the response back from the worker
     let res = tokio::select! {
-        () = cancel.notified() => bail!("request has been cancelled"),
+        () = cancel.notified() => bail!(WorkerError::RequestCancelledBySupervisor),
         res = res_rx => res,
     }??;
 

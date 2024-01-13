@@ -25,37 +25,39 @@ const buildDomErrorClass = (name) => class extends DOMException {
     }
 }
 
-const InvalidWorkerResponse = buildErrorClass('InvalidWorkerResponse');
-const InvalidWorkerCreation = buildErrorClass('InvalidWorkerCreation');
-const NotFound = buildErrorClass('NotFound');
-const PermissionDenied = buildErrorClass('PermissionDenied');
-const ConnectionRefused = buildErrorClass('ConnectionRefused');
-const ConnectionReset = buildErrorClass('ConnectionReset');
-const ConnectionAborted = buildErrorClass('ConnectionAborted');
-const NotConnected = buildErrorClass('NotConnected');
-const AddrInUse = buildErrorClass('AddrInUse');
-const AddrNotAvailable = buildErrorClass('AddrNotAvailable');
-const BrokenPipe = buildErrorClass('BrokenPipe');
-const AlreadyExists = buildErrorClass('AlreadyExists');
-const InvalidData = buildErrorClass('InvalidData');
-const TimedOut = buildErrorClass('TimedOut');
-const WriteZero = buildErrorClass('WriteZero');
-const WouldBlock = buildErrorClass('WouldBlock');
-const UnexpectedEof = buildErrorClass('UnexpectedEof');
-const Http = buildErrorClass('Http');
-const Busy = buildErrorClass('Busy');
-const NotSupported = buildErrorClass('NotSupported');
-const DOMExceptionOperationError = buildDomErrorClass('OperationError');
-const DOMExceptionQuotaExceededError = buildDomErrorClass('QuotaExceededError');
-const DOMExceptionNotSupportedError = buildDomErrorClass('NotSupported');
-const DOMExceptionNetworkError = buildDomErrorClass('NetworkError');
-const DOMExceptionAbortError = buildDomErrorClass('AbortError');
-const DOMExceptionInvalidCharacterError = buildDomErrorClass('InvalidCharacterError');
-const DOMExceptionDataError = buildDomErrorClass('DOMExceptionDataError');
+const InvalidWorkerResponse = buildErrorClass("InvalidWorkerResponse");
+const InvalidWorkerCreation = buildErrorClass("InvalidWorkerCreation");
+const WorkerRequestCancelled = buildErrorClass("WorkerRequestCancelled");
+const NotFound = buildErrorClass("NotFound");
+const PermissionDenied = buildErrorClass("PermissionDenied");
+const ConnectionRefused = buildErrorClass("ConnectionRefused");
+const ConnectionReset = buildErrorClass("ConnectionReset");
+const ConnectionAborted = buildErrorClass("ConnectionAborted");
+const NotConnected = buildErrorClass("NotConnected");
+const AddrInUse = buildErrorClass("AddrInUse");
+const AddrNotAvailable = buildErrorClass("AddrNotAvailable");
+const BrokenPipe = buildErrorClass("BrokenPipe");
+const AlreadyExists = buildErrorClass("AlreadyExists");
+const InvalidData = buildErrorClass("InvalidData");
+const TimedOut = buildErrorClass("TimedOut");
+const WriteZero = buildErrorClass("WriteZero");
+const WouldBlock = buildErrorClass("WouldBlock");
+const UnexpectedEof = buildErrorClass("UnexpectedEof");
+const Http = buildErrorClass("Http");
+const Busy = buildErrorClass("Busy");
+const NotSupported = buildErrorClass("NotSupported");
+const DOMExceptionOperationError = buildDomErrorClass("OperationError");
+const DOMExceptionQuotaExceededError = buildDomErrorClass("QuotaExceededError");
+const DOMExceptionNotSupportedError = buildDomErrorClass("NotSupported");
+const DOMExceptionNetworkError = buildDomErrorClass("NetworkError");
+const DOMExceptionAbortError = buildDomErrorClass("AbortError");
+const DOMExceptionInvalidCharacterError = buildDomErrorClass("InvalidCharacterError");
+const DOMExceptionDataError = buildDomErrorClass("DOMExceptionDataError");
 
 function registerErrors() {
     core.registerErrorClass("InvalidWorkerResponse", InvalidWorkerResponse);
     core.registerErrorClass("InvalidWorkerCreation", InvalidWorkerCreation);
+    core.registerErrorClass("WorkerRequestCancelled", WorkerRequestCancelled);
     core.registerErrorClass("NotFound", NotFound);
     core.registerErrorClass("PermissionDenied", PermissionDenied);
     core.registerErrorClass("ConnectionRefused", ConnectionRefused);

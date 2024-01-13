@@ -171,7 +171,6 @@ impl Server {
         maybe_user_worker_policy: Option<WorkerPoolPolicy>,
         import_map_path: Option<String>,
         no_module_cache: bool,
-        no_signal_handler: bool,
         callback_tx: Option<Sender<ServerCodes>>,
         entrypoints: WorkerEntrypoints,
     ) -> Result<Self, Error> {
@@ -212,11 +211,6 @@ impl Server {
             maybe_main_entrypoint,
         )
         .await?;
-
-        if !no_signal_handler {
-            // register alarm signal handler
-            cpu_timer::register_alarm()?;
-        }
 
         let ip = Ipv4Addr::from_str(ip)?;
         Ok(Self {

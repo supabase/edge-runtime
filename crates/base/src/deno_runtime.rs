@@ -497,7 +497,7 @@ mod test {
     #[tokio::test]
     async fn test_module_code_no_eszip() {
         let (worker_pool_tx, _) = mpsc::unbounded_channel::<UserWorkerMsgs>();
-        DenoRuntime::new(WorkerContextInitOpts {
+        let mut rt = DenoRuntime::new(WorkerContextInitOpts {
             service_path: PathBuf::from("./test_cases/"),
             no_module_cache: false,
             import_map_path: None,
@@ -513,6 +513,12 @@ mod test {
         })
         .await
         .expect("It should not panic");
+
+        unsafe {
+            // NOTE: This is necessary because `DenoRuntime::new()` does detach
+            // its isolation from the current thread.
+            rt.js_runtime.v8_isolate().enter();
+        }
     }
 
     #[tokio::test]
@@ -546,6 +552,11 @@ mod test {
         .await;
 
         let mut rt = runtime.unwrap();
+        unsafe {
+            // NOTE: This is necessary because `DenoRuntime::new()` does detach
+            // its isolation from the current thread.
+            rt.js_runtime.v8_isolate().enter();
+        }
 
         let main_mod_ev = rt.js_runtime.mod_evaluate(rt.main_module_id);
         let _ = rt.js_runtime.run_event_loop(false).await;
@@ -595,6 +606,11 @@ mod test {
         .await;
 
         let mut rt = runtime.unwrap();
+        unsafe {
+            // NOTE: This is necessary because `DenoRuntime::new()` does detach
+            // its isolation from the current thread.
+            rt.js_runtime.v8_isolate().enter();
+        }
 
         let main_mod_ev = rt.js_runtime.mod_evaluate(rt.main_module_id);
         let _ = rt.js_runtime.run_event_loop(false).await;
@@ -623,7 +639,7 @@ mod test {
     ) -> DenoRuntime {
         let (worker_pool_tx, _) = mpsc::unbounded_channel::<UserWorkerMsgs>();
 
-        DenoRuntime::new(WorkerContextInitOpts {
+        let mut rt = DenoRuntime::new(WorkerContextInitOpts {
             service_path: path.unwrap_or(PathBuf::from("./test_cases/main")),
             no_module_cache: false,
             import_map_path: None,
@@ -642,7 +658,14 @@ mod test {
             },
         })
         .await
-        .unwrap()
+        .unwrap();
+
+        unsafe {
+            // NOTE: This is necessary because `DenoRuntime::new()` does detach
+            // its isolation from the current thread.
+            rt.js_runtime.v8_isolate().enter();
+            rt
+        }
     }
 
     // Main Runtime should have access to `EdgeRuntime`

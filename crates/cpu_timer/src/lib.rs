@@ -2,15 +2,18 @@ pub mod timerid;
 
 use std::sync::Arc;
 
-#[cfg(target_os = "linux")]
-use crate::timerid::TimerId;
+use anyhow::Error;
+use tokio::sync::mpsc;
 
 #[cfg(target_os = "linux")]
-use anyhow::bail;
-use anyhow::Error;
-use log::debug;
-use nix::sys::signal;
-use tokio::sync::{mpsc, Mutex};
+mod linux {
+    pub use crate::timerid::TimerId;
+    pub use anyhow::bail;
+    pub use ctor::ctor;
+    pub use log::debug;
+    pub use nix::sys::signal;
+    pub use tokio::sync::Mutex;
+}
 
 #[repr(C)]
 #[derive(Clone)]
@@ -20,7 +23,7 @@ pub struct CPUAlarmVal {
 
 #[cfg(target_os = "linux")]
 struct CPUTimerVal {
-    id: TimerId,
+    id: linux::TimerId,
     initial_expiry: u64,
     interval: u64,
 }
@@ -31,7 +34,7 @@ unsafe impl Send for CPUTimerVal {}
 #[cfg(target_os = "linux")]
 #[derive(Clone)]
 pub struct CPUTimer {
-    _timer: Arc<Mutex<CPUTimerVal>>,
+    _timer: Arc<linux::Mutex<CPUTimerVal>>,
     _cpu_alarm_val: Arc<CPUAlarmVal>,
 }
 
@@ -46,6 +49,8 @@ impl CPUTimer {
         interval: u64,
         cpu_alarm_val: CPUAlarmVal,
     ) -> Result<Self, Error> {
+        use linux::*;
+
         let mut timerid = TimerId(std::ptr::null_mut());
         let mut sigev: libc::sigevent = unsafe { std::mem::zeroed() };
         let cpu_alarm_val = Arc::new(cpu_alarm_val);
@@ -86,6 +91,7 @@ impl CPUTimer {
     #[cfg(target_os = "linux")]
     pub fn reset(&self) -> Result<(), Error> {
         use anyhow::Context;
+        use linux::*;
 
         let timer = self._timer.try_lock().context("failed to get the lock")?;
 
@@ -123,7 +129,49 @@ impl CPUTimer {
     }
 }
 
-extern "C" fn sigalrm_handler(_: libc::c_int, info: *mut libc::siginfo_t, _: *mut libc::c_void) {
+pub fn get_thread_time() -> Result<i64, Error> {
+    let mut time = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+
+    if unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut time) } == -1 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+
+    // convert seconds to nanoseconds and add to nsec value
+    Ok(time.tv_sec * 1_000_000_000 + time.tv_nsec)
+}
+
+#[cfg_attr(target_os = "linux", linux::ctor)]
+#[cfg(target_os = "linux")]
+fn register_sigalrm() {
+    use linux::*;
+
+    let sig_handler = signal::SigHandler::SigAction(sigalrm_handler);
+    let sig_action = signal::SigAction::new(
+        sig_handler,
+        signal::SaFlags::empty(),
+        signal::SigSet::empty(),
+    );
+
+    unsafe {
+        if let Err(err) = signal::sigaction(signal::SIGALRM, &sig_action) {
+            panic!("can't register signal handler: {}", err);
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+extern "C" fn sigalrm_handler(
+    signo: libc::c_int,
+    info: *mut libc::siginfo_t,
+    _: *mut libc::c_void,
+) {
+    use linux::*;
+
+    assert_eq!(signo, signal::SIGALRM as libc::c_int);
+
     let cpu_alarms_tx = unsafe {
         let sival = (*info).si_value();
         let val = Arc::from_raw(sival.sival_ptr as *const CPUAlarmVal);
@@ -136,30 +184,4 @@ extern "C" fn sigalrm_handler(_: libc::c_int, info: *mut libc::siginfo_t, _: *mu
     if cpu_alarms_tx.send(()).is_err() {
         debug!("failed to send cpu alarm to the provided channel");
     }
-}
-
-pub fn register_alarm() -> Result<(), Error> {
-    let sig_handler = signal::SigHandler::SigAction(sigalrm_handler);
-    let sig_action = signal::SigAction::new(
-        sig_handler,
-        signal::SaFlags::empty(),
-        signal::SigSet::empty(),
-    );
-    unsafe {
-        signal::sigaction(signal::SIGALRM, &sig_action)?;
-    }
-    Ok(())
-}
-
-pub fn get_thread_time() -> Result<i64, Error> {
-    let mut time = libc::timespec {
-        tv_sec: 0,
-        tv_nsec: 0,
-    };
-    if unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut time) } == -1 {
-        return Err(std::io::Error::last_os_error().into());
-    }
-
-    // convert seconds to nanoseconds and add to nsec value
-    Ok(time.tv_sec * 1_000_000_000 + time.tv_nsec)
 }

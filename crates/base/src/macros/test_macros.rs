@@ -27,7 +27,6 @@ macro_rules! integration_test {
                 None,
                 None,
                 false,
-                true,
                 Some(tx.clone()),
                 $crate::server::WorkerEntrypoints {
                     main: None,

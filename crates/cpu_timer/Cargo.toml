@@ -11,3 +11,4 @@ libc = { workspace = true }
 nix = { version = "0.26.2", features = ["signal"] }
 tokio = { workspace = true }
 log = { workspace = true }
+ctor = { version = "0.2.6" }

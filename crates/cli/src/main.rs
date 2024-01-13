@@ -167,7 +167,6 @@ fn main() -> Result<(), anyhow::Error> {
                     )),
                     import_map_path,
                     no_module_cache,
-                    cfg!(not(target_os = "linux")),
                     None,
                     WorkerEntrypoints {
                         main: maybe_main_entrypoint,

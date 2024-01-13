@@ -20,9 +20,9 @@ mod linux {
     use crate::CPUTimer;
 
     pub enum SignalMsg {
-        ALRM(usize),
-        ADD((usize, CPUTimer)),
-        REMOVE(usize),
+        Alarm(usize),
+        Add((usize, CPUTimer)),
+        Remove(usize),
     }
 
     pub static TIMER_COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -64,7 +64,7 @@ impl Drop for CPUTimer {
     fn drop(&mut self) {
         if Arc::strong_count(&self.timer) == 2 {
             unsafe { linux::SIG_MSG_CHAN.0.clone() }
-                .send(linux::SignalMsg::REMOVE(self.id))
+                .send(linux::SignalMsg::Remove(self.id))
                 .unwrap();
         }
     }
@@ -122,7 +122,7 @@ impl CPUTimer {
             this.reset()?;
 
             unsafe { linux::SIG_MSG_CHAN.0.clone() }
-                .send(SignalMsg::ADD((id, this.clone())))
+                .send(SignalMsg::Add((id, this.clone())))
                 .unwrap();
 
             this
@@ -216,7 +216,7 @@ fn register_sigalrm() {
 
             let sig_receiver_handle = rt.spawn(async move {
                 let mut signals =
-                    SignalsInfo::with_exfiltrator(&[signal::SIGALRM], raw::WithRawSiginfo).unwrap();
+                    SignalsInfo::with_exfiltrator([signal::SIGALRM], raw::WithRawSiginfo).unwrap();
 
                 while let Some(siginfo) = signals.next().await {
                     let _ = sig_timer_id_tx.send(unsafe { siginfo.si_value().sival_ptr as usize });
@@ -228,7 +228,7 @@ fn register_sigalrm() {
                     tokio::select! {
                         Some(msg) = sig_msg_rx.recv() => {
                             match msg {
-                                SignalMsg::ALRM(ref timer_id) => {
+                                SignalMsg::Alarm(ref timer_id) => {
                                     if let Some(cpu_timer) = registry.get(timer_id) {
                                         let tx = cpu_timer.cpu_alarm_val.cpu_alarms_tx.clone();
 
@@ -240,18 +240,18 @@ fn register_sigalrm() {
                                     }
                                 }
 
-                                SignalMsg::ADD((timer_id, cpu_timer)) => {
+                                SignalMsg::Add((timer_id, cpu_timer)) => {
                                     let _ = registry.insert(timer_id, cpu_timer);
                                 }
 
-                                SignalMsg::REMOVE(ref timer_id) => {
+                                SignalMsg::Remove(ref timer_id) => {
                                     let _ = registry.remove(timer_id);
                                 }
                             }
                         }
 
                         Some(id) = sig_timer_id_rx.recv() => {
-                            let _ = sig_msg_tx.send(SignalMsg::ALRM(id));
+                            let _ = sig_msg_tx.send(SignalMsg::Alarm(id));
                         }
                     }
                 }

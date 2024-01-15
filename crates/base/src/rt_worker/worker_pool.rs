@@ -22,7 +22,9 @@ use tokio::sync::oneshot::Sender;
 use tokio::sync::{mpsc, watch, Notify, OwnedSemaphorePermit, Semaphore, TryAcquireError};
 use uuid::Uuid;
 
-#[derive(Clone, Copy, EnumAsInner)]
+use super::worker_ctx::TerminationToken;
+
+#[derive(Debug, Clone, Copy, EnumAsInner)]
 pub enum SupervisorPolicy {
     PerWorker,
     PerRequest { oneshot: bool },
@@ -48,6 +50,10 @@ impl FromStr for SupervisorPolicy {
 }
 
 impl SupervisorPolicy {
+    pub fn oneshot() -> Self {
+        Self::PerRequest { oneshot: true }
+    }
+
     pub fn is_oneshot(&self) -> bool {
         matches!(self, Self::PerRequest { oneshot: true })
     }
@@ -224,6 +230,7 @@ impl WorkerPool {
         &mut self,
         mut worker_options: WorkerContextInitOpts,
         tx: Sender<Result<CreateUserWorkerResult, Error>>,
+        termination_token: Option<TerminationToken>,
     ) {
         let service_path = worker_options
             .service_path
@@ -394,7 +401,9 @@ impl WorkerPool {
 
             worker_options.conf = WorkerRuntimeOpts::UserWorker(user_worker_rt_opts);
 
-            match create_worker((worker_options, supervisor_policy)).await {
+            match create_worker((worker_options, supervisor_policy, termination_token.clone()))
+                .await
+            {
                 Ok(worker_request_msg_tx) => {
                     let profile = UserWorkerProfile {
                         worker_request_msg_tx,

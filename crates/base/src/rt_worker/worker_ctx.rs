@@ -18,16 +18,61 @@ use sb_workers::context::{
     WorkerRequestMsg, WorkerRuntimeOpts,
 };
 use sb_workers::errors::WorkerError;
+use std::future::pending;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::net::UnixStream;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::{mpsc, oneshot, watch, Notify};
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use super::rt;
 use super::supervisor::{self, CPUTimerParam, CPUUsageMetrics};
 use super::worker_pool::{SupervisorPolicy, WorkerPoolPolicy};
+
+#[derive(Clone)]
+pub struct TerminationToken {
+    pub inbound: CancellationToken,
+    pub outbound: CancellationToken,
+}
+
+impl std::fmt::Debug for TerminationToken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TerminationToken").finish()
+    }
+}
+
+impl Default for TerminationToken {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TerminationToken {
+    pub fn new() -> Self {
+        Self {
+            inbound: CancellationToken::default(),
+            outbound: CancellationToken::default(),
+        }
+    }
+
+    pub fn child_token(&self) -> Self {
+        Self {
+            inbound: self.inbound.child_token(),
+            outbound: self.outbound.clone(),
+        }
+    }
+
+    pub fn cancel(&self) {
+        self.inbound.cancel();
+    }
+
+    pub async fn cancel_and_wait(&self) {
+        self.cancel();
+        self.outbound.cancelled().await;
+    }
+}
 
 async fn handle_request(
     unix_stream_tx: mpsc::UnboundedSender<(UnixStream, Option<watch::Receiver<ConnSync>>)>,
@@ -83,6 +128,7 @@ pub fn create_supervisor(
     cpu_usage_metrics_rx: Option<UnboundedReceiver<CPUUsageMetrics>>,
     cancel: Option<Arc<Notify>>,
     timing: Option<Timing>,
+    termination_token: Option<TerminationToken>,
 ) -> Result<Option<CPUTimer>, Error> {
     let (memory_limit_tx, memory_limit_rx) = mpsc::unbounded_channel::<()>();
     let (waker, thread_safe_handle) = {
@@ -141,6 +187,7 @@ pub fn create_supervisor(
                 isolate_memory_usage_tx,
                 thread_safe_handle,
                 waker: waker.clone(),
+                termination_token,
             };
 
             let (reason, cpu_usage_ms) = {
@@ -202,17 +249,57 @@ pub fn create_supervisor(
     Ok(maybe_cpu_timer)
 }
 
-pub struct CreateWorkerArgs(WorkerContextInitOpts, Option<SupervisorPolicy>);
+pub struct CreateWorkerArgs(
+    WorkerContextInitOpts,
+    Option<SupervisorPolicy>,
+    Option<TerminationToken>,
+);
 
 impl From<WorkerContextInitOpts> for CreateWorkerArgs {
     fn from(val: WorkerContextInitOpts) -> Self {
-        CreateWorkerArgs(val, None)
+        CreateWorkerArgs(val, None, None)
     }
 }
 
 impl From<(WorkerContextInitOpts, SupervisorPolicy)> for CreateWorkerArgs {
     fn from(val: (WorkerContextInitOpts, SupervisorPolicy)) -> Self {
-        CreateWorkerArgs(val.0, Some(val.1))
+        CreateWorkerArgs(val.0, Some(val.1), None)
+    }
+}
+
+impl From<(WorkerContextInitOpts, TerminationToken)> for CreateWorkerArgs {
+    fn from(val: (WorkerContextInitOpts, TerminationToken)) -> Self {
+        CreateWorkerArgs(val.0, None, Some(val.1))
+    }
+}
+
+impl
+    From<(
+        WorkerContextInitOpts,
+        SupervisorPolicy,
+        Option<TerminationToken>,
+    )> for CreateWorkerArgs
+{
+    fn from(
+        val: (
+            WorkerContextInitOpts,
+            SupervisorPolicy,
+            Option<TerminationToken>,
+        ),
+    ) -> Self {
+        CreateWorkerArgs(val.0, Some(val.1), val.2)
+    }
+}
+
+impl CreateWorkerArgs {
+    pub fn with_supervisor_policy(mut self, policy: SupervisorPolicy) -> Self {
+        self.1 = Some(policy);
+        self
+    }
+
+    pub fn with_termination_token(mut self, token: TerminationToken) -> Self {
+        self.2 = Some(token);
+        self
     }
 }
 
@@ -223,7 +310,9 @@ pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
     let (unix_stream_tx, unix_stream_rx) =
         mpsc::unbounded_channel::<(UnixStream, Option<watch::Receiver<ConnSync>>)>();
 
-    let CreateWorkerArgs(init_opts, maybe_supervisor_policy) = init_opts.into();
+    let CreateWorkerArgs(init_opts, maybe_supervisor_policy, maybe_termination_token) =
+        init_opts.into();
+
     let mut worker_init = Worker::new(&init_opts)?;
 
     if init_opts.conf.is_user_worker() {
@@ -237,7 +326,12 @@ pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
     // Downcasting it to Worker will give us access to its parent implementation
     let downcast_reference = worker.as_any().downcast_ref::<Worker>();
     if let Some(worker_struct_ref) = downcast_reference {
-        worker_struct_ref.start(init_opts, unix_stream_rx, worker_boot_result_tx);
+        worker_struct_ref.start(
+            init_opts,
+            unix_stream_rx,
+            worker_boot_result_tx,
+            maybe_termination_token.clone(),
+        );
 
         // create an async task waiting for requests for worker
         let (worker_req_tx, mut worker_req_rx) = mpsc::unbounded_channel::<WorkerRequestMsg>();
@@ -262,6 +356,11 @@ pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
         match worker_boot_result {
             Err(err) => {
                 worker_req_handle.abort();
+
+                if let Some(token) = maybe_termination_token.as_ref() {
+                    token.outbound.cancel();
+                }
+
                 bail!(err)
             }
             Ok(_) => {
@@ -269,6 +368,7 @@ pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
                     .worker_boot_start_time
                     .elapsed()
                     .as_millis();
+
                 send_event_if_event_worker_available(
                     worker_struct_ref.events_msg_tx.clone(),
                     WorkerEvents::Boot(BootEvent {
@@ -276,6 +376,7 @@ pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
                     }),
                     worker_struct_ref.event_metadata.clone(),
                 );
+
                 Ok(worker_req_tx)
             }
         }
@@ -386,6 +487,7 @@ pub async fn create_events_worker(
 pub async fn create_user_worker_pool(
     policy: WorkerPoolPolicy,
     worker_event_sender: Option<mpsc::UnboundedSender<WorkerEventWithMetadata>>,
+    termination_token: Option<TerminationToken>,
 ) -> Result<mpsc::UnboundedSender<UserWorkerMsgs>, Error> {
     let (user_worker_msgs_tx, mut user_worker_msgs_rx) =
         mpsc::unbounded_channel::<UserWorkerMsgs>();
@@ -393,28 +495,58 @@ pub async fn create_user_worker_pool(
     let user_worker_msgs_tx_clone = user_worker_msgs_tx.clone();
 
     let _handle: tokio::task::JoinHandle<Result<(), Error>> = tokio::spawn(async move {
+        let token = termination_token.as_ref();
+        let mut termination_requested = false;
         let mut worker_pool =
             WorkerPool::new(policy, worker_event_sender, user_worker_msgs_tx_clone);
 
         // Note: Keep this loop non-blocking. Spawn a task to run blocking calls.
         // Handle errors within tasks and log them - do not bubble up errors.
         loop {
-            match user_worker_msgs_rx.recv().await {
-                None => break,
-                Some(UserWorkerMsgs::Create(worker_options, tx)) => {
-                    worker_pool.create_user_worker(worker_options, tx);
+            tokio::select! {
+                _ = async {
+                    if let Some(token) = token {
+                        token.inbound.cancelled().await;
+                    } else {
+                        pending::<()>().await;
+                    }
+                }, if !termination_requested => {
+                    termination_requested = true;
+
+                    if worker_pool.user_workers.is_empty() {
+                        if let Some(token) = token {
+                            token.outbound.cancel();
+                        }
+
+                        break;
+                    }
                 }
-                Some(UserWorkerMsgs::Created(key, profile)) => {
-                    worker_pool.add_user_worker(key, profile);
-                }
-                Some(UserWorkerMsgs::SendRequest(key, req, res_tx, conn_watch)) => {
-                    worker_pool.send_request(&key, req, res_tx, conn_watch);
-                }
-                Some(UserWorkerMsgs::Idle(key)) => {
-                    worker_pool.idle(&key);
-                }
-                Some(UserWorkerMsgs::Shutdown(key)) => {
-                    worker_pool.shutdown(&key);
+
+                msg = user_worker_msgs_rx.recv() => {
+                    match msg {
+                        None => break,
+                        Some(UserWorkerMsgs::Create(worker_options, tx)) => {
+                            worker_pool.create_user_worker(worker_options, tx, termination_token.as_ref().map(|it| it.child_token()));
+                        }
+                        Some(UserWorkerMsgs::Created(key, profile)) => {
+                            worker_pool.add_user_worker(key, profile);
+                        }
+                        Some(UserWorkerMsgs::SendRequest(key, req, res_tx, conn_watch)) => {
+                            worker_pool.send_request(&key, req, res_tx, conn_watch);
+                        }
+                        Some(UserWorkerMsgs::Idle(key)) => {
+                            worker_pool.idle(&key);
+                        }
+                        Some(UserWorkerMsgs::Shutdown(key)) => {
+                            worker_pool.shutdown(&key);
+
+                            if let Some(token) = token {
+                                if token.inbound.is_cancelled() && worker_pool.user_workers.is_empty() {
+                                    token.outbound.cancel();
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

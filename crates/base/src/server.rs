@@ -198,6 +198,7 @@ impl Server {
         let user_worker_msgs_tx = create_user_worker_pool(
             maybe_user_worker_policy.unwrap_or_default(),
             worker_events_sender,
+            None,
         )
         .await?;
 

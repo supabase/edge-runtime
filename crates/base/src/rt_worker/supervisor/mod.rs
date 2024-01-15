@@ -15,31 +15,39 @@ use tokio::sync::{
 };
 use uuid::Uuid;
 
-use super::worker_pool::SupervisorPolicy;
+use super::{worker_ctx::TerminationToken, worker_pool::SupervisorPolicy};
 
 #[repr(C)]
-struct IsolateInterruptData {
+pub struct IsolateInterruptData {
     pub should_terminate: bool,
-    pub isolate_memory_usage_tx: oneshot::Sender<IsolateMemoryStats>,
+    pub isolate_memory_usage_tx: Option<oneshot::Sender<IsolateMemoryStats>>,
 }
 
-extern "C" fn handle_interrupt(isolate: &mut deno_core::v8::Isolate, data: *mut std::ffi::c_void) {
-    let boxed_data: Box<IsolateInterruptData>;
+pub extern "C" fn handle_interrupt(
+    isolate: &mut deno_core::v8::Isolate,
+    data: *mut std::ffi::c_void,
+) {
+    let mut boxed_data: Box<IsolateInterruptData>;
+
     unsafe {
         boxed_data = Box::from_raw(data as *mut IsolateInterruptData);
     }
 
     // log memory usage
     let mut heap_stats = deno_core::v8::HeapStatistics::default();
+
     isolate.get_heap_statistics(&mut heap_stats);
+
     let usage = IsolateMemoryStats {
         used_heap_size: heap_stats.used_heap_size(),
         external_memory: heap_stats.external_memory(),
     };
 
-    if boxed_data.isolate_memory_usage_tx.send(usage).is_err() {
-        error!("failed to send isolate memory usage - receiver may have been dropped");
-    };
+    if let Some(usage_tx) = boxed_data.isolate_memory_usage_tx.take() {
+        if usage_tx.send(usage).is_err() {
+            error!("failed to send isolate memory usage - receiver may have been dropped");
+        }
+    }
 
     if boxed_data.should_terminate {
         isolate.terminate_execution();
@@ -112,6 +120,7 @@ pub struct Arguments {
     pub isolate_memory_usage_tx: oneshot::Sender<IsolateMemoryStats>,
     pub thread_safe_handle: IsolateHandle,
     pub waker: Arc<AtomicWaker>,
+    pub termination_token: Option<TerminationToken>,
 }
 
 pub struct CPUUsage {

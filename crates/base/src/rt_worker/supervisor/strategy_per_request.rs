@@ -1,4 +1,4 @@
-use std::{sync::atomic::Ordering, thread::ThreadId, time::Duration};
+use std::{future::pending, sync::atomic::Ordering, thread::ThreadId, time::Duration};
 
 use event_worker::events::ShutdownReason;
 use log::error;
@@ -23,6 +23,7 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
         pool_msg_tx,
         isolate_memory_usage_tx,
         thread_safe_handle,
+        termination_token,
         ..
     } = args;
 
@@ -56,6 +57,15 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
 
     loop {
         tokio::select! {
+            _ = async {
+                match termination_token.as_ref() {
+                    Some(token) => token.inbound.cancelled().await,
+                    None => pending().await,
+                }
+            } => {
+                complete_reason = Some(ShutdownReason::TerminationRequested);
+            }
+
             Some(metrics) = cpu_usage_metrics_rx.recv() => {
                 match metrics {
                     CPUUsageMetrics::Enter(thread_id) => {
@@ -168,7 +178,7 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
                     handle_interrupt,
                     Box::into_raw(Box::new(IsolateInterruptData {
                         should_terminate: true,
-                        isolate_memory_usage_tx,
+                        isolate_memory_usage_tx: Some(isolate_memory_usage_tx),
                     })) as *mut std::ffi::c_void,
                 );
 

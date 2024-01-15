@@ -3,12 +3,14 @@ mod integration_test_helper;
 
 use hyper::{Body, Request, Response};
 use sb_workers::context::{WorkerContextInitOpts, WorkerRequestMsg, WorkerRuntimeOpts};
+use serial_test::serial;
 use std::collections::HashMap;
 use tokio::sync::oneshot;
 
 use crate::integration_test_helper::{create_test_user_worker, test_user_runtime_opts};
 
 #[tokio::test]
+#[serial]
 async fn test_user_worker_json_imports() {
     let opts = WorkerContextInitOpts {
         service_path: "./test_cases/json_import".into(),
@@ -52,6 +54,7 @@ async fn test_user_worker_json_imports() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_user_imports_npm() {
     let opts = WorkerContextInitOpts {
         service_path: "./test_cases/npm".into(),

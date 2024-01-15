@@ -13,6 +13,7 @@ use deno_tls::rustls_native_certs::load_native_certs;
 use deno_tls::RootCertStoreProvider;
 use futures_util::future::poll_fn;
 use log::{error, trace};
+use once_cell::sync::OnceCell;
 use sb_core::conn_sync::ConnSync;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
@@ -74,6 +75,17 @@ impl DenoRuntime {
     #[allow(clippy::unnecessary_literal_unwrap)]
     #[allow(clippy::arc_with_non_send_sync)]
     pub async fn new(opts: WorkerContextInitOpts) -> Result<Self, Error> {
+        static INITIALZE_V8_PLATFORM: OnceCell<()> = OnceCell::new();
+
+        INITIALZE_V8_PLATFORM.get_or_init(|| {
+            set_v8_flags();
+
+            // NOTE(denoland/deno/20495): Due to the new PKU (Memory Protection Keys)
+            // feature introduced in V8 11.6, We need to initialize the V8 platform on
+            // the main thread that spawns V8 isolates.
+            JsRuntime::init_platform(None);
+        });
+
         let WorkerContextInitOpts {
             service_path,
             no_module_cache,
@@ -471,6 +483,23 @@ impl DenoRuntime {
         let scope = &mut self.js_runtime.handle_scope();
         let value = deno_core::v8::Local::new(scope, global_value.clone());
         Ok(serde_v8::from_v8(scope, value)?)
+    }
+}
+
+fn set_v8_flags() {
+    let v8_flags = std::env::var("V8_FLAGS").unwrap_or("".to_string());
+    let mut vec = vec![""];
+
+    if v8_flags.is_empty() {
+        return;
+    }
+
+    vec.append(&mut v8_flags.split(' ').collect());
+
+    let ignored = deno_core::v8_set_flags(vec.iter().map(|v| v.to_string()).collect());
+
+    if *ignored.as_slice() != [""] {
+        error!("v8 flags unrecognized {:?}", ignored);
     }
 }
 

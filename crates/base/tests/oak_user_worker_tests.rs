@@ -1,20 +1,20 @@
 #[path = "../src/utils/integration_test_helper.rs"]
 mod integration_test_helper;
 
-use base::rt_worker::worker_ctx::create_worker;
 use hyper::{Body, Request, Response};
-use sb_workers::context::{
-    UserWorkerRuntimeOpts, WorkerContextInitOpts, WorkerRequestMsg, WorkerRuntimeOpts,
-};
+use sb_workers::context::{WorkerContextInitOpts, WorkerRequestMsg, WorkerRuntimeOpts};
+use serial_test::serial;
 use std::collections::HashMap;
 use tokio::sync::oneshot;
+
+use crate::integration_test_helper::{create_test_user_worker, test_user_runtime_opts};
 
 // NOTE: Only add user worker tests that's using oak server here.
 // Any other user worker tests, add to `user_worker_tests.rs`.
 
 #[tokio::test]
+#[serial]
 async fn test_oak_server() {
-    let user_rt_opts = UserWorkerRuntimeOpts::default();
     let opts = WorkerContextInitOpts {
         service_path: "./test_cases/oak".into(),
         no_module_cache: false,
@@ -25,22 +25,24 @@ async fn test_oak_server() {
         maybe_eszip: None,
         maybe_entrypoint: None,
         maybe_module_code: None,
-        conf: WorkerRuntimeOpts::UserWorker(user_rt_opts),
+        conf: WorkerRuntimeOpts::UserWorker(test_user_runtime_opts()),
     };
-    let worker_req_tx = create_worker(opts).await.unwrap();
+
+    let (worker_req_tx, scope) = create_test_user_worker(opts).await.unwrap();
     let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
 
+    let conn_watch = scope.conn_rx();
+    let req_guard = scope.start_request().await;
     let req = Request::builder()
         .uri("/oak")
         .method("GET")
         .body(Body::empty())
         .unwrap();
 
-    let (_conn_tx, conn_rx) = integration_test_helper::create_conn_watch();
     let msg = WorkerRequestMsg {
         req,
         res_tx,
-        conn_watch: Some(conn_rx),
+        conn_watch,
     };
 
     let _ = worker_req_tx.send(msg);
@@ -54,11 +56,13 @@ async fn test_oak_server() {
         body_bytes,
         "This is an example Oak server running on Edge Functions!"
     );
+
+    req_guard.await;
 }
 
 #[tokio::test]
+#[serial]
 async fn test_file_upload() {
-    let user_rt_opts = UserWorkerRuntimeOpts::default();
     let opts = WorkerContextInitOpts {
         service_path: "./test_cases/oak".into(),
         no_module_cache: false,
@@ -69,9 +73,10 @@ async fn test_file_upload() {
         maybe_eszip: None,
         maybe_entrypoint: None,
         maybe_module_code: None,
-        conf: WorkerRuntimeOpts::UserWorker(user_rt_opts),
+        conf: WorkerRuntimeOpts::UserWorker(test_user_runtime_opts()),
     };
-    let worker_req_tx = create_worker(opts).await.unwrap();
+
+    let (worker_req_tx, scope) = create_test_user_worker(opts).await.unwrap();
     let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
 
     let body_chunk = "--TEST\r\nContent-Disposition: form-data; name=\"file\"; filename=\"test.txt\"\r\nContent-Type: text/plain\r\n\r\ntestuser\r\n--TEST--\r\n";
@@ -81,6 +86,8 @@ async fn test_file_upload() {
     let stream = futures_util::stream::iter(chunks);
     let body = Body::wrap_stream(stream);
 
+    let conn_watch = scope.conn_rx();
+    let req_guard = scope.start_request().await;
     let req = Request::builder()
         .uri("/file-upload")
         .method("POST")
@@ -89,11 +96,10 @@ async fn test_file_upload() {
         .body(body)
         .unwrap();
 
-    let (_conn_tx, conn_rx) = integration_test_helper::create_conn_watch();
     let msg = WorkerRequestMsg {
         req,
         res_tx,
-        conn_watch: Some(conn_rx),
+        conn_watch,
     };
 
     let _ = worker_req_tx.send(msg);
@@ -104,4 +110,5 @@ async fn test_file_upload() {
     let body_bytes = hyper::body::to_bytes(res.into_body()).await.unwrap();
 
     assert_eq!(body_bytes, "file-type: text/plain");
+    req_guard.await;
 }

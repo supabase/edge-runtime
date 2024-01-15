@@ -1,17 +1,17 @@
 #[path = "../src/utils/integration_test_helper.rs"]
 mod integration_test_helper;
 
-use base::rt_worker::worker_ctx::create_worker;
 use hyper::{Body, Request, Response};
-use sb_workers::context::{
-    UserWorkerRuntimeOpts, WorkerContextInitOpts, WorkerRequestMsg, WorkerRuntimeOpts,
-};
+use sb_workers::context::{WorkerContextInitOpts, WorkerRequestMsg, WorkerRuntimeOpts};
+use serial_test::serial;
 use std::collections::HashMap;
 use tokio::sync::oneshot;
 
+use crate::integration_test_helper::{create_test_user_worker, test_user_runtime_opts};
+
 #[tokio::test]
+#[serial]
 async fn test_null_body_with_204_status() {
-    let user_rt_opts = UserWorkerRuntimeOpts::default();
     let opts = WorkerContextInitOpts {
         service_path: "./test_cases/empty-response".into(),
         no_module_cache: false,
@@ -22,22 +22,24 @@ async fn test_null_body_with_204_status() {
         maybe_eszip: None,
         maybe_entrypoint: None,
         maybe_module_code: None,
-        conf: WorkerRuntimeOpts::UserWorker(user_rt_opts),
+        conf: WorkerRuntimeOpts::UserWorker(test_user_runtime_opts()),
     };
-    let worker_req_tx = create_worker(opts).await.unwrap();
+
+    let (worker_req_tx, scope) = create_test_user_worker(opts).await.unwrap();
     let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
 
+    let conn_watch = scope.conn_rx();
+    let req_guard = scope.start_request().await;
     let req = Request::builder()
         .uri("/")
         .method("GET")
         .body(Body::empty())
         .unwrap();
 
-    let (_conn_tx, conn_rx) = integration_test_helper::create_conn_watch();
     let msg = WorkerRequestMsg {
         req,
         res_tx,
-        conn_watch: Some(conn_rx),
+        conn_watch,
     };
 
     let _ = worker_req_tx.send(msg);
@@ -51,11 +53,12 @@ async fn test_null_body_with_204_status() {
         .to_vec();
 
     assert_eq!(body_bytes.len(), 0);
+    req_guard.await;
 }
 
 #[tokio::test]
+#[serial]
 async fn test_null_body_with_204_status_post() {
-    let user_rt_opts = UserWorkerRuntimeOpts::default();
     let opts = WorkerContextInitOpts {
         service_path: "./test_cases/empty-response".into(),
         no_module_cache: false,
@@ -66,22 +69,23 @@ async fn test_null_body_with_204_status_post() {
         maybe_eszip: None,
         maybe_entrypoint: None,
         maybe_module_code: None,
-        conf: WorkerRuntimeOpts::UserWorker(user_rt_opts),
+        conf: WorkerRuntimeOpts::UserWorker(test_user_runtime_opts()),
     };
-    let worker_req_tx = create_worker(opts).await.unwrap();
+    let (worker_req_tx, scope) = create_test_user_worker(opts).await.unwrap();
     let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
 
+    let conn_watch = scope.conn_rx();
     let req = Request::builder()
         .uri("/")
         .method("POST")
         .body(Body::empty())
         .unwrap();
 
-    let (_conn_tx, conn_rx) = integration_test_helper::create_conn_watch();
+    let req_guard = scope.start_request().await;
     let msg = WorkerRequestMsg {
         req,
         res_tx,
-        conn_watch: Some(conn_rx),
+        conn_watch,
     };
 
     let _ = worker_req_tx.send(msg);
@@ -95,4 +99,5 @@ async fn test_null_body_with_204_status_post() {
         .to_vec();
 
     assert_eq!(body_bytes.len(), 0);
+    req_guard.await;
 }

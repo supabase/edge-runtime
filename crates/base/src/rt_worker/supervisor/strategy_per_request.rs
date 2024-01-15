@@ -1,4 +1,7 @@
-use std::{future::pending, sync::atomic::Ordering, thread::ThreadId, time::Duration};
+use std::{future::pending, sync::atomic::Ordering, time::Duration};
+
+#[cfg(debug_assertions)]
+use std::thread::ThreadId;
 
 use event_worker::events::ShutdownReason;
 use log::error;
@@ -36,7 +39,9 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
     let (cpu_timer, mut cpu_alarms_rx) = cpu_timer.unzip();
     let (_, hard_limit_ms) = cpu_timer_param.limits();
 
+    #[cfg(debug_assertions)]
     let mut current_thread_id = Option::<ThreadId>::None;
+
     let mut is_worker_entered = false;
     let mut cpu_usage_metrics_rx = cpu_usage_metrics_rx.unwrap();
     let mut cpu_usage_ms = 0i64;
@@ -68,14 +73,16 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
 
             Some(metrics) = cpu_usage_metrics_rx.recv() => {
                 match metrics {
-                    CPUUsageMetrics::Enter(thread_id) => {
+                    CPUUsageMetrics::Enter(_thread_id) => {
                         // INVARIANT: Thread ID MUST equal with previously captured
                         // Thread ID.
                         #[cfg(debug_assertions)]
-                        assert!(current_thread_id.unwrap_or(thread_id) == thread_id);
-                        assert!(!is_worker_entered);
+                        {
+                            assert!(current_thread_id.unwrap_or(_thread_id) == _thread_id);
+                            current_thread_id = Some(_thread_id);
+                        }
 
-                        current_thread_id = Some(thread_id);
+                        assert!(!is_worker_entered);
                         is_worker_entered = true;
 
                         if let Some(Err(err)) = cpu_timer.as_ref().map(|it| it.reset()) {

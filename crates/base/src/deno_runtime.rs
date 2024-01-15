@@ -386,6 +386,12 @@ impl DenoRuntime {
         }
 
         let mut js_runtime = &mut self.js_runtime;
+
+        unsafe { js_runtime.v8_isolate().enter() };
+        let mut js_runtime = scopeguard::guard(&mut js_runtime, |it| unsafe {
+            it.v8_isolate().exit();
+        });
+
         let mod_result_rx = js_runtime.mod_evaluate(self.main_module_id);
         let is_user_worker = self.conf.is_user_worker();
 
@@ -414,11 +420,6 @@ impl DenoRuntime {
 
             let get_current_cpu_time_ns_fn =
                 || get_thread_time().context("can't get current thread time");
-
-            unsafe { js_runtime.v8_isolate().enter() };
-            let mut js_runtime = scopeguard::guard(&mut js_runtime, |it| unsafe {
-                it.v8_isolate().exit();
-            });
 
             send_cpu_metrics_fn(CPUUsageMetrics::Enter(thread_id));
 

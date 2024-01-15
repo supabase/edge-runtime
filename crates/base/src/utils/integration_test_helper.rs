@@ -50,7 +50,7 @@ pub async fn create_test_user_worker<Opt: Into<CreateTestUserWorkerArgs>>(
     let (req_end_tx, req_end_rx) = mpsc::unbounded_channel();
     let (conn_tx, conn_rx) = watch::channel(ConnSync::Want);
 
-    let policy = maybe_policy.unwrap_or_else(|| SupervisorPolicy::oneshot());
+    let policy = maybe_policy.unwrap_or_else(SupervisorPolicy::oneshot);
     let termination_token = TerminationToken::new();
 
     opts.timing = Some(Timing {
@@ -135,10 +135,9 @@ impl Future for RequestScopeGuard {
         });
 
         ready!(inner.as_mut().poll_unpin(cx));
+        this.conn_tx.send(ConnSync::Recv).unwrap();
 
-        Poll::Ready({
-            this.conn_tx.send(ConnSync::Recv).unwrap();
-        })
+        Poll::Ready(())
     }
 }
 

@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use std::{
-    mem::transmute,
+    marker::PhantomPinned,
     sync::Arc,
     task::{ready, Poll},
 };
@@ -99,9 +99,10 @@ impl RequestScope {
         RequestScopeGuard {
             cancelled: false,
             req_end_tx: self.req_end_tx.clone(),
-            termination_token: self.termination_token.clone(),
+            termination_token: Some(self.termination_token.clone()),
             conn_tx: self.conn.0.take().unwrap(),
             inner: None,
+            _pinned: PhantomPinned,
         }
     }
 }
@@ -110,9 +111,10 @@ impl RequestScope {
 pub struct RequestScopeGuard {
     cancelled: bool,
     req_end_tx: mpsc::UnboundedSender<()>,
-    termination_token: TerminationToken,
+    termination_token: Option<TerminationToken>,
     conn_tx: watch::Sender<ConnSync>,
     inner: Option<BoxFuture<'static, ()>>,
+    _pinned: PhantomPinned,
 }
 
 impl Future for RequestScopeGuard {
@@ -127,11 +129,11 @@ impl Future for RequestScopeGuard {
         if !(*this.cancelled) {
             *this.cancelled = true;
             this.req_end_tx.send(()).unwrap();
-            this.termination_token.inbound.cancel();
+            this.termination_token.as_ref().unwrap().inbound.cancel();
         }
 
-        let inner = this.inner.get_or_insert_with(|| unsafe {
-            transmute(this.termination_token.outbound.cancelled().boxed())
+        let inner = this.inner.get_or_insert_with(|| {
+            wait_termination(this.termination_token.take().unwrap()).boxed()
         });
 
         ready!(inner.as_mut().poll_unpin(cx));
@@ -164,4 +166,8 @@ pub fn test_user_runtime_opts() -> UserWorkerRuntimeOpts {
         cpu_time_hard_limit_ms: 4 * 1000 * 3600,
         ..Default::default()
     }
+}
+
+async fn wait_termination(token: TerminationToken) {
+    token.outbound.cancelled().await;
 }

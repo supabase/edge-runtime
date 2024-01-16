@@ -10,13 +10,14 @@ use deno_tls::rustls::RootCertStore;
 use deno_tls::rustls_native_certs::load_native_certs;
 use deno_tls::RootCertStoreProvider;
 use log::error;
+use sb_core::conn_sync::ConnSync;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
 use std::fmt;
+use std::os::fd::RawFd;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::net::UnixStream;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 
 use crate::snapshot;
 use event_worker::events::{EventMetadata, WorkerEventWithMetadata};
@@ -79,6 +80,7 @@ impl DenoRuntime {
             maybe_eszip,
             maybe_entrypoint,
             maybe_module_code,
+            ..
         } = opts;
 
         let user_agent = "supabase-edge-runtime".to_string();
@@ -302,6 +304,10 @@ impl DenoRuntime {
                     .put::<mpsc::UnboundedReceiver<WorkerEventWithMetadata>>(events_rx.unwrap());
             }
 
+            if conf.is_main_worker() || conf.is_user_worker() {
+                op_state.put::<HashMap<RawFd, watch::Receiver<ConnSync>>>(HashMap::new());
+            }
+
             if conf.is_user_worker() {
                 let conf = conf.as_user_worker().unwrap();
 
@@ -336,13 +342,16 @@ impl DenoRuntime {
     }
 
     pub async fn run(
-        mut self,
-        unix_stream_rx: mpsc::UnboundedReceiver<UnixStream>,
+        &mut self,
+        unix_stream_rx: mpsc::UnboundedReceiver<(UnixStream, Option<watch::Receiver<ConnSync>>)>,
     ) -> Result<(), Error> {
         {
             let op_state_rc = self.js_runtime.op_state();
             let mut op_state = op_state_rc.borrow_mut();
-            op_state.put::<mpsc::UnboundedReceiver<UnixStream>>(unix_stream_rx);
+            op_state
+                .put::<mpsc::UnboundedReceiver<(UnixStream, Option<watch::Receiver<ConnSync>>)>>(
+                    unix_stream_rx,
+                );
 
             if self.conf.is_main_worker() {
                 op_state.put::<mpsc::UnboundedSender<UserWorkerMsgs>>(
@@ -351,36 +360,19 @@ impl DenoRuntime {
             }
         }
 
-        let mut js_runtime = self.js_runtime;
+        let js_runtime = &mut self.js_runtime;
+        let mod_result_rx = js_runtime.mod_evaluate(self.main_module_id);
 
-        let future = async move {
-            let mod_result_rx = js_runtime.mod_evaluate(self.main_module_id);
-            match js_runtime.run_event_loop(false).await {
-                Err(err) => {
-                    // usually this happens because isolate is terminated
-                    error!("event loop error: {}", err);
-                    Err(anyhow!("event loop error: {}", err))
+        match js_runtime.run_event_loop(false).await {
+            Err(err) => Err(anyhow!("event loop error: {}", err)),
+            Ok(_) => match mod_result_rx.await {
+                Err(_) => Err(anyhow!("mod result sender dropped")),
+                Ok(Err(err)) => {
+                    error!("{}", err.to_string());
+                    Err(err)
                 }
-                Ok(_) => match mod_result_rx.await {
-                    Err(_) => Err(anyhow!("mod result sender dropped")),
-                    Ok(Err(err)) => {
-                        error!("{}", err.to_string());
-                        Err(err)
-                    }
-                    Ok(Ok(_)) => Ok(()),
-                },
-            }
-        };
-
-        // need to set an explicit timeout here in case the event loop idle
-        let mut duration = Duration::MAX;
-        if self.conf.is_user_worker() {
-            let worker_timeout_ms = self.conf.as_user_worker().unwrap().worker_timeout_ms;
-            duration = Duration::from_millis(worker_timeout_ms);
-        }
-        match tokio::time::timeout(duration, future).await {
-            Err(_) => Err(anyhow!("wall clock duration reached")),
-            Ok(res) => res,
+                Ok(Ok(_)) => Ok(()),
+            },
         }
     }
 
@@ -404,6 +396,7 @@ impl DenoRuntime {
 mod test {
     use crate::deno_runtime::DenoRuntime;
     use deno_core::{FastString, ModuleCode};
+    use sb_core::conn_sync::ConnSync;
     use sb_graph::emitter::EmitterFactory;
     use sb_graph::{generate_binary_eszip, EszipPayloadKind};
     use sb_workers::context::{
@@ -417,7 +410,7 @@ mod test {
     use std::path::PathBuf;
     use std::sync::Arc;
     use tokio::net::UnixStream;
-    use tokio::sync::mpsc;
+    use tokio::sync::{mpsc, watch};
 
     #[tokio::test]
     async fn test_module_code_no_eszip() {
@@ -428,6 +421,7 @@ mod test {
             import_map_path: None,
             env_vars: Default::default(),
             events_rx: None,
+            timing: None,
             maybe_eszip: None,
             maybe_entrypoint: None,
             maybe_module_code: Some(FastString::from(String::from(
@@ -461,6 +455,7 @@ mod test {
             import_map_path: None,
             env_vars: Default::default(),
             events_rx: None,
+            timing: None,
             maybe_eszip: Some(EszipPayloadKind::VecKind(eszip_code)),
             maybe_entrypoint: None,
             maybe_module_code: None,
@@ -509,6 +504,7 @@ mod test {
             import_map_path: None,
             env_vars: Default::default(),
             events_rx: None,
+            timing: None,
             maybe_eszip: Some(EszipPayloadKind::VecKind(eszip_code)),
             maybe_entrypoint: None,
             maybe_module_code: None,
@@ -551,6 +547,7 @@ mod test {
             import_map_path: None,
             env_vars: env_vars.unwrap_or_default(),
             events_rx: None,
+            timing: None,
             maybe_eszip: None,
             maybe_entrypoint: None,
             maybe_module_code: None,
@@ -869,6 +866,7 @@ mod test {
                 key: None,
                 pool_msg_tx: None,
                 events_msg_tx: None,
+                cancel: None,
                 service_path: None,
             })),
         )
@@ -877,8 +875,10 @@ mod test {
 
     #[tokio::test]
     async fn test_read_file_user_rt() {
-        let user_rt = create_basic_user_runtime("./test_cases/readFile", 20, 1000).await;
-        let (_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
+        let mut user_rt = create_basic_user_runtime("./test_cases/readFile", 20, 1000).await;
+        let (_tx, unix_stream_rx) =
+            mpsc::unbounded_channel::<(UnixStream, Option<watch::Receiver<ConnSync>>)>();
+
         let result = user_rt.run(unix_stream_rx).await;
         match result {
             Err(err) => {
@@ -892,16 +892,18 @@ mod test {
 
     #[tokio::test]
     async fn test_array_buffer_allocation_below_limit() {
-        let user_rt = create_basic_user_runtime("./test_cases/array_buffers", 20, 1000).await;
-        let (_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
+        let mut user_rt = create_basic_user_runtime("./test_cases/array_buffers", 20, 1000).await;
+        let (_tx, unix_stream_rx) =
+            mpsc::unbounded_channel::<(UnixStream, Option<watch::Receiver<ConnSync>>)>();
         let result = user_rt.run(unix_stream_rx).await;
         assert!(result.is_ok(), "expected no errors");
     }
 
     #[tokio::test]
     async fn test_array_buffer_allocation_above_limit() {
-        let user_rt = create_basic_user_runtime("./test_cases/array_buffers", 15, 1000).await;
-        let (_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStream>();
+        let mut user_rt = create_basic_user_runtime("./test_cases/array_buffers", 15, 1000).await;
+        let (_tx, unix_stream_rx) =
+            mpsc::unbounded_channel::<(UnixStream, Option<watch::Receiver<ConnSync>>)>();
         let result = user_rt.run(unix_stream_rx).await;
         match result {
             Err(err) => {

@@ -2,7 +2,10 @@ const primordials = globalThis.__bootstrap.primordials;
 const {
 	TypeError,
 } = primordials;
+
 import { readableStreamForRid, writableStreamForRid } from 'ext:deno_web/06_streams.js';
+import { getWatcherRid } from 'ext:sb_core_main_js/js/http.js';
+
 const core = globalThis.Deno.core;
 const ops = core.ops;
 
@@ -32,15 +35,24 @@ class UserWorker {
 	}
 
 	async fetch(req, opts = {}) {
+		const watcherRid = getWatcherRid(req);
+		
 		const { method, url, headers, body, bodyUsed } = req;
 		const { signal } = opts;
 
 		signal?.throwIfAborted();
 
+		if (watcherRid === void 0) {
+			console.warn(`Unable to find the connection watcher from the request instance.\n\
+Invoke \`EdgeRuntime.applyConnectionWatcher(origReq, newReq)\` if you have cloned the original request.`);
+		} 
+
 		const headersArray = Array.from(headers.entries());
-		const hasReqBody = !bodyUsed && !!body &&
-			(chunkExpression.test(headers.get('transfer-encoding')) ||
-				Number.parseInt(headers.get('content-length'), 10) > 0);
+		const hasReqBody = !bodyUsed && !!body;
+
+		// const hasReqBody = !bodyUsed && !!body &&
+		// 	(chunkExpression.test(headers.get('transfer-encoding')) ||
+		// 		Number.parseInt(headers.get('content-length'), 10) > 0);
 
 		const userWorkerReq = {
 			method,
@@ -60,8 +72,20 @@ class UserWorker {
 			reqBodyPromise = body.pipeTo(writableStream, { signal });
 		}
 
-		const resPromise = core.opAsync('op_user_worker_fetch_send', this.key, requestRid);
-		const [, res] = await Promise.all([reqBodyPromise, resPromise]);
+		const resPromise = core.opAsync('op_user_worker_fetch_send', this.key, requestRid, watcherRid);
+		let [sent, res] = await Promise.allSettled([reqBodyPromise, resPromise]);
+		
+		if (sent.status === "rejected") {
+			if (res.status === "fulfilled") {
+				core.close(res.value.bodyRid);
+			}
+
+			throw sent.reason;
+		} else if (res.status === "rejected") {
+			throw res.reason;
+		} else {
+			res = res.value;
+		}
 
 		const response = {
 			headers: res.headers,

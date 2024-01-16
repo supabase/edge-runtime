@@ -3,9 +3,13 @@ use deno_core::FastString;
 use enum_as_inner::EnumAsInner;
 use event_worker::events::WorkerEventWithMetadata;
 use hyper::{Body, Request, Response};
-use std::collections::HashMap;
+use sb_core::conn_sync::ConnSync;
+use sb_core::util::sync::AtomicFlag;
 use std::path::PathBuf;
-use tokio::sync::{mpsc, oneshot};
+use std::sync::atomic::AtomicUsize;
+use std::{collections::HashMap, sync::Arc};
+use tokio::sync::mpsc::unbounded_channel;
+use tokio::sync::{mpsc, oneshot, watch, Notify, OwnedSemaphorePermit};
 use uuid::Uuid;
 
 use sb_graph::EszipPayloadKind;
@@ -17,6 +21,7 @@ pub struct UserWorkerRuntimeOpts {
 
     pub pool_msg_tx: Option<mpsc::UnboundedSender<UserWorkerMsgs>>,
     pub events_msg_tx: Option<mpsc::UnboundedSender<WorkerEventWithMetadata>>,
+    pub cancel: Option<Arc<Notify>>,
 
     pub memory_limit_mb: u64,
     pub low_memory_multiplier: u64,
@@ -45,6 +50,7 @@ impl Default for UserWorkerRuntimeOpts {
             key: None,
             pool_msg_tx: None,
             events_msg_tx: None,
+            cancel: None,
             net_access_disabled: false,
             allow_remote_modules: true,
             custom_module_root: None,
@@ -56,7 +62,14 @@ impl Default for UserWorkerRuntimeOpts {
 #[derive(Debug, Clone)]
 pub struct UserWorkerProfile {
     pub worker_request_msg_tx: mpsc::UnboundedSender<WorkerRequestMsg>,
+    pub timing_tx_pair: (
+        mpsc::UnboundedSender<Arc<Notify>>,
+        mpsc::UnboundedSender<()>,
+    ),
     pub service_path: String,
+    pub permit: Option<Arc<OwnedSemaphorePermit>>,
+    pub cancel: Arc<Notify>,
+    pub status: TimingStatus,
 }
 
 #[derive(Debug, Clone)]
@@ -74,6 +87,33 @@ pub enum WorkerRuntimeOpts {
     EventsWorker(EventWorkerRuntimeOpts),
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct TimingStatus {
+    pub demand: Arc<AtomicUsize>,
+    pub is_retired: Option<Arc<AtomicFlag>>,
+}
+
+#[derive(Debug)]
+pub struct Timing {
+    pub status: TimingStatus,
+    pub req: (
+        mpsc::UnboundedReceiver<Arc<Notify>>,
+        mpsc::UnboundedReceiver<()>,
+    ),
+}
+
+impl Default for Timing {
+    fn default() -> Self {
+        let (_, dumb_start_rx) = unbounded_channel::<Arc<Notify>>();
+        let (_, dumb_end_rx) = unbounded_channel::<()>();
+
+        Self {
+            status: TimingStatus::default(),
+            req: (dumb_start_rx, dumb_end_rx),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct WorkerContextInitOpts {
     pub service_path: PathBuf,
@@ -81,6 +121,7 @@ pub struct WorkerContextInitOpts {
     pub import_map_path: Option<String>,
     pub env_vars: HashMap<String, String>,
     pub events_rx: Option<mpsc::UnboundedReceiver<WorkerEventWithMetadata>>,
+    pub timing: Option<Timing>,
     pub conf: WorkerRuntimeOpts,
     pub maybe_eszip: Option<EszipPayloadKind>,
     pub maybe_module_code: Option<FastString>,
@@ -97,11 +138,14 @@ pub enum UserWorkerMsgs {
     SendRequest(
         Uuid,
         Request<Body>,
-        oneshot::Sender<Result<Response<Body>, Error>>,
+        oneshot::Sender<Result<SendRequestResult, Error>>,
+        Option<watch::Receiver<ConnSync>>,
     ),
-    Retire(Uuid),
+    Idle(Uuid),
     Shutdown(Uuid),
 }
+
+pub type SendRequestResult = (Response<Body>, mpsc::UnboundedSender<()>);
 
 #[derive(Debug)]
 pub struct CreateUserWorkerResult {
@@ -112,4 +156,5 @@ pub struct CreateUserWorkerResult {
 pub struct WorkerRequestMsg {
     pub req: Request<Body>,
     pub res_tx: oneshot::Sender<Result<Response<Body>, hyper::Error>>,
+    pub conn_watch: Option<watch::Receiver<ConnSync>>,
 }

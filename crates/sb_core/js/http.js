@@ -1,7 +1,15 @@
 import { HttpConn } from 'ext:deno_http/01_http.js';
+import { RequestPrototype } from 'ext:deno_fetch/23_request.js';
+
+const { ObjectPrototypeIsPrototypeOf } = globalThis.__bootstrap.primordials;
+
+const HttpConnPrototypeNextRequest = HttpConn.prototype.nextRequest;
+const HttpConnPrototypeClose = HttpConn.prototype.close;
 
 const core = globalThis.Deno.core;
 const ops = core.ops;
+
+const watcher = Symbol("watcher");
 
 function internalServerError() {
 	// "Internal Server Error"
@@ -34,8 +42,27 @@ function internalServerError() {
 }
 
 function serveHttp(conn) {
-	const rid = ops.op_http_start(conn.rid);
-	return new HttpConn(rid, conn.remoteAddr, conn.localAddr);
+	const [connRid, watcherRid] = ops.op_http_start(conn.rid);
+	const httpConn = new HttpConn(connRid, conn.remoteAddr, conn.localAddr);
+
+	httpConn.nextRequest = async () => {
+		const nextRequest = await HttpConnPrototypeNextRequest.call(httpConn);
+
+		if (nextRequest === null) {
+			return null;
+		}
+
+		nextRequest.request[watcher] = watcherRid;
+
+		return nextRequest;
+	};
+
+	httpConn.close = () => {
+		core.tryClose(watcherRid);
+		HttpConnPrototypeClose.call(httpConn);
+	};
+
+	return httpConn;
 }
 
 async function serve(args1, args2) {
@@ -94,4 +121,19 @@ async function serve(args1, args2) {
 	};
 }
 
-export { serve, serveHttp };
+function getWatcherRid(req) {
+	return req[watcher];
+}
+
+function applyWatcherRid(src, dest) {
+	if (
+		!ObjectPrototypeIsPrototypeOf(RequestPrototype, src) 
+		|| !ObjectPrototypeIsPrototypeOf(RequestPrototype, dest)
+	) {
+		throw new TypeError("Only Request instance can apply the connection watcher");
+	}
+
+	dest[watcher] = src[watcher];
+}
+
+export { serve, serveHttp, getWatcherRid, applyWatcherRid };

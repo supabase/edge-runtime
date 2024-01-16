@@ -18,6 +18,7 @@ async fn test_import_map_file_path() {
         import_map_path: Some("./test_cases/with_import_map/import_map.json".to_string()),
         env_vars: HashMap::new(),
         events_rx: None,
+        timing: None,
         maybe_eszip: None,
         maybe_entrypoint: None,
         maybe_module_code: None,
@@ -32,7 +33,12 @@ async fn test_import_map_file_path() {
         .body(Body::empty())
         .unwrap();
 
-    let msg = WorkerRequestMsg { req, res_tx };
+    let msg = WorkerRequestMsg {
+        req,
+        res_tx,
+        conn_watch: None,
+    };
+
     let _ = worker_req_tx.send(msg);
 
     let res = res_rx.await.unwrap().unwrap();
@@ -69,6 +75,7 @@ async fn test_import_map_inline() {
         import_map_path: Some(inline_import_map),
         env_vars: HashMap::new(),
         events_rx: None,
+        timing: None,
         maybe_eszip: None,
         maybe_entrypoint: None,
         maybe_module_code: None,
@@ -83,7 +90,12 @@ async fn test_import_map_inline() {
         .body(Body::empty())
         .unwrap();
 
-    let msg = WorkerRequestMsg { req, res_tx };
+    let msg = WorkerRequestMsg {
+        req,
+        res_tx,
+        conn_watch: None,
+    };
+
     let _ = worker_req_tx.send(msg);
 
     let res = res_rx.await.unwrap().unwrap();

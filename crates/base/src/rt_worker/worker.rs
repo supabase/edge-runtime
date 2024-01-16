@@ -8,25 +8,31 @@ use event_worker::events::{
     EventMetadata, ShutdownEvent, UncaughtExceptionEvent, WorkerEventWithMetadata, WorkerEvents,
 };
 use log::{debug, error};
+use sb_core::conn_sync::ConnSync;
 use sb_workers::context::{UserWorkerMsgs, WorkerContextInitOpts};
 use std::any::Any;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::thread;
 use tokio::net::UnixStream;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
-use tokio::sync::oneshot;
 use tokio::sync::oneshot::{Receiver, Sender};
+use tokio::sync::{oneshot, watch, Notify};
 use tokio::time::Instant;
 use uuid::Uuid;
+
+use super::worker_pool::SupervisorPolicy;
 
 #[derive(Clone)]
 pub struct Worker {
     pub worker_boot_start_time: Instant,
     pub events_msg_tx: Option<UnboundedSender<WorkerEventWithMetadata>>,
     pub pool_msg_tx: Option<UnboundedSender<UserWorkerMsgs>>,
+    pub cancel: Option<Arc<Notify>>,
     pub event_metadata: EventMetadata,
     pub worker_key: Option<Uuid>,
+    pub supervisor_policy: Option<SupervisorPolicy>,
     pub thread_name: String,
 }
 
@@ -37,7 +43,7 @@ pub trait WorkerHandler: Send {
     fn handle_creation(
         &self,
         created_rt: DenoRuntime,
-        unix_stream_rx: UnboundedReceiver<UnixStream>,
+        unix_stream_rx: UnboundedReceiver<(UnixStream, Option<watch::Receiver<ConnSync>>)>,
         termination_event_rx: Receiver<WorkerEvents>,
     ) -> HandleCreationType;
     fn as_any(&self) -> &dyn Any;
@@ -45,33 +51,42 @@ pub trait WorkerHandler: Send {
 
 impl Worker {
     pub fn new(init_opts: &WorkerContextInitOpts) -> Result<Self, Error> {
-        let (worker_key, pool_msg_tx, events_msg_tx, thread_name) =
+        let (worker_key, pool_msg_tx, events_msg_tx, cancel, thread_name) =
             parse_worker_conf(&init_opts.conf);
         let event_metadata = get_event_metadata(&init_opts.conf);
 
         let worker_boot_start_time = Instant::now();
 
         Ok(Self {
+            supervisor_policy: None,
             worker_boot_start_time,
             events_msg_tx,
             pool_msg_tx,
+            cancel,
             event_metadata,
             worker_key,
             thread_name,
         })
     }
 
+    pub fn set_supervisor_policy(&mut self, supervisor_policy: Option<SupervisorPolicy>) {
+        self.supervisor_policy = supervisor_policy;
+    }
+
     pub fn start(
         &self,
-        opts: WorkerContextInitOpts,
-        unix_channel_rx: UnboundedReceiver<UnixStream>,
+        mut opts: WorkerContextInitOpts,
+        unix_channel_rx: UnboundedReceiver<(UnixStream, Option<watch::Receiver<ConnSync>>)>,
         booter_signal: Sender<Result<(), Error>>,
     ) {
         let thread_name = self.thread_name.clone();
         let events_msg_tx = self.events_msg_tx.clone();
         let event_metadata = self.event_metadata.clone();
+        let cancel = self.cancel.clone();
+        let supervisor_policy = self.supervisor_policy.unwrap_or_default();
         let worker_key = self.worker_key;
         let pool_msg_tx = self.pool_msg_tx.clone();
+        let timing = opts.timing.take();
         let method_cloner = self.clone();
 
         let _handle: thread::JoinHandle<Result<(), Error>> = thread::Builder::new()
@@ -101,8 +116,11 @@ impl Worker {
                                 _cputimer = create_supervisor(
                                     worker_key.unwrap_or(Uuid::nil()),
                                     &mut new_runtime,
+                                    supervisor_policy,
                                     termination_event_tx,
                                     pool_msg_tx.clone(),
+                                    cancel,
+                                    timing,
                                 )?;
                             }
 

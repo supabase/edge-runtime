@@ -1,5 +1,7 @@
 pub mod timerid;
 
+use std::sync::Arc;
+
 #[cfg(target_os = "linux")]
 use crate::timerid::TimerId;
 
@@ -8,19 +10,33 @@ use anyhow::bail;
 use anyhow::Error;
 use log::debug;
 use nix::sys::signal;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Mutex};
 
 #[repr(C)]
+#[derive(Clone)]
 pub struct CPUAlarmVal {
     pub cpu_alarms_tx: mpsc::UnboundedSender<()>,
 }
 
 #[cfg(target_os = "linux")]
-pub struct CPUTimer {
-    _timerid: TimerId,
-    val_ptr: *mut CPUAlarmVal,
+struct CPUTimerVal {
+    id: TimerId,
+    initial_expiry: u64,
+    interval: u64,
 }
+
+#[cfg(target_os = "linux")]
+unsafe impl Send for CPUTimerVal {}
+
+#[cfg(target_os = "linux")]
+#[derive(Clone)]
+pub struct CPUTimer {
+    _timer: Arc<Mutex<CPUTimerVal>>,
+    _cpu_alarm_val: Arc<CPUAlarmVal>,
+}
+
 #[cfg(not(target_os = "linux"))]
+#[derive(Clone)]
 pub struct CPUTimer {}
 
 impl CPUTimer {
@@ -31,13 +47,14 @@ impl CPUTimer {
         cpu_alarm_val: CPUAlarmVal,
     ) -> Result<Self, Error> {
         let mut timerid = TimerId(std::ptr::null_mut());
-        let val_ptr = Box::into_raw(Box::new(cpu_alarm_val));
-        let sival_ptr: *mut libc::c_void = val_ptr as *mut libc::c_void;
-
         let mut sigev: libc::sigevent = unsafe { std::mem::zeroed() };
+        let cpu_alarm_val = Arc::new(cpu_alarm_val);
+
         sigev.sigev_notify = libc::SIGEV_SIGNAL;
         sigev.sigev_signo = libc::SIGALRM;
-        sigev.sigev_value = libc::sigval { sival_ptr };
+        sigev.sigev_value = libc::sigval {
+            sival_ptr: Arc::as_ptr(&cpu_alarm_val) as *mut _,
+        };
 
         if unsafe {
             // creates a new per-thread timer
@@ -51,11 +68,33 @@ impl CPUTimer {
             bail!(std::io::Error::last_os_error())
         }
 
-        let initial_expiry_secs = initial_expiry / 1000;
-        let initial_expiry_msecs = initial_expiry % 1000;
-        let interval_secs = interval / 1000;
-        let interval_msecs = interval % 1000;
+        let this = Self {
+            _timer: Arc::new(Mutex::new(CPUTimerVal {
+                id: timerid,
+                initial_expiry,
+                interval,
+            })),
+            _cpu_alarm_val: cpu_alarm_val,
+        };
+
+        Ok({
+            this.reset()?;
+            this
+        })
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn reset(&self) -> Result<(), Error> {
+        use anyhow::Context;
+
+        let timer = self._timer.try_lock().context("failed to get the lock")?;
+
+        let initial_expiry_secs = timer.initial_expiry / 1000;
+        let initial_expiry_msecs = timer.initial_expiry % 1000;
+        let interval_secs = timer.interval / 1000;
+        let interval_msecs = timer.interval % 1000;
         let mut tmspec: libc::itimerspec = unsafe { std::mem::zeroed() };
+
         tmspec.it_value.tv_sec = initial_expiry_secs as i64;
         tmspec.it_value.tv_nsec = (initial_expiry_msecs as i64) * 1_000_000;
         tmspec.it_interval.tv_sec = interval_secs as i64;
@@ -63,16 +102,13 @@ impl CPUTimer {
 
         if unsafe {
             // start the timer with an expiry
-            libc::timer_settime(timerid.0, 0, &tmspec, std::ptr::null_mut())
+            libc::timer_settime(timer.id.0, 0, &tmspec, std::ptr::null_mut())
         } < 0
         {
             bail!(std::io::Error::last_os_error())
         }
 
-        Ok(Self {
-            _timerid: timerid,
-            val_ptr,
-        })
+        Ok(())
     }
 
     #[cfg(not(target_os = "linux"))]
@@ -80,26 +116,22 @@ impl CPUTimer {
         log::error!("CPU timer: not enabled (need Linux)");
         Ok(Self {})
     }
-}
 
-#[cfg(target_os = "linux")]
-impl Drop for CPUTimer {
-    fn drop(&mut self) {
-        // reconstruct the CPUAlarmVal so its memory freed up correctly
-        unsafe {
-            let _ = Box::from_raw(self.val_ptr);
-        }
+    #[cfg(not(target_os = "linux"))]
+    pub fn reset(&self) -> Result<(), Error> {
+        Ok(())
     }
 }
 
 extern "C" fn sigalrm_handler(_: libc::c_int, info: *mut libc::siginfo_t, _: *mut libc::c_void) {
-    let cpu_alarms_tx: mpsc::UnboundedSender<()>;
-    unsafe {
+    let cpu_alarms_tx = unsafe {
         let sival = (*info).si_value();
-        let boxed_state = Box::from_raw(sival.sival_ptr as *mut CPUAlarmVal);
-        cpu_alarms_tx = boxed_state.cpu_alarms_tx.clone();
-        std::mem::forget(boxed_state);
-    }
+        let val = Arc::from_raw(sival.sival_ptr as *const CPUAlarmVal);
+        let sig = val.cpu_alarms_tx.clone();
+
+        std::mem::forget(val);
+        sig
+    };
 
     if cpu_alarms_tx.send(()).is_err() {
         debug!("failed to send cpu alarm to the provided channel");

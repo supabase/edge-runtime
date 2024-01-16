@@ -2,8 +2,9 @@ mod logger;
 
 use anyhow::{anyhow, bail, Error};
 use base::commands::start_server;
+use base::rt_worker::worker_pool::{SupervisorPolicy, WorkerPoolPolicy};
 use base::server::WorkerEntrypoints;
-use clap::builder::FalseyValueParser;
+use clap::builder::{FalseyValueParser, TypedValueParser};
 use clap::{arg, crate_version, value_parser, ArgAction, Command};
 use deno_core::url::Url;
 use sb_graph::emitter::EmitterFactory;
@@ -57,6 +58,24 @@ fn cli() -> Command {
                 .arg(arg!(--"event-worker" <Path> "Path to event worker directory"))
                 .arg(arg!(--"main-entrypoint" <Path> "Path to entrypoint in main service (only for eszips)"))
                 .arg(arg!(--"events-entrypoint" <Path> "Path to entrypoint in events worker (only for eszips)"))
+                .arg(
+                    arg!(--"policy" <POLICY> "Policy to enforce in the worker pool")
+                        .default_value("per_worker")
+                        .value_parser(["per_worker", "per_request", "oneshot"])
+                )
+                .arg(
+                    arg!(--"max-parallelism" <COUNT> "Maximum count of workers that can exist in the worker pool simultaneously")
+                        .value_parser(
+                            // NOTE: Acceptable bounds were chosen arbitrarily.
+                            value_parser!(u32)
+                                .range(1..9999)
+                                .map(|it| -> usize { it as usize })
+                        )
+                )
+                .arg(
+                    arg!(--"request-wait-timeout" <MILLISECONDS> "Maximum time in milliseconds that can wait to establish a connection with a worker")
+                    .value_parser(value_parser!(u64))
+                )
         )
         .subcommand(
             Command::new("bundle")
@@ -121,14 +140,34 @@ fn main() -> Result<(), anyhow::Error> {
                     sub_matches.get_one::<String>("main-entrypoint").cloned();
                 let maybe_events_entrypoint =
                     sub_matches.get_one::<String>("events-entrypoint").cloned();
+                let maybe_supervisor_policy = sub_matches
+                    .get_one::<String>("policy")
+                    .map(|it| it.parse::<SupervisorPolicy>().unwrap());
+                let maybe_max_parallelism =
+                    sub_matches.get_one::<usize>("max-parallelism").cloned();
+                let maybe_request_wait_timeout =
+                    sub_matches.get_one::<u64>("request-wait-timeout").cloned();
 
                 start_server(
                     ip.as_str(),
                     port,
                     main_service_path,
                     event_service_manager_path,
+                    Some(WorkerPoolPolicy::new(
+                        maybe_supervisor_policy,
+                        if let Some(true) = maybe_supervisor_policy
+                            .as_ref()
+                            .map(SupervisorPolicy::is_oneshot)
+                        {
+                            Some(1)
+                        } else {
+                            maybe_max_parallelism
+                        },
+                        maybe_request_wait_timeout,
+                    )),
                     import_map_path,
                     no_module_cache,
+                    cfg!(not(target_os = "linux")),
                     None,
                     WorkerEntrypoints {
                         main: maybe_main_entrypoint,

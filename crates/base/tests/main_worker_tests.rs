@@ -9,13 +9,17 @@ use tokio::sync::oneshot;
 #[tokio::test]
 async fn test_main_worker_options_request() {
     // create a user worker pool
-    let user_worker_msgs_tx = create_user_worker_pool(None).await.unwrap();
+    let user_worker_msgs_tx = create_user_worker_pool(Default::default(), None)
+        .await
+        .unwrap();
+
     let opts = WorkerContextInitOpts {
         service_path: "./test_cases/main".into(),
         no_module_cache: false,
         import_map_path: None,
         env_vars: HashMap::new(),
         events_rx: None,
+        timing: None,
         maybe_eszip: None,
         maybe_entrypoint: None,
         maybe_module_code: None,
@@ -32,7 +36,12 @@ async fn test_main_worker_options_request() {
         .body(Body::empty())
         .unwrap();
 
-    let msg = WorkerRequestMsg { req, res_tx };
+    let msg = WorkerRequestMsg {
+        req,
+        res_tx,
+        conn_watch: None,
+    };
+
     let _ = worker_req_tx.send(msg);
 
     let res = res_rx.await.unwrap().unwrap();
@@ -51,13 +60,17 @@ async fn test_main_worker_options_request() {
 #[tokio::test]
 async fn test_main_worker_post_request() {
     // create a user worker pool
-    let user_worker_msgs_tx = create_user_worker_pool(None).await.unwrap();
+    let user_worker_msgs_tx = create_user_worker_pool(Default::default(), None)
+        .await
+        .unwrap();
+
     let opts = WorkerContextInitOpts {
         service_path: "./test_cases/main".into(),
         no_module_cache: false,
         import_map_path: None,
         env_vars: HashMap::new(),
         events_rx: None,
+        timing: None,
         maybe_eszip: None,
         maybe_entrypoint: None,
         maybe_module_code: None,
@@ -83,7 +96,12 @@ async fn test_main_worker_post_request() {
         .body(body)
         .unwrap();
 
-    let msg = WorkerRequestMsg { req, res_tx };
+    let msg = WorkerRequestMsg {
+        req,
+        res_tx,
+        conn_watch: None,
+    };
+
     let _ = worker_req_tx.send(msg);
 
     let res = res_rx.await.unwrap().unwrap();
@@ -97,13 +115,17 @@ async fn test_main_worker_post_request() {
 #[tokio::test]
 async fn test_main_worker_boot_error() {
     // create a user worker pool
-    let user_worker_msgs_tx = create_user_worker_pool(None).await.unwrap();
+    let user_worker_msgs_tx = create_user_worker_pool(Default::default(), None)
+        .await
+        .unwrap();
+
     let opts = WorkerContextInitOpts {
         service_path: "./test_cases/main".into(),
         no_module_cache: false,
         import_map_path: Some("./non-existing-import-map.json".to_string()),
         env_vars: HashMap::new(),
         events_rx: None,
+        timing: None,
         maybe_eszip: None,
         maybe_entrypoint: None,
         maybe_module_code: None,
@@ -120,13 +142,17 @@ async fn test_main_worker_boot_error() {
 #[tokio::test]
 async fn test_main_worker_abort_request() {
     // create a user worker pool
-    let user_worker_msgs_tx = create_user_worker_pool(None).await.unwrap();
+    let user_worker_msgs_tx = create_user_worker_pool(Default::default(), None)
+        .await
+        .unwrap();
+
     let opts = WorkerContextInitOpts {
         service_path: "./test_cases/main_with_abort".into(),
         no_module_cache: false,
         import_map_path: None,
         env_vars: HashMap::new(),
         events_rx: None,
+        timing: None,
         maybe_eszip: None,
         maybe_entrypoint: None,
         maybe_module_code: None,
@@ -152,7 +178,12 @@ async fn test_main_worker_abort_request() {
         .body(body)
         .unwrap();
 
-    let msg = WorkerRequestMsg { req, res_tx };
+    let msg = WorkerRequestMsg {
+        req,
+        res_tx,
+        conn_watch: None,
+    };
+
     let _ = worker_req_tx.send(msg);
 
     let res = res_rx.await.unwrap().unwrap();

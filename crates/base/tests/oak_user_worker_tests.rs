@@ -18,6 +18,7 @@ async fn test_oak_server() {
         import_map_path: None,
         env_vars: HashMap::new(),
         events_rx: None,
+        timing: None,
         maybe_eszip: None,
         maybe_entrypoint: None,
         maybe_module_code: None,
@@ -32,7 +33,12 @@ async fn test_oak_server() {
         .body(Body::empty())
         .unwrap();
 
-    let msg = WorkerRequestMsg { req, res_tx };
+    let msg = WorkerRequestMsg {
+        req,
+        res_tx,
+        conn_watch: None,
+    };
+
     let _ = worker_req_tx.send(msg);
 
     let res = res_rx.await.unwrap().unwrap();
@@ -55,6 +61,7 @@ async fn test_file_upload() {
         import_map_path: None,
         env_vars: HashMap::new(),
         events_rx: None,
+        timing: None,
         maybe_eszip: None,
         maybe_entrypoint: None,
         maybe_module_code: None,
@@ -78,7 +85,12 @@ async fn test_file_upload() {
         .body(body)
         .unwrap();
 
-    let msg = WorkerRequestMsg { req, res_tx };
+    let msg = WorkerRequestMsg {
+        req,
+        res_tx,
+        conn_watch: None,
+    };
+
     let _ = worker_req_tx.send(msg);
 
     let res = res_rx.await.unwrap().unwrap();

@@ -14,10 +14,16 @@ use deno_core::ResourceId;
 use deno_net::io::UnixStreamResource;
 use deno_net::ops::IpAddr;
 use std::cell::RefCell;
+use std::collections::HashMap;
+use std::os::fd::AsRawFd;
+use std::os::fd::RawFd;
 use std::rc::Rc;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc;
+use tokio::sync::watch;
+
+use crate::conn_sync::ConnSync;
 
 pub struct TcpStreamResource {
     rd: AsyncRefCell<tokio::net::tcp::OwnedReadHalf>,
@@ -96,7 +102,7 @@ pub async fn op_net_accept(
     // we need to add it back later after processing a message.
     let rx = {
         let mut op_state = state.borrow_mut();
-        op_state.try_take::<mpsc::UnboundedReceiver<tokio::net::UnixStream>>()
+        op_state.try_take::<mpsc::UnboundedReceiver<(tokio::net::UnixStream, Option<watch::Receiver<ConnSync>>)>>()
     };
 
     if rx.is_none() {
@@ -104,19 +110,27 @@ pub async fn op_net_accept(
     }
     let mut rx = rx.unwrap();
 
-    let unix_stream = rx.recv().await;
-    if unix_stream.is_none() {
+    let Some((unix_stream, conn_sync)) = rx.recv().await else {
         return Err(bad_resource("unix stream channel is closed"));
-    }
-    let unix_stream = unix_stream.unwrap();
+    };
 
+    let fd = unix_stream.as_raw_fd();
     let resource = UnixStreamResource::new(unix_stream.into_split());
 
     // since the op state was dropped before,
     // reborrow and add the channel receiver again
     let mut op_state = state.borrow_mut();
-    op_state.put::<mpsc::UnboundedReceiver<tokio::net::UnixStream>>(rx);
+
+    op_state.put::<mpsc::UnboundedReceiver<(tokio::net::UnixStream, Option<watch::Receiver<ConnSync>>)>>(rx);
+
     let rid = op_state.resource_table.add(resource);
+
+    if let Some(watcher) = conn_sync {
+        let _ = op_state
+            .borrow_mut::<HashMap<RawFd, watch::Receiver<ConnSync>>>()
+            .insert(fd, watcher);
+    }
+
     Ok((
         rid,
         IpAddr {

@@ -38,6 +38,8 @@ log = { workspace = true }
 reqwest.workspace = true
 serde = { version = "1.0.149", features = ["derive"] }
 tokio = { workspace = true }
+tokio-util = { workspace = true }
+futures-util = { workspace = true }
 url = { version = "2.3.1" }
 event_worker ={ version = "0.1.0", path = "../event_worker" }
 sb_workers = { version = "0.1.0", path = "../sb_workers" }
@@ -52,10 +54,11 @@ deno_broadcast_channel.workspace = true
 sb_node = { version = "0.1.0", path = "../node" }
 eszip.workspace = true
 notify = { version = "6.1.1", default-features = false, features = ["macos_kqueue"] }
+flume = { version = "0.11.0" }
+strum = { version = "0.25.0", features = ["derive"] }
 urlencoding.workspace = true
 
 [dev-dependencies]
-futures-util = { version = "0.3.28" }
 flaky_test = { version = "0.1.0", path = "../flaky_test" }
 
 [build-dependencies]

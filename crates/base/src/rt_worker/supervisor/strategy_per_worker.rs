@@ -48,8 +48,8 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
 
     // reduce 100ms from wall clock duration, so the interrupt can be handled before
     // isolate is dropped
-    let wall_clock_duration =
-        Duration::from_millis(runtime_opts.worker_timeout_ms) - Duration::from_millis(100);
+    let wall_clock_duration = Duration::from_millis(runtime_opts.worker_timeout_ms)
+        .saturating_sub(Duration::from_millis(100));
 
     // Split wall clock duration into 2 intervals.
     // At the first interval, we will send a msg to retire the worker.

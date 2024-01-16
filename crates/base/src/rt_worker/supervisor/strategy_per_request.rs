@@ -53,8 +53,8 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
 
     // reduce 100ms from wall clock duration, so the interrupt can be handled before
     // isolate is dropped
-    let wall_clock_duration =
-        Duration::from_millis(runtime_opts.worker_timeout_ms) - Duration::from_millis(100);
+    let wall_clock_duration = Duration::from_millis(runtime_opts.worker_timeout_ms)
+        .saturating_sub(Duration::from_millis(100));
 
     let wall_clock_duration_alert = tokio::time::sleep(wall_clock_duration);
 

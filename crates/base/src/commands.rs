@@ -1,5 +1,5 @@
 use crate::{
-    rt_worker::worker_pool::WorkerPoolPolicy,
+    rt_worker::{worker_ctx::TerminationToken, worker_pool::WorkerPoolPolicy},
     server::{Server, ServerCodes, WorkerEntrypoints},
 };
 use anyhow::Error;
@@ -16,6 +16,7 @@ pub async fn start_server(
     no_module_cache: bool,
     callback_tx: Option<Sender<ServerCodes>>,
     entrypoints: WorkerEntrypoints,
+    termination_token: Option<TerminationToken>,
 ) -> Result<(), Error> {
     let mut server = Server::new(
         ip,
@@ -27,7 +28,9 @@ pub async fn start_server(
         no_module_cache,
         callback_tx,
         entrypoints,
+        termination_token,
     )
     .await?;
+
     server.listen().await
 }

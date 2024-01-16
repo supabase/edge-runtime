@@ -267,9 +267,9 @@ impl From<(WorkerContextInitOpts, SupervisorPolicy)> for CreateWorkerArgs {
     }
 }
 
-impl From<(WorkerContextInitOpts, TerminationToken)> for CreateWorkerArgs {
-    fn from(val: (WorkerContextInitOpts, TerminationToken)) -> Self {
-        CreateWorkerArgs(val.0, None, Some(val.1))
+impl<T: Into<Option<TerminationToken>>> From<(WorkerContextInitOpts, T)> for CreateWorkerArgs {
+    fn from(val: (WorkerContextInitOpts, T)) -> Self {
+        CreateWorkerArgs(val.0, None, val.1.into())
     }
 }
 
@@ -417,6 +417,7 @@ pub async fn create_main_worker(
     no_module_cache: bool,
     user_worker_msgs_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
     maybe_entrypoint: Option<String>,
+    termination_token: Option<TerminationToken>,
 ) -> Result<mpsc::UnboundedSender<WorkerRequestMsg>, Error> {
     let mut service_path = main_worker_path.clone();
     let mut maybe_eszip = None;
@@ -427,20 +428,23 @@ pub async fn create_main_worker(
         }
     }
 
-    let main_worker_req_tx = create_worker(WorkerContextInitOpts {
-        service_path,
-        import_map_path,
-        no_module_cache,
-        events_rx: None,
-        timing: None,
-        maybe_eszip,
-        maybe_entrypoint,
-        maybe_module_code: None,
-        conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
-            worker_pool_tx: user_worker_msgs_tx,
-        }),
-        env_vars: std::env::vars().collect(),
-    })
+    let main_worker_req_tx = create_worker((
+        WorkerContextInitOpts {
+            service_path,
+            import_map_path,
+            no_module_cache,
+            events_rx: None,
+            timing: None,
+            maybe_eszip,
+            maybe_entrypoint,
+            maybe_module_code: None,
+            conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
+                worker_pool_tx: user_worker_msgs_tx,
+            }),
+            env_vars: std::env::vars().collect(),
+        },
+        termination_token,
+    ))
     .await
     .map_err(|err| anyhow!("main worker boot error: {}", err))?;
 
@@ -452,6 +456,7 @@ pub async fn create_events_worker(
     import_map_path: Option<String>,
     no_module_cache: bool,
     maybe_entrypoint: Option<String>,
+    termination_token: Option<TerminationToken>,
 ) -> Result<mpsc::UnboundedSender<WorkerEventWithMetadata>, Error> {
     let (events_tx, events_rx) = mpsc::unbounded_channel::<WorkerEventWithMetadata>();
 
@@ -466,18 +471,21 @@ pub async fn create_events_worker(
         }
     }
 
-    let _ = create_worker(WorkerContextInitOpts {
-        service_path,
-        no_module_cache,
-        import_map_path,
-        env_vars: std::env::vars().collect(),
-        events_rx: Some(events_rx),
-        timing: None,
-        maybe_eszip,
-        maybe_entrypoint,
-        maybe_module_code: None,
-        conf: WorkerRuntimeOpts::EventsWorker(EventWorkerRuntimeOpts {}),
-    })
+    let _ = create_worker((
+        WorkerContextInitOpts {
+            service_path,
+            no_module_cache,
+            import_map_path,
+            env_vars: std::env::vars().collect(),
+            events_rx: Some(events_rx),
+            timing: None,
+            maybe_eszip,
+            maybe_entrypoint,
+            maybe_module_code: None,
+            conf: WorkerRuntimeOpts::EventsWorker(EventWorkerRuntimeOpts {}),
+        },
+        termination_token,
+    ))
     .await
     .map_err(|err| anyhow!("events worker boot error: {}", err))?;
 

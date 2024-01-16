@@ -172,6 +172,7 @@ fn main() -> Result<(), anyhow::Error> {
                         main: maybe_main_entrypoint,
                         events: maybe_events_entrypoint,
                     },
+                    None,
                 )
                 .await?;
             }

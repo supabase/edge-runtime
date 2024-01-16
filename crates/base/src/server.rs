@@ -1,5 +1,5 @@
 use crate::rt_worker::worker_ctx::{
-    create_events_worker, create_main_worker, create_user_worker_pool,
+    create_events_worker, create_main_worker, create_user_worker_pool, TerminationToken,
 };
 use crate::rt_worker::worker_pool::WorkerPoolPolicy;
 use anyhow::Error;
@@ -159,6 +159,7 @@ pub struct Server {
     port: u16,
     main_worker_req_tx: mpsc::UnboundedSender<WorkerRequestMsg>,
     callback_tx: Option<Sender<ServerCodes>>,
+    termination_token: TerminationToken,
 }
 
 impl Server {
@@ -173,10 +174,12 @@ impl Server {
         no_module_cache: bool,
         callback_tx: Option<Sender<ServerCodes>>,
         entrypoints: WorkerEntrypoints,
+        termination_token: Option<TerminationToken>,
     ) -> Result<Self, Error> {
         let mut worker_events_sender: Option<mpsc::UnboundedSender<WorkerEventWithMetadata>> = None;
         let maybe_events_entrypoint = entrypoints.events;
         let maybe_main_entrypoint = entrypoints.main;
+        let termination_token = termination_token.unwrap_or_default();
 
         // Create Event Worker
         if let Some(events_service_path) = maybe_events_service_path {
@@ -188,6 +191,7 @@ impl Server {
                 import_map_path.clone(),
                 no_module_cache,
                 maybe_events_entrypoint,
+                Some(termination_token.child_token()),
             )
             .await?;
 
@@ -210,6 +214,7 @@ impl Server {
             no_module_cache,
             user_worker_msgs_tx,
             maybe_main_entrypoint,
+            Some(termination_token.child_token()),
         )
         .await?;
 
@@ -219,12 +224,19 @@ impl Server {
             port,
             main_worker_req_tx,
             callback_tx,
+            termination_token,
         })
+    }
+
+    pub async fn terminate(&self) {
+        self.termination_token.cancel_and_wait().await;
     }
 
     pub async fn listen(&mut self) -> Result<(), Error> {
         let addr = SocketAddr::new(IpAddr::V4(self.ip), self.port);
         let listener = TcpListener::bind(&addr).await?;
+        let termination_token = self.termination_token.clone();
+
         debug!("edge-runtime is listening on {:?}", listener.local_addr()?);
 
         if let Some(callback) = self.callback_tx.clone() {
@@ -260,6 +272,12 @@ impl Server {
                         Err(e) => error!("socket error: {}", e)
                     }
                 }
+
+                _ = termination_token.outbound.cancelled() => {
+                    info!("termination token resolved");
+                    break;
+                }
+
                 // wait for shutdown signal...
                 _ = tokio::signal::ctrl_c() => {
                     info!("shutdown signal received");

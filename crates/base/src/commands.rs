@@ -1,6 +1,6 @@
 use crate::{
     rt_worker::{worker_ctx::TerminationToken, worker_pool::WorkerPoolPolicy},
-    server::{Server, ServerCodes, WorkerEntrypoints},
+    server::{Server, ServerHealth, WorkerEntrypoints},
 };
 use anyhow::Error;
 use tokio::sync::mpsc::Sender;
@@ -14,7 +14,7 @@ pub async fn start_server(
     user_worker_policy: Option<WorkerPoolPolicy>,
     import_map_path: Option<String>,
     no_module_cache: bool,
-    callback_tx: Option<Sender<ServerCodes>>,
+    callback_tx: Option<Sender<ServerHealth>>,
     entrypoints: WorkerEntrypoints,
     termination_token: Option<TerminationToken>,
 ) -> Result<(), Error> {

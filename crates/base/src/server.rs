@@ -23,8 +23,12 @@ use tokio::sync::mpsc::Sender;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
-pub enum ServerCodes {
-    Listening,
+pub enum ServerEvent {
+    ConnectionError(hyper::Error),
+}
+
+pub enum ServerHealth {
+    Listening(mpsc::UnboundedReceiver<ServerEvent>),
     Failure,
 }
 
@@ -158,7 +162,7 @@ pub struct Server {
     ip: Ipv4Addr,
     port: u16,
     main_worker_req_tx: mpsc::UnboundedSender<WorkerRequestMsg>,
-    callback_tx: Option<Sender<ServerCodes>>,
+    callback_tx: Option<Sender<ServerHealth>>,
     termination_token: TerminationToken,
 }
 
@@ -172,7 +176,7 @@ impl Server {
         maybe_user_worker_policy: Option<WorkerPoolPolicy>,
         import_map_path: Option<String>,
         no_module_cache: bool,
-        callback_tx: Option<Sender<ServerCodes>>,
+        callback_tx: Option<Sender<ServerHealth>>,
         entrypoints: WorkerEntrypoints,
         termination_token: Option<TerminationToken>,
     ) -> Result<Self, Error> {
@@ -237,10 +241,14 @@ impl Server {
         let listener = TcpListener::bind(&addr).await?;
         let termination_token = self.termination_token.clone();
 
+        let mut can_receive_event = false;
+        let (event_tx, event_rx) = mpsc::unbounded_channel();
+
         debug!("edge-runtime is listening on {:?}", listener.local_addr()?);
 
         if let Some(callback) = self.callback_tx.clone() {
-            let _ = callback.send(ServerCodes::Listening).await;
+            can_receive_event = true;
+            let _ = callback.send(ServerHealth::Listening(event_rx)).await;
         }
 
         loop {
@@ -250,21 +258,28 @@ impl Server {
                 msg = listener.accept() => {
                     match msg {
                         Ok((conn, _)) => {
-                            tokio::task::spawn(async move {
-                                let (service, cancel) = WorkerService::new(main_worker_req_tx);
-                                let _guard = cancel.drop_guard();
+                            tokio::task::spawn({
+                                let event_tx = event_tx.clone();
+                                async move {
+                                    let (service, cancel) = WorkerService::new(main_worker_req_tx);
+                                    let _guard = cancel.drop_guard();
 
-                                let conn_fut = Http::new()
-                                    .serve_connection(conn, service);
+                                    let conn_fut = Http::new()
+                                        .serve_connection(conn, service);
 
-                                if let Err(e) = conn_fut.await {
-                                    // Most common cause for these errors are
-                                    // when the client closes the connection
-                                    // before we could send a response
-                                    if e.is_incomplete_message() {
-                                        debug!("connection reset ({:?})", e);
-                                    } else {
-                                        error!("client connection error ({:?})", e);
+                                    if let Err(e) = conn_fut.await {
+                                        // Most common cause for these errors are
+                                        // when the client closes the connection
+                                        // before we could send a response
+                                        if e.is_incomplete_message() {
+                                            debug!("connection reset ({:?})", e);
+                                        } else {
+                                            error!("client connection error ({:?})", e);
+                                        }
+
+                                        if can_receive_event {
+                                            let _ = event_tx.send(ServerEvent::ConnectionError(e));
+                                        }
                                     }
                                 }
                             });

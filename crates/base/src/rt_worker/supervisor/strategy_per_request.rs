@@ -145,7 +145,7 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
             }
 
             _ = &mut wall_clock_duration_alert => {
-                if req_ack_count != demand.load(Ordering::Acquire) {
+                if !oneshot && req_ack_count != demand.load(Ordering::Acquire) {
                     wall_clock_duration_alert
                         .as_mut()
                         .reset(Instant::now() + wall_clock_duration);

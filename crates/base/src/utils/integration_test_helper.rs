@@ -1,32 +1,29 @@
 #![allow(dead_code)]
 
 use std::{
+    collections::HashMap,
     marker::PhantomPinned,
+    path::PathBuf,
     sync::Arc,
     task::{ready, Poll},
 };
 
-use anyhow::Error;
+use anyhow::{bail, Context, Error};
 use base::rt_worker::{
-    worker_ctx::{create_worker, CreateWorkerArgs, TerminationToken},
+    worker_ctx::{create_user_worker_pool, create_worker, CreateWorkerArgs, TerminationToken},
     worker_pool::{SupervisorPolicy, WorkerPoolPolicy},
 };
 use futures_util::{future::BoxFuture, Future, FutureExt};
+use http::{Request, Response};
+use hyper::Body;
 use pin_project::pin_project;
 use sb_core::conn_sync::ConnSync;
-use sb_workers::context::{Timing, UserWorkerRuntimeOpts, WorkerContextInitOpts, WorkerRequestMsg};
+use sb_workers::context::{
+    MainWorkerRuntimeOpts, Timing, UserWorkerRuntimeOpts, WorkerContextInitOpts, WorkerRequestMsg,
+    WorkerRuntimeOpts,
+};
 use scopeguard::ScopeGuard;
-use tokio::sync::{mpsc, watch, Notify};
-
-pub fn create_conn_watch() -> (
-    ScopeGuard<watch::Sender<ConnSync>, impl FnOnce(watch::Sender<ConnSync>)>,
-    watch::Receiver<ConnSync>,
-) {
-    let (conn_watch_tx, conn_watch_rx) = watch::channel(ConnSync::Want);
-    let conn_watch_tx = scopeguard::guard(conn_watch_tx, |tx| tx.send(ConnSync::Recv).unwrap());
-
-    (conn_watch_tx, conn_watch_rx)
-}
+use tokio::sync::{mpsc, oneshot, watch, Notify};
 
 pub struct CreateTestUserWorkerArgs(WorkerContextInitOpts, Option<SupervisorPolicy>);
 
@@ -42,36 +39,14 @@ impl From<(WorkerContextInitOpts, SupervisorPolicy)> for CreateTestUserWorkerArg
     }
 }
 
-pub async fn create_test_user_worker<Opt: Into<CreateTestUserWorkerArgs>>(
-    opts: Opt,
-) -> Result<(mpsc::UnboundedSender<WorkerRequestMsg>, RequestScope), Error> {
-    let CreateTestUserWorkerArgs(mut opts, maybe_policy) = opts.into();
-    let (req_start_tx, req_start_rx) = mpsc::unbounded_channel();
-    let (req_end_tx, req_end_rx) = mpsc::unbounded_channel();
-    let (conn_tx, conn_rx) = watch::channel(ConnSync::Want);
+pub fn create_conn_watch() -> (
+    ScopeGuard<watch::Sender<ConnSync>, impl FnOnce(watch::Sender<ConnSync>)>,
+    watch::Receiver<ConnSync>,
+) {
+    let (conn_watch_tx, conn_watch_rx) = watch::channel(ConnSync::Want);
+    let conn_watch_tx = scopeguard::guard(conn_watch_tx, |tx| tx.send(ConnSync::Recv).unwrap());
 
-    let policy = maybe_policy.unwrap_or_else(SupervisorPolicy::oneshot);
-    let termination_token = TerminationToken::new();
-
-    opts.timing = Some(Timing {
-        req: (req_start_rx, req_end_rx),
-        ..Default::default()
-    });
-
-    Ok((
-        create_worker(
-            opts.with_policy(policy)
-                .with_termination_token(termination_token.clone()),
-        )
-        .await?,
-        RequestScope {
-            policy,
-            req_start_tx,
-            req_end_tx,
-            termination_token,
-            conn: (Some(conn_tx), conn_rx),
-        },
-    ))
+    (conn_watch_tx, conn_watch_rx)
 }
 
 #[derive(Debug)]
@@ -153,6 +128,185 @@ impl WorkerContextInitOptsForTesting for WorkerContextInitOpts {
     fn with_policy(self, policy: SupervisorPolicy) -> CreateWorkerArgs {
         (self, policy).into()
     }
+}
+
+pub struct TestBedBuilder {
+    main_service_path: PathBuf,
+    worker_pool_policy: Option<WorkerPoolPolicy>,
+    main_worker_init_opts: Option<WorkerContextInitOpts>,
+}
+
+impl TestBedBuilder {
+    pub fn new<T>(main_service_path: T) -> Self
+    where
+        T: Into<PathBuf>,
+    {
+        Self {
+            main_service_path: main_service_path.into(),
+            worker_pool_policy: None,
+            main_worker_init_opts: None,
+        }
+    }
+
+    pub fn with_worker_pool_policy(mut self, worker_pool_policy: WorkerPoolPolicy) -> Self {
+        self.worker_pool_policy = Some(worker_pool_policy);
+        self
+    }
+
+    pub fn with_oneshot_policy(mut self, request_wait_timeout_ms: u64) -> Self {
+        self.worker_pool_policy = Some(WorkerPoolPolicy::new(
+            SupervisorPolicy::oneshot(),
+            1,
+            Some(request_wait_timeout_ms),
+        ));
+
+        self
+    }
+
+    pub fn with_per_worker_policy(mut self, request_wait_timeout_ms: u64) -> Self {
+        self.worker_pool_policy = Some(WorkerPoolPolicy::new(
+            SupervisorPolicy::PerWorker,
+            1,
+            Some(request_wait_timeout_ms),
+        ));
+
+        self
+    }
+
+    pub fn with_per_request_policy(mut self, request_wait_timeout_ms: u64) -> Self {
+        self.worker_pool_policy = Some(WorkerPoolPolicy::new(
+            SupervisorPolicy::PerRequest { oneshot: false },
+            1,
+            Some(request_wait_timeout_ms),
+        ));
+
+        self
+    }
+
+    pub fn with_main_worker_init_opts(
+        mut self,
+        main_worker_init_opts: WorkerContextInitOpts,
+    ) -> Self {
+        self.main_worker_init_opts = Some(main_worker_init_opts);
+        self
+    }
+
+    pub async fn build(self) -> TestBed {
+        let (worker_pool_msg_tx, pool_termination_token) = {
+            let token = TerminationToken::new();
+            (
+                create_user_worker_pool(
+                    self.worker_pool_policy
+                        .unwrap_or_else(test_user_worker_pool_policy),
+                    None,
+                    Some(token.clone()),
+                )
+                .await
+                .unwrap(),
+                token,
+            )
+        };
+
+        let main_worker_init_opts = WorkerContextInitOpts {
+            service_path: self.main_service_path,
+            no_module_cache: false,
+            import_map_path: None,
+            env_vars: HashMap::new(),
+            events_rx: None,
+            timing: None,
+            maybe_eszip: None,
+            maybe_entrypoint: None,
+            maybe_module_code: None,
+            conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
+                worker_pool_tx: worker_pool_msg_tx,
+            }),
+        };
+
+        let main_termination_token = TerminationToken::new();
+        let main_worker_msg_tx =
+            create_worker((main_worker_init_opts, main_termination_token.clone()))
+                .await
+                .unwrap();
+
+        TestBed {
+            pool_termination_token,
+            main_termination_token,
+            main_worker_msg_tx,
+        }
+    }
+}
+
+pub struct TestBed {
+    pool_termination_token: TerminationToken,
+    main_termination_token: TerminationToken,
+    main_worker_msg_tx: mpsc::UnboundedSender<WorkerRequestMsg>,
+}
+
+impl TestBed {
+    pub async fn request<F>(
+        &self,
+        request_factory_fn: F,
+    ) -> Result<ScopeGuard<Response<Body>, impl FnOnce(Response<Body>)>, Error>
+    where
+        F: FnOnce() -> Result<Request<Body>, Error>,
+    {
+        let (conn_tx, conn_rx) = create_conn_watch();
+        let (res_tx, res_rx) = oneshot::channel();
+
+        let req: Request<Body> = request_factory_fn()?;
+
+        let _ = self.main_worker_msg_tx.send(WorkerRequestMsg {
+            req,
+            res_tx,
+            conn_watch: Some(conn_rx),
+        });
+
+        let Ok(res) = res_rx.await else {
+            bail!("can't send request to the main worker");
+        };
+
+        Ok(scopeguard::guard(
+            res.context("request failure")?,
+            move |_| drop(conn_tx),
+        ))
+    }
+
+    pub async fn exit(self) {
+        self.pool_termination_token.cancel_and_wait().await;
+        self.main_termination_token.cancel_and_wait().await;
+    }
+}
+
+pub async fn create_test_user_worker<Opt: Into<CreateTestUserWorkerArgs>>(
+    opts: Opt,
+) -> Result<(mpsc::UnboundedSender<WorkerRequestMsg>, RequestScope), Error> {
+    let CreateTestUserWorkerArgs(mut opts, maybe_policy) = opts.into();
+    let (req_start_tx, req_start_rx) = mpsc::unbounded_channel();
+    let (req_end_tx, req_end_rx) = mpsc::unbounded_channel();
+    let (conn_tx, conn_rx) = watch::channel(ConnSync::Want);
+
+    let policy = maybe_policy.unwrap_or_else(SupervisorPolicy::oneshot);
+    let termination_token = TerminationToken::new();
+
+    opts.timing = Some(Timing {
+        req: (req_start_rx, req_end_rx),
+        ..Default::default()
+    });
+
+    Ok((
+        create_worker(
+            opts.with_policy(policy)
+                .with_termination_token(termination_token.clone()),
+        )
+        .await?,
+        RequestScope {
+            policy,
+            req_start_tx,
+            req_end_tx,
+            termination_token,
+            conn: (Some(conn_tx), conn_rx),
+        },
+    ))
 }
 
 pub fn test_user_worker_pool_policy() -> WorkerPoolPolicy {

@@ -1,5 +1,11 @@
-Deno.serve(() => {
+Deno.serve(async (req: Request) => {
 	// NOTE(Nyannyacha): This should be hot enough to V8 decides JIT compilation.
+	
+	let nothing = await (req.method === "POST" ? req.text() : Promise.resolve(""));
+
+	if(req.method === "POST") {
+		console.log(nothing);
+	}
 
 	const before = performance.now();
 	const num = mySlowFunction(11);

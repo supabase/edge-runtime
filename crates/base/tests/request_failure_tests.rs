@@ -54,6 +54,93 @@ async fn req_failure_case_timeout() {
 
 #[tokio::test]
 #[serial]
+async fn req_failure_case_cpu_time_exhausted() {
+    let tb = TestBedBuilder::new("./test_cases/main_small_cpu_time")
+        .with_oneshot_policy(100000)
+        .build()
+        .await;
+
+    let mut res = tb
+        .request(|| {
+            Request::builder()
+                .uri("/slow_resp")
+                .method("GET")
+                .body(Body::empty())
+                .context("can't make request")
+        })
+        .await
+        .unwrap();
+
+    let buf = to_bytes(res.body_mut()).await.unwrap();
+
+    assert_eq!(
+        buf,
+        "{\"msg\":\"WorkerRequestCancelled: request has been cancelled by supervisor\"}"
+    );
+
+    tb.exit().await;
+}
+
+#[tokio::test]
+#[serial]
+async fn req_failure_case_wall_clock_reached() {
+    let tb = TestBedBuilder::new("./test_cases/main_small_wall_clock")
+        .with_oneshot_policy(100000)
+        .build()
+        .await;
+
+    let mut res = tb
+        .request(|| {
+            Request::builder()
+                .uri("/slow_resp")
+                .method("GET")
+                .body(Body::empty())
+                .context("can't make request")
+        })
+        .await
+        .unwrap();
+
+    let buf = to_bytes(res.body_mut()).await.unwrap();
+
+    assert_eq!(
+        buf,
+        "{\"msg\":\"WorkerRequestCancelled: request has been cancelled by supervisor\"}"
+    );
+
+    tb.exit().await;
+}
+
+#[tokio::test]
+#[serial]
+async fn req_failure_case_wall_clock_reached_less_than_100ms() {
+    let tb = TestBedBuilder::new("./test_cases/main_small_wall_clock_less_than_100ms")
+        .with_oneshot_policy(100000)
+        .build()
+        .await;
+
+    let mut res = tb
+        .request(|| {
+            Request::builder()
+                .uri("/slow_resp")
+                .method("GET")
+                .body(Body::empty())
+                .context("can't make request")
+        })
+        .await
+        .unwrap();
+
+    let buf = to_bytes(res.body_mut()).await.unwrap();
+
+    assert!(
+        buf == "{\"msg\":\"InvalidWorkerResponse: user worker failed to respond\"}"
+            || buf == "{\"msg\":\"InvalidWorkerCreation: worker did not respond in time\"}"
+    );
+
+    tb.exit().await;
+}
+
+#[tokio::test]
+#[serial]
 async fn req_failure_case_intentional_peer_reset() {
     let termination_token = TerminationToken::new();
     let (server_ev_tx, mut server_ev_rx) = mpsc::unbounded_channel();

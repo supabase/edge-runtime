@@ -134,6 +134,8 @@ async fn req_failure_case_wall_clock_reached_less_than_100ms() {
     assert!(
         buf == "{\"msg\":\"InvalidWorkerResponse: user worker failed to respond\"}"
             || buf == "{\"msg\":\"InvalidWorkerCreation: worker did not respond in time\"}"
+            || buf
+                == "{\"msg\":\"WorkerRequestCancelled: request has been cancelled by supervisor\"}"
     );
 
     tb.exit().await;

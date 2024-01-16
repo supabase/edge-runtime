@@ -1,9 +1,9 @@
 Deno.serve(async (req: Request) => {
 	// NOTE(Nyannyacha): This should be hot enough to V8 decides JIT compilation.
-	
-	let nothing = await (req.method === "POST" ? req.text() : Promise.resolve(""));
 
-	if(req.method === "POST") {
+	let nothing = req.method === "POST" ? await req.text() : "";
+
+	if (req.method === "POST") {
 		console.log(nothing);
 	}
 

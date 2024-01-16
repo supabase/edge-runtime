@@ -1,7 +1,11 @@
+use std::time::Duration;
+
 use anyhow::Context;
+use base::{integration_test, rt_worker::worker_ctx::TerminationToken, server::ServerEvent};
 use http::{Request, StatusCode};
 use hyper::{body::to_bytes, Body};
-use tokio::join;
+use serial_test::serial;
+use tokio::{join, sync::mpsc};
 
 use crate::integration_test_helper::TestBedBuilder;
 
@@ -9,6 +13,7 @@ use crate::integration_test_helper::TestBedBuilder;
 mod integration_test_helper;
 
 #[tokio::test]
+#[serial]
 async fn req_failure_case_timeout() {
     let tb = TestBedBuilder::new("./test_cases/main")
         // NOTE: It should be small enough that the worker pool rejects the
@@ -45,4 +50,54 @@ async fn req_failure_case_timeout() {
 
     tb.exit().await;
     assert!(found_timeout);
+}
+
+#[tokio::test]
+#[serial]
+async fn req_failure_case_intentional_peer_reset() {
+    let termination_token = TerminationToken::new();
+    let (server_ev_tx, mut server_ev_rx) = mpsc::unbounded_channel();
+
+    integration_test!(
+        "./test_cases/main",
+        8999,
+        "slow_resp",
+        (
+            |port: usize, url: &'static str, mut ev: mpsc::UnboundedReceiver<ServerEvent>| async move {
+                tokio::spawn(async move {
+                    loop {
+                        tokio::select! {
+                            Some(ev) = ev.recv() => {
+                                let _ = server_ev_tx.send(ev);
+                                break;
+                            }
+
+                            else => continue
+                        }
+                    }
+                });
+
+                Some(
+                    reqwest::Client::new()
+                        .get(format!("http://localhost:{}/{}", port, url))
+                        .timeout(Duration::from_millis(100))
+                        .send()
+                        .await,
+                )
+            },
+            |_resp: Result<reqwest::Response, reqwest::Error>| async {}
+        ),
+        termination_token.clone()
+    );
+
+    let ev = loop {
+        tokio::select! {
+            Some(ev) = server_ev_rx.recv() => break ev,
+            else => continue,
+        }
+    };
+
+    assert!(matches!(ev, ServerEvent::ConnectionError(e) if e.is_incomplete_message()));
+
+    termination_token.cancel_and_wait().await;
 }

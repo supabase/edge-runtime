@@ -3,6 +3,7 @@ use crate::utils::units::mib_to_bytes;
 
 use anyhow::{anyhow, bail, Context, Error};
 use cpu_timer::get_thread_time;
+use ctor::ctor;
 use deno_core::error::AnyError;
 use deno_core::url::Url;
 use deno_core::{located_script_name, serde_v8, JsRuntime, ModuleCode, ModuleId, RuntimeOptions};
@@ -13,7 +14,6 @@ use deno_tls::rustls_native_certs::load_native_certs;
 use deno_tls::RootCertStoreProvider;
 use futures_util::future::poll_fn;
 use log::{error, trace};
-use once_cell::sync::OnceCell;
 use sb_core::conn_sync::ConnSync;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
@@ -46,6 +46,16 @@ use sb_node::deno_node;
 use sb_workers::context::{UserWorkerMsgs, WorkerContextInitOpts, WorkerRuntimeOpts};
 use sb_workers::sb_user_workers;
 
+#[ctor]
+fn init_v8_platform() {
+    set_v8_flags();
+
+    // NOTE(denoland/deno/20495): Due to the new PKU (Memory Protection Keys)
+    // feature introduced in V8 11.6, We need to initialize the V8 platform on
+    // the main thread that spawns V8 isolates.
+    JsRuntime::init_platform(None);
+}
+
 pub struct DenoRuntimeError(Error);
 
 impl PartialEq for DenoRuntimeError {
@@ -75,17 +85,6 @@ impl DenoRuntime {
     #[allow(clippy::unnecessary_literal_unwrap)]
     #[allow(clippy::arc_with_non_send_sync)]
     pub async fn new(opts: WorkerContextInitOpts) -> Result<Self, Error> {
-        static INITIALZE_V8_PLATFORM: OnceCell<()> = OnceCell::new();
-
-        INITIALZE_V8_PLATFORM.get_or_init(|| {
-            set_v8_flags();
-
-            // NOTE(denoland/deno/20495): Due to the new PKU (Memory Protection Keys)
-            // feature introduced in V8 11.6, We need to initialize the V8 platform on
-            // the main thread that spawns V8 isolates.
-            JsRuntime::init_platform(None);
-        });
-
         let WorkerContextInitOpts {
             service_path,
             no_module_cache,

@@ -11,7 +11,7 @@ libc = { workspace = true }
 nix = { version = "0.26.2", features = ["signal"] }
 tokio = { workspace = true }
 log = { workspace = true }
-ctor = { version = "0.2.6" }
+ctor = { workspace = true }
 futures = { workspace = true }
 signal-hook = { version = "0.3.17" }
 signal-hook-tokio = { version = "0.3.1", features = ["futures-v0_3"] }

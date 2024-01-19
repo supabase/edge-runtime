@@ -328,6 +328,7 @@ dependencies = [
  "bytes",
  "cityhash",
  "cpu_timer",
+ "ctor",
  "deno_ast",
  "deno_broadcast_channel",
  "deno_console",

@@ -8,6 +8,7 @@ use base::server::WorkerEntrypoints;
 use clap::builder::{FalseyValueParser, TypedValueParser};
 use clap::{arg, crate_version, value_parser, ArgAction, Command};
 use deno_core::url::Url;
+use log::warn;
 use sb_graph::emitter::EmitterFactory;
 use sb_graph::import_map::load_import_map;
 use sb_graph::{extract_from_file, generate_binary_eszip};
@@ -111,16 +112,6 @@ fn cli() -> Command {
     )
 }
 
-//async fn exit_with_code(result: Result<(), Error>) {
-//    match result {
-//        Ok(()) => std::process::exit(0),
-//        Err(error) => {
-//            eprintln!("{:?}", error);
-//            std::process::exit(1)
-//        }
-//    }
-//}
-
 fn main() -> Result<(), anyhow::Error> {
     MAYBE_DENO_VERSION.get_or_init(|| env!("DENO_VERSION").to_string());
 
@@ -181,6 +172,12 @@ fn main() -> Result<(), anyhow::Error> {
                             .as_ref()
                             .map(SupervisorPolicy::is_oneshot)
                         {
+                            if let Some(parallelism) = maybe_max_parallelism {
+                                if parallelism == 0 || parallelism > 1 {
+                                    warn!("if `oneshot` policy is enabled, the maximum parallelism is fixed to `1` as forcibly.");
+                                }
+                            }
+                            
                             Some(1)
                         } else {
                             maybe_max_parallelism

@@ -1,3 +1,4 @@
+use crate::inspector_server::Inspector;
 use crate::rt_worker::supervisor::{CPUUsage, CPUUsageMetrics};
 use crate::rt_worker::worker::UnixStreamEntry;
 use crate::utils::units::mib_to_bytes;
@@ -106,12 +107,16 @@ pub struct DenoRuntime {
     pub is_terminated: Arc<AtomicFlag>,
 
     main_module_id: ModuleId,
+    maybe_inspector: Option<Inspector>,
 }
 
 impl DenoRuntime {
     #[allow(clippy::unnecessary_literal_unwrap)]
     #[allow(clippy::arc_with_non_send_sync)]
-    pub async fn new(opts: WorkerContextInitOpts) -> Result<Self, Error> {
+    pub async fn new(
+        opts: WorkerContextInitOpts,
+        maybe_inspector: Option<Inspector>,
+    ) -> Result<Self, Error> {
         let WorkerContextInitOpts {
             service_path,
             no_module_cache,
@@ -312,6 +317,7 @@ impl DenoRuntime {
         let runtime_options = RuntimeOptions {
             extensions,
             is_main: true,
+            inspector: maybe_inspector.is_some(),
             create_params,
             get_error_class_fn: Some(&get_error_class_name),
             shared_array_buffer_store: None,
@@ -347,6 +353,14 @@ impl DenoRuntime {
                 &*SHOULD_USE_VERBOSE_DEPRECATED_API_WARNING,
             ])
         );
+
+        if let Some(inspector) = maybe_inspector.clone() {
+            inspector.server.register_inspector(
+                main_module_url.to_string(),
+                &mut js_runtime,
+                inspector.should_wait_for_session(),
+            );
+        }
 
         js_runtime
             .execute_script(located_script_name!(), ModuleCodeString::from(script))
@@ -400,9 +414,10 @@ impl DenoRuntime {
 
         Ok(Self {
             js_runtime,
-            main_module_id,
             env_vars,
             conf,
+            main_module_id,
+            maybe_inspector,
             is_termination_requested: Arc::default(),
             is_terminated: Arc::default(),
         })
@@ -426,11 +441,19 @@ impl DenoRuntime {
             }
         }
 
-        let mut js_runtime = &mut self.js_runtime;
-
         let mod_result_rx = {
-            unsafe { js_runtime.v8_isolate().enter() };
-            let mut js_runtime = scopeguard::guard(&mut js_runtime, |it| unsafe {
+            unsafe { self.js_runtime.v8_isolate().enter() };
+
+            if self.maybe_inspector.is_some() {
+                self.wait_for_inspector_session();
+
+                if self.is_need_inspect_disconnect.is_raised() {
+                    unsafe { self.js_runtime.v8_isolate().exit() };
+                    return (Ok(()), 0i64);
+                }
+            }
+
+            let mut js_runtime = scopeguard::guard(&mut self.js_runtime, |it| unsafe {
                 it.v8_isolate().exit();
             });
 
@@ -440,14 +463,13 @@ impl DenoRuntime {
         let is_termination_requested = self.is_termination_requested.clone();
         let is_user_worker = self.conf.is_user_worker();
 
-        #[cfg(debug_assertions)]
-        let current_thread_id = std::thread::current().id();
-        let mut current_cpu_time_ns = 0i64;
-        let mut accumulated_cpu_time_ns = 0i64;
-
         // NOTE: This is unnecessary on the LIFO task scheduler that can't steal
         // the task from the other threads.
-        // let mut current_thread_id = std::thread::current().id();
+        #[cfg(debug_assertions)]
+        let current_thread_id = std::thread::current().id();
+
+        let mut current_cpu_time_ns = 0i64;
+        let mut accumulated_cpu_time_ns = 0i64;
 
         let poll_result = poll_fn(|cx| {
             // INVARIANT: Only can steal current task by other threads when LIFO
@@ -533,6 +555,23 @@ impl DenoRuntime {
         (result, accumulated_cpu_time_ns)
     }
 
+    pub fn inspector(&self) -> Option<Inspector> {
+        self.maybe_inspector.clone()
+    }
+
+    fn wait_for_inspector_session(&mut self) {
+        if let Some(inspector) = self.maybe_inspector.as_ref() {
+            let inspector_impl = self.js_runtime.inspector();
+            let mut inspector_impl_ref = inspector_impl.borrow_mut();
+
+            if inspector.option.is_with_break() {
+                inspector_impl_ref.wait_for_session_and_break_on_next_statement();
+            } else if inspector.option.is_with_wait() {
+                inspector_impl_ref.wait_for_session();
+            }
+        }
+    }
+
     #[allow(clippy::wrong_self_convention)]
     // TODO: figure out why rustc complains about this
     #[allow(dead_code)]
@@ -609,7 +648,7 @@ mod test {
                     event_worker_metric_src: None,
                 })
             },
-        })
+        }, None)
         .await
         .expect("It should not panic");
 
@@ -654,7 +693,7 @@ mod test {
                     event_worker_metric_src: None,
                 })
             },
-        })
+        }, None)
         .await;
 
         let mut rt = runtime.unwrap();
@@ -721,7 +760,7 @@ mod test {
                     event_worker_metric_src: None,
                 })
             },
-        })
+        }, None)
         .await;
 
         let mut rt = runtime.unwrap();
@@ -785,7 +824,8 @@ mod test {
                     })
                 }
             },
-        })
+            None,
+        )
         .await
         .unwrap();
 

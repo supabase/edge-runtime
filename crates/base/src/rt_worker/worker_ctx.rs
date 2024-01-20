@@ -1,4 +1,5 @@
 use crate::deno_runtime::DenoRuntime;
+use crate::inspector_server::Inspector;
 use crate::utils::send_event_if_event_worker_available;
 use crate::utils::units::bytes_to_display;
 
@@ -6,9 +7,11 @@ use crate::rt_worker::worker::{Worker, WorkerHandler};
 use crate::rt_worker::worker_pool::WorkerPool;
 use anyhow::{anyhow, bail, Error};
 use cpu_timer::CPUTimer;
+use deno_core::{InspectorSessionProxy, LocalInspectorSession};
 use event_worker::events::{
     BootEvent, ShutdownEvent, WorkerEventWithMetadata, WorkerEvents, WorkerMemoryUsed,
 };
+use futures_util::pin_mut;
 use http::StatusCode;
 use http_utils::io::Upgraded2;
 use http_utils::utils::{emit_status_code, get_upgrade_type};
@@ -27,10 +30,11 @@ use sb_workers::errors::WorkerError;
 use std::future::pending;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::io::copy_bidirectional;
 use tokio::net::UnixStream;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
-use tokio::sync::{mpsc, oneshot, watch, Notify};
+use tokio::sync::{mpsc, oneshot, watch, Mutex, Notify};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -205,6 +209,18 @@ pub fn create_supervisor(
     let is_termination_requested = worker_runtime.is_termination_requested.clone();
     let cancel = cancel.clone();
 
+    let maybe_inspector_params = worker_runtime.inspector().map(|_| {
+        (
+            worker_runtime
+                .js_runtime
+                .inspector()
+                .borrow_mut()
+                .get_session_sender(),
+            worker_runtime.is_need_inspect_disconnect.clone(),
+            worker_runtime.is_terminated.clone(),
+        )
+    });
+
     worker_runtime.js_runtime.add_near_heap_limit_callback(move |cur, _| {
         debug!(
             "Low memory alert triggered: {}",
@@ -256,7 +272,7 @@ pub fn create_supervisor(
                 use supervisor::*;
                 match supervisor_policy {
                     SupervisorPolicy::PerWorker => strategy_per_worker::supervise(args).await,
-                    SupervisorPolicy::PerRequest { oneshot } => {
+                    SupervisorPolicy::PerRequest { oneshot, .. } => {
                         strategy_per_request::supervise(args, oneshot).await
                     }
                 }
@@ -269,7 +285,84 @@ pub fn create_supervisor(
                 cancel.notify_waiters();
             }
 
-            is_termination_requested.raise();
+            if let Some((session_tx, need_inspect_disconnect, is_terminated)) =
+                maybe_inspector_params
+            {
+                use deno_core::futures::channel::mpsc;
+                use deno_core::serde_json::Value;
+
+                rt::SUPERVISOR_RT
+                    .spawn_blocking(move || {
+                        let wait_inspector_disconnect_fut = async move {
+                            let ls = tokio::task::LocalSet::new();
+                            ls.run_until(async move {
+                                if is_terminated.is_raised() || need_inspect_disconnect.is_raised()
+                                {
+                                    return;
+                                }
+
+                                let (outbound_tx, outbound_rx) = mpsc::unbounded();
+                                let (inbound_tx, inbound_rx) = mpsc::unbounded();
+
+                                need_inspect_disconnect.raise();
+
+                                if let Err(_) = session_tx.unbounded_send(InspectorSessionProxy {
+                                    tx: outbound_tx,
+                                    rx: inbound_rx,
+                                }) {
+                                    return;
+                                }
+
+                                let session = Arc::new(Mutex::new(LocalInspectorSession::new(
+                                    inbound_tx,
+                                    outbound_rx,
+                                )));
+
+                                let send_msg_fn = {
+                                    |msg| {
+                                        let is_terminated = is_terminated.clone();
+                                        let session = session.clone();
+                                        async move {
+                                            let mut session = session.lock().await;
+                                            let mut int =
+                                                tokio::time::interval(Duration::from_millis(61));
+
+                                            let fut = session.post_message(msg, None::<Value>);
+
+                                            pin_mut!(fut);
+
+                                            loop {
+                                                tokio::select! {
+                                                    _ = int.tick() => {
+                                                        if is_terminated.is_raised() {
+                                                            break
+                                                        }
+                                                    }
+
+                                                    res = &mut fut => {
+                                                        res.unwrap();
+                                                        break
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                };
+
+                                send_msg_fn("Debugger.enable").await;
+                                send_msg_fn("Runtime.runIfWaitingForDebugger").await;
+                            })
+                            .await;
+                        };
+
+                        rt::SUPERVISOR_RT.block_on(wait_inspector_disconnect_fut);
+                    })
+                    .await
+                    .unwrap();
+            } else {
+				is_termination_requested.raise();
+			}
+
 
             // NOTE: If we issue a hard CPU time limit, It's OK because it is
             // still possible the worker's context is in the v8 event loop. The
@@ -369,7 +462,9 @@ impl CreateWorkerArgs {
 
 pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
     init_opts: Opt,
+    inspector: Option<Inspector>,
 ) -> Result<(MetricSource, mpsc::UnboundedSender<WorkerRequestMsg>), Error> {
+    let (worker_boot_result_tx, worker_boot_result_rx) = oneshot::channel::<Result<(), Error>>();
     let (unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStreamEntry>();
     let (worker_boot_result_tx, worker_boot_result_rx) =
         oneshot::channel::<Result<MetricSource, Error>>();
@@ -389,12 +484,14 @@ pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
     // But at the end we are using the trait itself.
     // Downcasting it to Worker will give us access to its parent implementation
     let downcast_reference = worker.as_any().downcast_ref::<Worker>();
+
     if let Some(worker_struct_ref) = downcast_reference {
         worker_struct_ref.start(
             init_opts,
             (unix_stream_tx.clone(), unix_stream_rx),
             worker_boot_result_tx,
             maybe_termination_token.clone(),
+            inspector,
         );
 
         // create an async task waiting for requests for worker
@@ -510,7 +607,7 @@ pub async fn create_main_worker(
             env_vars: std::env::vars().collect(),
         },
         termination_token,
-    ))
+    ), None)
     .await
     .map_err(|err| anyhow!("main worker boot error: {}", err))?;
 
@@ -551,7 +648,7 @@ pub async fn create_events_worker(
             conf: WorkerRuntimeOpts::EventsWorker(EventWorkerRuntimeOpts {}),
         },
         termination_token,
-    ))
+    ), None)
     .await
     .map_err(|err| anyhow!("events worker boot error: {}", err))?;
 
@@ -562,6 +659,7 @@ pub async fn create_user_worker_pool(
     policy: WorkerPoolPolicy,
     worker_event_sender: Option<mpsc::UnboundedSender<WorkerEventWithMetadata>>,
     termination_token: Option<TerminationToken>,
+    inspector: Option<Inspector>,
 ) -> Result<(SharedMetricSource, mpsc::UnboundedSender<UserWorkerMsgs>), Error> {
     let metric_src = SharedMetricSource::default();
     let (user_worker_msgs_tx, mut user_worker_msgs_rx) =
@@ -579,6 +677,7 @@ pub async fn create_user_worker_pool(
                 metric_src_inner,
                 worker_event_sender,
                 user_worker_msgs_tx_clone,
+				inspector,
             );
 
             // Note: Keep this loop non-blocking. Spawn a task to run blocking calls.

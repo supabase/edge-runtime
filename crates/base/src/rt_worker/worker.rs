@@ -1,5 +1,5 @@
 use crate::deno_runtime::DenoRuntime;
-use crate::rt_worker::supervisor;
+use crate::inspector_server::Inspector;
 use crate::rt_worker::utils::{get_event_metadata, parse_worker_conf};
 use crate::rt_worker::worker_ctx::create_supervisor;
 use crate::utils::send_event_if_event_worker_available;
@@ -37,7 +37,8 @@ pub struct Worker {
     pub cancel: Option<Arc<Notify>>,
     pub event_metadata: EventMetadata,
     pub worker_key: Option<Uuid>,
-    pub supervisor_policy: Option<SupervisorPolicy>,
+    pub inspector: Option<Inspector>,
+    pub supervisor_policy: SupervisorPolicy,
     pub worker_name: String,
 }
 
@@ -66,19 +67,24 @@ impl Worker {
         let worker_boot_start_time = Instant::now();
 
         Ok(Self {
-            supervisor_policy: None,
             worker_boot_start_time,
             events_msg_tx,
             pool_msg_tx,
             cancel,
             event_metadata,
             worker_key,
+            supervisor_policy: SupervisorPolicy::default(),
+            inspector: None,
             worker_name,
         })
     }
 
+    pub fn set_inspector(&mut self, inspector: Inspector) {
+        self.inspector = Some(inspector);
+    }
+
     pub fn set_supervisor_policy(&mut self, supervisor_policy: Option<SupervisorPolicy>) {
-        self.supervisor_policy = supervisor_policy;
+        self.supervisor_policy = supervisor_policy.unwrap_or_default();
     }
 
     pub fn start(
@@ -90,11 +96,12 @@ impl Worker {
         ),
         booter_signal: Sender<Result<MetricSource, Error>>,
         termination_token: Option<TerminationToken>,
+        inspector: Option<Inspector>,
     ) {
         let worker_name = self.worker_name.clone();
         let worker_key = self.worker_key;
         let event_metadata = self.event_metadata.clone();
-        let supervisor_policy = self.supervisor_policy.unwrap_or_default();
+        let supervisor_policy = self.supervisor_policy;
 
         let (unix_stream_tx, unix_stream_rx) = unix_stream_pair;
         let events_msg_tx = self.events_msg_tx.clone();
@@ -119,7 +126,7 @@ impl Worker {
                     .then(unbounded_channel::<CPUUsageMetrics>)
                     .unzip();
 
-                let result = match DenoRuntime::new(opts).await {
+                let result = match DenoRuntime::new(opts, inspector).await {
                     Ok(mut new_runtime) => {
                         let metric_src = {
                             let js_runtime = &mut new_runtime.js_runtime;

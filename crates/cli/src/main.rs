@@ -5,8 +5,9 @@ use base::commands::start_server;
 use base::deno_runtime::MAYBE_DENO_VERSION;
 use base::rt_worker::worker_pool::{SupervisorPolicy, WorkerPoolPolicy};
 use base::server::WorkerEntrypoints;
+use base::InspectorOption;
 use clap::builder::{FalseyValueParser, TypedValueParser};
-use clap::{arg, crate_version, value_parser, ArgAction, Command};
+use clap::{arg, crate_version, value_parser, ArgAction, ArgGroup, Command};
 use deno_core::url::Url;
 use log::warn;
 use sb_graph::emitter::EmitterFactory;
@@ -97,6 +98,10 @@ fn cli() -> Command {
                         .require_equals(true)
                         .value_parser(value_parser!(SocketAddr))
                 )
+                .group(
+                    ArgGroup::new("inspector")
+                        .args(["inspect", "inspect-brk", "inspect-wait"])
+                )
         )
         .subcommand(
             Command::new("bundle")
@@ -153,13 +158,37 @@ fn main() -> Result<(), anyhow::Error> {
                     sub_matches.get_one::<String>("main-entrypoint").cloned();
                 let maybe_events_entrypoint =
                     sub_matches.get_one::<String>("events-entrypoint").cloned();
+
                 let maybe_supervisor_policy = sub_matches
                     .get_one::<String>("policy")
                     .map(|it| it.parse::<SupervisorPolicy>().unwrap());
+
                 let maybe_max_parallelism =
                     sub_matches.get_one::<usize>("max-parallelism").cloned();
                 let maybe_request_wait_timeout =
                     sub_matches.get_one::<u64>("request-wait-timeout").cloned();
+
+                let inspector = sub_matches.get_one::<clap::Id>("inspector").zip(
+                    sub_matches
+                        .get_one("inspect")
+                        .or(sub_matches.get_one("inspect-brk"))
+                        .or(sub_matches.get_one::<SocketAddr>("inspect-wait")),
+                );
+
+                let maybe_inspector_option = if inspector.is_some()
+                    && !maybe_supervisor_policy
+                        .as_ref()
+                        .map(SupervisorPolicy::is_oneshot)
+                        .unwrap_or(false)
+                {
+                    bail!(
+                        "specifying `oneshot` policy is required to enable the inspector feature"
+                    );
+                } else if let Some((key, addr)) = inspector {
+                    Some(get_inspector_option(key.as_str(), addr).unwrap())
+                } else {
+                    None
+                };
 
                 start_server(
                     ip.as_str(),
@@ -174,10 +203,10 @@ fn main() -> Result<(), anyhow::Error> {
                         {
                             if let Some(parallelism) = maybe_max_parallelism {
                                 if parallelism == 0 || parallelism > 1 {
-                                    warn!("if `oneshot` policy is enabled, the maximum parallelism is fixed to `1` as forcibly.");
+                                    warn!("if `oneshot` policy is enabled, the maximum parallelism is fixed to `1` as forcibly");
                                 }
                             }
-                            
+
                             Some(1)
                         } else {
                             maybe_max_parallelism
@@ -192,6 +221,7 @@ fn main() -> Result<(), anyhow::Error> {
                         events: maybe_events_entrypoint,
                     },
                     None,
+                    maybe_inspector_option
                 )
                 .await?;
             }
@@ -265,4 +295,13 @@ fn main() -> Result<(), anyhow::Error> {
     });
 
     res
+}
+
+fn get_inspector_option(key: &str, addr: &SocketAddr) -> Result<InspectorOption, anyhow::Error> {
+    match key {
+        "inspect" => Ok(InspectorOption::Inspect(*addr)),
+        "inspect-brk" => Ok(InspectorOption::WithBreak(*addr)),
+        "inspect-wait" => Ok(InspectorOption::WithWait(*addr)),
+        key => bail!("invalid inspector key: {}", key),
+    }
 }

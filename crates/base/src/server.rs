@@ -1,3 +1,4 @@
+use crate::inspector_server::Inspector;
 use crate::rt_worker::worker_ctx::{
     create_events_worker, create_main_worker, create_user_worker_pool, TerminationToken,
 };
@@ -199,6 +200,7 @@ impl Server {
         callback_tx: Option<Sender<ServerHealth>>,
         entrypoints: WorkerEntrypoints,
         termination_token: Option<TerminationToken>,
+        inspector: Option<Inspector>,
     ) -> Result<Self, Error> {
         let mut worker_events_tx: Option<mpsc::UnboundedSender<WorkerEventWithMetadata>> = None;
         let maybe_events_entrypoint = entrypoints.events;
@@ -230,6 +232,7 @@ impl Server {
             maybe_user_worker_policy.unwrap_or_default(),
             worker_events_tx,
             None,
+            inspector,
         )
         .await?;
 
@@ -250,6 +253,7 @@ impl Server {
         .await?;
 
         let ip = Ipv4Addr::from_str(ip)?;
+
         Ok(Self {
             ip,
             port,

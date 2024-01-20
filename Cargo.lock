@@ -391,6 +391,7 @@ dependencies = [
  "enum-as-inner 0.6.0",
  "eszip",
  "event_worker",
+ "fastwebsockets",
  "flume",
  "futures-util",
  "http 0.2.11",

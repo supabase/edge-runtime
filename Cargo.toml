@@ -71,6 +71,7 @@ base64 = "0.21.4"
 futures = { version = "0.3.28" }
 futures-util = { version = "0.3.28" }
 ctor = { version = "0.2.6" }
+fastwebsockets = { version = "0.4.4", features = ["upgrade"] }
 percent-encoding = "=2.3.0"
 scopeguard = { version = "1.2.0" }
 

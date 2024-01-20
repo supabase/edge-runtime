@@ -306,10 +306,13 @@ pub fn create_supervisor(
 
                                 need_inspect_disconnect.raise();
 
-                                if let Err(_) = session_tx.unbounded_send(InspectorSessionProxy {
-                                    tx: outbound_tx,
-                                    rx: inbound_rx,
-                                }) {
+                                if session_tx
+                                    .unbounded_send(InspectorSessionProxy {
+                                        tx: outbound_tx,
+                                        rx: inbound_rx,
+                                    })
+                                    .is_err()
+                                {
                                     return;
                                 }
 

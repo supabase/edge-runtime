@@ -70,7 +70,7 @@ pub async fn generate_binary_eszip(
         };
         let emit_source = emitter_factory.emitter().unwrap().emit_parsed_source(
             &ModuleSpecifier::parse(
-                &*Url::from_file_path(&fs_path)
+                &Url::from_file_path(&fs_path)
                     .map(|it| Cow::Owned(it.to_string()))
                     .ok()
                     .unwrap_or("http://localhost".into()),

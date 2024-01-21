@@ -419,7 +419,7 @@ async fn pump_websocket_messages(
                     }
 
                     Err(err) => {
-                        eprintln!("Debugger session ended: {}", err.to_string());
+                        eprintln!("Debugger session ended: {}", err);
                         break 'pump;
                     }
                 }

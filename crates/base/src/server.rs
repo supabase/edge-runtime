@@ -1,5 +1,5 @@
 use crate::rt_worker::worker_ctx::{
-    create_events_worker, create_main_worker, create_user_worker_pool,
+    create_events_worker, create_main_worker, create_user_worker_pool, TerminationToken,
 };
 use crate::rt_worker::worker_pool::WorkerPoolPolicy;
 use anyhow::Error;
@@ -23,8 +23,12 @@ use tokio::sync::mpsc::Sender;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
-pub enum ServerCodes {
-    Listening,
+pub enum ServerEvent {
+    ConnectionError(hyper::Error),
+}
+
+pub enum ServerHealth {
+    Listening(mpsc::UnboundedReceiver<ServerEvent>),
     Failure,
 }
 
@@ -158,7 +162,8 @@ pub struct Server {
     ip: Ipv4Addr,
     port: u16,
     main_worker_req_tx: mpsc::UnboundedSender<WorkerRequestMsg>,
-    callback_tx: Option<Sender<ServerCodes>>,
+    callback_tx: Option<Sender<ServerHealth>>,
+    termination_token: TerminationToken,
 }
 
 impl Server {
@@ -171,13 +176,14 @@ impl Server {
         maybe_user_worker_policy: Option<WorkerPoolPolicy>,
         import_map_path: Option<String>,
         no_module_cache: bool,
-        no_signal_handler: bool,
-        callback_tx: Option<Sender<ServerCodes>>,
+        callback_tx: Option<Sender<ServerHealth>>,
         entrypoints: WorkerEntrypoints,
+        termination_token: Option<TerminationToken>,
     ) -> Result<Self, Error> {
         let mut worker_events_sender: Option<mpsc::UnboundedSender<WorkerEventWithMetadata>> = None;
         let maybe_events_entrypoint = entrypoints.events;
         let maybe_main_entrypoint = entrypoints.main;
+        let termination_token = termination_token.unwrap_or_default();
 
         // Create Event Worker
         if let Some(events_service_path) = maybe_events_service_path {
@@ -189,6 +195,7 @@ impl Server {
                 import_map_path.clone(),
                 no_module_cache,
                 maybe_events_entrypoint,
+                Some(termination_token.child_token()),
             )
             .await?;
 
@@ -199,6 +206,7 @@ impl Server {
         let user_worker_msgs_tx = create_user_worker_pool(
             maybe_user_worker_policy.unwrap_or_default(),
             worker_events_sender,
+            None,
         )
         .await?;
 
@@ -210,13 +218,9 @@ impl Server {
             no_module_cache,
             user_worker_msgs_tx,
             maybe_main_entrypoint,
+            Some(termination_token.child_token()),
         )
         .await?;
-
-        if !no_signal_handler {
-            // register alarm signal handler
-            cpu_timer::register_alarm()?;
-        }
 
         let ip = Ipv4Addr::from_str(ip)?;
         Ok(Self {
@@ -224,16 +228,27 @@ impl Server {
             port,
             main_worker_req_tx,
             callback_tx,
+            termination_token,
         })
+    }
+
+    pub async fn terminate(&self) {
+        self.termination_token.cancel_and_wait().await;
     }
 
     pub async fn listen(&mut self) -> Result<(), Error> {
         let addr = SocketAddr::new(IpAddr::V4(self.ip), self.port);
         let listener = TcpListener::bind(&addr).await?;
+        let termination_token = self.termination_token.clone();
+
+        let mut can_receive_event = false;
+        let (event_tx, event_rx) = mpsc::unbounded_channel();
+
         debug!("edge-runtime is listening on {:?}", listener.local_addr()?);
 
         if let Some(callback) = self.callback_tx.clone() {
-            let _ = callback.send(ServerCodes::Listening).await;
+            can_receive_event = true;
+            let _ = callback.send(ServerHealth::Listening(event_rx)).await;
         }
 
         loop {
@@ -243,21 +258,28 @@ impl Server {
                 msg = listener.accept() => {
                     match msg {
                         Ok((conn, _)) => {
-                            tokio::task::spawn(async move {
-                                let (service, cancel) = WorkerService::new(main_worker_req_tx);
-                                let _guard = cancel.drop_guard();
+                            tokio::task::spawn({
+                                let event_tx = event_tx.clone();
+                                async move {
+                                    let (service, cancel) = WorkerService::new(main_worker_req_tx);
+                                    let _guard = cancel.drop_guard();
 
-                                let conn_fut = Http::new()
-                                    .serve_connection(conn, service);
+                                    let conn_fut = Http::new()
+                                        .serve_connection(conn, service);
 
-                                if let Err(e) = conn_fut.await {
-                                    // Most common cause for these errors are
-                                    // when the client closes the connection
-                                    // before we could send a response
-                                    if e.is_incomplete_message() {
-                                        debug!("connection reset ({:?})", e);
-                                    } else {
-                                        error!("client connection error ({:?})", e);
+                                    if let Err(e) = conn_fut.await {
+                                        // Most common cause for these errors are
+                                        // when the client closes the connection
+                                        // before we could send a response
+                                        if e.is_incomplete_message() {
+                                            debug!("connection reset ({:?})", e);
+                                        } else {
+                                            error!("client connection error ({:?})", e);
+                                        }
+
+                                        if can_receive_event {
+                                            let _ = event_tx.send(ServerEvent::ConnectionError(e));
+                                        }
                                     }
                                 }
                             });
@@ -265,6 +287,12 @@ impl Server {
                         Err(e) => error!("socket error: {}", e)
                     }
                 }
+
+                _ = termination_token.outbound.cancelled() => {
+                    info!("termination token resolved");
+                    break;
+                }
+
                 // wait for shutdown signal...
                 _ = tokio::signal::ctrl_c() => {
                     info!("shutdown signal received");

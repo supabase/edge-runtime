@@ -2,15 +2,38 @@ pub mod timerid;
 
 use std::sync::Arc;
 
-#[cfg(target_os = "linux")]
-use crate::timerid::TimerId;
+use anyhow::Error;
+use tokio::sync::mpsc;
 
 #[cfg(target_os = "linux")]
-use anyhow::bail;
-use anyhow::Error;
-use log::debug;
-use nix::sys::signal;
-use tokio::sync::{mpsc, Mutex};
+mod linux {
+    use std::sync::atomic::AtomicUsize;
+
+    pub use crate::timerid::TimerId;
+    pub use anyhow::bail;
+    pub use ctor::ctor;
+    pub use tokio::sync::Mutex;
+
+    use once_cell::sync::Lazy;
+    use tokio::sync::mpsc;
+
+    use crate::CPUTimer;
+
+    pub enum SignalMsg {
+        Alarm(usize),
+        Add((usize, CPUTimer)),
+        Remove(usize),
+    }
+
+    pub static TIMER_COUNTER: AtomicUsize = AtomicUsize::new(0);
+    pub static mut SIG_MSG_CHAN: Lazy<(
+        mpsc::UnboundedSender<SignalMsg>,
+        Option<mpsc::UnboundedReceiver<SignalMsg>>,
+    )> = Lazy::new(|| {
+        let (sig_msg_tx, sig_msg_rx) = mpsc::unbounded_channel::<SignalMsg>();
+        (sig_msg_tx, Some(sig_msg_rx))
+    });
+}
 
 #[repr(C)]
 #[derive(Clone)]
@@ -20,7 +43,7 @@ pub struct CPUAlarmVal {
 
 #[cfg(target_os = "linux")]
 struct CPUTimerVal {
-    id: TimerId,
+    tid: linux::TimerId,
     initial_expiry: u64,
     interval: u64,
 }
@@ -31,8 +54,20 @@ unsafe impl Send for CPUTimerVal {}
 #[cfg(target_os = "linux")]
 #[derive(Clone)]
 pub struct CPUTimer {
-    _timer: Arc<Mutex<CPUTimerVal>>,
-    _cpu_alarm_val: Arc<CPUAlarmVal>,
+    id: usize,
+    timer: Arc<linux::Mutex<CPUTimerVal>>,
+    cpu_alarm_val: Arc<CPUAlarmVal>,
+}
+
+#[cfg(target_os = "linux")]
+impl Drop for CPUTimer {
+    fn drop(&mut self) {
+        if Arc::strong_count(&self.timer) == 2 {
+            unsafe { linux::SIG_MSG_CHAN.0.clone() }
+                .send(linux::SignalMsg::Remove(self.id))
+                .unwrap();
+        }
+    }
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -46,6 +81,11 @@ impl CPUTimer {
         interval: u64,
         cpu_alarm_val: CPUAlarmVal,
     ) -> Result<Self, Error> {
+        use std::sync::atomic::Ordering;
+
+        use linux::*;
+
+        let id = TIMER_COUNTER.fetch_add(1, Ordering::SeqCst);
         let mut timerid = TimerId(std::ptr::null_mut());
         let mut sigev: libc::sigevent = unsafe { std::mem::zeroed() };
         let cpu_alarm_val = Arc::new(cpu_alarm_val);
@@ -53,7 +93,7 @@ impl CPUTimer {
         sigev.sigev_notify = libc::SIGEV_SIGNAL;
         sigev.sigev_signo = libc::SIGALRM;
         sigev.sigev_value = libc::sigval {
-            sival_ptr: Arc::as_ptr(&cpu_alarm_val) as *mut _,
+            sival_ptr: id as *mut libc::c_void,
         };
 
         if unsafe {
@@ -69,16 +109,22 @@ impl CPUTimer {
         }
 
         let this = Self {
-            _timer: Arc::new(Mutex::new(CPUTimerVal {
-                id: timerid,
+            id,
+            timer: Arc::new(Mutex::new(CPUTimerVal {
+                tid: timerid,
                 initial_expiry,
                 interval,
             })),
-            _cpu_alarm_val: cpu_alarm_val,
+            cpu_alarm_val,
         };
 
         Ok({
             this.reset()?;
+
+            unsafe { linux::SIG_MSG_CHAN.0.clone() }
+                .send(SignalMsg::Add((id, this.clone())))
+                .unwrap();
+
             this
         })
     }
@@ -86,8 +132,9 @@ impl CPUTimer {
     #[cfg(target_os = "linux")]
     pub fn reset(&self) -> Result<(), Error> {
         use anyhow::Context;
+        use linux::*;
 
-        let timer = self._timer.try_lock().context("failed to get the lock")?;
+        let timer = self.timer.try_lock().context("failed to get the lock")?;
 
         let initial_expiry_secs = timer.initial_expiry / 1000;
         let initial_expiry_msecs = timer.initial_expiry % 1000;
@@ -102,7 +149,7 @@ impl CPUTimer {
 
         if unsafe {
             // start the timer with an expiry
-            libc::timer_settime(timer.id.0, 0, &tmspec, std::ptr::null_mut())
+            libc::timer_settime(timer.tid.0, 0, &tmspec, std::ptr::null_mut())
         } < 0
         {
             bail!(std::io::Error::last_os_error())
@@ -123,43 +170,96 @@ impl CPUTimer {
     }
 }
 
-extern "C" fn sigalrm_handler(_: libc::c_int, info: *mut libc::siginfo_t, _: *mut libc::c_void) {
-    let cpu_alarms_tx = unsafe {
-        let sival = (*info).si_value();
-        let val = Arc::from_raw(sival.sival_ptr as *const CPUAlarmVal);
-        let sig = val.cpu_alarms_tx.clone();
-
-        std::mem::forget(val);
-        sig
-    };
-
-    if cpu_alarms_tx.send(()).is_err() {
-        debug!("failed to send cpu alarm to the provided channel");
-    }
-}
-
-pub fn register_alarm() -> Result<(), Error> {
-    let sig_handler = signal::SigHandler::SigAction(sigalrm_handler);
-    let sig_action = signal::SigAction::new(
-        sig_handler,
-        signal::SaFlags::empty(),
-        signal::SigSet::empty(),
-    );
-    unsafe {
-        signal::sigaction(signal::SIGALRM, &sig_action)?;
-    }
-    Ok(())
-}
-
 pub fn get_thread_time() -> Result<i64, Error> {
     let mut time = libc::timespec {
         tv_sec: 0,
         tv_nsec: 0,
     };
+
     if unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut time) } == -1 {
         return Err(std::io::Error::last_os_error().into());
     }
 
     // convert seconds to nanoseconds and add to nsec value
     Ok(time.tv_sec * 1_000_000_000 + time.tv_nsec)
+}
+
+#[cfg_attr(target_os = "linux", linux::ctor)]
+#[cfg(target_os = "linux")]
+fn register_sigalrm() {
+    use std::collections::HashMap;
+
+    use futures::StreamExt;
+    use linux::SignalMsg;
+    use log::{debug, error};
+    use once_cell::sync::Lazy;
+    use signal_hook::{consts::signal, iterator::exfiltrator::raw};
+    use signal_hook_tokio::SignalsInfo;
+
+    let (sig_timer_id_tx, mut sig_timer_id_rx) = mpsc::unbounded_channel::<usize>();
+
+    let mut registry = HashMap::<usize, CPUTimer>::new();
+
+    let sig_msg_tx = unsafe { linux::SIG_MSG_CHAN.0.clone() };
+    let mut sig_msg_rx = Lazy::force_mut(unsafe { &mut linux::SIG_MSG_CHAN })
+        .1
+        .take()
+        .unwrap();
+
+    std::thread::Builder::new()
+        .name("sb-cpu-timer".into())
+        .spawn(|| {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+
+            let sig_receiver_handle = rt.spawn(async move {
+                let mut signals =
+                    SignalsInfo::with_exfiltrator([signal::SIGALRM], raw::WithRawSiginfo).unwrap();
+
+                while let Some(siginfo) = signals.next().await {
+                    let _ = sig_timer_id_tx.send(unsafe { siginfo.si_value().sival_ptr as usize });
+                }
+            });
+
+            let msg_handle = rt.spawn(async move {
+                loop {
+                    tokio::select! {
+                        Some(msg) = sig_msg_rx.recv() => {
+                            match msg {
+                                SignalMsg::Alarm(ref timer_id) => {
+                                    if let Some(cpu_timer) = registry.get(timer_id) {
+                                        let tx = cpu_timer.cpu_alarm_val.cpu_alarms_tx.clone();
+
+                                        if tx.send(()).is_err() {
+                                            debug!("failed to send cpu alarm to the provided channel");
+                                        }
+                                    } else {
+                                        error!("can't find the cpu alarm signal matched with the received timer id: {}", *timer_id);
+                                    }
+                                }
+
+                                SignalMsg::Add((timer_id, cpu_timer)) => {
+                                    let _ = registry.insert(timer_id, cpu_timer);
+                                }
+
+                                SignalMsg::Remove(ref timer_id) => {
+                                    let _ = registry.remove(timer_id);
+                                }
+                            }
+                        }
+
+                        Some(id) = sig_timer_id_rx.recv() => {
+                            let _ = sig_msg_tx.send(SignalMsg::Alarm(id));
+                        }
+                    }
+                }
+            });
+
+            rt.block_on(async move {
+                let _ = tokio::join!(sig_receiver_handle, msg_handle);
+            });
+        })
+        .unwrap();
 }

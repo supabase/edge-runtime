@@ -42,6 +42,7 @@ deno_webidl = { version = "0.121.0" }
 deno_web = { version = "0.152.0" }
 deno_websocket = { version = "0.126.0" }
 deno_webstorage = { version = "0.116.0" }
+enum-as-inner = "0.6.0"
 serde = { version = "1.0.149", features = ["derive"] }
 hyper = "0.14.26"
 tokio = { version = "1.28.1", features = ["full"] }
@@ -66,6 +67,7 @@ import_map = { version = "0.15.0" }
 base64 = { version = "=0.13.1" }
 futures = { version = "0.3.28" }
 futures-util = { version = "0.3.28" }
+ctor = { version = "0.2.6" }
 
 [profile.release]
 lto = true

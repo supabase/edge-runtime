@@ -1,6 +1,9 @@
+use crate::rt_worker::supervisor::{CPUUsage, CPUUsageMetrics};
 use crate::utils::units::mib_to_bytes;
 
-use anyhow::{anyhow, bail, Error};
+use anyhow::{anyhow, bail, Context, Error};
+use cpu_timer::get_thread_time;
+use ctor::ctor;
 use deno_core::error::AnyError;
 use deno_core::url::Url;
 use deno_core::{located_script_name, serde_v8, JsRuntime, ModuleCode, ModuleId, RuntimeOptions};
@@ -9,13 +12,15 @@ use deno_tls::rustls;
 use deno_tls::rustls::RootCertStore;
 use deno_tls::rustls_native_certs::load_native_certs;
 use deno_tls::RootCertStoreProvider;
-use log::error;
+use futures_util::future::poll_fn;
+use log::{error, trace};
 use sb_core::conn_sync::ConnSync;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
 use std::fmt;
 use std::os::fd::RawFd;
 use std::sync::Arc;
+use std::task::Poll;
 use tokio::net::UnixStream;
 use tokio::sync::{mpsc, watch};
 
@@ -40,6 +45,16 @@ use sb_module_loader::RuntimeProviders;
 use sb_node::deno_node;
 use sb_workers::context::{UserWorkerMsgs, WorkerContextInitOpts, WorkerRuntimeOpts};
 use sb_workers::sb_user_workers;
+
+#[ctor]
+fn init_v8_platform() {
+    set_v8_flags();
+
+    // NOTE(denoland/deno/20495): Due to the new PKU (Memory Protection Keys)
+    // feature introduced in V8 11.6, We need to initialize the V8 platform on
+    // the main thread that spawns V8 isolates.
+    JsRuntime::init_platform(None);
+}
 
 pub struct DenoRuntimeError(Error);
 
@@ -87,6 +102,8 @@ impl DenoRuntime {
         let base_dir_path = std::env::current_dir().map(|p| p.join(&service_path))?;
         let base_url = Url::from_directory_path(&base_dir_path).unwrap();
 
+        let is_user_worker = conf.is_user_worker();
+
         // TODO: check for other potential main paths (eg: index.js, index.tsx)
         let mut main_module_url = base_url.join("index.ts")?;
         let is_some_entry_point = maybe_entrypoint.is_some();
@@ -96,7 +113,7 @@ impl DenoRuntime {
 
         let mut net_access_disabled = false;
         let mut allow_remote_modules = true;
-        if conf.is_user_worker() {
+        if is_user_worker {
             let user_conf = conf.as_user_worker().unwrap();
             net_access_disabled = user_conf.net_access_disabled;
             allow_remote_modules = user_conf.allow_remote_modules;
@@ -185,7 +202,7 @@ impl DenoRuntime {
             Arc::new(ValueRootCertStoreProvider::new(root_cert_store.clone()));
 
         let mut stdio = Some(Default::default());
-        if conf.is_user_worker() {
+        if is_user_worker {
             stdio = Some(deno_io::Stdio {
                 stdin: deno_io::StdioPipe::File(std::fs::File::create("/dev/null")?),
                 stdout: deno_io::StdioPipe::File(std::fs::File::create("/dev/null")?),
@@ -275,7 +292,6 @@ impl DenoRuntime {
         };
 
         let mut js_runtime = JsRuntime::new(runtime_options);
-
         let version: Option<&str> = option_env!("GIT_V_TAG");
 
         // Bootstrapping stage
@@ -329,9 +345,15 @@ impl DenoRuntime {
             op_state.put::<sb_env::EnvVars>(env_vars);
         }
 
-        let main_module_id = js_runtime
+        let mut js_runtime_mut = scopeguard::guard(&mut js_runtime, |it| unsafe {
+            it.v8_isolate().exit();
+        });
+
+        let main_module_id = js_runtime_mut
             .load_main_module(&main_module_url, mod_code)
             .await?;
+
+        drop(js_runtime_mut);
 
         Ok(Self {
             js_runtime,
@@ -344,7 +366,9 @@ impl DenoRuntime {
     pub async fn run(
         &mut self,
         unix_stream_rx: mpsc::UnboundedReceiver<(UnixStream, Option<watch::Receiver<ConnSync>>)>,
-    ) -> Result<(), Error> {
+        maybe_cpu_usage_metrics_tx: Option<mpsc::UnboundedSender<CPUUsageMetrics>>,
+        name: Option<String>,
+    ) -> (Result<(), Error>, i64) {
         {
             let op_state_rc = self.js_runtime.op_state();
             let mut op_state = op_state_rc.borrow_mut();
@@ -360,10 +384,86 @@ impl DenoRuntime {
             }
         }
 
-        let js_runtime = &mut self.js_runtime;
-        let mod_result_rx = js_runtime.mod_evaluate(self.main_module_id);
+        let mut js_runtime = &mut self.js_runtime;
 
-        match js_runtime.run_event_loop(false).await {
+        let mod_result_rx = {
+            unsafe { js_runtime.v8_isolate().enter() };
+            let mut js_runtime = scopeguard::guard(&mut js_runtime, |it| unsafe {
+                it.v8_isolate().exit();
+            });
+
+            js_runtime.mod_evaluate(self.main_module_id)
+        };
+
+        let is_user_worker = self.conf.is_user_worker();
+
+        #[cfg(debug_assertions)]
+        let current_thread_id = std::thread::current().id();
+        let mut current_cpu_time_ns = 0i64;
+        let mut accumulated_cpu_time_ns = 0i64;
+
+        // NOTE: This is unnecessary on the LIFO task scheduler that can't steal
+        // the task from the other threads.
+        // let mut current_thread_id = std::thread::current().id();
+
+        let result = match poll_fn(|cx| {
+            // INVARIANT: Only can steal current task by other threads when LIFO
+            // task scheduler heuristic disabled. Turning off the heuristic is
+            // unstable now, so it's not considered.
+            #[cfg(debug_assertions)]
+            assert_eq!(current_thread_id, std::thread::current().id());
+
+            let thread_id = std::thread::current().id();
+            let send_cpu_metrics_fn = |metric: CPUUsageMetrics| {
+                if let Some(cpu_metric_tx) = maybe_cpu_usage_metrics_tx.as_ref() {
+                    let _ = cpu_metric_tx.send(metric);
+                }
+            };
+
+            let get_current_cpu_time_ns_fn =
+                || get_thread_time().context("can't get current thread time");
+
+            unsafe { js_runtime.v8_isolate().enter() };
+            let mut js_runtime = scopeguard::guard(&mut js_runtime, |it| unsafe {
+                it.v8_isolate().exit();
+            });
+
+            send_cpu_metrics_fn(CPUUsageMetrics::Enter(thread_id));
+
+            current_cpu_time_ns = match get_current_cpu_time_ns_fn() {
+                Ok(value) => value,
+                Err(err) => return Poll::Ready(Err(err)),
+            };
+
+            let poll_result = js_runtime.poll_event_loop(cx, false);
+
+            let cpu_time_after_poll_ns = match get_current_cpu_time_ns_fn() {
+                Ok(value) => value,
+                Err(err) => return Poll::Ready(Err(err)),
+            };
+
+            let diff_cpu_time_ns = cpu_time_after_poll_ns - current_cpu_time_ns;
+
+            accumulated_cpu_time_ns += diff_cpu_time_ns;
+
+            send_cpu_metrics_fn(CPUUsageMetrics::Leave(CPUUsage {
+                accumulated: accumulated_cpu_time_ns,
+                diff: diff_cpu_time_ns,
+            }));
+
+            if is_user_worker {
+                trace!(
+                    "name: {:?}, thread_id: {:?}, accumulated_cpu_time: {}ms",
+                    name.as_ref(),
+                    thread_id,
+                    accumulated_cpu_time_ns / 1_000_000
+                );
+            }
+
+            poll_result
+        })
+        .await
+        {
             Err(err) => Err(anyhow!("event loop error: {}", err)),
             Ok(_) => match mod_result_rx.await {
                 Err(_) => Err(anyhow!("mod result sender dropped")),
@@ -373,7 +473,9 @@ impl DenoRuntime {
                 }
                 Ok(Ok(_)) => Ok(()),
             },
-        }
+        };
+
+        (result, accumulated_cpu_time_ns)
     }
 
     #[allow(clippy::wrong_self_convention)]
@@ -389,6 +491,23 @@ impl DenoRuntime {
         let scope = &mut self.js_runtime.handle_scope();
         let value = deno_core::v8::Local::new(scope, global_value.clone());
         Ok(serde_v8::from_v8(scope, value)?)
+    }
+}
+
+fn set_v8_flags() {
+    let v8_flags = std::env::var("V8_FLAGS").unwrap_or("".to_string());
+    let mut vec = vec![""];
+
+    if v8_flags.is_empty() {
+        return;
+    }
+
+    vec.append(&mut v8_flags.split(' ').collect());
+
+    let ignored = deno_core::v8_set_flags(vec.iter().map(|v| v.to_string()).collect());
+
+    if *ignored.as_slice() != [""] {
+        error!("v8 flags unrecognized {:?}", ignored);
     }
 }
 
@@ -415,7 +534,7 @@ mod test {
     #[tokio::test]
     async fn test_module_code_no_eszip() {
         let (worker_pool_tx, _) = mpsc::unbounded_channel::<UserWorkerMsgs>();
-        DenoRuntime::new(WorkerContextInitOpts {
+        let mut rt = DenoRuntime::new(WorkerContextInitOpts {
             service_path: PathBuf::from("./test_cases/"),
             no_module_cache: false,
             import_map_path: None,
@@ -431,6 +550,12 @@ mod test {
         })
         .await
         .expect("It should not panic");
+
+        unsafe {
+            // NOTE: This is necessary because `DenoRuntime::new()` does detach
+            // its isolation from the current thread.
+            rt.js_runtime.v8_isolate().enter();
+        }
     }
 
     #[tokio::test]
@@ -464,6 +589,11 @@ mod test {
         .await;
 
         let mut rt = runtime.unwrap();
+        unsafe {
+            // NOTE: This is necessary because `DenoRuntime::new()` does detach
+            // its isolation from the current thread.
+            rt.js_runtime.v8_isolate().enter();
+        }
 
         let main_mod_ev = rt.js_runtime.mod_evaluate(rt.main_module_id);
         let _ = rt.js_runtime.run_event_loop(false).await;
@@ -513,6 +643,11 @@ mod test {
         .await;
 
         let mut rt = runtime.unwrap();
+        unsafe {
+            // NOTE: This is necessary because `DenoRuntime::new()` does detach
+            // its isolation from the current thread.
+            rt.js_runtime.v8_isolate().enter();
+        }
 
         let main_mod_ev = rt.js_runtime.mod_evaluate(rt.main_module_id);
         let _ = rt.js_runtime.run_event_loop(false).await;
@@ -541,7 +676,7 @@ mod test {
     ) -> DenoRuntime {
         let (worker_pool_tx, _) = mpsc::unbounded_channel::<UserWorkerMsgs>();
 
-        DenoRuntime::new(WorkerContextInitOpts {
+        let mut rt = DenoRuntime::new(WorkerContextInitOpts {
             service_path: path.unwrap_or(PathBuf::from("./test_cases/main")),
             no_module_cache: false,
             import_map_path: None,
@@ -560,7 +695,14 @@ mod test {
             },
         })
         .await
-        .unwrap()
+        .unwrap();
+
+        unsafe {
+            // NOTE: This is necessary because `DenoRuntime::new()` does detach
+            // its isolation from the current thread.
+            rt.js_runtime.v8_isolate().enter();
+            rt
+        }
     }
 
     // Main Runtime should have access to `EdgeRuntime`
@@ -879,7 +1021,7 @@ mod test {
         let (_tx, unix_stream_rx) =
             mpsc::unbounded_channel::<(UnixStream, Option<watch::Receiver<ConnSync>>)>();
 
-        let result = user_rt.run(unix_stream_rx).await;
+        let (result, _) = user_rt.run(unix_stream_rx, None, None).await;
         match result {
             Err(err) => {
                 assert!(err
@@ -895,7 +1037,7 @@ mod test {
         let mut user_rt = create_basic_user_runtime("./test_cases/array_buffers", 20, 1000).await;
         let (_tx, unix_stream_rx) =
             mpsc::unbounded_channel::<(UnixStream, Option<watch::Receiver<ConnSync>>)>();
-        let result = user_rt.run(unix_stream_rx).await;
+        let (result, _) = user_rt.run(unix_stream_rx, None, None).await;
         assert!(result.is_ok(), "expected no errors");
     }
 
@@ -904,7 +1046,7 @@ mod test {
         let mut user_rt = create_basic_user_runtime("./test_cases/array_buffers", 15, 1000).await;
         let (_tx, unix_stream_rx) =
             mpsc::unbounded_channel::<(UnixStream, Option<watch::Receiver<ConnSync>>)>();
-        let result = user_rt.run(unix_stream_rx).await;
+        let (result, _) = user_rt.run(unix_stream_rx, None, None).await;
         match result {
             Err(err) => {
                 assert!(err

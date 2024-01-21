@@ -1,48 +1,116 @@
-use std::time::Duration;
+use std::{future::pending, sync::atomic::Ordering, time::Duration};
+
+#[cfg(debug_assertions)]
+use std::thread::ThreadId;
 
 use event_worker::events::ShutdownReason;
 use log::error;
-use sb_workers::context::{Timing, UserWorkerMsgs};
+use sb_workers::context::{Timing, TimingStatus, UserWorkerMsgs};
 use tokio::time::Instant;
 
-use crate::rt_worker::supervisor::{handle_interrupt, IsolateInterruptData};
+use crate::rt_worker::supervisor::{
+    handle_interrupt, wait_cpu_alarm, CPUUsage, CPUUsageMetrics, IsolateInterruptData,
+};
 
 use super::Arguments;
 
-pub async fn supervise(args: Arguments, oneshot: bool) -> ShutdownReason {
+pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) {
     let Arguments {
         key,
         runtime_opts,
         timing,
-        mut cpu_alarms_rx,
+        cpu_timer,
+        cpu_timer_param,
+        cpu_usage_metrics_rx,
         mut memory_limit_rx,
         pool_msg_tx,
         isolate_memory_usage_tx,
         thread_safe_handle,
-        cpu_timer,
+        termination_token,
         ..
     } = args;
 
     let Timing {
+        status: TimingStatus { demand, is_retired },
         req: (mut req_start_rx, mut req_end_rx),
         ..
     } = timing.unwrap_or_default();
 
+    let (cpu_timer, mut cpu_alarms_rx) = cpu_timer.unzip();
+    let (_, hard_limit_ms) = cpu_timer_param.limits();
+
+    #[cfg(debug_assertions)]
+    let mut current_thread_id = Option::<ThreadId>::None;
+
+    let mut is_worker_entered = false;
+    let mut cpu_usage_metrics_rx = cpu_usage_metrics_rx.unwrap();
+    let mut cpu_usage_ms = 0i64;
+    let mut cpu_usage_accumulated_ms = 0i64;
+
     let mut complete_reason = None::<ShutdownReason>;
+    let mut req_ack_count = 0usize;
     let mut req_start_ack = false;
 
     // reduce 100ms from wall clock duration, so the interrupt can be handled before
     // isolate is dropped
-    let wall_clock_duration =
-        Duration::from_millis(runtime_opts.worker_timeout_ms) - Duration::from_millis(100);
+    let wall_clock_duration = Duration::from_millis(runtime_opts.worker_timeout_ms)
+        .saturating_sub(Duration::from_millis(100));
 
     let wall_clock_duration_alert = tokio::time::sleep(wall_clock_duration);
 
     tokio::pin!(wall_clock_duration_alert);
+
     loop {
         tokio::select! {
-            Some(_) = cpu_alarms_rx.recv() => {
-                if req_start_ack {
+            _ = async {
+                match termination_token.as_ref() {
+                    Some(token) => token.inbound.cancelled().await,
+                    None => pending().await,
+                }
+            } => {
+                complete_reason = Some(ShutdownReason::TerminationRequested);
+            }
+
+            Some(metrics) = cpu_usage_metrics_rx.recv() => {
+                match metrics {
+                    CPUUsageMetrics::Enter(_thread_id) => {
+                        // INVARIANT: Thread ID MUST equal with previously captured
+                        // Thread ID.
+                        #[cfg(debug_assertions)]
+                        {
+                            assert!(current_thread_id.unwrap_or(_thread_id) == _thread_id);
+                            current_thread_id = Some(_thread_id);
+                        }
+
+                        assert!(!is_worker_entered);
+                        is_worker_entered = true;
+
+                        if let Some(Err(err)) = cpu_timer.as_ref().map(|it| it.reset()) {
+                            error!("can't reset cpu timer: {}", err);
+                        }
+                    }
+
+                    CPUUsageMetrics::Leave(CPUUsage { accumulated, diff }) => {
+                        assert!(is_worker_entered);
+
+                        is_worker_entered = false;
+                        cpu_usage_ms += diff / 1_000_000;
+                        cpu_usage_accumulated_ms = accumulated / 1_000_000;
+
+                        if cpu_usage_ms >= hard_limit_ms as i64 {
+                            error!("CPU time limit reached. isolate: {:?}", key);
+                            complete_reason = Some(ShutdownReason::CPUTime);
+                        }
+
+                        if let Some(Err(err)) = cpu_timer.as_ref().map(|it| it.reset()) {
+                            error!("can't reset cpu timer: {}", err);
+                        }
+                    }
+                }
+            }
+
+            Some(_) = wait_cpu_alarm(cpu_alarms_rx.as_mut()) => {
+                if is_worker_entered && req_start_ack {
                     error!("CPU time limit reached. isolate: {:?}", key);
                     complete_reason = Some(ShutdownReason::CPUTime);
                 }
@@ -61,6 +129,7 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> ShutdownReason {
                     }
                 }
 
+                cpu_usage_ms = 0;
                 req_start_ack = true;
                 complete_reason = None;
             }
@@ -70,12 +139,22 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> ShutdownReason {
                 // request start signal has arrived during the same request
                 // cycle.
                 assert!(req_start_ack, "supervisor observed the request end signal but did not see request start signal");
+
+                req_ack_count += 1;
                 complete_reason = Some(ShutdownReason::EarlyDrop);
             }
 
             _ = &mut wall_clock_duration_alert => {
-                error!("wall clock duraiton reached. isolate: {:?}", key);
-                complete_reason = Some(ShutdownReason::WallClockTime);
+                if !oneshot && req_ack_count != demand.load(Ordering::Acquire) {
+                    wall_clock_duration_alert
+                        .as_mut()
+                        .reset(Instant::now() + wall_clock_duration);
+
+                    continue;
+                } else {
+                    error!("wall clock duraiton reached. isolate: {:?}", key);
+                    complete_reason = Some(ShutdownReason::WallClockTime);
+                }
             }
 
             Some(_) = memory_limit_rx.recv() => {
@@ -101,15 +180,16 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> ShutdownReason {
             }
 
             Some(reason) => {
+                is_retired.raise();
                 thread_safe_handle.request_interrupt(
                     handle_interrupt,
                     Box::into_raw(Box::new(IsolateInterruptData {
                         should_terminate: true,
-                        isolate_memory_usage_tx,
+                        isolate_memory_usage_tx: Some(isolate_memory_usage_tx),
                     })) as *mut std::ffi::c_void,
                 );
 
-                return reason;
+                return (reason, cpu_usage_accumulated_ms);
             }
 
             None => continue,

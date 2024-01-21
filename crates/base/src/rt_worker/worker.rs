@@ -3,26 +3,29 @@ use crate::rt_worker::utils::{get_event_metadata, parse_worker_conf};
 use crate::rt_worker::worker_ctx::create_supervisor;
 use crate::utils::send_event_if_event_worker_available;
 use anyhow::{anyhow, Error};
-use cpu_timer::get_thread_time;
 use event_worker::events::{
-    EventMetadata, ShutdownEvent, UncaughtExceptionEvent, WorkerEventWithMetadata, WorkerEvents,
+    EventMetadata, ShutdownEvent, ShutdownReason, UncaughtExceptionEvent, WorkerEventWithMetadata,
+    WorkerEvents, WorkerMemoryUsed,
 };
+use futures_util::{pin_mut, FutureExt};
 use log::{debug, error};
 use sb_core::conn_sync::ConnSync;
 use sb_workers::context::{UserWorkerMsgs, WorkerContextInitOpts};
 use std::any::Any;
-use std::future::Future;
+use std::future::{pending, Future};
 use std::pin::Pin;
 use std::sync::Arc;
-use std::thread;
 use tokio::net::UnixStream;
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot::{Receiver, Sender};
 use tokio::sync::{oneshot, watch, Notify};
 use tokio::time::Instant;
 use uuid::Uuid;
 
+use super::supervisor::CPUUsageMetrics;
+use super::worker_ctx::TerminationToken;
 use super::worker_pool::SupervisorPolicy;
+use super::{rt, supervisor};
 
 #[derive(Clone)]
 pub struct Worker {
@@ -33,7 +36,7 @@ pub struct Worker {
     pub event_metadata: EventMetadata,
     pub worker_key: Option<Uuid>,
     pub supervisor_policy: Option<SupervisorPolicy>,
-    pub thread_name: String,
+    pub worker_name: String,
 }
 
 pub type HandleCreationType = Pin<Box<dyn Future<Output = Result<WorkerEvents, Error>>>>;
@@ -45,6 +48,8 @@ pub trait WorkerHandler: Send {
         created_rt: DenoRuntime,
         unix_stream_rx: UnboundedReceiver<(UnixStream, Option<watch::Receiver<ConnSync>>)>,
         termination_event_rx: Receiver<WorkerEvents>,
+        maybe_cpu_metrics_tx: Option<UnboundedSender<CPUUsageMetrics>>,
+        name: Option<String>,
     ) -> HandleCreationType;
     fn as_any(&self) -> &dyn Any;
 }
@@ -65,7 +70,7 @@ impl Worker {
             cancel,
             event_metadata,
             worker_key,
-            thread_name,
+            worker_name: thread_name,
         })
     }
 
@@ -78,91 +83,151 @@ impl Worker {
         mut opts: WorkerContextInitOpts,
         unix_channel_rx: UnboundedReceiver<(UnixStream, Option<watch::Receiver<ConnSync>>)>,
         booter_signal: Sender<Result<(), Error>>,
+        termination_token: Option<TerminationToken>,
     ) {
-        let thread_name = self.thread_name.clone();
-        let events_msg_tx = self.events_msg_tx.clone();
-        let event_metadata = self.event_metadata.clone();
-        let cancel = self.cancel.clone();
-        let supervisor_policy = self.supervisor_policy.unwrap_or_default();
+        let worker_name = self.worker_name.clone();
         let worker_key = self.worker_key;
+        let event_metadata = self.event_metadata.clone();
+        let supervisor_policy = self.supervisor_policy.unwrap_or_default();
+
+        let events_msg_tx = self.events_msg_tx.clone();
         let pool_msg_tx = self.pool_msg_tx.clone();
-        let timing = opts.timing.take();
+
         let method_cloner = self.clone();
+        let timing = opts.timing.take();
+        let is_user_worker = opts.conf.is_user_worker();
 
-        let _handle: thread::JoinHandle<Result<(), Error>> = thread::Builder::new()
-            .name(thread_name)
-            .spawn(move || {
-                let runtime = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .unwrap();
-                let local = tokio::task::LocalSet::new();
+        let cancel = self.cancel.clone();
 
-                let mut start_time = 0;
+        let _worker_handle = rt::WORKER_RT.spawn_pinned(move || {
+            tokio::task::spawn_local(async move {
+                let (maybe_cpu_usage_metrics_tx, maybe_cpu_usage_metrics_rx) = is_user_worker
+                    .then(unbounded_channel::<CPUUsageMetrics>)
+                    .unzip();
 
-                let result: Result<WorkerEvents, Error> = local.block_on(&runtime, async {
-                    match DenoRuntime::new(opts).await {
-                        Ok(mut new_runtime) => {
-                            let _ = booter_signal.send(Ok(()));
+                let result = match DenoRuntime::new(opts).await {
+                    Ok(mut new_runtime) => {
+                        let _ = booter_signal.send(Ok(()));
 
-                            // CPU TIMER
-                            let (termination_event_tx, termination_event_rx) =
-                                oneshot::channel::<WorkerEvents>();
-                            let _cputimer;
+                        // CPU TIMER
+                        let (termination_event_tx, termination_event_rx) =
+                            oneshot::channel::<WorkerEvents>();
 
-                            // TODO: Allow customization of supervisor
-                            if new_runtime.conf.is_user_worker() {
-                                // cputimer is returned from supervisor and assigned here to keep it in scope.
-                                _cputimer = create_supervisor(
-                                    worker_key.unwrap_or(Uuid::nil()),
-                                    &mut new_runtime,
-                                    supervisor_policy,
-                                    termination_event_tx,
-                                    pool_msg_tx.clone(),
-                                    cancel,
-                                    timing,
-                                )?;
+                        let _cpu_timer;
+
+                        // TODO: Allow customization of supervisor
+                        let termination_fut = if is_user_worker {
+                            // cputimer is returned from supervisor and assigned here to keep it in scope.
+                            let Ok(maybe_timer) = create_supervisor(
+                                worker_key.unwrap_or(Uuid::nil()),
+                                &mut new_runtime,
+                                supervisor_policy,
+                                termination_event_tx,
+                                pool_msg_tx.clone(),
+                                maybe_cpu_usage_metrics_rx,
+                                cancel,
+                                timing,
+                                termination_token.clone(),
+                            ) else {
+                                return;
+                            };
+
+                            _cpu_timer = maybe_timer;
+                            pending().boxed()
+                        } else if let Some(token) = termination_token.as_ref() {
+                            let (waker, thread_safe_handle) = {
+                                let js_runtime = &mut new_runtime.js_runtime;
+                                (
+                                    js_runtime.op_state().borrow().waker.clone(),
+                                    js_runtime.v8_isolate().thread_safe_handle(),
+                                )
+                            };
+
+                            async move {
+                                token.inbound.cancelled().await;
+                                thread_safe_handle.request_interrupt(
+                                    supervisor::handle_interrupt,
+                                    Box::into_raw(Box::new(supervisor::IsolateInterruptData {
+                                        should_terminate: true,
+                                        isolate_memory_usage_tx: None,
+                                    }))
+                                        as *mut std::ffi::c_void,
+                                );
+
+                                waker.wake();
+
+                                let _ = termination_event_tx.send(WorkerEvents::Shutdown(
+                                    ShutdownEvent {
+                                        reason: ShutdownReason::TerminationRequested,
+                                        cpu_time_used: 0,
+                                        memory_used: WorkerMemoryUsed {
+                                            total: 0,
+                                            heap: 0,
+                                            external: 0,
+                                        },
+                                    },
+                                ));
                             }
+                            .boxed()
+                        } else {
+                            pending().boxed()
+                        };
 
-                            start_time = get_thread_time()?;
-                            let data = method_cloner.handle_creation(
-                                new_runtime,
-                                unix_channel_rx,
-                                termination_event_rx,
-                            );
-                            data.await
-                        }
-                        Err(err) => {
-                            let _ = booter_signal.send(Err(anyhow!("worker boot error")));
-                            method_cloner.handle_error(err)
+                        let data = method_cloner.handle_creation(
+                            new_runtime,
+                            unix_channel_rx,
+                            termination_event_rx,
+                            maybe_cpu_usage_metrics_tx,
+                            Some(worker_name),
+                        );
+
+                        let mut termination_fut_resolved = false;
+
+                        pin_mut!(termination_fut);
+                        pin_mut!(data);
+
+                        loop {
+                            tokio::select! {
+                                _ = &mut termination_fut, if !termination_fut_resolved => {
+                                    termination_fut_resolved = true;
+                                }
+
+                                result = &mut data => {
+                                    if let Some(token) = termination_token.as_ref() {
+                                        if is_user_worker || termination_fut_resolved {
+                                            token.outbound.cancel();
+                                        }
+                                    }
+
+                                    break result
+                                }
+                            }
                         }
                     }
-                });
 
-                let end_time = get_thread_time()?;
-                let cpu_time_used =
-                    usize::try_from((end_time - start_time) / 1_000_000).unwrap_or(0);
-                debug!("CPU time used: {:?}ms", cpu_time_used);
+                    Err(err) => {
+                        let _ = booter_signal.send(Err(anyhow!("worker boot error")));
+                        method_cloner.handle_error(err)
+                    }
+                };
 
                 match result {
                     Ok(event) => {
-                        let event_with_cpu_time = match event {
-                            WorkerEvents::Shutdown(e) => WorkerEvents::Shutdown(ShutdownEvent {
-                                reason: e.reason,
-                                memory_used: e.memory_used,
+                        match event {
+                            WorkerEvents::Shutdown(ShutdownEvent { cpu_time_used, .. })
+                            | WorkerEvents::UncaughtException(UncaughtExceptionEvent {
                                 cpu_time_used,
-                            }),
-                            WorkerEvents::UncaughtException(e) => {
-                                WorkerEvents::UncaughtException(UncaughtExceptionEvent {
-                                    exception: e.exception,
-                                    cpu_time_used,
-                                })
+                                ..
+                            }) => {
+                                debug!("CPU time used: {:?}ms", cpu_time_used);
                             }
-                            other => other,
+
+                            _ => {}
                         };
+
                         send_event_if_event_worker_available(
                             events_msg_tx.clone(),
-                            event_with_cpu_time,
+                            event,
                             event_metadata.clone(),
                         );
                     }
@@ -179,9 +244,7 @@ impl Worker {
                         }
                     })
                 });
-
-                Ok(())
             })
-            .unwrap();
+        });
     }
 }

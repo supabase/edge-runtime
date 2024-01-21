@@ -90,7 +90,7 @@ pub enum WorkerRuntimeOpts {
 #[derive(Debug, Clone, Default)]
 pub struct TimingStatus {
     pub demand: Arc<AtomicUsize>,
-    pub is_retired: Option<Arc<AtomicFlag>>,
+    pub is_retired: Arc<AtomicFlag>,
 }
 
 #[derive(Debug)]

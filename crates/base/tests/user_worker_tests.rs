@@ -1,14 +1,17 @@
-use base::rt_worker::worker_ctx::create_worker;
+#[path = "../src/utils/integration_test_helper.rs"]
+mod integration_test_helper;
+
 use hyper::{Body, Request, Response};
-use sb_workers::context::{
-    UserWorkerRuntimeOpts, WorkerContextInitOpts, WorkerRequestMsg, WorkerRuntimeOpts,
-};
+use sb_workers::context::{WorkerContextInitOpts, WorkerRequestMsg, WorkerRuntimeOpts};
+use serial_test::serial;
 use std::collections::HashMap;
 use tokio::sync::oneshot;
 
+use crate::integration_test_helper::{create_test_user_worker, test_user_runtime_opts};
+
 #[tokio::test]
+#[serial]
 async fn test_user_worker_json_imports() {
-    let user_rt_opts = UserWorkerRuntimeOpts::default();
     let opts = WorkerContextInitOpts {
         service_path: "./test_cases/json_import".into(),
         no_module_cache: false,
@@ -19,11 +22,14 @@ async fn test_user_worker_json_imports() {
         maybe_eszip: None,
         maybe_entrypoint: None,
         maybe_module_code: None,
-        conf: WorkerRuntimeOpts::UserWorker(user_rt_opts),
+        conf: WorkerRuntimeOpts::UserWorker(test_user_runtime_opts()),
     };
-    let worker_req_tx = create_worker(opts).await.unwrap();
+
+    let (worker_req_tx, scope) = create_test_user_worker(opts).await.unwrap();
     let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
 
+    let conn_watch = scope.conn_rx();
+    let req_guard = scope.start_request().await;
     let req = Request::builder()
         .uri("/")
         .method("GET")
@@ -33,7 +39,7 @@ async fn test_user_worker_json_imports() {
     let msg = WorkerRequestMsg {
         req,
         res_tx,
-        conn_watch: None,
+        conn_watch,
     };
 
     let _ = worker_req_tx.send(msg);
@@ -44,11 +50,12 @@ async fn test_user_worker_json_imports() {
     let body_bytes = hyper::body::to_bytes(res.into_body()).await.unwrap();
 
     assert_eq!(body_bytes, r#"{"version":"1.0.0"}"#);
+    req_guard.await;
 }
 
 #[tokio::test]
+#[serial]
 async fn test_user_imports_npm() {
-    let user_rt_opts = UserWorkerRuntimeOpts::default();
     let opts = WorkerContextInitOpts {
         service_path: "./test_cases/npm".into(),
         no_module_cache: false,
@@ -59,11 +66,14 @@ async fn test_user_imports_npm() {
         maybe_eszip: None,
         maybe_entrypoint: None,
         maybe_module_code: None,
-        conf: WorkerRuntimeOpts::UserWorker(user_rt_opts),
+        conf: WorkerRuntimeOpts::UserWorker(test_user_runtime_opts()),
     };
-    let worker_req_tx = create_worker(opts).await.unwrap();
+
+    let (worker_req_tx, scope) = create_test_user_worker(opts).await.unwrap();
     let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
 
+    let conn_watch = scope.conn_rx();
+    let req_guard = scope.start_request().await;
     let req = Request::builder()
         .uri("/")
         .method("GET")
@@ -73,7 +83,7 @@ async fn test_user_imports_npm() {
     let msg = WorkerRequestMsg {
         req,
         res_tx,
-        conn_watch: None,
+        conn_watch,
     };
 
     let _ = worker_req_tx.send(msg);
@@ -87,4 +97,6 @@ async fn test_user_imports_npm() {
         body_bytes,
         r#"{"is_even":true,"hello":"","numbers":{"Uno":1,"Dos":2}}"#
     );
+
+    req_guard.await;
 }

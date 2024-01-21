@@ -20,8 +20,10 @@ serve(async (req: Request) => {
   console.error(`serving the request with ${servicePath}`);
 
   const createWorker = async () => {
+    // NOTE: It should be greater than 100ms
+    const workerTimeoutMs = 120;
+
     const memoryLimitMb = 150;
-    const workerTimeoutMs = 10 * 60 * 1000;
     const cpuTimeSoftLimitMs = 10 * 60 * 1000;
     const cpuTimeHardLimitMs = 10 * 60 * 1000;
     const noModuleCache = false;

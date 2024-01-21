@@ -1,5 +1,6 @@
 use crate::rt_worker::worker_ctx::{create_worker, send_user_worker_request};
 use anyhow::{anyhow, Context, Error};
+use enum_as_inner::EnumAsInner;
 use event_worker::events::WorkerEventWithMetadata;
 use http::Request;
 use hyper::Body;
@@ -16,13 +17,14 @@ use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use strum::EnumIs;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::oneshot::Sender;
 use tokio::sync::{mpsc, watch, Notify, OwnedSemaphorePermit, Semaphore, TryAcquireError};
 use uuid::Uuid;
 
-#[derive(Clone, Copy, EnumIs)]
+use super::worker_ctx::TerminationToken;
+
+#[derive(Debug, Clone, Copy, EnumAsInner)]
 pub enum SupervisorPolicy {
     PerWorker,
     PerRequest { oneshot: bool },
@@ -48,6 +50,10 @@ impl FromStr for SupervisorPolicy {
 }
 
 impl SupervisorPolicy {
+    pub fn oneshot() -> Self {
+        Self::PerRequest { oneshot: true }
+    }
+
     pub fn is_oneshot(&self) -> bool {
         matches!(self, Self::PerRequest { oneshot: true })
     }
@@ -224,6 +230,7 @@ impl WorkerPool {
         &mut self,
         mut worker_options: WorkerContextInitOpts,
         tx: Sender<Result<CreateUserWorkerResult, Error>>,
+        termination_token: Option<TerminationToken>,
     ) {
         let service_path = worker_options
             .service_path
@@ -375,7 +382,7 @@ impl WorkerPool {
 
             let status = TimingStatus {
                 demand: Arc::new(AtomicUsize::new(0)),
-                is_retired: Some(Arc::new(AtomicFlag::default())),
+                is_retired: Arc::new(AtomicFlag::default()),
             };
 
             let (req_end_timing_tx, req_end_timing_rx) = mpsc::unbounded_channel::<()>();
@@ -394,7 +401,9 @@ impl WorkerPool {
 
             worker_options.conf = WorkerRuntimeOpts::UserWorker(user_worker_rt_opts);
 
-            match create_worker((worker_options, supervisor_policy)).await {
+            match create_worker((worker_options, supervisor_policy, termination_token.clone()))
+                .await
+            {
                 Ok(worker_request_msg_tx) => {
                     let profile = UserWorkerProfile {
                         worker_request_msg_tx,
@@ -506,6 +515,7 @@ impl WorkerPool {
 
                 Ok(())
             }
+
             None => {
                 if res_tx
                     .send(Err(anyhow!("user worker not available")))
@@ -576,10 +586,6 @@ impl WorkerPool {
         let policy = self.policy.supervisor_policy;
         let mut advance_fn = move || registry.mark_used_and_try_advance(policy).copied();
 
-        if policy.is_per_request() {
-            return advance_fn();
-        }
-
         let Some(worker_uuid) = advance_fn() else {
             return None;
         };
@@ -587,7 +593,7 @@ impl WorkerPool {
         match self
             .user_workers
             .get(&worker_uuid)
-            .and_then(|it| it.status.is_retired.as_ref())
+            .map(|it| it.status.is_retired.clone())
         {
             Some(is_retired) if !is_retired.is_raised() => {
                 self.user_workers

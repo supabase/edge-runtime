@@ -20,10 +20,11 @@ serve(async (req: Request) => {
   console.error(`serving the request with ${servicePath}`);
 
   const createWorker = async () => {
+    const cpuTimeSoftLimitMs = 10;
+    const cpuTimeHardLimitMs = 30;
+    
     const memoryLimitMb = 150;
     const workerTimeoutMs = 10 * 60 * 1000;
-    const cpuTimeSoftLimitMs = 10 * 60 * 1000;
-    const cpuTimeHardLimitMs = 10 * 60 * 1000;
     const noModuleCache = false;
     const importMapPath = null;
     const envVarsObj = Deno.env.toObject();

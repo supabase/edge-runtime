@@ -1,4 +1,5 @@
 pub mod context;
+pub mod errors;
 
 use crate::context::{
     CreateUserWorkerResult, UserWorkerMsgs, UserWorkerRuntimeOpts, WorkerContextInitOpts,
@@ -14,6 +15,7 @@ use deno_core::{
     AsyncRefCell, AsyncResult, BufView, ByteString, CancelFuture, CancelHandle, CancelTryFuture,
     JsBuffer, OpState, RcRef, Resource, ResourceId, WriteOutcome,
 };
+use errors::WorkerError;
 use hyper::body::HttpBody;
 use hyper::header::{HeaderName, HeaderValue, CONTENT_LENGTH};
 use hyper::{Body, Method, Request};
@@ -420,14 +422,24 @@ pub async fn op_user_worker_fetch_send(
     ))?;
 
     let result = result_rx.await?;
-    if result.is_err() {
-        return Err(custom_error(
-            "InvalidWorkerResponse",
-            "user worker failed to respond",
-        ));
-    }
+    let (result, req_end_tx) = match result {
+        Ok((result, req_end_tx)) => (result, req_end_tx),
+        Err(err) => {
+            error!("user worker failed to respond: {}", err);
+            match err.downcast_ref() {
+                Some(err @ WorkerError::RequestCancelledBySupervisor) => {
+                    return Err(custom_error("WorkerRequestCancelled", err.to_string()));
+                }
 
-    let (result, req_end_tx) = result.unwrap();
+                None => {
+                    return Err(custom_error(
+                        "InvalidWorkerResponse",
+                        "user worker failed to respond",
+                    ));
+                }
+            }
+        }
+    };
 
     let mut headers = vec![];
     for (key, value) in result.headers().iter() {

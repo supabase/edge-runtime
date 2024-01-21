@@ -36,6 +36,7 @@ use std::process;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::thread;
+use tokio::sync::watch;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, EnumAsInner)]
@@ -184,7 +185,7 @@ fn handle_ws_request(
     }
 
     // run in a block to not hold borrow to `inspector_map` for too long
-    let new_session_tx = {
+    let (new_session_tx, deregistered_watch_rx) = {
         let inspector_map = inspector_map_rc.borrow();
         let maybe_inspector_info = inspector_map.get(&maybe_uuid.unwrap());
 
@@ -195,7 +196,10 @@ fn handle_ws_request(
         }
 
         let info = maybe_inspector_info.unwrap();
-        info.new_session_tx.clone()
+        (
+            info.new_session_tx.clone(),
+            info.deregistered_watch_rx.clone(),
+        )
     };
     let (parts, _) = req.into_parts();
     let mut req = http::Request::from_parts(parts, body);
@@ -231,7 +235,7 @@ fn handle_ws_request(
 
         eprintln!("Debugger session started.");
         let _ = new_session_tx.unbounded_send(inspector_session_proxy);
-        pump_websocket_messages(websocket, inbound_tx, outbound_rx).await;
+        pump_websocket_messages(websocket, inbound_tx, outbound_rx, deregistered_watch_rx).await;
     });
 
     Ok(resp)
@@ -288,9 +292,14 @@ async fn server(
 
     let inspector_map = Rc::clone(&inspector_map_);
     let mut deregister_inspector_handler = pin!(future::poll_fn(|cx| {
-        inspector_map
-            .borrow_mut()
-            .retain(|_, info| info.deregister_rx.poll_unpin(cx) == Poll::Pending);
+        inspector_map.borrow_mut().retain(|_, info| {
+            if info.deregister_rx.poll_unpin(cx) == Poll::Pending {
+                true
+            } else {
+                let _ = info.deregistered_watch_tx.send(true);
+                false
+            }
+        });
         Poll::<Never>::Pending
     })
     .fuse());
@@ -382,6 +391,7 @@ async fn pump_websocket_messages(
     mut websocket: WebSocket<hyper::upgrade::Upgraded>,
     inbound_tx: UnboundedSender<String>,
     mut outbound_rx: UnboundedReceiver<InspectorMsg>,
+    mut deregistered_watch_rx: watch::Receiver<bool>,
 ) {
     'pump: loop {
         tokio::select! {
@@ -389,26 +399,37 @@ async fn pump_websocket_messages(
                 let msg = Frame::text(msg.content.into_bytes().into());
                 let _ = websocket.write_frame(msg).await;
             }
-            Ok(msg) = websocket.read_frame() => {
-                match msg.opcode {
-                    OpCode::Text => {
-                        if let Ok(s) = String::from_utf8(msg.payload.to_vec()) {
-                          let _ = inbound_tx.unbounded_send(s);
+            msg = websocket.read_frame() => {
+                match msg {
+                    Ok(msg) => {
+                        match msg.opcode {
+                            OpCode::Text => {
+                                if let Ok(s) = String::from_utf8(msg.payload.to_vec()) {
+                                  let _ = inbound_tx.unbounded_send(s);
+                                }
+                            }
+                            OpCode::Close => {
+                                eprintln!("Debugger session ended");
+                                break 'pump;
+                            }
+                            _ => {
+                                // Ignore other messages.
+                            }
                         }
                     }
-                    OpCode::Close => {
-                        // Users don't care if there was an error coming from debugger,
-                        // just about the fact that debugger did disconnect.
-                        eprintln!("Debugger session ended");
+
+                    Err(err) => {
+                        eprintln!("Debugger session ended: {}", err.to_string());
                         break 'pump;
-                    }
-                    _ => {
-                        // Ignore other messages.
                     }
                 }
             }
+            Ok(_) = deregistered_watch_rx.wait_for(|it| *it) => {
+                eprintln!("Debugger session ended");
+                break 'pump;
+            }
             else => {
-              break 'pump;
+                break 'pump;
             }
         }
     }
@@ -422,6 +443,8 @@ pub struct InspectorInfo {
     pub thread_name: Option<String>,
     pub new_session_tx: UnboundedSender<InspectorSessionProxy>,
     pub deregister_rx: oneshot::Receiver<()>,
+    pub deregistered_watch_tx: watch::Sender<bool>,
+    pub deregistered_watch_rx: watch::Receiver<bool>,
     pub url: String,
     pub wait_for_session: bool,
 }
@@ -434,12 +457,16 @@ impl InspectorInfo {
         url: String,
         wait_for_session: bool,
     ) -> Self {
+        let (deregistered_watch_tx, deregistered_watch_rx) = watch::channel(false);
+
         Self {
             host,
             uuid: Uuid::new_v4(),
             thread_name: thread::current().name().map(|n| n.to_owned()),
             new_session_tx,
             deregister_rx,
+            deregistered_watch_tx,
+            deregistered_watch_rx,
             url,
             wait_for_session,
         }

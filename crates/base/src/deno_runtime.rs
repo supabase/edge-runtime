@@ -441,10 +441,11 @@ impl DenoRuntime {
             }
         }
 
+        let inspector = self.inspector();
         let mod_result_rx = {
             unsafe { self.js_runtime.v8_isolate().enter() };
 
-            if self.maybe_inspector.is_some() {
+            if inspector.is_some() {
                 self.wait_for_inspector_session();
 
                 if self.is_need_inspect_disconnect.is_raised() {
@@ -500,10 +501,18 @@ impl DenoRuntime {
                 Err(err) => return Poll::Ready(Err(err)),
             };
 
+            let wait_for_inspector = if inspector.is_some() {
+                let inspector = js_runtime.inspector();
+                let inspector_ref = inspector.borrow();
+                inspector_ref.has_active_sessions() || inspector_ref.has_blocking_sessions()
+            } else {
+                false
+            };
+
             let poll_result = js_runtime.poll_event_loop(
                 cx,
                 PollEventLoopOptions {
-                    wait_for_inspector: false,
+                    wait_for_inspector,
                     pump_v8_message_loop: !is_termination_requested.is_raised(),
                 },
             );

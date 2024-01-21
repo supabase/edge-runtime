@@ -3,6 +3,7 @@ use crate::graph_util::{create_eszip_from_graph_raw, create_graph};
 use deno_ast::MediaType;
 use deno_core::error::AnyError;
 use deno_core::futures::io::{AllowStdIo, BufReader};
+use deno_core::url::Url;
 use deno_core::{serde_json, FastString, JsBuffer, ModuleSpecifier};
 use deno_fs::{FileSystem, RealFs};
 use deno_npm::NpmSystemInfo;
@@ -68,7 +69,13 @@ pub async fn generate_binary_eszip(
             String::from_utf8(entry_content.clone())?.into()
         };
         let emit_source = emitter_factory.emitter().unwrap().emit_parsed_source(
-            &ModuleSpecifier::parse("http://localhost").unwrap(),
+            &ModuleSpecifier::parse(
+                &*Url::from_file_path(&fs_path)
+                    .map(|it| Cow::Owned(it.to_string()))
+                    .ok()
+                    .unwrap_or("http://localhost".into()),
+            )
+            .unwrap(),
             MediaType::from_path(fs_path.clone().as_path()),
             &source_code,
         )?;

@@ -83,20 +83,23 @@ fn cli() -> Command {
                 .arg(
                     arg!(--"inspect" [HOST_AND_PORT] "Activate inspector on host:port (default: 127.0.0.1:9229)")
                         .num_args(0..=1)
-                        .require_equals(true)
                         .value_parser(value_parser!(SocketAddr))
+                        .require_equals(true)
+                        .default_missing_value("127.0.0.1:9229")
                 )
                 .arg(
                     arg!(--"inspect-brk" [HOST_AND_PORT] "Activate inspector on host:port, wait for debugger to connect and break at the start of user script")
                         .num_args(0..=1)
-                        .require_equals(true)
                         .value_parser(value_parser!(SocketAddr))
+                        .require_equals(true)
+                        .default_missing_value("127.0.0.1:9229")
                 )
                 .arg(
                     arg!(--"inspect-wait" [HOST_AND_PORT] "Activate inspector on host:port and wait for debugger to connect before running user code")
                         .num_args(0..=1)
-                        .require_equals(true)
                         .value_parser(value_parser!(SocketAddr))
+                        .require_equals(true)
+                        .default_missing_value("127.0.0.1:9229")
                 )
                 .group(
                     ArgGroup::new("inspector")

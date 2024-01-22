@@ -522,6 +522,7 @@ mod test {
         MainWorkerRuntimeOpts, UserWorkerMsgs, UserWorkerRuntimeOpts, WorkerContextInitOpts,
         WorkerRuntimeOpts,
     };
+    use serial_test::serial;
     use std::collections::HashMap;
     use std::fs;
     use std::fs::File;
@@ -532,6 +533,7 @@ mod test {
     use tokio::sync::{mpsc, watch};
 
     #[tokio::test]
+    #[serial]
     async fn test_module_code_no_eszip() {
         let (worker_pool_tx, _) = mpsc::unbounded_channel::<UserWorkerMsgs>();
         let mut rt = DenoRuntime::new(WorkerContextInitOpts {
@@ -559,6 +561,7 @@ mod test {
     }
 
     #[tokio::test]
+    #[serial]
     #[allow(clippy::arc_with_non_send_sync)]
     async fn test_eszip_with_source_file() {
         let (worker_pool_tx, _) = mpsc::unbounded_channel::<UserWorkerMsgs>();
@@ -616,6 +619,7 @@ mod test {
     }
 
     #[tokio::test]
+    #[serial]
     #[allow(clippy::arc_with_non_send_sync)]
     async fn test_create_eszip_from_graph() {
         let (worker_pool_tx, _) = mpsc::unbounded_channel::<UserWorkerMsgs>();
@@ -707,6 +711,7 @@ mod test {
 
     // Main Runtime should have access to `EdgeRuntime`
     #[tokio::test]
+    #[serial]
     async fn test_main_runtime_creation() {
         let mut runtime = create_runtime(None, None, None).await;
 
@@ -726,6 +731,7 @@ mod test {
 
     // User Runtime Should not have access to EdgeRuntime
     #[tokio::test]
+    #[serial]
     async fn test_user_runtime_creation() {
         let mut runtime = create_runtime(
             None,
@@ -749,6 +755,7 @@ mod test {
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_main_rt_fs() {
         let mut main_rt = create_runtime(None, Some(std::env::vars().collect()), None).await;
 
@@ -798,6 +805,7 @@ mod test {
     // }
 
     #[tokio::test]
+    #[serial]
     async fn test_os_ops() {
         let mut user_rt = create_runtime(
             None,
@@ -920,6 +928,7 @@ mod test {
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_os_env_vars() {
         std::env::set_var("Supa_Test", "Supa_Value");
         let mut main_rt = create_runtime(None, Some(std::env::vars().collect()), None).await;
@@ -1016,6 +1025,7 @@ mod test {
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_read_file_user_rt() {
         let mut user_rt = create_basic_user_runtime("./test_cases/readFile", 20, 1000).await;
         let (_tx, unix_stream_rx) =
@@ -1033,6 +1043,7 @@ mod test {
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_array_buffer_allocation_below_limit() {
         let mut user_rt = create_basic_user_runtime("./test_cases/array_buffers", 20, 1000).await;
         let (_tx, unix_stream_rx) =
@@ -1042,6 +1053,7 @@ mod test {
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_array_buffer_allocation_above_limit() {
         let mut user_rt = create_basic_user_runtime("./test_cases/array_buffers", 15, 1000).await;
         let (_tx, unix_stream_rx) =

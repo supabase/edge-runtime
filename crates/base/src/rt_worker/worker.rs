@@ -98,8 +98,13 @@ impl Worker {
         let is_user_worker = opts.conf.is_user_worker();
 
         let cancel = self.cancel.clone();
+        let rt = if is_user_worker {
+            &rt::USER_WORKER_RT
+        } else {
+            &rt::PRIMARY_WORKER_RT
+        };
 
-        let _worker_handle = rt::WORKER_RT.spawn_pinned(move || {
+        let _worker_handle = rt.spawn_pinned(move || {
             tokio::task::spawn_local(async move {
                 let (maybe_cpu_usage_metrics_tx, maybe_cpu_usage_metrics_rx) = is_user_worker
                     .then(unbounded_channel::<CPUUsageMetrics>)

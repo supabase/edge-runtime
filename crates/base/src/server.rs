@@ -5,6 +5,7 @@ use crate::rt_worker::worker_pool::WorkerPoolPolicy;
 use anyhow::Error;
 use event_worker::events::WorkerEventWithMetadata;
 use futures_util::Stream;
+use http::header::ACCEPT_ENCODING;
 use hyper::{server::conn::Http, service::Service, Body, Request, Response};
 use log::{debug, error, info};
 use sb_core::conn_sync::ConnSync;
@@ -61,6 +62,7 @@ struct WorkerService {
     metric_src: SharedMetricSource,
     worker_req_tx: mpsc::UnboundedSender<WorkerRequestMsg>,
     cancel: CancellationToken,
+    ignore_accept_encoding: bool,
 }
 
 impl WorkerService {
@@ -74,6 +76,7 @@ impl WorkerService {
                 metric_src,
                 worker_req_tx,
                 cancel: cancel.clone(),
+                ignore_accept_encoding: false,
             },
             cancel,
         )
@@ -89,11 +92,18 @@ impl Service<Request<Body>> for WorkerService {
         Poll::Ready(Ok(()))
     }
 
-    fn call(&mut self, req: Request<Body>) -> Self::Future {
+    fn call(&mut self, mut req: Request<Body>) -> Self::Future {
         // create a response in a future.
         let cancel = self.cancel.child_token();
         let metric_src = self.metric_src.clone();
         let worker_req_tx = self.worker_req_tx.clone();
+
+        if self.ignore_accept_encoding {
+            let _ = req
+                .headers_mut()
+                .insert(ACCEPT_ENCODING, "identity".parse().unwrap());
+        }
+
         let fut = async move {
             let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
             let (ob_conn_watch_tx, ob_conn_watch_rx) = watch::channel(ConnSync::Want);
@@ -180,6 +190,7 @@ pub struct WorkerEntrypoints {
 pub struct Server {
     ip: Ipv4Addr,
     port: u16,
+    ignore_accept_encoding: bool,
     main_worker_req_tx: mpsc::UnboundedSender<WorkerRequestMsg>,
     callback_tx: Option<Sender<ServerHealth>>,
     termination_token: TerminationToken,
@@ -196,6 +207,7 @@ impl Server {
         maybe_user_worker_policy: Option<WorkerPoolPolicy>,
         import_map_path: Option<String>,
         no_module_cache: bool,
+        ignore_accept_encoding: bool,
         callback_tx: Option<Sender<ServerHealth>>,
         entrypoints: WorkerEntrypoints,
         termination_token: Option<TerminationToken>,
@@ -253,6 +265,7 @@ impl Server {
         Ok(Self {
             ip,
             port,
+            ignore_accept_encoding,
             main_worker_req_tx,
             callback_tx,
             termination_token,
@@ -282,6 +295,7 @@ impl Server {
         loop {
             let main_worker_req_tx = self.main_worker_req_tx.clone();
             let metric_src = self.metric_src.clone();
+            let ignore_accept_encoding = self.ignore_accept_encoding;
 
             tokio::select! {
                 msg = listener.accept() => {
@@ -292,6 +306,8 @@ impl Server {
                                 async move {
                                     let (service, cancel) = WorkerService::new(metric_src, main_worker_req_tx);
                                     let _guard = cancel.drop_guard();
+
+                                    service.ignore_accept_encoding = ignore_accept_encoding;
 
                                     let conn_fut = Http::new()
                                         .serve_connection(conn, service);

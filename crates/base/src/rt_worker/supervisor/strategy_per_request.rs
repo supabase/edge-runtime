@@ -85,8 +85,10 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
                         assert!(!is_worker_entered);
                         is_worker_entered = true;
 
-                        if let Some(Err(err)) = cpu_timer.as_ref().map(|it| it.reset()) {
-                            error!("can't reset cpu timer: {}", err);
+                        if !cpu_timer_param.is_disabled() {
+                            if let Some(Err(err)) = cpu_timer.as_ref().map(|it| it.reset()) {
+                                error!("can't reset cpu timer: {}", err);
+                            }
                         }
                     }
 
@@ -97,13 +99,15 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
                         cpu_usage_ms += diff / 1_000_000;
                         cpu_usage_accumulated_ms = accumulated / 1_000_000;
 
-                        if cpu_usage_ms >= hard_limit_ms as i64 {
-                            error!("CPU time limit reached. isolate: {:?}", key);
-                            complete_reason = Some(ShutdownReason::CPUTime);
-                        }
+                        if !cpu_timer_param.is_disabled() {
+                            if cpu_usage_ms >= hard_limit_ms as i64 {
+                                error!("CPU time limit reached. isolate: {:?}", key);
+                                complete_reason = Some(ShutdownReason::CPUTime);
+                            }
 
-                        if let Some(Err(err)) = cpu_timer.as_ref().map(|it| it.reset()) {
-                            error!("can't reset cpu timer: {}", err);
+                            if let Some(Err(err)) = cpu_timer.as_ref().map(|it| it.reset()) {
+                                error!("can't reset cpu timer: {}", err);
+                            }
                         }
                     }
                 }

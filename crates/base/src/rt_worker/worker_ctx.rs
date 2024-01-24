@@ -586,6 +586,7 @@ pub async fn create_main_worker(
     runtime_opts: MainWorkerRuntimeOpts,
     maybe_entrypoint: Option<String>,
     termination_token: Option<TerminationToken>,
+    inspector: Option<Inspector>,
 ) -> Result<mpsc::UnboundedSender<WorkerRequestMsg>, Error> {
     let mut service_path = main_worker_path.clone();
     let mut maybe_eszip = None;
@@ -610,7 +611,7 @@ pub async fn create_main_worker(
             env_vars: std::env::vars().collect(),
         },
         termination_token,
-    ), None)
+    ), inspector)
     .await
     .map_err(|err| anyhow!("main worker boot error: {}", err))?;
 

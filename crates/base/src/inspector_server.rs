@@ -47,7 +47,7 @@ pub enum InspectorOption {
 }
 
 impl InspectorOption {
-    fn socket_addr(&self) -> SocketAddr {
+    pub fn socket_addr(&self) -> SocketAddr {
         match self {
             Self::Inspect(addr) | Self::WithBreak(addr) | Self::WithWait(addr) => *addr,
         }

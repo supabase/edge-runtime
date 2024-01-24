@@ -4,7 +4,7 @@ use anyhow::{anyhow, bail, Error};
 use base::commands::start_server;
 use base::deno_runtime::MAYBE_DENO_VERSION;
 use base::rt_worker::worker_pool::{SupervisorPolicy, WorkerPoolPolicy};
-use base::server::WorkerEntrypoints;
+use base::server::{ServerFlags, WorkerEntrypoints};
 use base::InspectorOption;
 use clap::builder::{FalseyValueParser, TypedValueParser};
 use clap::{arg, crate_version, value_parser, ArgAction, ArgGroup, Command};
@@ -105,6 +105,11 @@ fn cli() -> Command {
                     ArgGroup::new("inspector")
                         .args(["inspect", "inspect-brk", "inspect-wait"])
                 )
+                .arg(
+                    arg!(--"inspect-main" "Allow creating inspector for main worker")
+                        .requires("inspector")
+                        .action(ArgAction::SetTrue)
+                )
         )
         .subcommand(
             Command::new("bundle")
@@ -151,10 +156,17 @@ fn main() -> Result<(), anyhow::Error> {
                     .cloned()
                     .unwrap();
                 let import_map_path = sub_matches.get_one::<String>("import-map").cloned();
+
                 let no_module_cache = sub_matches
                     .get_one::<bool>("disable-module-cache")
                     .cloned()
                     .unwrap();
+
+                let allow_main_inspector = sub_matches
+                    .get_one::<bool>("inspect-main")
+                    .cloned()
+                    .unwrap();
+
                 let event_service_manager_path =
                     sub_matches.get_one::<String>("event-worker").cloned();
                 let maybe_main_entrypoint =
@@ -217,7 +229,10 @@ fn main() -> Result<(), anyhow::Error> {
                         maybe_request_wait_timeout,
                     )),
                     import_map_path,
-                    no_module_cache,
+                    ServerFlags {
+                        no_module_cache,
+                        allow_main_inspector
+                    },
                     None,
                     WorkerEntrypoints {
                         main: maybe_main_entrypoint,

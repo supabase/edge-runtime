@@ -3,6 +3,7 @@ use crate::rt_worker::worker_ctx::{
     create_events_worker, create_main_worker, create_user_worker_pool, TerminationToken,
 };
 use crate::rt_worker::worker_pool::WorkerPoolPolicy;
+use crate::InspectorOption;
 use anyhow::Error;
 use event_worker::events::WorkerEventWithMetadata;
 use futures_util::Stream;
@@ -178,6 +179,12 @@ pub struct WorkerEntrypoints {
     pub events: Option<String>,
 }
 
+#[derive(Debug, Default, Clone, Copy)]
+pub struct ServerFlags {
+    pub no_module_cache: bool,
+    pub allow_main_inspector: bool,
+}
+
 pub struct Server {
     ip: Ipv4Addr,
     port: u16,
@@ -196,7 +203,7 @@ impl Server {
         maybe_events_service_path: Option<String>,
         maybe_user_worker_policy: Option<WorkerPoolPolicy>,
         import_map_path: Option<String>,
-        no_module_cache: bool,
+        flags: ServerFlags,
         callback_tx: Option<Sender<ServerHealth>>,
         entrypoints: WorkerEntrypoints,
         termination_token: Option<TerminationToken>,
@@ -215,7 +222,7 @@ impl Server {
             let (event_worker_metric, sender) = create_events_worker(
                 events_path_buf,
                 import_map_path.clone(),
-                no_module_cache,
+                flags.no_module_cache,
                 maybe_events_entrypoint,
                 Some(termination_token.child_token()),
             )
@@ -232,7 +239,7 @@ impl Server {
             maybe_user_worker_policy.unwrap_or_default(),
             worker_events_tx,
             None,
-            inspector,
+            inspector.clone(),
         )
         .await?;
 
@@ -241,7 +248,7 @@ impl Server {
         let main_worker_req_tx = create_main_worker(
             main_worker_path,
             import_map_path.clone(),
-            no_module_cache,
+            flags.no_module_cache,
             MainWorkerRuntimeOpts {
                 worker_pool_tx,
                 shared_metric_src: Some(shared_metric_src.clone()),
@@ -249,6 +256,14 @@ impl Server {
             },
             maybe_main_entrypoint,
             Some(termination_token.child_token()),
+            if flags.allow_main_inspector {
+                inspector.map(|it| Inspector {
+                    option: InspectorOption::Inspect(it.option.socket_addr()),
+                    server: it.server,
+                })
+            } else {
+                None
+            },
         )
         .await?;
 

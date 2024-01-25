@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -30,11 +30,10 @@ use deno_npm::NpmSystemInfo;
 use deno_semver::package::PackageNv;
 use deno_semver::package::PackageReq;
 use deno_semver::VersionReq;
-use sb_core::util::sync::TaskQueue;
 
 use super::registry::CliNpmRegistryApi;
 use deno_lockfile::Lockfile;
-use log::debug;
+use sb_core::util::sync::TaskQueue;
 
 /// Handles updating and storing npm resolution in memory where the underlying
 /// snapshot can be updated concurrently. Additionally handles updating the lockfile
@@ -209,19 +208,19 @@ impl NpmResolution {
     /// Resolves a package requirement for deno graph. This should only be
     /// called by deno_graph's NpmResolver or for resolving packages in
     /// a package.json
-    pub fn resolve_package_req_as_pending(
+    pub fn resolve_pkg_req_as_pending(
         &self,
         pkg_req: &PackageReq,
     ) -> Result<PackageNv, NpmPackageVersionResolutionError> {
         // we should always have this because it should have been cached before here
         let package_info = self.api.get_cached_package_info(&pkg_req.name).unwrap();
-        self.resolve_package_req_as_pending_with_info(pkg_req, &package_info)
+        self.resolve_pkg_req_as_pending_with_info(pkg_req, &package_info)
     }
 
     /// Resolves a package requirement for deno graph. This should only be
     /// called by deno_graph's NpmResolver or for resolving packages in
     /// a package.json
-    pub fn resolve_package_req_as_pending_with_info(
+    pub fn resolve_pkg_req_as_pending_with_info(
         &self,
         pkg_req: &PackageReq,
         package_info: &NpmPackageInfo,
@@ -252,10 +251,6 @@ impl NpmResolution {
         self.snapshot
             .read()
             .all_system_packages_partitioned(system_info)
-    }
-
-    pub fn has_packages(&self) -> bool {
-        !self.snapshot.read().is_empty()
     }
 
     pub fn snapshot(&self) -> NpmResolutionSnapshot {
@@ -293,7 +288,7 @@ async fn add_package_reqs_to_snapshot(
             .iter()
             .all(|req| snapshot.package_reqs().contains_key(req))
     {
-        debug!("Snapshot already up to date. Skipping pending resolution.");
+        log::debug!("Snapshot already up to date. Skipping pending resolution.");
         snapshot
     } else {
         let pending_resolver = get_npm_pending_resolver(api);
@@ -304,8 +299,8 @@ async fn add_package_reqs_to_snapshot(
         match result {
             Ok(snapshot) => snapshot,
             Err(NpmResolutionError::Resolution(err)) if api.mark_force_reload() => {
-                log::error!("{err:#}");
-                log::warn!("npm resolution failed. Trying again...");
+                log::debug!("{err:#}");
+                log::debug!("npm resolution failed. Trying again...");
 
                 // try again
                 let snapshot = get_new_snapshot();

@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 // Copyright Joyent, Inc. and Node.js contributors. All rights reserved. MIT license.
 
 // TODO(petamoriken): enable prefer-primordials for node polyfills
@@ -32,7 +32,7 @@ export {
 } from "ext:deno_node/internal/crypto/_randomFill.mjs";
 export { default as randomInt } from "ext:deno_node/internal/crypto/_randomInt.ts";
 
-const primordials = globalThis.__bootstrap.primordials;
+import { primordials } from "ext:core/mod.js";
 const { StringPrototypePadStart, StringPrototypeToString } = primordials;
 
 const { core } = globalThis.__bootstrap;

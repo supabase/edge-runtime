@@ -1,0 +1,176 @@
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+
+use std::path::Path;
+use std::path::PathBuf;
+
+use deno_ast::ModuleSpecifier;
+use deno_core::anyhow::Context;
+use deno_core::error::AnyError;
+use deno_core::url::Url;
+use deno_npm::NpmPackageCacheFolderId;
+use deno_semver::package::PackageNv;
+use deno_semver::Version;
+
+use sb_core::util::fs::canonicalize_path;
+use sb_core::util::path::root_url_to_safe_local_dirname;
+
+/// The global cache directory of npm packages.
+#[derive(Clone, Debug)]
+pub struct NpmCacheDir {
+    root_dir: PathBuf,
+    // cached url representation of the root directory
+    root_dir_url: Url,
+}
+
+impl NpmCacheDir {
+    pub fn new(root_dir: PathBuf) -> Self {
+        fn try_get_canonicalized_root_dir(root_dir: &Path) -> Result<PathBuf, AnyError> {
+            if !root_dir.exists() {
+                std::fs::create_dir_all(root_dir)
+                    .with_context(|| format!("Error creating {}", root_dir.display()))?;
+            }
+            Ok(canonicalize_path(root_dir)?)
+        }
+
+        // this may fail on readonly file systems, so just ignore if so
+        let root_dir = try_get_canonicalized_root_dir(&root_dir).unwrap_or(root_dir);
+        let root_dir_url = Url::from_directory_path(&root_dir).unwrap();
+        Self {
+            root_dir,
+            root_dir_url,
+        }
+    }
+
+    pub fn root_dir_url(&self) -> &Url {
+        &self.root_dir_url
+    }
+
+    pub fn package_folder_for_id(
+        &self,
+        folder_id: &NpmPackageCacheFolderId,
+        registry_url: &Url,
+    ) -> PathBuf {
+        if folder_id.copy_index == 0 {
+            self.package_folder_for_name_and_version(&folder_id.nv, registry_url)
+        } else {
+            self.package_name_folder(&folder_id.nv.name, registry_url)
+                .join(format!("{}_{}", folder_id.nv.version, folder_id.copy_index))
+        }
+    }
+
+    pub fn package_folder_for_name_and_version(
+        &self,
+        package: &PackageNv,
+        registry_url: &Url,
+    ) -> PathBuf {
+        self.package_name_folder(&package.name, registry_url)
+            .join(package.version.to_string())
+    }
+
+    pub fn package_name_folder(&self, name: &str, registry_url: &Url) -> PathBuf {
+        let mut dir = self.registry_folder(registry_url);
+        if name.to_lowercase() != name {
+            let encoded_name = mixed_case_package_name_encode(name);
+            // Using the encoded directory may have a collision with an actual package name
+            // so prefix it with an underscore since npm packages can't start with that
+            dir.join(format!("_{encoded_name}"))
+        } else {
+            // ensure backslashes are used on windows
+            for part in name.split('/') {
+                dir = dir.join(part);
+            }
+            dir
+        }
+    }
+
+    pub fn registry_folder(&self, registry_url: &Url) -> PathBuf {
+        self.root_dir
+            .join(root_url_to_safe_local_dirname(registry_url))
+    }
+
+    pub fn resolve_package_folder_id_from_specifier(
+        &self,
+        specifier: &ModuleSpecifier,
+        registry_url: &Url,
+    ) -> Option<NpmPackageCacheFolderId> {
+        let registry_root_dir = self
+            .root_dir_url
+            .join(&format!(
+                "{}/",
+                root_url_to_safe_local_dirname(registry_url)
+                    .to_string_lossy()
+                    .replace('\\', "/")
+            ))
+            // this not succeeding indicates a fatal issue, so unwrap
+            .unwrap();
+        let mut relative_url = registry_root_dir.make_relative(specifier)?;
+        if relative_url.starts_with("../") {
+            return None;
+        }
+
+        // base32 decode the url if it starts with an underscore
+        // * Ex. _{base32(package_name)}/
+        if let Some(end_url) = relative_url.strip_prefix('_') {
+            let mut parts = end_url
+                .split('/')
+                .map(ToOwned::to_owned)
+                .collect::<Vec<_>>();
+            match mixed_case_package_name_decode(&parts[0]) {
+                Some(part) => {
+                    parts[0] = part;
+                }
+                None => return None,
+            }
+            relative_url = parts.join("/");
+        }
+
+        // examples:
+        // * chalk/5.0.1/
+        // * @types/chalk/5.0.1/
+        // * some-package/5.0.1_1/ -- where the `_1` (/_\d+/) is a copy of the folder for peer deps
+        let is_scoped_package = relative_url.starts_with('@');
+        let mut parts = relative_url
+            .split('/')
+            .enumerate()
+            .take(if is_scoped_package { 3 } else { 2 })
+            .map(|(_, part)| part)
+            .collect::<Vec<_>>();
+        if parts.len() < 2 {
+            return None;
+        }
+        let version_part = parts.pop().unwrap();
+        let name = parts.join("/");
+        let (version, copy_index) =
+            if let Some((version, copy_count)) = version_part.split_once('_') {
+                (version, copy_count.parse::<u8>().ok()?)
+            } else {
+                (version_part, 0)
+            };
+        Some(NpmPackageCacheFolderId {
+            nv: PackageNv {
+                name,
+                version: Version::parse_from_npm(version).ok()?,
+            },
+            copy_index,
+        })
+    }
+
+    pub fn get_cache_location(&self) -> PathBuf {
+        self.root_dir.clone()
+    }
+}
+
+pub fn mixed_case_package_name_encode(name: &str) -> String {
+    // use base32 encoding because it's reversible and the character set
+    // only includes the characters within 0-9 and A-Z so it can be lower cased
+    base32::encode(
+        base32::Alphabet::RFC4648 { padding: false },
+        name.as_bytes(),
+    )
+    .to_lowercase()
+}
+
+pub fn mixed_case_package_name_decode(name: &str) -> Option<String> {
+    base32::decode(base32::Alphabet::RFC4648 { padding: false }, name)
+        .and_then(|b| String::from_utf8(b).ok())
+}

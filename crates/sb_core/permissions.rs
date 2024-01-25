@@ -166,6 +166,14 @@ impl sb_node::NodePermissions for Permissions {
         Ok(())
     }
 
+    fn check_read_with_api_name(
+        &self,
+        _path: &Path,
+        _api_name: Option<&str>,
+    ) -> Result<(), AnyError> {
+        Ok(())
+    }
+
     fn check_sys(&self, _kind: &str, _api_name: &str) -> Result<(), AnyError> {
         Ok(())
     }

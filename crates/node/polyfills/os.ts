@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -33,6 +33,7 @@ import { osCalls } from "ext:sb_os/os.js"
 import { Buffer } from "ext:deno_node/internal/buffer.mjs";
 
 const osUptime = osCalls.osUptime;
+const ops = core.ops;
 
 export const constants = os;
 
@@ -105,6 +106,9 @@ export function arch(): string {
 }
 
 // deno-lint-ignore no-explicit-any
+(availableParallelism as any)[Symbol.toPrimitive] = (): number =>
+  availableParallelism();
+// deno-lint-ignore no-explicit-any
 (arch as any)[Symbol.toPrimitive] = (): string => process.arch;
 // deno-lint-ignore no-explicit-any
 (endianness as any)[Symbol.toPrimitive] = (): string => endianness();
@@ -126,21 +130,11 @@ export function arch(): string {
 (type as any)[Symbol.toPrimitive] = (): string => type();
 // deno-lint-ignore no-explicit-any
 (uptime as any)[Symbol.toPrimitive] = (): number => uptime();
+// deno-lint-ignore no-explicit-any
+(machine as any)[Symbol.toPrimitive] = (): string => machine();
 
 export function cpus(): CPUCoreInfo[] {
-  return Array.from(Array(navigator.hardwareConcurrency), () => {
-    return {
-      model: "",
-      speed: 0,
-      times: {
-        user: 0,
-        nice: 0,
-        sys: 0,
-        idle: 0,
-        irq: 0,
-      },
-    };
-  });
+  return ops.op_cpus();
 }
 
 /**
@@ -158,7 +152,14 @@ export function endianness(): "BE" | "LE" {
 
 /** Return free memory amount */
 export function freemem(): number {
-  return Deno.systemMemoryInfo().free;
+  if (Deno.build.os === "linux") {
+    // On linux, use 'available' memory
+    // https://github.com/libuv/libuv/blob/a5c01d4de3695e9d9da34cfd643b5ff0ba582ea7/src/unix/linux.c#L2064
+    return Deno.systemMemoryInfo().available;
+  } else {
+    // Use 'free' memory on other platforms
+    return Deno.systemMemoryInfo().free;
+  }
 }
 
 /** Not yet implemented */
@@ -247,6 +248,15 @@ export function version(): string {
   // TODO(kt3k): Temporarily uses Deno.osRelease().
   // Revisit this if this implementation is insufficient for any npm module
   return Deno.osRelease();
+}
+
+/** Returns the machine type as a string */
+export function machine(): string {
+  if (Deno.build.arch == "aarch64") {
+    return "arm64";
+  }
+
+  return Deno.build.arch;
 }
 
 /** Not yet implemented */
@@ -356,10 +366,16 @@ export function userInfo(
   };
 }
 
+/* Returns an estimate of the default amount of parallelism a program should use. */
+export function availableParallelism(): number {
+  return navigator.hardwareConcurrency;
+}
+
 export const EOL = isWindows ? "\r\n" : "\n";
 export const devNull = isWindows ? "\\\\.\\nul" : "/dev/null";
 
 export default {
+  availableParallelism,
   arch,
   cpus,
   endianness,
@@ -369,6 +385,7 @@ export default {
   hostname,
   loadavg,
   networkInterfaces,
+  machine,
   platform,
   release,
   setPriority,

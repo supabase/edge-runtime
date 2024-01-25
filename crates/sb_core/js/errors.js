@@ -1,4 +1,4 @@
-import DOMException from "ext:deno_web/01_dom_exception.js";
+import { DOMException } from "ext:deno_web/01_dom_exception.js";
 
 const core = globalThis.Deno.core;
 

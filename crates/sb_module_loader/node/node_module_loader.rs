@@ -1,4 +1,5 @@
 use crate::node::cjs_code_anaylzer::CliNodeCodeTranslator;
+use crate::node::cli_node_resolver::CliNodeResolver;
 use anyhow::Context;
 use deno_ast::MediaType;
 use deno_core::error::{generic_error, AnyError};
@@ -13,7 +14,7 @@ pub struct NpmModuleLoader {
     cjs_resolutions: Arc<CjsResolutionStore>,
     node_code_translator: Arc<CliNodeCodeTranslator>,
     fs: Arc<dyn deno_fs::FileSystem>,
-    node_resolver: Arc<NodeResolver>,
+    node_resolver: Arc<CliNodeResolver>,
 }
 
 pub struct ModuleCodeSource {
@@ -27,7 +28,7 @@ impl NpmModuleLoader {
         cjs_resolutions: Arc<CjsResolutionStore>,
         node_code_translator: Arc<CliNodeCodeTranslator>,
         fs: Arc<dyn deno_fs::FileSystem>,
-        node_resolver: Arc<NodeResolver>,
+        node_resolver: Arc<CliNodeResolver>,
     ) -> Self {
         Self {
             cjs_resolutions,
@@ -35,54 +36,6 @@ impl NpmModuleLoader {
             fs,
             node_resolver,
         }
-    }
-
-    pub fn resolve_if_in_npm_package(
-        &self,
-        specifier: &str,
-        referrer: &ModuleSpecifier,
-        permissions: &dyn NodePermissions,
-    ) -> Option<Result<ModuleSpecifier, AnyError>> {
-        if self.node_resolver.in_npm_package(referrer) {
-            // we're in an npm package, so use node resolution
-            Some(
-                self.handle_node_resolve_result(self.node_resolver.resolve(
-                    specifier,
-                    referrer,
-                    NodeResolutionMode::Execution,
-                    permissions,
-                ))
-                .with_context(|| format!("Could not resolve '{specifier}' from '{referrer}'.")),
-            )
-        } else {
-            None
-        }
-    }
-
-    pub fn resolve_nv_ref(
-        &self,
-        nv_ref: &NpmPackageNvReference,
-        permissions: &dyn NodePermissions,
-    ) -> Result<ModuleSpecifier, AnyError> {
-        self.handle_node_resolve_result(self.node_resolver.resolve_npm_reference(
-            nv_ref,
-            NodeResolutionMode::Execution,
-            permissions,
-        ))
-        .with_context(|| format!("Could not resolve '{}'.", nv_ref))
-    }
-
-    pub fn resolve_req_reference(
-        &self,
-        reference: &NpmPackageReqReference,
-        permissions: &dyn NodePermissions,
-    ) -> Result<ModuleSpecifier, AnyError> {
-        self.handle_node_resolve_result(self.node_resolver.resolve_npm_req_reference(
-            reference,
-            NodeResolutionMode::Execution,
-            permissions,
-        ))
-        .with_context(|| format!("Could not resolve '{reference}'."))
     }
 
     pub fn maybe_prepare_load(&self, specifier: &ModuleSpecifier) -> Option<Result<(), AnyError>> {
@@ -165,21 +118,6 @@ impl NpmModuleLoader {
             found_url: specifier.clone(),
             media_type: MediaType::from_specifier(specifier),
         })
-    }
-
-    fn handle_node_resolve_result(
-        &self,
-        result: Result<Option<NodeResolution>, AnyError>,
-    ) -> Result<ModuleSpecifier, AnyError> {
-        let response = match result? {
-            Some(response) => response,
-            None => return Err(generic_error("not found")),
-        };
-        if let NodeResolution::CommonJs(specifier) = &response {
-            // remember that this was a common js resolution
-            self.cjs_resolutions.insert(specifier.clone());
-        }
-        Ok(response.into_url())
     }
 }
 

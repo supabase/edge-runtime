@@ -145,6 +145,14 @@ mod supabase_startup_snapshot {
             unreachable!("snapshotting!")
         }
 
+        fn check_read_with_api_name(
+            &self,
+            path: &Path,
+            api_name: Option<&str>,
+        ) -> Result<(), AnyError> {
+            unreachable!("snapshotting!")
+        }
+
         fn check_sys(&self, _kind: &str, _api_name: &str) -> Result<(), AnyError> {
             unreachable!("snapshotting!")
         }
@@ -203,6 +211,7 @@ mod supabase_startup_snapshot {
             cargo_manifest_dir: env!("CARGO_MANIFEST_DIR"),
             snapshot_path,
             startup_snapshot: None,
+            skip_op_registration: false,
             extensions,
             compression_cb: None,
             with_runtime_cb: None,

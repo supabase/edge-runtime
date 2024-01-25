@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::os::fd::AsRawFd;
 use std::os::fd::RawFd;
@@ -5,12 +6,12 @@ use std::pin::Pin;
 use std::rc::Rc;
 use std::task::Poll;
 
-use deno_core::error::bad_resource;
 use deno_core::error::bad_resource_id;
 use deno_core::error::AnyError;
-use deno_core::op2;
+use deno_core::error::{bad_resource, not_supported};
 use deno_core::OpState;
 use deno_core::ResourceId;
+use deno_core::{op2, ToJsBuffer};
 use deno_http::http_create_conn_resource;
 use deno_net::io::UnixStreamResource;
 use futures::pin_mut;
@@ -24,6 +25,7 @@ use tokio::sync::watch;
 
 use crate::conn_sync::ConnSync;
 use crate::conn_sync::ConnWatcher;
+use serde::Serialize;
 
 struct UnixStream2(UnixStream, Option<watch::Receiver<ConnSync>>);
 
@@ -125,4 +127,21 @@ fn op_http_start(
     Err(bad_resource_id())
 }
 
-deno_core::extension!(sb_core_http, ops = [op_http_start]);
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HttpUpgradeResult {
+    conn_rid: ResourceId,
+    conn_type: &'static str,
+    read_buf: ToJsBuffer,
+}
+
+#[op2(async)]
+#[serde]
+async fn op_http_upgrade(
+    state: Rc<RefCell<OpState>>,
+    #[smi] rid: ResourceId,
+) -> Result<(), AnyError> {
+    Ok(())
+}
+
+deno_core::extension!(sb_core_http, ops = [op_http_start, op_http_upgrade]);

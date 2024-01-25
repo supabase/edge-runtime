@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -531,3 +531,11 @@ export const UV_EINVAL = codeMap.get("EINVAL")!;
 export const UV_ENOENT = codeMap.get("ENOENT");
 export const UV_ENOTSOCK = codeMap.get("ENOTSOCK")!;
 export const UV_UNKNOWN = codeMap.get("UNKNOWN")!;
+
+export function errname(errno: number): string {
+  const err = errorMap.get(errno);
+  if (err) {
+    return err[0];
+  }
+  return `UNKNOWN (${errno})`;
+}

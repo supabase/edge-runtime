@@ -1,5 +1,4 @@
-const core = globalThis.Deno.core;
-const ops = core.ops;
+const { ops } = globalThis.__bootstrap.core;
 
 class SupaEnv {
   setEnv(key, value) {

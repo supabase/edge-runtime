@@ -8,6 +8,7 @@ use deno_fs::{FileSystem, RealFs};
 use deno_npm::NpmSystemInfo;
 use eszip::{EszipV2, ModuleKind};
 use sb_fs::{build_vfs, VfsOpts};
+use sb_npm::InnerCliNpmResolverRef;
 use std::fs;
 use std::fs::{create_dir_all, File};
 use std::io::Write;
@@ -74,22 +75,31 @@ pub async fn generate_binary_eszip(
 
         let bin_code: Arc<[u8]> = emit_source.as_bytes().into();
 
-        let npm_res = emitter_factory.npm_resolution();
+        let npm_res = emitter_factory.npm_resolution().await;
+        let resolver = emitter_factory.npm_resolver().await;
 
-        let (npm_vfs, _npm_files) = if npm_res.has_packages() {
-            let (root_dir, files) = build_vfs(VfsOpts {
-                npm_resolver: emitter_factory.npm_resolver().clone(),
-                npm_registry_api: emitter_factory.npm_api().clone(),
-                npm_cache: emitter_factory.npm_cache().clone(),
-                npm_resolution: emitter_factory.npm_resolution().clone(),
-            })?
-            .into_dir_and_files();
+        let (npm_vfs, _npm_files) = match resolver.clone().as_inner() {
+            InnerCliNpmResolverRef::Managed(managed) => {
+                let snapshot =
+                    managed.serialized_valid_snapshot_for_system(&NpmSystemInfo::default());
+                if !snapshot.as_serialized().packages.is_empty() {
+                    let (root_dir, files) = build_vfs(VfsOpts {
+                        npm_resolver: resolver.clone(),
+                        npm_registry_api: emitter_factory.npm_api().await.clone(),
+                        npm_cache: emitter_factory.npm_cache().await.clone(),
+                        npm_resolution: emitter_factory.npm_resolution().await.clone(),
+                    })?
+                    .into_dir_and_files();
 
-            let snapshot = npm_res.serialized_valid_snapshot_for_system(&NpmSystemInfo::default());
-            eszip.add_npm_snapshot(snapshot);
-            (Some(root_dir), files)
-        } else {
-            (None, Vec::new())
+                    let snapshot =
+                        npm_res.serialized_valid_snapshot_for_system(&NpmSystemInfo::default());
+                    eszip.add_npm_snapshot(snapshot);
+                    (Some(root_dir), files)
+                } else {
+                    (None, Vec::new())
+                }
+            }
+            InnerCliNpmResolverRef::Byonm(_) => unreachable!(),
         };
 
         let npm_vfs = serde_json::to_string(&npm_vfs)?.as_bytes().to_vec();

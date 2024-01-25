@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 //! Code for local node_modules resolution.
 
@@ -11,7 +11,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::cache::mixed_case_package_name_decode;
+use crate::cache_dir::{mixed_case_package_name_decode, mixed_case_package_name_encode};
 use async_trait::async_trait;
 use deno_ast::ModuleSpecifier;
 use deno_core::anyhow::bail;
@@ -35,15 +35,12 @@ use sb_core::util::fs::{
 };
 use sb_node::NodePermissions;
 use sb_node::NodeResolutionMode;
-use sb_node::PackageJson;
 use serde::Deserialize;
 use serde::Serialize;
 
-use crate::cache::mixed_case_package_name_encode;
-use crate::resolution::NpmResolution;
-use crate::NpmCache;
-
-use super::common::types_package_name;
+use super::super::super::common::types_package_name;
+use super::super::cache::NpmCache;
+use super::super::resolution::NpmResolution;
 use super::common::NpmPackageFsResolver;
 use super::common::RegistryReadPermissionChecker;
 
@@ -113,13 +110,9 @@ impl LocalNpmPackageResolver {
         };
         // Canonicalize the path so it's not pointing to the symlinked directory
         // in `node_modules` directory of the referrer.
-        canonicalize_path_maybe_not_exists_with_fs(&path, |path| {
-            self.fs
-                .realpath_sync(path)
-                .map_err(|err| err.into_io_error())
-        })
-        .map(Some)
-        .map_err(|err| err.into())
+        canonicalize_path_maybe_not_exists_with_fs(&path, self.fs.as_ref())
+            .map(Some)
+            .map_err(|err| err.into())
     }
 }
 
@@ -129,8 +122,8 @@ impl NpmPackageFsResolver for LocalNpmPackageResolver {
         &self.root_node_modules_url
     }
 
-    fn node_modules_path(&self) -> Option<PathBuf> {
-        Some(self.root_node_modules_path.clone())
+    fn node_modules_path(&self) -> Option<&PathBuf> {
+        Some(&self.root_node_modules_path)
     }
 
     fn package_folder(&self, id: &NpmPackageId) -> Result<PathBuf, AnyError> {
@@ -168,28 +161,18 @@ impl NpmPackageFsResolver for LocalNpmPackageResolver {
             } else {
                 Cow::Owned(current_folder.join("node_modules"))
             };
-            let sub_dir = join_package_name(&node_modules_folder, name);
-            if self.fs.is_dir_sync(&sub_dir) {
-                // if doing types resolution, only resolve the package if it specifies a types property
-                if mode.is_types() && !name.starts_with("@types/") {
-                    let package_json = PackageJson::load_skip_read_permission(
-                        &*self.fs,
-                        sub_dir.join("package.json"),
-                    )?;
-                    if package_json.types.is_some() {
-                        return Ok(sub_dir);
-                    }
-                } else {
-                    return Ok(sub_dir);
-                }
-            }
 
-            // if doing type resolution, check for the existence of a @types package
+            // attempt to resolve the types package first, then fallback to the regular package
             if mode.is_types() && !name.starts_with("@types/") {
                 let sub_dir = join_package_name(&node_modules_folder, &types_package_name(name));
                 if self.fs.is_dir_sync(&sub_dir) {
                     return Ok(sub_dir);
                 }
+            }
+
+            let sub_dir = join_package_name(&node_modules_folder, name);
+            if self.fs.is_dir_sync(&sub_dir) {
+                return Ok(sub_dir);
             }
 
             if current_folder == self.root_node_modules_path {
@@ -369,10 +352,13 @@ async fn sync_resolution_with_fs(
             .join("node_modules");
         let mut dep_setup_cache = setup_cache.with_dep(&package_folder_name);
         for (name, dep_id) in &package.dependencies {
-            let dep_cache_folder_id = snapshot
-                .package_from_id(dep_id)
-                .unwrap()
-                .get_package_cache_folder_id();
+            let dep = snapshot.package_from_id(dep_id).unwrap();
+            if package.optional_dependencies.contains(name)
+                && !dep.system.matches_system(system_info)
+            {
+                continue; // this isn't a dependency for the current system
+            }
+            let dep_cache_folder_id = dep.get_package_cache_folder_id();
             let dep_folder_name = get_package_folder_id_folder_name(&dep_cache_folder_id);
             if dep_setup_cache.insert(name, &dep_folder_name) {
                 let dep_folder_path = join_package_name(
@@ -630,7 +616,7 @@ fn junction_or_symlink_dir(old_path: &Path, new_path: &Path) -> Result<(), AnyEr
             if cfg!(debug) {
                 // When running the tests, junctions should be created, but if not then
                 // surface this error.
-                println!("Error creating junction. {:#}", junction_err);
+                log::warn!("Error creating junction. {:#}", junction_err);
             }
 
             match symlink_dir(old_path, new_path) {

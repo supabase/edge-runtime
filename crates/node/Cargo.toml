@@ -17,29 +17,31 @@ brotli = "3.3.4"
 bytes.workspace = true
 cbc = { version = "=0.1.2", features = ["alloc"] }
 data-encoding = "2.3.3"
+const-oid = "0.9.5"
 deno_core.workspace = true
 deno_fetch.workspace = true
 deno_fs.workspace = true
 deno_media_type.workspace = true
 deno_net.workspace = true
-deno_npm.workspace = true
-deno_semver.workspace = true
+deno_whoami = "0.1.0"
 digest = { version = "0.10.5", features = ["core-api", "std"] }
 dsa = "0.6.1"
 ecb = "=0.1.2"
 elliptic-curve = { version = "0.13.4", features = ["alloc", "arithmetic", "ecdh", "std", "pem"] }
 errno = "0.2.8"
-h2 = "0.3.17"
+h2 = { version = "0.3.17", features = ["unstable"] }
 hex = "0.4"
 hkdf = "0.12.3"
-http = "0.2.9"
+http_v02 = { package = "http", version = "0.2.9" }
 idna = "0.3.0"
 indexmap.workspace = true
+k256 = "0.13.1"
 lazy-regex = "3"
 libc.workspace = true
-libz-sys = { version = "1.1.8", features = ["static"] }
+libz-sys = { version = "1.1", default-features = false }
 md-5 = "0.10.5"
 md4 = "0.10.2"
+nix = "=0.26.2"
 num-bigint = { version = "0.4", features = ["rand"] }
 num-bigint-dig = "0.8.2"
 num-integer = "0.1.45"
@@ -50,24 +52,26 @@ p256 = { version = "0.13.2", features = ["ecdh"] }
 p384 = { version = "0.13.0", features = ["ecdh"] }
 path-clean = "=0.1.0"
 pbkdf2 = "0.12.1"
-rand = "0.8.5"
+pin-project-lite = "0.2.13"
+rand = "=0.8.5"
 regex.workspace = true
 reqwest.workspace = true
 ring.workspace = true
 ripemd = "0.1.3"
 rsa.workspace = true
 scrypt = "0.11.0"
-secp256k1 = { version = "0.27.0", features = ["rand-std"] }
 serde = "1.0.149"
 sha-1 = "0.10.0"
-sha2 = { version = "0.10.6", features = ["oid"] }
-signature = "=1.6.4"
+sha2 = { version = "0.10.8", features = ["oid"] }
+signature = "2.1"
+simd-json = "0.13.4"
 tokio.workspace = true
 typenum = "1.15.0"
 url = { version = "2.3.1", features = ["serde", "expose_internals"] }
-whoami = "1.4.0"
 winapi = "=0.3.9"
-# https://github.com/dalek-cryptography/x25519-dalek/pull/89
-x25519-dalek = "2.0.0-pre.1"
+x25519-dalek = "2.0.0"
 x509-parser = "0.15.0"
-log.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.48.0", features = ["Win32_Media"] }
+winapi = { version = "0.3.9", features = ["consoleapi"] }

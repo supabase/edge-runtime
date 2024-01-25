@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 // This module implements 'child_process' module of Node.JS API.
 // ref: https://nodejs.org/api/child_process.html
@@ -10,6 +10,7 @@ import {
   ChildProcess,
   ChildProcessOptions,
   normalizeSpawnArguments,
+  setupChannel,
   type SpawnOptions,
   spawnSync as _spawnSync,
   type SpawnSyncOptions,
@@ -48,6 +49,7 @@ import {
 } from "ext:deno_node/internal/util.mjs";
 
 const { core } = globalThis.__bootstrap;
+const ops = core.ops;
 
 const MAX_BUFFER = 1024 * 1024;
 
@@ -820,6 +822,15 @@ export function execFileSync(
 
   return ret.stdout as string | Buffer;
 }
+
+function setupChildProcessIpcChannel() {
+  const fd = ops.op_node_child_ipc_pipe();
+  if (typeof fd != "number" || fd < 0) return;
+  setupChannel(process, fd);
+}
+
+globalThis.__bootstrap.internals.__setupChildProcessIpcChannel =
+  setupChildProcessIpcChannel;
 
 export default {
   fork,

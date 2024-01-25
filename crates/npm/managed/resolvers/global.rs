@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 //! Code for global npm cache resolution.
 
@@ -20,11 +20,10 @@ use deno_npm::NpmSystemInfo;
 use sb_node::NodePermissions;
 use sb_node::NodeResolutionMode;
 
-use crate::resolution::NpmResolution;
-use crate::resolvers::common::cache_packages;
-use crate::NpmCache;
-
-use super::common::types_package_name;
+use super::super::super::common::types_package_name;
+use super::super::cache::NpmCache;
+use super::super::resolution::NpmResolution;
+use super::common::cache_packages;
 use super::common::NpmPackageFsResolver;
 use super::common::RegistryReadPermissionChecker;
 
@@ -75,7 +74,7 @@ impl NpmPackageFsResolver for GlobalNpmPackageResolver {
         self.cache.root_dir_url()
     }
 
-    fn node_modules_path(&self) -> Option<PathBuf> {
+    fn node_modules_path(&self) -> Option<&PathBuf> {
         None
     }
 

@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 // TODO(petamoriken): enable prefer-primordials for node polyfills
 // deno-lint-ignore-file prefer-primordials
@@ -7,7 +7,7 @@
 
 const core = globalThis.__bootstrap.core;
 import { TextEncoder } from "ext:deno_web/08_text_encoding.js";
-import { type Deferred, deferred } from "ext:deno_node/_util/async.ts";
+import { setTimeout } from "ext:deno_web/02_timers.js";
 import {
   _normalizeArgs,
   // createConnection,
@@ -58,7 +58,12 @@ import { createHttpClient } from "ext:deno_fetch/22_http_client.js";
 import { headersEntries } from "ext:deno_fetch/20_headers.js";
 import { timerId } from "ext:deno_web/03_abort_signal.js";
 import { clearTimeout as webClearTimeout } from "ext:deno_web/02_timers.js";
+import { resourceForReadableStream } from "ext:deno_web/06_streams.js";
 import { TcpConn } from "ext:deno_net/01_net.js";
+const {
+  op_fetch_response_upgrade,
+  op_fetch_send,
+} = core.ensureFastOps();
 
 enum STATUS_CODES {
   /** RFC 7231, 6.2.1 */
@@ -289,6 +294,10 @@ class FakeSocket extends EventEmitter {
   end() {}
 
   destroy() {}
+
+  setTimeout(callback, timeout = 0, ...args) {
+    setTimeout(callback, timeout, args);
+  }
 }
 
 /** ClientRequest represents the http(s) request from the client */
@@ -582,15 +591,28 @@ class ClientRequest extends OutgoingMessage {
     const client = this._getClient() ?? createHttpClient({ http2: false });
     this._client = client;
 
+    if (
+      this.method === "POST" || this.method === "PATCH" || this.method === "PUT"
+    ) {
+      const { readable, writable } = new TransformStream({
+        cancel: (e) => {
+          this._requestSendError = e;
+        },
+      });
+
+      this._bodyWritable = writable;
+      this._bodyWriter = writable.getWriter();
+
+      this._bodyWriteRid = resourceForReadableStream(readable);
+    }
+
     this._req = core.ops.op_node_http_request(
       this.method,
       url,
       headers,
       client.rid,
-      (this.method === "POST" || this.method === "PATCH" ||
-        this.method === "PUT") && this._contentLength !== 0,
+      this._bodyWriteRid,
     );
-    this._bodyWriteRid = this._req.requestBodyRid;
   }
 
   _implicitHeader() {
@@ -634,23 +656,11 @@ class ClientRequest extends OutgoingMessage {
       this._implicitHeader();
       this._send("", "latin1");
     }
+    this._bodyWriter?.close();
 
     (async () => {
       try {
-        const [res, _] = await Promise.all([
-          core.opAsync("op_fetch_send", this._req.requestRid),
-          (async () => {
-            if (this._bodyWriteRid) {
-              try {
-                await core.shutdown(this._bodyWriteRid);
-              } catch (err) {
-                this._requestSendError = err;
-              }
-
-              core.tryClose(this._bodyWriteRid);
-            }
-          })(),
-        ]);
+        const res = await op_fetch_send(this._req.requestRid);
         try {
           cb?.();
         } catch (_) {
@@ -704,8 +714,7 @@ class ClientRequest extends OutgoingMessage {
             throw new Error("not implemented CONNECT");
           }
 
-          const upgradeRid = await core.opAsync(
-            "op_fetch_response_upgrade",
+          const upgradeRid = await op_fetch_response_upgrade(
             res.responseRid,
           );
           assert(typeof res.remoteAddrIp !== "undefined");
@@ -885,6 +894,11 @@ class ClientRequest extends OutgoingMessage {
       value = value.join("; ");
     }
     headers.push([key, value]);
+  }
+
+  // Once a socket is assigned to this request and is connected socket.setNoDelay() will be called.
+  setNoDelay() {
+    this.socket?.setNoDelay?.();
   }
 }
 
@@ -1388,7 +1402,7 @@ export class ServerResponse extends NodeWritable {
   }
 
   getHeader(name: string) {
-    return this.#headers.get(name);
+    return this.#headers.get(name) ?? undefined;
   }
   removeHeader(name: string) {
     return this.#headers.delete(name);
@@ -1451,6 +1465,10 @@ export class ServerResponse extends NodeWritable {
 
     // @ts-expect-error The signature for cb is stricter than the one implemented here
     return super.end(chunk, encoding, cb);
+  }
+
+  flushHeaders() {
+    // no-op
   }
 
   // Undocumented API used by `npm:compression`.
@@ -1551,7 +1569,7 @@ export class ServerImpl extends EventEmitter {
   #server: Deno.Server;
   #unref = false;
   #ac?: AbortController;
-  #servePromise: Deferred<void>;
+  #serveDeferred: ReturnType<typeof Promise.withResolvers<void>>;
   listening = false;
 
   constructor(opts, requestListener?: ServerHandler) {
@@ -1568,14 +1586,15 @@ export class ServerImpl extends EventEmitter {
 
     this._opts = opts;
 
-    this.#servePromise = deferred();
-    this.#servePromise.then(() => this.emit("close"));
+    this.#serveDeferred = Promise.withResolvers<void>();
+    this.#serveDeferred.promise.then(() => this.emit("close"));
     if (requestListener !== undefined) {
       this.on("request", requestListener);
     }
   }
 
   listen(...args: unknown[]): this {
+    // TODO(bnoordhuis) Delegate to net.Server#listen().
     const normalized = _normalizeArgs(args);
     const options = normalized[0] as Partial<ListenOptions>;
     const cb = normalized[1];
@@ -1599,7 +1618,7 @@ export class ServerImpl extends EventEmitter {
       port,
     } as Deno.NetAddr;
     this.listening = true;
-    this._serve();
+    nextTick(() => this._serve());
 
     return this;
   }
@@ -1632,33 +1651,29 @@ export class ServerImpl extends EventEmitter {
       return;
     }
     this.#ac = ac;
+    try {
+      this.#server = serve(
+        {
+          handler: handler as Deno.ServeHandler,
+          ...this.#addr,
+          signal: ac.signal,
+          // @ts-ignore Might be any without `--unstable` flag
+          onListen: ({ port }) => {
+            this.#addr!.port = port;
+            this.emit("listening");
+          },
+          ...this._additionalServeOptions?.(),
+        },
+      );
+    } catch (e) {
+      this.emit("error", e);
+      return;
+    }
 
-    this.#server = Deno.serve((req) => {
-      return handler(req, {
-        remoteAddr: {
-          hostname: "0.0.0.0",
-          port: 9999
-        }
-      });
-    });
-    //
-    // this.#server = serve(
-    //   {
-    //     handler: handler as Deno.ServeHandler,
-    //     ...this.#addr,
-    //     signal: ac.signal,
-    //     // @ts-ignore Might be any without `--unstable` flag
-    //     onListen: ({ port }) => {
-    //       this.#addr!.port = port;
-    //       this.emit("listening");
-    //     },
-    //     ...this._additionalServeOptions?.(),
-    //   },
-    // );
     if (this.#unref) {
       this.#server.unref();
     }
-    this.#server.finished.then(() => this.#servePromise!.resolve());
+    this.#server.finished.then(() => this.#serveDeferred!.resolve());
   }
 
   setTimeout() {
@@ -1698,7 +1713,7 @@ export class ServerImpl extends EventEmitter {
       this.#ac.abort();
       this.#ac = undefined;
     } else {
-      this.#servePromise!.resolve();
+      this.#serveDeferred!.resolve();
     }
 
     this.#server = undefined;
@@ -1762,6 +1777,7 @@ export function get(...args: any[]) {
 export {
   Agent,
   ClientRequest,
+  globalAgent,
   IncomingMessageForServer as IncomingMessage,
   METHODS,
   OutgoingMessage,
@@ -1769,6 +1785,7 @@ export {
 };
 export default {
   Agent,
+  globalAgent,
   ClientRequest,
   STATUS_CODES,
   METHODS,

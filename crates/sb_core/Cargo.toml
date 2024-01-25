@@ -12,7 +12,7 @@ path = "lib.rs"
 
 [dependencies]
 walkdir = "=2.3.2"
-deno_ast.workspace = true
+deno_ast = { workspace = true, features = ["transpiling", "bundler", "cjs", "codegen", "dep_graph", "module_specifier", "proposal", "react", "sourcemap", "transforms", "typescript", "view", "visit"] }
 deno_net.workspace = true
 deno_web.workspace = true
 deno_fetch.workspace = true
@@ -47,3 +47,4 @@ indexmap.workspace = true
 encoding_rs = { version = "=0.8.33" }
 base64.workspace = true
 futures.workspace = true
+percent-encoding.workspace = true

@@ -21,6 +21,10 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+#[cfg(all(feature = "console", tokio_unstable))]
+use console_subscriber;
+
+
 fn cli() -> Command {
     Command::new("edge-runtime")
         .about("A server based on Deno runtime, capable of running JavaScript, TypeScript, and WASM services")
@@ -201,6 +205,11 @@ fn cli() -> Command {
 }
 
 fn main() -> Result<(), anyhow::Error> {
+    #[cfg(all(tokio_unstable, feature = "console"))]
+    {
+        console_subscriber::init();
+    }
+
     MAYBE_DENO_VERSION.get_or_init(|| env!("DENO_VERSION").to_string());
 
     let runtime = tokio::runtime::Builder::new_current_thread()

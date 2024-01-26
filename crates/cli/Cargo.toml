@@ -15,8 +15,10 @@ clap = { version = "4.0.29", features = ["cargo", "string", "env"] }
 env_logger = "0.10.0"
 log = { workspace = true }
 sb_graph = { path = "../sb_graph" }
+console-subscriber = { version = "0.2", optional = true }
 tokio.workspace = true
 glob.workspace = true
 
 [build-dependencies]
 dotenv-build = { version = "0.1.1" }
+console = ["dep:console-subscriber", "tokio/tracing"]

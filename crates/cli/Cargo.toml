@@ -16,9 +16,13 @@ env_logger = "0.10.0"
 log = { workspace = true }
 sb_graph = { path = "../sb_graph" }
 console-subscriber = { version = "0.2", optional = true }
+mimalloc = { version = "0.1", optional = true }
 tokio.workspace = true
 glob.workspace = true
 
 [build-dependencies]
 dotenv-build = { version = "0.1.1" }
+
+[features]
+mimalloc = ["dep:mimalloc"]
 console = ["dep:console-subscriber", "tokio/tracing"]

@@ -24,6 +24,13 @@ use std::sync::Arc;
 #[cfg(all(feature = "console", tokio_unstable))]
 use console_subscriber;
 
+#[cfg(feature = "mimalloc")]
+mod __priv {
+    use mimalloc::MiMalloc;
+
+    #[global_allocator]
+    static ALLOC: MiMalloc = MiMalloc;
+}
 
 fn cli() -> Command {
     Command::new("edge-runtime")

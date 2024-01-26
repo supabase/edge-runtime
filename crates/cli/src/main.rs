@@ -21,9 +21,6 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-#[cfg(all(feature = "console", tokio_unstable))]
-use console_subscriber;
-
 #[cfg(feature = "mimalloc")]
 mod __priv {
     use mimalloc::MiMalloc;

@@ -448,7 +448,7 @@ impl DenoRuntime {
             if inspector.is_some() {
                 self.wait_for_inspector_session();
 
-                if self.is_need_inspect_disconnect.is_raised() {
+                if self.is_termination_requested.is_raised() {
                     unsafe { self.js_runtime.v8_isolate().exit() };
                     return (Ok(()), 0i64);
                 }

@@ -216,7 +216,7 @@ pub fn create_supervisor(
                 .inspector()
                 .borrow_mut()
                 .get_session_sender(),
-            worker_runtime.is_need_inspect_disconnect.clone(),
+            worker_runtime.is_termination_requested.clone(),
             worker_runtime.is_terminated.clone(),
         )
     });

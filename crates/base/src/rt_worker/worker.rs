@@ -1,5 +1,6 @@
 use crate::deno_runtime::DenoRuntime;
 use crate::inspector_server::Inspector;
+use crate::rt_worker::supervisor;
 use crate::rt_worker::utils::{get_event_metadata, parse_worker_conf};
 use crate::rt_worker::worker_ctx::create_supervisor;
 use crate::utils::send_event_if_event_worker_available;

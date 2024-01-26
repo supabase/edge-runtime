@@ -18,6 +18,7 @@ use deno_tls::RootCertStoreProvider;
 use futures_util::future::poll_fn;
 use log::{error, trace};
 use sb_core::conn_sync::ConnSync;
+use sb_core::util::sync::AtomicFlag;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
 use std::fmt;
@@ -80,8 +81,11 @@ fn get_error_class_name(e: &AnyError) -> &'static str {
 pub struct DenoRuntime {
     pub js_runtime: JsRuntime,
     pub env_vars: HashMap<String, String>, // TODO: does this need to be pub?
-    main_module_id: ModuleId,
     pub conf: WorkerRuntimeOpts,
+    pub is_termination_requested: Arc<AtomicFlag>,
+    pub is_terminated: Arc<AtomicFlag>,
+
+    main_module_id: ModuleId,
 }
 
 impl DenoRuntime {
@@ -363,6 +367,8 @@ impl DenoRuntime {
             main_module_id,
             env_vars,
             conf,
+            is_termination_requested: Arc::default(),
+            is_terminated: Arc::default(),
         })
     }
 
@@ -398,6 +404,7 @@ impl DenoRuntime {
             js_runtime.mod_evaluate(self.main_module_id)
         };
 
+        let is_termination_requested = self.is_termination_requested.clone();
         let is_user_worker = self.conf.is_user_worker();
 
         #[cfg(debug_assertions)]
@@ -469,6 +476,10 @@ impl DenoRuntime {
                 );
             }
 
+            if poll_result.is_pending() && is_termination_requested.is_raised() {
+                return Poll::Ready(Ok(()));
+            }
+
             poll_result
         })
         .await
@@ -482,6 +493,8 @@ impl DenoRuntime {
                 Ok(_) => Ok(()),
             },
         };
+
+        self.is_terminated.raise();
 
         (result, accumulated_cpu_time_ns)
     }

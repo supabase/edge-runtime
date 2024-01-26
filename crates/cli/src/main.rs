@@ -68,6 +68,14 @@ fn cli() -> Command {
                         .value_parser(["per_worker", "per_request", "oneshot"])
                 )
                 .arg(
+                    arg!(--"graceful-exit-timeout" <SECONDS> "Maximum time in seconds that can wait for workers before terminating forcibly")
+                        .default_value("0")
+                        .value_parser(
+                            value_parser!(u64)
+                                .range(0..u64::MAX)
+                        )
+                )
+                .arg(
                     arg!(--"max-parallelism" <COUNT> "Maximum count of workers that can exist in the worker pool simultaneously")
                         .value_parser(
                             // NOTE: Acceptable bounds were chosen arbitrarily.
@@ -178,6 +186,7 @@ fn main() -> Result<(), anyhow::Error> {
                     .get_one::<String>("policy")
                     .map(|it| it.parse::<SupervisorPolicy>().unwrap());
 
+                let graceful_exit_timeout = sub_matches.get_one::<u64>("graceful-exit-timeout").cloned();
                 let maybe_max_parallelism =
                     sub_matches.get_one::<usize>("max-parallelism").cloned();
                 let maybe_request_wait_timeout =
@@ -231,7 +240,8 @@ fn main() -> Result<(), anyhow::Error> {
                     import_map_path,
                     ServerFlags {
                         no_module_cache,
-                        allow_main_inspector
+                        allow_main_inspector,
+                        graceful_exit_deadline_sec: graceful_exit_timeout.unwrap_or(0),
                     },
                     None,
                     WorkerEntrypoints {

@@ -216,16 +216,16 @@ function runtimeStart(runtimeOptions, source) {
 // This is because v8 sets a console that can't be easily overriden
 // and collides with globalScope.console
 delete globalThis.console;
-// ObjectDefineProperties(globalThis, globalScope);
+ObjectDefineProperties(globalThis, globalScope);
 
 const globalProperties = {
-	// Window: globalInterfaces.windowConstructorDescriptor,
-	// window: getterOnly(() => globalThis),
-	// Navigator: nonEnumerable(Navigator),
-	// navigator: getterOnly(() => navigator),
-	// self: getterOnly(() => globalThis),
+	Window: globalInterfaces.windowConstructorDescriptor,
+	window: getterOnly(() => globalThis),
+	Navigator: nonEnumerable(Navigator),
+	navigator: getterOnly(() => navigator),
+	self: getterOnly(() => globalThis),
 };
-// ObjectDefineProperties(globalThis, globalProperties);
+ObjectDefineProperties(globalThis, globalProperties);
 
 const deleteDenoApis = (apis) => {
 	apis.forEach((key) => {

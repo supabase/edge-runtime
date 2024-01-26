@@ -34,6 +34,7 @@ impl NpmCacheDir {
 
         // this may fail on readonly file systems, so just ignore if so
         let root_dir = try_get_canonicalized_root_dir(&root_dir).unwrap_or(root_dir);
+        println!("Cache Dir {}", root_dir.clone().to_str().unwrap());
         let root_dir_url = Url::from_directory_path(&root_dir).unwrap();
         Self {
             root_dir,

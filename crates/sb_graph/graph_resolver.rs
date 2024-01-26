@@ -146,6 +146,7 @@ impl CliGraphResolver {
         package_json_deps_provider: Arc<PackageJsonDepsProvider>,
         package_json_deps_installer: Arc<PackageJsonDepsInstaller>,
         options: CliGraphResolverOptions,
+        npm_resolver: Option<Arc<dyn CliNpmResolver>>,
     ) -> Self {
         Self {
             mapped_specifier_resolver: MappedSpecifierResolver {
@@ -167,7 +168,7 @@ impl CliGraphResolver {
             npm_resolution,
             package_json_deps_installer,
             found_package_json_dep_flag: Default::default(),
-            npm_resolver: None,
+            npm_resolver,
         }
     }
 

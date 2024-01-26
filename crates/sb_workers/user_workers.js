@@ -7,6 +7,11 @@ import { readableStreamForRid, writableStreamForRid } from 'ext:deno_web/06_stre
 import { getWatcherRid } from 'ext:sb_core_main_js/js/http.js';
 const ops = core.ops;
 
+const {
+	op_user_worker_fetch_send,
+	op_user_worker_create
+} = core.ensureFastOps();
+
 // interface WorkerOptions {
 //     servicePath: string;
 //     memoryLimitMb?: number;
@@ -70,7 +75,7 @@ Invoke \`EdgeRuntime.applyConnectionWatcher(origReq, newReq)\` if you have clone
 			reqBodyPromise = body.pipeTo(writableStream, { signal });
 		}
 
-		const resPromise = core.opAsync('op_user_worker_fetch_send', this.key, requestRid, watcherRid);
+		const resPromise = op_user_worker_fetch_send(this.key, requestRid, watcherRid);
 		let [sent, res] = await Promise.allSettled([reqBodyPromise, resPromise]);
 		
 		if (sent.status === "rejected") {
@@ -142,7 +147,7 @@ Invoke \`EdgeRuntime.applyConnectionWatcher(origReq, newReq)\` if you have clone
 			throw new TypeError('service path must be defined');
 		}
 
-		const key = await core.opAsync('op_user_worker_create', readyOptions);
+		const key = await op_user_worker_create(readyOptions);
 
 		return new UserWorker(key);
 	}

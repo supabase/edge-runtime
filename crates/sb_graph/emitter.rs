@@ -265,15 +265,15 @@ impl EmitterFactory {
                     maybe_lockfile: self.get_lock_file(),
                     fs: self.real_fs(),
                     http_client: self.http_client(),
-                    npm_global_cache_dir: Default::default(),
-                    cache_setting: CacheSetting::Only,
+                    npm_global_cache_dir: self.deno_dir.npm_folder_path().clone(),
+                    cache_setting: CacheSetting::Use,
                     maybe_node_modules_path: None,
                     npm_system_info: Default::default(),
                     package_json_installer:
                         CliNpmResolverManagedPackageJsonInstallerOption::ConditionalInstall(
                             self.package_json_deps_provider().clone(),
                         ),
-                    npm_registry_url: ModuleSpecifier::parse("https://localhost/").unwrap(),
+                    npm_registry_url: CliNpmRegistryApi::default_url().clone(),
                 })
                 .await
             })
@@ -318,6 +318,7 @@ impl EmitterFactory {
                     self.package_json_deps_provider().clone(),
                     self.package_json_deps_installer().await.clone(),
                     self.cli_graph_resolver_options(),
+                    Some(self.npm_resolver().await.clone()),
                 )))
             })
             .await

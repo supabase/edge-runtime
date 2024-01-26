@@ -21,6 +21,7 @@ use deno_core::url::Url;
 use deno_npm::registry::NpmPackageInfo;
 use deno_npm::registry::NpmRegistryApi;
 use deno_npm::registry::NpmRegistryPackageInfoLoadError;
+use once_cell::sync::Lazy;
 
 use sb_core::cache::CacheSetting;
 use sb_core::cache::CACHE_PERM;
@@ -30,10 +31,32 @@ use sb_core::util::sync::AtomicFlag;
 
 use super::cache::NpmCache;
 
+static NPM_REGISTRY_DEFAULT_URL: Lazy<Url> = Lazy::new(|| {
+    let env_var_name = "NPM_CONFIG_REGISTRY";
+    if let Ok(registry_url) = std::env::var(env_var_name) {
+        // ensure there is a trailing slash for the directory
+        let registry_url = format!("{}/", registry_url.trim_end_matches('/'));
+        match Url::parse(&registry_url) {
+            Ok(url) => {
+                return url;
+            }
+            Err(err) => {
+                println!("Invalid {} environment variable: {:#}", env_var_name, err,);
+            }
+        }
+    }
+
+    Url::parse("https://registry.npmjs.org").unwrap()
+});
+
 #[derive(Debug)]
 pub struct CliNpmRegistryApi(Option<Arc<CliNpmRegistryApiInner>>);
 
 impl CliNpmRegistryApi {
+    pub fn default_url() -> &'static Url {
+        &NPM_REGISTRY_DEFAULT_URL
+    }
+
     pub fn new(base_url: Url, cache: Arc<NpmCache>, http_client: Arc<HttpClient>) -> Self {
         Self(Some(Arc::new(CliNpmRegistryApiInner {
             base_url,

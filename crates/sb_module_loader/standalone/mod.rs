@@ -128,7 +128,7 @@ pub async fn create_module_loader_for_eszip(
         fs: fs.clone(),
         http_client,
         npm_global_cache_dir,
-        cache_setting: CacheSetting::Only,
+        cache_setting: CacheSetting::Use,
         maybe_node_modules_path: None,
         npm_system_info: Default::default(),
         package_json_installer: CliNpmResolverManagedPackageJsonInstallerOption::ConditionalInstall(

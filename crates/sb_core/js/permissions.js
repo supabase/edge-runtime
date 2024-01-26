@@ -1,7 +1,6 @@
-const core = globalThis.Deno.core;
 import { pathFromURL } from "ext:deno_web/00_infra.js";
 import { Event, EventTarget } from "ext:deno_web/02_event.js";
-const primordials = globalThis.__bootstrap.primordials;
+import { primordials } from "ext:core/mod.js";
 const {
     ArrayIsArray,
     ArrayPrototypeIncludes,

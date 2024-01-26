@@ -1,6 +1,5 @@
-const primordials = globalThis.__bootstrap.primordials;
+import { primordials, core } from "ext:core/mod.js";
 const { SymbolAsyncIterator } = primordials;
-const core = globalThis.Deno.core;
 
 class SupabaseEventListener {
 	async nextEvent() {

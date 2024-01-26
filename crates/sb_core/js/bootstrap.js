@@ -42,9 +42,10 @@ import * as messagePort from 'ext:deno_web/13_message_port.js';
 import { SupabaseEventListener } from 'ext:sb_user_event_worker/event_worker.js';
 import * as MainWorker from 'ext:sb_core_main_js/js/main_worker.js';
 import * as DenoWebCompression from 'ext:deno_web/14_compression.js';
+import * as imageData from "ext:deno_web/16_image_data.js";
 import * as DenoWSStream from 'ext:deno_websocket/02_websocketstream.js';
-
-const core = globalThis.Deno.core;
+import * as eventSource from "ext:deno_fetch/27_eventsource.js";
+import { primordials, core } from "ext:core/mod.js";
 const ops = core.ops;
 
 const {
@@ -54,7 +55,7 @@ const {
 	ObjectSetPrototypeOf,
 	ObjectFreeze,
 	StringPrototypeSplit,
-} = globalThis.__bootstrap.primordials;
+} = primordials;
 
 const globalScope = {
 	console: nonEnumerable(
@@ -71,6 +72,7 @@ const globalScope = {
 	Request: nonEnumerable(request.Request),
 	Response: nonEnumerable(response.Response),
 	Headers: nonEnumerable(headers.Headers),
+	ImageData: nonEnumerable(imageData.ImageData),
 	fetch: writable(fetch.fetch),
 
 	// base64
@@ -214,16 +216,16 @@ function runtimeStart(runtimeOptions, source) {
 // This is because v8 sets a console that can't be easily overriden
 // and collides with globalScope.console
 delete globalThis.console;
-ObjectDefineProperties(globalThis, globalScope);
+// ObjectDefineProperties(globalThis, globalScope);
 
 const globalProperties = {
-	Window: globalInterfaces.windowConstructorDescriptor,
-	window: getterOnly(() => globalThis),
-	Navigator: nonEnumerable(Navigator),
-	navigator: getterOnly(() => navigator),
-	self: getterOnly(() => globalThis),
+	// Window: globalInterfaces.windowConstructorDescriptor,
+	// window: getterOnly(() => globalThis),
+	// Navigator: nonEnumerable(Navigator),
+	// navigator: getterOnly(() => navigator),
+	// self: getterOnly(() => globalThis),
 };
-ObjectDefineProperties(globalThis, globalProperties);
+// ObjectDefineProperties(globalThis, globalProperties);
 
 const deleteDenoApis = (apis) => {
 	apis.forEach((key) => {

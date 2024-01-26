@@ -14,12 +14,12 @@ deno_semver.workspace = true
 deno_npm.workspace = true
 cpu_timer = { version = "0.1.0", path = "../cpu_timer" }
 anyhow = { workspace = true }
-bytes = { version = "1.2.1" }
+bytes = { workspace = true }
 cityhash = { version = "0.1.1" }
 deno_ast = { workspace = true }
 deno_fs.workspace = true
 deno_io = { workspace = true }
-deno_core = { workspace = true }
+deno_core.workspace = true
 deno_console = { workspace = true }
 deno_crypto =  { workspace = true }
 deno_fetch = { workspace = true }
@@ -31,16 +31,16 @@ deno_webidl = { workspace = true }
 deno_web = { workspace = true }
 deno_websocket = { workspace = true }
 httparse = { version = "1.8.0" }
-hyper = { version = "0.14.26", features = ["full"] }
+hyper = { workspace = true, features = ["full"] }
 http = { version = "0.2" }
 import_map.workspace = true
 log = { workspace = true }
 reqwest.workspace = true
-serde = { version = "1.0.149", features = ["derive"] }
+serde = { workspace = true, features = ["derive"] }
 tokio = { workspace = true }
 tokio-util = { workspace = true, features = ["rt"] }
 futures-util = { workspace = true }
-url = { version = "2.3.1" }
+url.workspace = true
 event_worker ={ version = "0.1.0", path = "../event_worker" }
 sb_workers = { version = "0.1.0", path = "../sb_workers" }
 sb_env = { version = "0.1.0", path = "../sb_env" }
@@ -74,11 +74,10 @@ sb_env = { version = "0.1.0", path = "../sb_env" }
 sb_os = { version = "0.1.0", path = "../sb_os" }
 sb_node = { version = "0.1.0", path = "../node" }
 anyhow = { workspace = true }
-bytes = { version = "1.2.1" }
+bytes = { workspace = true }
 deno_ast = { workspace = true }
 deno_fs.workspace = true
 deno_io = { workspace = true }
-deno_core = { workspace = true }
 deno_console = { workspace = true }
 deno_crypto =  { workspace = true }
 deno_fetch = { workspace = true }
@@ -90,12 +89,13 @@ deno_webidl = { workspace = true }
 deno_web = { workspace = true }
 deno_websocket = { workspace = true }
 httparse = { version = "1.8.0" }
-hyper = { version = "0.14.26", features = ["full"] }
+hyper = { workspace = true, features = ["full"] }
 http = { version = "0.2" }
 log = { workspace = true }
 reqwest.workspace = true
-serde = { version = "1.0.149", features = ["derive"] }
+serde = { workspace = true, features = ["derive"] }
 tokio.workspace = true
-url = { version = "2.3.1" }
+url.workspace = true
 event_worker ={ version = "0.1.0", path = "../event_worker" }
 deno_broadcast_channel.workspace = true
+deno_core.workspace = true

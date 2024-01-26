@@ -1,12 +1,10 @@
-const primordials = globalThis.__bootstrap.primordials;
+import { primordials, core } from "ext:core/mod.js";
 const {
 	TypeError,
 } = primordials;
 
 import { readableStreamForRid, writableStreamForRid } from 'ext:deno_web/06_streams.js';
 import { getWatcherRid } from 'ext:sb_core_main_js/js/http.js';
-
-const core = globalThis.Deno.core;
 const ops = core.ops;
 
 // interface WorkerOptions {

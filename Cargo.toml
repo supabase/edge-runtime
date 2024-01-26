@@ -17,6 +17,7 @@ members = [
 resolver = "2"
 
 [workspace.dependencies]
+url = { version = "2.3.1" }
 eszip = "0.56.0"
 log = "0.4.20"
 anyhow = { version = "1.0.57" }
@@ -34,9 +35,9 @@ deno_graph = "=0.62.2"
 deno_http =  { version = "0.127.0" }
 deno_media_type = { version = "0.1.1", features = ["module_specifier"] }
 deno_net = { version = "0.122.0" }
-deno_npm = "0.15.1"
+deno_npm = "0.15.3"
 deno_url = { version = "0.130.0" }
-deno_semver = "0.5.0"
+deno_semver = "0.5.1"
 deno_tls = { version = "0.117.0"}
 deno_webidl = { version = "0.130.0" }
 deno_web = { version = "0.161.0" }
@@ -49,7 +50,7 @@ tokio = { version = "1.28.1", features = ["full"] }
 bytes = { version = "1.4.0" }
 once_cell = "1.17.1"
 thiserror = "1.0.40"
-deno_lockfile = "0.17.1"
+deno_lockfile = "0.17.2"
 async-trait = "0.1.73"
 indexmap = { version = "2.0.0", features = ["serde"] }
 flate2 = "=1.0.26"
@@ -59,7 +60,7 @@ fs3 = "0.5.0"
 tokio-util = "0.7.4"
 uuid = { version = "1.3.0", features = ["v4"] }
 rsa = { version = "0.9.3", default-features = false, features = ["std", "pem", "hazmat"] } # hazmat needed for PrehashSigner in ext/node
-monch = "=0.4.3"
+monch = "=0.5.0"
 reqwest = { version = "0.11.20", default-features = false, features = ["rustls-tls", "stream", "gzip", "brotli", "socks", "json"] }
 ring = "^0.17.0"
 urlencoding = { version = "2.1.2" }
@@ -69,6 +70,10 @@ futures = { version = "0.3.28" }
 futures-util = { version = "0.3.28" }
 ctor = { version = "0.2.6" }
 percent-encoding = "=2.3.0"
+
+# DEBUG
+#[patch.crates-io]
+#deno_core = { path = "/your/path/to/deno_core/core" }
 
 [profile.release]
 lto = true

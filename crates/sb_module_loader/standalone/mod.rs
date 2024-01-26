@@ -183,7 +183,7 @@ pub async fn create_module_loader_for_eszip(
         module_loader: Rc::new(EmbeddedModuleLoader {
             shared: module_loader_factory.shared.clone(),
         }),
-        npm_resolver,
+        npm_resolver: npm_resolver.into_npm_resolver(),
         fs,
         module_code: code_fs,
     })

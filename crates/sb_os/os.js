@@ -1,6 +1,3 @@
-const core = globalThis.Deno.core;
-const ops = core.ops;
-
 class DenoCommand {
 	constructor(command, options) {
 		this.command = command;

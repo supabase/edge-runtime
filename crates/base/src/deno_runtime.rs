@@ -6,7 +6,10 @@ use cpu_timer::get_thread_time;
 use ctor::ctor;
 use deno_core::error::AnyError;
 use deno_core::url::Url;
-use deno_core::{located_script_name, serde_v8, JsRuntime, ModuleCode, ModuleId, RuntimeOptions};
+use deno_core::{
+    located_script_name, serde_v8, JsRuntime, ModuleCode, ModuleId, PollEventLoopOptions,
+    RuntimeOptions,
+};
 use deno_http::DefaultHttpPropertyExtractor;
 use deno_tls::deno_native_certs::load_native_certs;
 use deno_tls::rustls;
@@ -435,7 +438,13 @@ impl DenoRuntime {
                 Err(err) => return Poll::Ready(Err(err)),
             };
 
-            let poll_result = js_runtime.poll_event_loop(cx, false);
+            let poll_result = js_runtime.poll_event_loop(
+                cx,
+                PollEventLoopOptions {
+                    wait_for_inspector: false,
+                    pump_v8_message_loop: false,
+                },
+            );
 
             let cpu_time_after_poll_ns = match get_current_cpu_time_ns_fn() {
                 Ok(value) => value,
@@ -467,11 +476,11 @@ impl DenoRuntime {
             Err(err) => Err(anyhow!("event loop error: {}", err)),
             Ok(_) => match mod_result_rx.await {
                 Err(_) => Err(anyhow!("mod result sender dropped")),
-                Ok(Err(err)) => {
-                    error!("{}", err.to_string());
-                    Err(err)
-                }
-                Ok(Ok(_)) => Ok(()),
+                // Ok(Err(err)) => {
+                //     error!("{}", err.to_string());
+                //     Err(err)
+                // }
+                Ok(_) => Ok(()),
             },
         };
 
@@ -514,7 +523,7 @@ fn set_v8_flags() {
 #[cfg(test)]
 mod test {
     use crate::deno_runtime::DenoRuntime;
-    use deno_core::{FastString, ModuleCode};
+    use deno_core::{FastString, ModuleCode, PollEventLoopOptions};
     use sb_core::conn_sync::ConnSync;
     use sb_graph::emitter::EmitterFactory;
     use sb_graph::{generate_binary_eszip, EszipPayloadKind};
@@ -599,7 +608,13 @@ mod test {
         }
 
         let main_mod_ev = rt.js_runtime.mod_evaluate(rt.main_module_id);
-        let _ = rt.js_runtime.run_event_loop(false).await;
+        let _ = rt
+            .js_runtime
+            .run_event_loop(PollEventLoopOptions {
+                wait_for_inspector: false,
+                pump_v8_message_loop: false,
+            })
+            .await;
 
         let read_is_even_global = rt
             .js_runtime
@@ -654,7 +669,13 @@ mod test {
         }
 
         let main_mod_ev = rt.js_runtime.mod_evaluate(rt.main_module_id);
-        let _ = rt.js_runtime.run_event_loop(false).await;
+        let _ = rt
+            .js_runtime
+            .run_event_loop(PollEventLoopOptions {
+                wait_for_inspector: false,
+                pump_v8_message_loop: false,
+            })
+            .await;
 
         let read_is_even_global = rt
             .js_runtime

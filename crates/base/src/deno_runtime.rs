@@ -1494,6 +1494,38 @@ mod test {
         };
     }
 
+    #[tokio::test]
+    #[serial]
+    #[ignore = "too many isolates"]
+    async fn test_create_isolate_50000() {
+        for _ in 0..50000 {
+            let mut user_rt = create_runtime(
+                None,
+                None,
+                Some(WorkerRuntimeOpts::UserWorker(Default::default())),
+                vec![],
+            )
+            .await;
+
+            let value = user_rt
+                .js_runtime
+                .execute_script(
+                    "<anon>",
+                    ModuleCodeString::from(
+                        r#"
+                            "meow";
+                        "#
+                        .to_string(),
+                    ),
+                )
+                .unwrap();
+
+            let out = user_rt.to_value::<deno_core::serde_json::Value>(&value);
+
+            assert_eq!(out.unwrap().as_str().unwrap(), "meow");
+        }
+    }
+
     async fn test_mem_check_above_limit(
         path: &str,
         static_patterns: &[&str],

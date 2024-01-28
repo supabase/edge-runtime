@@ -134,21 +134,34 @@ pub struct ExtractEszipPayload {
     pub folder: PathBuf,
 }
 
+fn ensure_unix_relative_path(path: &Path) -> &Path {
+    assert!(path.is_relative());
+    assert!(!path.to_string_lossy().starts_with("\\"));
+    path
+}
+
 fn create_module_path(global_specifier: &str, entry_path: &Path, output_folder: &Path) -> PathBuf {
     let cleaned_specifier = global_specifier.replace(entry_path.to_str().unwrap(), "");
     let module_path = PathBuf::from(cleaned_specifier);
 
     if let Some(parent) = module_path.parent() {
         if parent.parent().is_some() {
-            let output_folder_and_mod_folder =
-                output_folder.join(parent.strip_prefix("/").unwrap());
+            let output_folder_and_mod_folder = output_folder.join(
+                parent
+                    .strip_prefix("/")
+                    .unwrap_or_else(|_| ensure_unix_relative_path(parent)),
+            );
             if !output_folder_and_mod_folder.exists() {
                 create_dir_all(&output_folder_and_mod_folder).unwrap();
             }
         }
     }
 
-    output_folder.join(module_path.strip_prefix("/").unwrap())
+    output_folder.join(
+        module_path
+            .strip_prefix("/")
+            .unwrap_or_else(|_| ensure_unix_relative_path(&module_path)),
+    )
 }
 
 async fn extract_modules(

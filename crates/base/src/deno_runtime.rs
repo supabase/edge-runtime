@@ -446,6 +446,11 @@ impl DenoRuntime {
             unsafe { self.js_runtime.v8_isolate().enter() };
 
             if inspector.is_some() {
+                // XXX(Nyannyacha): Suppose the user skips this function by passing
+                // the `--inspect` argument. In that case, the runtime may terminate
+                // before the inspector session is connected if the function doesn't
+                // have a long execution time. Should we wait for an inspector
+                // session to connect with the V8?
                 self.wait_for_inspector_session();
 
                 if self.is_termination_requested.is_raised() {
@@ -540,6 +545,11 @@ impl DenoRuntime {
                 );
             }
 
+            // NOTE(Nyannyacha): If tasks are empty or V8 is not evaluating the
+            // function, and so V8 is no longer inside its loop, it turns out
+            // that requesting termination does not work; thus, we need another
+            // way to escape from the polling loop so the supervisor can
+            // terminate the runtime.
             if poll_result.is_pending() && is_termination_requested.is_raised() {
                 return Poll::Ready(Ok(()));
             }

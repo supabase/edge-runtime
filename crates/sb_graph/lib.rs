@@ -136,7 +136,7 @@ pub struct ExtractEszipPayload {
 
 fn ensure_unix_relative_path(path: &Path) -> &Path {
     assert!(path.is_relative());
-    assert!(!path.to_string_lossy().starts_with("\\"));
+    assert!(!path.to_string_lossy().starts_with('\\'));
     path
 }
 

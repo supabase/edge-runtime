@@ -345,15 +345,13 @@ impl DenoRuntime {
             op_state.put::<sb_env::EnvVars>(env_vars);
         }
 
-        let mut js_runtime_mut = scopeguard::guard(&mut js_runtime, |it| unsafe {
-            it.v8_isolate().exit();
-        });
-
-        let main_module_id = js_runtime_mut
+        let main_module_id = js_runtime
             .load_main_module(&main_module_url, mod_code)
             .await?;
 
-        drop(js_runtime_mut);
+        unsafe {
+            js_runtime.v8_isolate().exit();
+        }
 
         Ok(Self {
             js_runtime,

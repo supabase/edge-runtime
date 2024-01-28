@@ -78,10 +78,15 @@ async function serve(args1, args2) {
 		opts['handler'] = args1;
 	} else if (typeof args1 === 'object' && typeof args2 === 'function') {
 		opts['handler'] = args2;
-	} else {
-		if (typeof handler !== 'function') {
-			throw new TypeError('A handler function must be provided.');
+	} else if (typeof args1 === 'object') {
+		if (typeof args1['handler'] === 'function') {
+			opts['handler'] = args1['handler'];
 		}
+		if (typeof args1['onListen'] === 'function') {
+			opts['onListen'] = args1['onListen'];
+		}
+	} else {
+		throw new TypeError('A handler function must be provided.');
 	}
 
 	let serve;
@@ -90,7 +95,14 @@ async function serve(args1, args2) {
 		serve = serveHttp(conn);
 		for await (const e of serve) {
 			try {
-				const res = await opts['handler'](e.request);
+				const res = await opts['handler'](e.request, {
+					remoteAddr: {
+						port: opts.port,
+						hostname: opts.hostname,
+						transport: opts.transport
+					}
+				});
+
 				e.respondWith(res);
 			} catch (error) {
 				console.error(error);
@@ -100,6 +112,11 @@ async function serve(args1, args2) {
 	};
 
 	const finished = (async () => {
+		opts['onListen']?.({
+			hostname: opts.hostname,
+			port: opts.port
+		});
+
 		for await (const conn of listener) {
 			handleHttp(conn);
 		}

@@ -102,8 +102,10 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
                         assert!(!is_worker_entered);
                         is_worker_entered = true;
 
-                        if let Some(Err(err)) = cpu_timer.as_ref().map(|it| it.reset()) {
-                            error!("can't reset cpu timer: {}", err);
+                        if !cpu_timer_param.is_disabled() {
+                            if let Some(Err(err)) = cpu_timer.as_ref().map(|it| it.reset()) {
+                                error!("can't reset cpu timer: {}", err);
+                            }
                         }
                     }
 
@@ -113,22 +115,24 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
                         is_worker_entered = false;
                         cpu_usage_ms = accumulated / 1_000_000;
 
-                        if cpu_usage_ms >= hard_limit_ms as i64 {
-                            // shutdown worker
-                            interrupt_fn(true);
-                            error!("CPU time hard limit reached. isolate: {:?}", key);
-                            return (ShutdownReason::CPUTime, cpu_usage_ms);
-                        } else if cpu_usage_ms >= soft_limit_ms as i64 && !cpu_time_soft_limit_reached {
-                                // retire worker
-                                is_retired.raise();
-                                error!("CPU time soft limit reached. isolate: {:?}", key);
-                                cpu_time_soft_limit_reached = true;
+                        if !cpu_timer_param.is_disabled() {
+                            if cpu_usage_ms >= hard_limit_ms as i64 {
+                                // shutdown worker
+                                interrupt_fn(true);
+                                error!("CPU time hard limit reached. isolate: {:?}", key);
+                                return (ShutdownReason::CPUTime, cpu_usage_ms);
+                            } else if cpu_usage_ms >= soft_limit_ms as i64 && !cpu_time_soft_limit_reached {
+                                    // retire worker
+                                    is_retired.raise();
+                                    error!("CPU time soft limit reached. isolate: {:?}", key);
+                                    cpu_time_soft_limit_reached = true;
 
-                                if req_ack_count == demand.load(Ordering::Acquire) {
-                                    interrupt_fn(true);
-                                    error!("early termination due to the last request being completed. isolate: {:?}", key);
-                                    return (ShutdownReason::EarlyDrop, cpu_usage_ms);
-                                }
+                                    if req_ack_count == demand.load(Ordering::Acquire) {
+                                        interrupt_fn(true);
+                                        error!("early termination due to the last request being completed. isolate: {:?}", key);
+                                        return (ShutdownReason::EarlyDrop, cpu_usage_ms);
+                                    }
+                            }
                         }
                     }
                 }

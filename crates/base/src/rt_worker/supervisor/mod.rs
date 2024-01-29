@@ -60,6 +60,7 @@ pub struct IsolateMemoryStats {
     pub external_memory: usize,
 }
 
+#[derive(Clone, Copy)]
 pub struct CPUTimerParam {
     soft_limit_ms: u64,
     hard_limit_ms: u64,
@@ -79,7 +80,7 @@ impl CPUTimerParam {
     ) -> Option<(CPUTimer, UnboundedReceiver<()>)> {
         let (cpu_alarms_tx, cpu_alarms_rx) = mpsc::unbounded_channel::<()>();
 
-        if self.soft_limit_ms == 0 && self.hard_limit_ms == 0 {
+        if self.is_disabled() {
             return None;
         }
 
@@ -104,6 +105,10 @@ impl CPUTimerParam {
 
     pub fn limits(&self) -> (u64, u64) {
         (self.soft_limit_ms, self.hard_limit_ms)
+    }
+
+    pub fn is_disabled(&self) -> bool {
+        self.soft_limit_ms == 0 && self.hard_limit_ms == 0
     }
 }
 

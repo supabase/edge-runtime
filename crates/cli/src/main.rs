@@ -15,6 +15,14 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+#[cfg(feature = "mimalloc")]
+mod __priv {
+    use mimalloc::MiMalloc;
+
+    #[global_allocator]
+    static ALLOC: MiMalloc = MiMalloc;
+}
+
 fn cli() -> Command {
     Command::new("edge-runtime")
         .about("A server based on Deno runtime, capable of running JavaScript, TypeScript, and WASM services")
@@ -102,6 +110,11 @@ fn cli() -> Command {
 //}
 
 fn main() -> Result<(), anyhow::Error> {
+    #[cfg(all(tokio_unstable, feature = "console"))]
+    {
+        console_subscriber::init();
+    }
+
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

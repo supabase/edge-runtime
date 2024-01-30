@@ -1066,4 +1066,34 @@ mod test {
             _ => panic!("Invalid Result"),
         };
     }
+
+    #[tokio::test]
+    #[ignore = "too many isolates"]
+    async fn create_isolate_50000() {
+        for _ in 0..50000 {
+            let mut user_rt = create_runtime(
+                None,
+                None,
+                Some(WorkerRuntimeOpts::UserWorker(Default::default())),
+            )
+            .await;
+
+            let value = user_rt
+                .js_runtime
+                .execute_script(
+                    "<anon>",
+                    ModuleCode::from(
+                        r#"
+                            "meow";
+                        "#
+                        .to_string(),
+                    ),
+                )
+                .unwrap();
+
+            let out = user_rt.to_value::<deno_core::serde_json::Value>(&value);
+
+            assert_eq!(out.unwrap().as_str().unwrap(), "meow");
+        }
+    }
 }

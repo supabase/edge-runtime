@@ -10,7 +10,8 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_cli() {
         "slow_resp",
         None,
         None,
-        None(|resp: Result<reqwest::Response, reqwest::Error>| async {
+        None::<reqwest::RequestBuilder>,
+        (|resp: Result<reqwest::Response, reqwest::Error>| async {
             assert!(resp.unwrap().text().await.unwrap().starts_with("meow: "));
         })
     );

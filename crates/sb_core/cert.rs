@@ -1,6 +1,6 @@
 use deno_core::error::AnyError;
+use deno_tls::deno_native_certs::load_native_certs;
 use deno_tls::rustls::RootCertStore;
-use deno_tls::rustls_native_certs::load_native_certs;
 use deno_tls::{rustls, rustls_pemfile, webpki_roots, RootCertStoreProvider};
 use std::io::{BufReader, Cursor};
 use std::path::PathBuf;

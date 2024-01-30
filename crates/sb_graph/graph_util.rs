@@ -44,28 +44,32 @@ pub fn graph_valid_with_cli_options(
 }
 
 pub struct ModuleGraphBuilder {
-    resolver: Arc<CliGraphResolver>,
-    npm_resolver: Arc<CliNpmResolver>,
-    parsed_source_cache: Arc<ParsedSourceCache>,
-    lockfile: Option<Arc<Mutex<Lockfile>>>,
     type_check: bool,
     emitter_factory: Arc<EmitterFactory>,
 }
 
 impl ModuleGraphBuilder {
     pub fn new(emitter_factory: Arc<EmitterFactory>, type_check: bool) -> Self {
-        let lockfile = emitter_factory.get_lock_file();
-        let graph_resolver = emitter_factory.cli_graph_resolver().clone();
-        let npm_resolver = emitter_factory.npm_resolver().clone();
-        let parsed_source_cache = emitter_factory.parsed_source_cache().unwrap();
         Self {
-            resolver: graph_resolver,
-            npm_resolver,
-            parsed_source_cache,
-            lockfile,
             type_check,
             emitter_factory,
         }
+    }
+
+    pub async fn resolver(&self) -> Arc<CliGraphResolver> {
+        self.emitter_factory.cli_graph_resolver().await.clone()
+    }
+
+    pub fn parsed_source_cache(&self) -> Arc<ParsedSourceCache> {
+        self.emitter_factory.parsed_source_cache().unwrap().clone()
+    }
+
+    pub fn lockfile(&self) -> Option<Arc<Mutex<Lockfile>>> {
+        self.emitter_factory.get_lock_file()
+    }
+
+    pub async fn npm_resolver(&self) -> &Arc<dyn CliNpmResolver> {
+        self.emitter_factory.npm_resolver().await
     }
 
     pub async fn create_graph_with_loader(
@@ -74,10 +78,10 @@ impl ModuleGraphBuilder {
         roots: Vec<ModuleSpecifier>,
         loader: &mut dyn Loader,
     ) -> Result<deno_graph::ModuleGraph, AnyError> {
-        let cli_resolver = self.resolver.clone();
+        let cli_resolver = self.resolver().await;
         let graph_resolver = cli_resolver.as_graph_resolver();
         let graph_npm_resolver = cli_resolver.as_graph_npm_resolver();
-        let analyzer = self.parsed_source_cache.as_analyzer();
+        let analyzer = self.parsed_source_cache().as_analyzer();
 
         let mut graph = ModuleGraph::new(graph_kind);
         self.build_graph_with_npm_resolution(
@@ -87,6 +91,7 @@ impl ModuleGraphBuilder {
             deno_graph::BuildOptions {
                 is_dynamic: false,
                 imports: vec![],
+                file_system: None,
                 resolver: Some(graph_resolver),
                 npm_resolver: Some(graph_npm_resolver),
                 module_analyzer: Some(&*analyzer),
@@ -98,7 +103,10 @@ impl ModuleGraphBuilder {
         .await?;
 
         if graph.has_node_specifier && self.type_check {
-            self.npm_resolver
+            self.npm_resolver()
+                .await
+                .as_managed()
+                .unwrap()
                 .inject_synthetic_types_node_package()
                 .await?;
         }
@@ -117,7 +125,7 @@ impl ModuleGraphBuilder {
         // self.resolver.force_top_level_package_json_install().await?; TODO
         // add the lockfile redirects to the graph if it's the first time executing
         if graph.redirects.is_empty() {
-            if let Some(lockfile) = &self.lockfile {
+            if let Some(lockfile) = &self.lockfile() {
                 let lockfile = lockfile.lock();
                 for (from, to) in &lockfile.content.redirects {
                     if let Ok(from) = ModuleSpecifier::parse(from) {
@@ -133,7 +141,7 @@ impl ModuleGraphBuilder {
 
         // add the jsr specifiers to the graph if it's the first time executing
         if graph.packages.is_empty() {
-            if let Some(lockfile) = &self.lockfile {
+            if let Some(lockfile) = &self.lockfile() {
                 let lockfile = lockfile.lock();
                 for (key, value) in &lockfile.content.packages.specifiers {
                     if let Some(key) = key
@@ -155,7 +163,7 @@ impl ModuleGraphBuilder {
 
         // add the redirects in the graph to the lockfile
         if !graph.redirects.is_empty() {
-            if let Some(lockfile) = &self.lockfile {
+            if let Some(lockfile) = &self.lockfile() {
                 let graph_redirects = graph
                     .redirects
                     .iter()
@@ -169,7 +177,7 @@ impl ModuleGraphBuilder {
 
         // add the jsr specifiers in the graph to the lockfile
         if !graph.packages.is_empty() {
-            if let Some(lockfile) = &self.lockfile {
+            if let Some(lockfile) = &self.lockfile() {
                 let mappings = graph.packages.mappings();
                 let mut lockfile = lockfile.lock();
                 for (from, to) in mappings {
@@ -179,15 +187,17 @@ impl ModuleGraphBuilder {
             }
         }
 
-        // ensure that the top level package.json is installed if a
-        // specifier was matched in the package.json
-        self.resolver
-            .top_level_package_json_install_if_necessary()
-            .await?;
+        if let Some(npm_resolver) = self.npm_resolver().await.as_managed() {
+            // ensure that the top level package.json is installed if a
+            // specifier was matched in the package.json
+            if self.resolver().await.found_package_json_dep() {
+                npm_resolver.ensure_top_level_package_json_install().await?;
+            }
 
-        // resolve the dependencies of any pending dependencies
-        // that were inserted by building the graph
-        self.npm_resolver.resolve_pending().await?;
+            // resolve the dependencies of any pending dependencies
+            // that were inserted by building the graph
+            npm_resolver.resolve_pending().await?;
+        }
 
         Ok(())
     }
@@ -199,10 +209,10 @@ impl ModuleGraphBuilder {
     ) -> Result<deno_graph::ModuleGraph, AnyError> {
         //
         let mut cache = self.emitter_factory.file_fetcher_loader();
-        let cli_resolver = self.resolver.clone();
+        let cli_resolver = self.resolver().await.clone();
         let graph_resolver = cli_resolver.as_graph_resolver();
         let graph_npm_resolver = cli_resolver.as_graph_npm_resolver();
-        let analyzer = self.parsed_source_cache.as_analyzer();
+        let analyzer = self.parsed_source_cache().as_analyzer();
         let graph_kind = deno_graph::GraphKind::CodeOnly;
         let mut graph = ModuleGraph::new(graph_kind);
 
@@ -213,6 +223,7 @@ impl ModuleGraphBuilder {
             deno_graph::BuildOptions {
                 is_dynamic: false,
                 imports: vec![],
+                file_system: None,
                 resolver: Some(&*graph_resolver),
                 npm_resolver: Some(&*graph_npm_resolver),
                 module_analyzer: Some(&*analyzer),
@@ -252,6 +263,7 @@ pub fn graph_valid(
             let _is_root = match &error {
                 ModuleGraphError::ResolutionError(_) => false,
                 ModuleGraphError::ModuleError(error) => roots.contains(error.specifier()),
+                _ => false,
             };
             let message = if let ModuleGraphError::ResolutionError(_err) = &error {
                 format!("{error}")

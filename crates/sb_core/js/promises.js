@@ -1,6 +1,5 @@
 import * as event from "ext:deno_web/02_event.js";
-
-const core = globalThis.Deno.core;
+import { core, primordials } from "ext:core/mod.js";
 const ops = core.ops;
 
 const {
@@ -12,7 +11,7 @@ const {
     WeakMapPrototypeGet,
     WeakMapPrototypeDelete,
     SafeWeakMap,
-} = globalThis.__bootstrap.primordials;
+} = primordials;
 
 const pendingRejections = [];
 const pendingRejectionsReasons = new SafeWeakMap();
@@ -42,7 +41,7 @@ function promiseRejectCallback(type, promise, reason) {
         event.listenerCount(globalThis, "unhandledrejection") > 0;
 }
 
-core.setPromiseRejectCallback(promiseRejectCallback);
+core.setUnhandledPromiseRejectionHandler(promiseRejectCallback);
 
 
 function promiseRejectMacrotaskCallback() {

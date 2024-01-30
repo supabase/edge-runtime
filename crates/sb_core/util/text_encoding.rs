@@ -53,6 +53,7 @@ pub fn strip_bom(text: &str) -> &str {
 
 static SOURCE_MAP_PREFIX: &[u8] = b"//# sourceMappingURL=data:application/json;base64,";
 
+#[allow(deprecated)]
 pub fn source_map_from_code(code: &ModuleCode) -> Option<Vec<u8>> {
     let bytes = code.as_bytes();
     let last_line = bytes.rsplit(|u| *u == b'\n').next()?;

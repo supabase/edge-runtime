@@ -1,11 +1,12 @@
-const primordials = globalThis.__bootstrap.primordials;
+import { primordials, core } from "ext:core/mod.js";
 const { SymbolAsyncIterator } = primordials;
-const core = globalThis.Deno.core;
+
+const { op_event_accept } = core.ensureFastOps()
 
 class SupabaseEventListener {
 	async nextEvent() {
 		try {
-			const reqEvt = await core.opAsync('op_event_accept');
+			const reqEvt = await op_event_accept();
 			const done = reqEvt === 'Done';
 
 			let value = undefined;

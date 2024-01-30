@@ -1,12 +1,10 @@
 import { HttpConn } from 'ext:deno_http/01_http.js';
 import { RequestPrototype } from 'ext:deno_fetch/23_request.js';
-
-const { ObjectPrototypeIsPrototypeOf } = globalThis.__bootstrap.primordials;
+import { core, primordials } from "ext:core/mod.js";
+const { ObjectPrototypeIsPrototypeOf } = primordials;
 
 const HttpConnPrototypeNextRequest = HttpConn.prototype.nextRequest;
 const HttpConnPrototypeClose = HttpConn.prototype.close;
-
-const core = globalThis.Deno.core;
 const ops = core.ops;
 
 const watcher = Symbol("watcher");

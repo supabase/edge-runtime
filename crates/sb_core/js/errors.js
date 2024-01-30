@@ -1,6 +1,5 @@
-import DOMException from "ext:deno_web/01_dom_exception.js";
-
-const core = globalThis.Deno.core;
+import { DOMException } from "ext:deno_web/01_dom_exception.js";
+import { core } from "ext:core/mod.js";
 
 const knownErrors = {
     Interrupted: core.Interrupted,

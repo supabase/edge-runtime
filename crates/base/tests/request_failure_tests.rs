@@ -151,8 +151,14 @@ async fn req_failure_case_intentional_peer_reset() {
         "./test_cases/main",
         8999,
         "slow_resp",
+        None,
+        None,
+        None::<reqwest::RequestBuilder>,
         (
-            |port: usize, url: &'static str, mut ev: mpsc::UnboundedReceiver<ServerEvent>| async move {
+            |port: usize,
+             url: &'static str,
+             _req_builder: Option<reqwest::RequestBuilder>,
+             mut ev: mpsc::UnboundedReceiver<ServerEvent>| async move {
                 tokio::spawn(async move {
                     loop {
                         tokio::select! {

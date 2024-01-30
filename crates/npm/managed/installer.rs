@@ -1,16 +1,17 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 use std::future::Future;
 use std::sync::Arc;
 
-use crate::package_json::PackageJsonDepsProvider;
 use deno_core::error::AnyError;
 use deno_core::futures::stream::FuturesOrdered;
 use deno_core::futures::StreamExt;
 use deno_npm::registry::NpmRegistryApi;
 use deno_npm::registry::NpmRegistryPackageInfoLoadError;
 use deno_semver::package::PackageReq;
-use log::debug;
+
+use crate::package_json::PackageJsonDepsProvider;
+
 use sb_core::util::sync::AtomicFlag;
 
 use super::CliNpmRegistryApi;
@@ -92,7 +93,7 @@ impl PackageJsonDepsInstaller {
                 .resolve_pkg_id_from_pkg_req(req)
                 .is_ok()
         }) {
-            debug!("All package.json deps resolvable. Skipping top level install.");
+            log::debug!("All package.json deps resolvable. Skipping top level install.");
             return Ok(()); // everything is already resolvable
         }
 
@@ -102,10 +103,10 @@ impl PackageJsonDepsInstaller {
             let (req, info) = result?;
             let result = inner
                 .npm_resolution
-                .resolve_package_req_as_pending_with_info(req, &info);
+                .resolve_pkg_req_as_pending_with_info(req, &info);
             if let Err(err) = result {
                 if inner.npm_registry_api.mark_force_reload() {
-                    debug!("Failed to resolve package. Retrying. Error: {err:#}");
+                    log::debug!("Failed to resolve package. Retrying. Error: {err:#}");
                     // re-initialize
                     reqs_with_info_futures = inner.reqs_with_info_futures(&package_reqs);
                 } else {

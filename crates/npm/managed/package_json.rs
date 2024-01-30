@@ -1,11 +1,9 @@
-use std::collections::BTreeMap;
-use std::collections::HashMap;
-
 use deno_npm::registry::parse_dep_entry_name_and_raw_version;
 use deno_npm::registry::PackageDepNpmSchemeValueParseError;
 use deno_semver::package::PackageReq;
 use deno_semver::VersionReq;
 use deno_semver::VersionReqSpecifierParseError;
+use indexmap::IndexMap;
 use sb_node::PackageJson;
 use thiserror::Error;
 
@@ -19,7 +17,7 @@ pub enum PackageJsonDepValueParseError {
     Unsupported { scheme: String },
 }
 
-pub type PackageJsonDeps = BTreeMap<String, Result<PackageReq, PackageJsonDepValueParseError>>;
+pub type PackageJsonDeps = IndexMap<String, Result<PackageReq, PackageJsonDepValueParseError>>;
 
 #[derive(Debug, Default)]
 pub struct PackageJsonDepsProvider(Option<PackageJsonDeps>);
@@ -79,22 +77,23 @@ pub fn get_local_package_json_version_reqs(package_json: &PackageJson) -> Packag
         }
     }
 
-    fn insert_deps(deps: Option<&HashMap<String, String>>, result: &mut PackageJsonDeps) {
+    fn insert_deps(deps: Option<&IndexMap<String, String>>, result: &mut PackageJsonDeps) {
         if let Some(deps) = deps {
             for (key, value) in deps {
-                result.insert(key.to_string(), parse_entry(key, value));
+                result
+                    .entry(key.to_string())
+                    .or_insert_with(|| parse_entry(key, value));
             }
         }
     }
 
     let deps = package_json.dependencies.as_ref();
     let dev_deps = package_json.dev_dependencies.as_ref();
-    let mut result = BTreeMap::new();
+    let mut result = IndexMap::new();
 
-    // insert the dev dependencies first so the dependencies will
-    // take priority and overwrite any collisions
-    insert_deps(dev_deps, &mut result);
+    // favors the deps over dev_deps
     insert_deps(deps, &mut result);
+    insert_deps(dev_deps, &mut result);
 
     result
 }

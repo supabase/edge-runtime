@@ -141,6 +141,7 @@ pub fn create_supervisor(
 
     // we assert supervisor is only run for user workers
     let conf = worker_runtime.conf.as_user_worker().unwrap().clone();
+    let is_termination_requested = worker_runtime.is_termination_requested.clone();
     let cancel = cancel.clone();
 
     worker_runtime.js_runtime.add_near_heap_limit_callback(move |cur, _| {
@@ -206,6 +207,8 @@ pub fn create_supervisor(
             if let Some(cancel) = cancel.as_ref() {
                 cancel.notify_waiters();
             }
+
+            is_termination_requested.raise();
 
             // NOTE: If we issue a hard CPU time limit, It's OK because it is
             // still possible the worker's context is in the v8 event loop. The

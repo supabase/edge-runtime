@@ -1,4 +1,5 @@
 use crate::deno_runtime::DenoRuntime;
+use crate::rt_worker::supervisor;
 use crate::rt_worker::utils::{get_event_metadata, parse_worker_conf};
 use crate::rt_worker::worker_ctx::create_supervisor;
 use crate::utils::send_event_if_event_worker_available;
@@ -7,7 +8,7 @@ use event_worker::events::{
     EventMetadata, ShutdownEvent, ShutdownReason, UncaughtExceptionEvent, WorkerEventWithMetadata,
     WorkerEvents, WorkerMemoryUsed,
 };
-use futures_util::{pin_mut, FutureExt};
+use futures_util::FutureExt;
 use log::{debug, error};
 use sb_core::conn_sync::ConnSync;
 use sb_workers::context::{UserWorkerMsgs, WorkerContextInitOpts};
@@ -22,10 +23,10 @@ use tokio::sync::{oneshot, watch, Notify};
 use tokio::time::Instant;
 use uuid::Uuid;
 
+use super::rt;
 use super::supervisor::CPUUsageMetrics;
 use super::worker_ctx::TerminationToken;
 use super::worker_pool::SupervisorPolicy;
-use super::{rt, supervisor};
 
 #[derive(Clone)]
 pub struct Worker {
@@ -139,7 +140,11 @@ impl Worker {
 
                             _cpu_timer = maybe_timer;
                             pending().boxed()
-                        } else if let Some(token) = termination_token.as_ref() {
+                        } else if let Some(token) = termination_token.clone() {
+                            let is_terminated = new_runtime.is_terminated.clone();
+                            let is_termination_requested =
+                                new_runtime.is_termination_requested.clone();
+
                             let (waker, thread_safe_handle) = {
                                 let js_runtime = &mut new_runtime.js_runtime;
                                 (
@@ -148,32 +153,38 @@ impl Worker {
                                 )
                             };
 
-                            async move {
-                                token.inbound.cancelled().await;
-                                thread_safe_handle.request_interrupt(
-                                    supervisor::handle_interrupt,
-                                    Box::into_raw(Box::new(supervisor::IsolateInterruptData {
-                                        should_terminate: true,
-                                        isolate_memory_usage_tx: None,
-                                    }))
-                                        as *mut std::ffi::c_void,
-                                );
+                            rt::SUPERVISOR_RT
+                                .spawn(async move {
+                                    token.inbound.cancelled().await;
 
-                                waker.wake();
+                                    is_termination_requested.raise();
+                                    thread_safe_handle.request_interrupt(
+                                        supervisor::handle_interrupt,
+                                        Box::into_raw(Box::new(supervisor::IsolateInterruptData {
+                                            should_terminate: true,
+                                            isolate_memory_usage_tx: None,
+                                        }))
+                                            as *mut std::ffi::c_void,
+                                    );
 
-                                let _ = termination_event_tx.send(WorkerEvents::Shutdown(
-                                    ShutdownEvent {
-                                        reason: ShutdownReason::TerminationRequested,
-                                        cpu_time_used: 0,
-                                        memory_used: WorkerMemoryUsed {
-                                            total: 0,
-                                            heap: 0,
-                                            external: 0,
+                                    while !is_terminated.is_raised() {
+                                        waker.wake();
+                                        tokio::task::yield_now().await;
+                                    }
+
+                                    let _ = termination_event_tx.send(WorkerEvents::Shutdown(
+                                        ShutdownEvent {
+                                            reason: ShutdownReason::TerminationRequested,
+                                            cpu_time_used: 0,
+                                            memory_used: WorkerMemoryUsed {
+                                                total: 0,
+                                                heap: 0,
+                                                external: 0,
+                                            },
                                         },
-                                    },
-                                ));
-                            }
-                            .boxed()
+                                    ));
+                                })
+                                .boxed()
                         } else {
                             pending().boxed()
                         };
@@ -186,28 +197,17 @@ impl Worker {
                             Some(worker_name),
                         );
 
-                        let mut termination_fut_resolved = false;
+                        let result = data.await;
 
-                        pin_mut!(termination_fut);
-                        pin_mut!(data);
-
-                        loop {
-                            tokio::select! {
-                                _ = &mut termination_fut, if !termination_fut_resolved => {
-                                    termination_fut_resolved = true;
-                                }
-
-                                result = &mut data => {
-                                    if let Some(token) = termination_token.as_ref() {
-                                        if is_user_worker || termination_fut_resolved {
-                                            token.outbound.cancel();
-                                        }
-                                    }
-
-                                    break result
-                                }
+                        if let Some(token) = termination_token.as_ref() {
+                            if !is_user_worker {
+                                let _ = termination_fut.await;
                             }
+
+                            token.outbound.cancel();
                         }
+
+                        result
                     }
 
                     Err(err) => {

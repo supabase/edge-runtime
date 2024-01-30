@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -21,8 +21,8 @@ use deno_core::url::Url;
 use deno_npm::registry::NpmPackageInfo;
 use deno_npm::registry::NpmRegistryApi;
 use deno_npm::registry::NpmRegistryPackageInfoLoadError;
-use log::debug;
 use once_cell::sync::Lazy;
+
 use sb_core::cache::CacheSetting;
 use sb_core::cache::CACHE_PERM;
 use sb_core::util::fs::atomic_write_file;
@@ -66,12 +66,6 @@ impl CliNpmRegistryApi {
             previously_reloaded_packages: Default::default(),
             http_client,
         })))
-    }
-
-    /// Creates an npm registry API that will be uninitialized. This is
-    /// useful for tests or for initializing the LSP.
-    pub fn new_uninitialized() -> Self {
-        Self(None)
     }
 
     /// Clears the internal memory cache.
@@ -242,9 +236,10 @@ impl CliNpmRegistryApiInner {
                 // This scenario might mean we need to load more data from the
                 // npm registry than before. So, just debug log while in debug
                 // rather than panic.
-                println!(
+                log::debug!(
                     "error deserializing registry.json for '{}'. Reloading. {:?}",
-                    name, err
+                    name,
+                    err
                 );
                 Ok(None)
             }
@@ -289,7 +284,6 @@ impl CliNpmRegistryApiInner {
         &self,
         name: &str,
     ) -> Result<Option<NpmPackageInfo>, AnyError> {
-        debug!("Downloading load_package_info_from_registry_inner");
         if *self.cache.cache_setting() == CacheSetting::Only {
             return Err(custom_error(
                 "NotCached",

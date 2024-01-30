@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 use std::mem::MaybeUninit;
 use std::rc::Rc;
@@ -248,18 +248,16 @@ fn is_managed_key(scope: &mut v8::HandleScope, key: v8::Local<v8::Name>) -> bool
 
 fn current_mode(scope: &mut v8::HandleScope) -> Mode {
     let Some(v8_string) = v8::StackTrace::current_script_name_or_source_url(scope) else {
-        log::debug!("current_script_name_or_source_url, Using SB");
         return Mode::Deno;
     };
     let op_state = deno_core::JsRuntime::op_state_from(scope);
     let op_state = op_state.borrow();
     let Some(node_resolver) = op_state.try_borrow::<Rc<NodeResolver>>() else {
-        log::debug!("Node resolver not available, using SB");
         return Mode::Deno;
     };
     let mut buffer = [MaybeUninit::uninit(); 2048];
     let str = v8_string.to_rust_cow_lossy(scope, &mut buffer);
-    if node_resolver.in_npm_package_with_cache(str.clone()) {
+    if node_resolver.in_npm_package_with_cache(str) {
         Mode::Node
     } else {
         Mode::Deno
@@ -414,7 +412,14 @@ pub fn enumerator<'s>(
     };
     let inner = v8::Local::new(scope, inner);
 
-    let Some(array) = inner.get_property_names(scope, GetPropertyNamesArgs::default()) else {
+    let Some(array) = inner.get_property_names(
+        scope,
+        GetPropertyNamesArgs {
+            mode: v8::KeyCollectionMode::OwnOnly,
+            property_filter: v8::PropertyFilter::ALL_PROPERTIES,
+            ..Default::default()
+        },
+    ) else {
         return;
     };
 

@@ -22,16 +22,26 @@ fn get_module_graph_error_class(err: &ModuleGraphError) -> &'static str {
             | ModuleError::UnsupportedImportAttributeType { .. } => "TypeError",
             ModuleError::Missing(_, _)
             | ModuleError::MissingDynamic(_, _)
+            | ModuleError::MissingWorkspaceMemberExports { .. }
+            | ModuleError::UnknownExport { .. }
             | ModuleError::UnknownPackage { .. }
             | ModuleError::UnknownPackageReq { .. } => "NotFound",
         },
-        ModuleGraphError::ResolutionError(err) => get_resolution_error_class(err),
+        ModuleGraphError::ResolutionError(err) | ModuleGraphError::TypesResolutionError(err) => {
+            get_resolution_error_class(err)
+        }
     }
 }
 
 fn get_resolution_error_class(err: &ResolutionError) -> &'static str {
     match err {
-        ResolutionError::ResolverError { error, .. } => get_error_class_name(error.as_ref()),
+        ResolutionError::ResolverError { error, .. } => {
+            use deno_graph::source::ResolveError::*;
+            match error.as_ref() {
+                Specifier(_) => "TypeError",
+                Other(e) => get_error_class_name(e),
+            }
+        }
         _ => "TypeError",
     }
 }

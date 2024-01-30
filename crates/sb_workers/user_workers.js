@@ -1,13 +1,16 @@
-const primordials = globalThis.__bootstrap.primordials;
+import { primordials, core } from "ext:core/mod.js";
 const {
 	TypeError,
 } = primordials;
 
 import { readableStreamForRid, writableStreamForRid } from 'ext:deno_web/06_streams.js';
 import { getWatcherRid } from 'ext:sb_core_main_js/js/http.js';
-
-const core = globalThis.Deno.core;
 const ops = core.ops;
+
+const {
+	op_user_worker_fetch_send,
+	op_user_worker_create
+} = core.ensureFastOps();
 
 // interface WorkerOptions {
 //     servicePath: string;
@@ -72,7 +75,7 @@ Invoke \`EdgeRuntime.applyConnectionWatcher(origReq, newReq)\` if you have clone
 			reqBodyPromise = body.pipeTo(writableStream, { signal });
 		}
 
-		const resPromise = core.opAsync('op_user_worker_fetch_send', this.key, requestRid, watcherRid);
+		const resPromise = op_user_worker_fetch_send(this.key, requestRid, watcherRid);
 		let [sent, res] = await Promise.allSettled([reqBodyPromise, resPromise]);
 		
 		if (sent.status === "rejected") {
@@ -144,7 +147,7 @@ Invoke \`EdgeRuntime.applyConnectionWatcher(origReq, newReq)\` if you have clone
 			throw new TypeError('service path must be defined');
 		}
 
-		const key = await core.opAsync('op_user_worker_create', readyOptions);
+		const key = await op_user_worker_create(readyOptions);
 
 		return new UserWorker(key);
 	}

@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 // TODO(petamoriken): enable prefer-primordials for node polyfills
 // deno-lint-ignore-file prefer-primordials
@@ -9,8 +9,8 @@ import {
   nonEnumerable,
 } from "ext:sb_core_main_js/js/fieldUtils.js";
 
-const core = globalThis.Deno.core;
-const ops = core.ops;
+const { core } = globalThis.__bootstrap;
+const { ops } = core;
 
 // Don't rely on global `console` because during bootstrapping, it is pointing
 // to native `console` object provided by V8.

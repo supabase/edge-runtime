@@ -6,15 +6,16 @@ use deno_core::error::generic_error;
 use deno_core::error::type_error;
 use deno_core::error::AnyError;
 use deno_core::futures::FutureExt;
-use deno_core::ModuleLoader;
 use deno_core::ModuleSpecifier;
 use deno_core::ModuleType;
 use deno_core::ResolutionKind;
+use deno_core::{ModuleLoader, ModuleSourceCode};
 use deno_semver::npm::NpmPackageReqReference;
 use sb_core::file_fetcher::get_source_from_data_url;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use crate::node::cli_node_resolver::CliNodeResolver;
 use crate::util::arc_u8_to_arc_str;
 use sb_graph::graph_resolver::MappedSpecifierResolver;
 
@@ -22,6 +23,7 @@ pub struct SharedModuleLoaderState {
     pub(crate) eszip: eszip::EszipV2,
     pub(crate) mapped_specifier_resolver: MappedSpecifierResolver,
     pub(crate) npm_module_loader: Arc<NpmModuleLoader>,
+    pub(crate) node_resolver: Arc<CliNodeResolver>,
 }
 
 #[derive(Clone)]
@@ -51,11 +53,11 @@ impl ModuleLoader for EmbeddedModuleLoader {
         };
 
         let permissions = sb_node::allow_all();
-        if let Some(result) = self.shared.npm_module_loader.resolve_if_in_npm_package(
-            specifier,
-            &referrer,
-            &*permissions,
-        ) {
+        if let Some(result) =
+            self.shared
+                .node_resolver
+                .resolve_if_in_npm_package(specifier, &referrer, &*permissions)
+        {
             return result;
         }
 
@@ -71,10 +73,11 @@ impl ModuleLoader for EmbeddedModuleLoader {
             .map(|r| r.as_str())
             .unwrap_or(specifier);
         if let Ok(reference) = NpmPackageReqReference::from_str(specifier_text) {
-            return self
-                .shared
-                .npm_module_loader
-                .resolve_req_reference(&reference, &*permissions);
+            return self.shared.node_resolver.resolve_req_reference(
+                &reference,
+                &*permissions,
+                &referrer,
+            );
         }
 
         match maybe_mapped {
@@ -97,7 +100,7 @@ impl ModuleLoader for EmbeddedModuleLoader {
             return Box::pin(deno_core::futures::future::ready(Ok(
                 deno_core::ModuleSource::new(
                     deno_core::ModuleType::JavaScript,
-                    source.into(),
+                    ModuleSourceCode::String(source.into()),
                     original_specifier,
                 ),
             )));
@@ -115,7 +118,7 @@ impl ModuleLoader for EmbeddedModuleLoader {
                             MediaType::Json => ModuleType::Json,
                             _ => ModuleType::JavaScript,
                         },
-                        code_source.code,
+                        ModuleSourceCode::String(code_source.code),
                         original_specifier,
                         &code_source.found_url,
                     ),
@@ -152,7 +155,7 @@ impl ModuleLoader for EmbeddedModuleLoader {
                         unreachable!();
                     }
                 },
-                code.into(),
+                ModuleSourceCode::String(code.into()),
                 &original_specifier,
                 &found_specifier,
             ))

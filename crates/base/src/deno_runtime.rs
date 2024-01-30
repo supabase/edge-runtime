@@ -6,15 +6,19 @@ use cpu_timer::get_thread_time;
 use ctor::ctor;
 use deno_core::error::AnyError;
 use deno_core::url::Url;
-use deno_core::{located_script_name, serde_v8, JsRuntime, ModuleCode, ModuleId, RuntimeOptions};
+use deno_core::{
+    located_script_name, serde_v8, JsRuntime, ModuleCode, ModuleId, PollEventLoopOptions,
+    RuntimeOptions,
+};
 use deno_http::DefaultHttpPropertyExtractor;
+use deno_tls::deno_native_certs::load_native_certs;
 use deno_tls::rustls;
 use deno_tls::rustls::RootCertStore;
-use deno_tls::rustls_native_certs::load_native_certs;
 use deno_tls::RootCertStoreProvider;
 use futures_util::future::poll_fn;
 use log::{error, trace};
 use sb_core::conn_sync::ConnSync;
+use sb_core::util::sync::AtomicFlag;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
 use std::fmt;
@@ -77,8 +81,11 @@ fn get_error_class_name(e: &AnyError) -> &'static str {
 pub struct DenoRuntime {
     pub js_runtime: JsRuntime,
     pub env_vars: HashMap<String, String>, // TODO: does this need to be pub?
-    main_module_id: ModuleId,
     pub conf: WorkerRuntimeOpts,
+    pub is_termination_requested: Arc<AtomicFlag>,
+    pub is_terminated: Arc<AtomicFlag>,
+
+    main_module_id: ModuleId,
 }
 
 impl DenoRuntime {
@@ -358,6 +365,8 @@ impl DenoRuntime {
             main_module_id,
             env_vars,
             conf,
+            is_termination_requested: Arc::default(),
+            is_terminated: Arc::default(),
         })
     }
 
@@ -393,6 +402,7 @@ impl DenoRuntime {
             js_runtime.mod_evaluate(self.main_module_id)
         };
 
+        let is_termination_requested = self.is_termination_requested.clone();
         let is_user_worker = self.conf.is_user_worker();
 
         #[cfg(debug_assertions)]
@@ -433,7 +443,13 @@ impl DenoRuntime {
                 Err(err) => return Poll::Ready(Err(err)),
             };
 
-            let poll_result = js_runtime.poll_event_loop(cx, false);
+            let poll_result = js_runtime.poll_event_loop(
+                cx,
+                PollEventLoopOptions {
+                    wait_for_inspector: false,
+                    pump_v8_message_loop: true,
+                },
+            );
 
             let cpu_time_after_poll_ns = match get_current_cpu_time_ns_fn() {
                 Ok(value) => value,
@@ -458,20 +474,25 @@ impl DenoRuntime {
                 );
             }
 
+            if poll_result.is_pending() && is_termination_requested.is_raised() {
+                return Poll::Ready(Ok(()));
+            }
+
             poll_result
         })
         .await
         {
             Err(err) => Err(anyhow!("event loop error: {}", err)),
             Ok(_) => match mod_result_rx.await {
-                Err(_) => Err(anyhow!("mod result sender dropped")),
-                Ok(Err(err)) => {
-                    error!("{}", err.to_string());
-                    Err(err)
+                Err(e) => {
+                    error!("{}", e.to_string());
+                    Err(e)
                 }
-                Ok(Ok(_)) => Ok(()),
+                Ok(_) => Ok(()),
             },
         };
+
+        self.is_terminated.raise();
 
         (result, accumulated_cpu_time_ns)
     }
@@ -512,7 +533,7 @@ fn set_v8_flags() {
 #[cfg(test)]
 mod test {
     use crate::deno_runtime::DenoRuntime;
-    use deno_core::{FastString, ModuleCode};
+    use deno_core::{FastString, ModuleCode, PollEventLoopOptions};
     use sb_core::conn_sync::ConnSync;
     use sb_graph::emitter::EmitterFactory;
     use sb_graph::{generate_binary_eszip, EszipPayloadKind};
@@ -597,7 +618,13 @@ mod test {
         }
 
         let main_mod_ev = rt.js_runtime.mod_evaluate(rt.main_module_id);
-        let _ = rt.js_runtime.run_event_loop(false).await;
+        let _ = rt
+            .js_runtime
+            .run_event_loop(PollEventLoopOptions {
+                wait_for_inspector: false,
+                pump_v8_message_loop: true,
+            })
+            .await;
 
         let read_is_even_global = rt
             .js_runtime
@@ -652,7 +679,13 @@ mod test {
         }
 
         let main_mod_ev = rt.js_runtime.mod_evaluate(rt.main_module_id);
-        let _ = rt.js_runtime.run_event_loop(false).await;
+        let _ = rt
+            .js_runtime
+            .run_event_loop(PollEventLoopOptions {
+                wait_for_inspector: false,
+                pump_v8_message_loop: true,
+            })
+            .await;
 
         let read_is_even_global = rt
             .js_runtime

@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 use std::collections::HashMap;
 use std::io::ErrorKind;
@@ -7,7 +7,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
 
-use crate::NpmCache;
 use async_trait::async_trait;
 use deno_ast::ModuleSpecifier;
 use deno_core::error::AnyError;
@@ -21,6 +20,8 @@ use deno_npm::NpmResolutionPackage;
 use sb_node::NodePermissions;
 use sb_node::NodeResolutionMode;
 
+use super::super::cache::NpmCache;
+
 /// Part of the resolution that interacts with the file system.
 #[async_trait]
 pub trait NpmPackageFsResolver: Send + Sync {
@@ -28,9 +29,10 @@ pub trait NpmPackageFsResolver: Send + Sync {
     fn root_dir_url(&self) -> &Url;
 
     /// The local node_modules folder if it is applicable to the implementation.
-    fn node_modules_path(&self) -> Option<PathBuf>;
+    fn node_modules_path(&self) -> Option<&PathBuf>;
 
     fn package_folder(&self, package_id: &NpmPackageId) -> Result<PathBuf, AnyError>;
+
     fn resolve_package_folder_from_package(
         &self,
         name: &str,
@@ -143,12 +145,4 @@ pub async fn cache_packages(
         result??;
     }
     Ok(())
-}
-
-/// Gets the corresponding @types package for the provided package name.
-pub fn types_package_name(package_name: &str) -> String {
-    debug_assert!(!package_name.starts_with("@types/"));
-    // Scoped packages will get two underscores for each slash
-    // https://github.com/DefinitelyTyped/DefinitelyTyped/tree/15f1ece08f7b498f4b9a2147c2a46e94416ca777#what-about-scoped-packages
-    format!("@types/{}", package_name.replace('/', "__"))
 }

@@ -1,5 +1,6 @@
 use crate::metadata::Metadata;
 use crate::node::cjs_code_anaylzer::CliCjsCodeAnalyzer;
+use crate::node::cli_node_resolver::CliNodeResolver;
 use crate::node::node_module_loader::{CjsResolutionStore, NpmModuleLoader};
 use crate::standalone::standalone_module_loader::{EmbeddedModuleLoader, SharedModuleLoaderState};
 use crate::RuntimeProviders;
@@ -7,7 +8,6 @@ use anyhow::Context;
 use deno_core::error::AnyError;
 use deno_core::url::Url;
 use deno_core::{FastString, ModuleSpecifier};
-use deno_npm::NpmSystemInfo;
 use deno_tls::rustls::RootCertStore;
 use deno_tls::RootCertStoreProvider;
 use import_map::{parse_from_json, ImportMap};
@@ -23,9 +23,11 @@ use sb_graph::graph_resolver::MappedSpecifierResolver;
 use sb_graph::{payload_to_eszip, EszipPayloadKind, SOURCE_CODE_ESZIP_KEY, VFS_ESZIP_KEY};
 use sb_node::analyze::NodeCodeTranslator;
 use sb_node::NodeResolver;
+use sb_npm::cache_dir::NpmCacheDir;
 use sb_npm::package_json::PackageJsonDepsProvider;
 use sb_npm::{
-    create_npm_fs_resolver, CliNpmRegistryApi, CliNpmResolver, NpmCache, NpmCacheDir, NpmResolution,
+    create_managed_npm_resolver, CliNpmResolverManagedCreateOptions,
+    CliNpmResolverManagedPackageJsonInstallerOption, CliNpmResolverManagedSnapshotOption,
 };
 use std::rc::Rc;
 use std::sync::Arc;
@@ -76,6 +78,7 @@ pub async fn create_module_loader_for_eszip(
         .join(format!("sb-compile-{}", current_exe_name))
         .join("node_modules");
     let npm_cache_dir = NpmCacheDir::new(root_path.clone());
+    let npm_global_cache_dir = npm_cache_dir.get_cache_location();
 
     let code_fs = if let Some(module) = eszip.get_module(SOURCE_CODE_ESZIP_KEY) {
         if let Some(code) = module.take_source().await {
@@ -112,42 +115,32 @@ pub async fn create_module_loader_for_eszip(
         )
     };
 
-    let npm_cache = Arc::new(NpmCache::new(
-        npm_cache_dir,
-        CacheSetting::Only,
-        fs.clone(),
-        http_client.clone(),
+    let package_json_deps_provider = Arc::new(PackageJsonDepsProvider::new(
+        metadata
+            .package_json_deps
+            .map(|serialized| serialized.into_deps()),
     ));
 
-    let npm_api = Arc::new(CliNpmRegistryApi::new(
-        npm_registry_url.clone(),
-        npm_cache.clone(),
-        http_client.clone(),
-    ));
-
-    let npm_resolution = Arc::new(NpmResolution::from_serialized(
-        npm_api.clone(),
-        snapshot,
-        None,
-    ));
-
-    let npm_fs_resolver = create_npm_fs_resolver(
-        fs.clone(),
-        npm_cache,
+    let npm_resolver = create_managed_npm_resolver(CliNpmResolverManagedCreateOptions {
+        snapshot: CliNpmResolverManagedSnapshotOption::Specified(snapshot),
+        maybe_lockfile: None,
+        fs: fs.clone(),
+        http_client,
+        npm_global_cache_dir,
+        cache_setting: CacheSetting::Use,
+        maybe_node_modules_path: None,
+        npm_system_info: Default::default(),
+        package_json_installer: CliNpmResolverManagedPackageJsonInstallerOption::ConditionalInstall(
+            package_json_deps_provider.clone(),
+        ),
         npm_registry_url,
-        npm_resolution.clone(),
-        None,
-        NpmSystemInfo::default(),
-    );
+    })
+    .await?;
 
-    let npm_resolver = Arc::new(CliNpmResolver::new(
+    let node_resolver = Arc::new(NodeResolver::new(
         fs.clone(),
-        npm_resolution.clone(),
-        npm_fs_resolver,
-        None,
+        npm_resolver.clone().into_npm_resolver(),
     ));
-
-    let node_resolver = Arc::new(NodeResolver::new(fs.clone(), npm_resolver.clone()));
     let cjs_resolutions = Arc::new(CjsResolutionStore::default());
     let cache_db = Caches::new(deno_dir_provider.clone());
     let node_analysis_cache = NodeAnalysisCache::new(cache_db.node_analysis_db());
@@ -156,16 +149,17 @@ pub async fn create_module_loader_for_eszip(
         cjs_esm_code_analyzer,
         fs.clone(),
         node_resolver.clone(),
-        npm_resolver.clone(),
-    ));
-    let package_json_deps_provider = Arc::new(PackageJsonDepsProvider::new(
-        metadata
-            .package_json_deps
-            .map(|serialized| serialized.into_deps()),
+        npm_resolver.clone().into_npm_resolver(),
     ));
     let maybe_import_map = maybe_import_map
         .map(|import_map| Some(Arc::new(import_map)))
         .unwrap_or_else(|| None);
+
+    let cli_node_resolver = Arc::new(CliNodeResolver::new(
+        cjs_resolutions.clone(),
+        node_resolver.clone(),
+        npm_resolver.clone(),
+    ));
 
     let module_loader_factory = StandaloneModuleLoaderFactory {
         shared: Arc::new(SharedModuleLoaderState {
@@ -174,11 +168,12 @@ pub async fn create_module_loader_for_eszip(
                 maybe_import_map,
                 package_json_deps_provider.clone(),
             ),
+            node_resolver: cli_node_resolver.clone(),
             npm_module_loader: Arc::new(NpmModuleLoader::new(
                 cjs_resolutions,
                 node_code_translator,
                 fs.clone(),
-                node_resolver.clone(),
+                cli_node_resolver,
             )),
         }),
     };
@@ -187,7 +182,7 @@ pub async fn create_module_loader_for_eszip(
         module_loader: Rc::new(EmbeddedModuleLoader {
             shared: module_loader_factory.shared.clone(),
         }),
-        npm_resolver,
+        npm_resolver: npm_resolver.into_npm_resolver(),
         fs,
         module_code: code_fs,
     })

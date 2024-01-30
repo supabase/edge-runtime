@@ -108,7 +108,18 @@ pub async fn op_net_accept(
     if rx.is_none() {
         return Err(bad_resource("unix channel receiver is already used"));
     }
-    let mut rx = rx.unwrap();
+
+    let rx = rx.unwrap();
+    let mut rx = scopeguard::guard(rx, {
+        let state = state.clone();
+        move |value| {
+            let mut op_state = state.borrow_mut();
+            op_state.put::<mpsc::UnboundedReceiver<(
+                tokio::net::UnixStream,
+                Option<watch::Receiver<ConnSync>>,
+            )>>(value);
+        }
+    });
 
     let Some((unix_stream, conn_sync)) = rx.recv().await else {
         return Err(bad_resource("unix stream channel is closed"));
@@ -119,10 +130,9 @@ pub async fn op_net_accept(
 
     // since the op state was dropped before,
     // reborrow and add the channel receiver again
+    drop(rx);
+
     let mut op_state = state.borrow_mut();
-
-    op_state.put::<mpsc::UnboundedReceiver<(tokio::net::UnixStream, Option<watch::Receiver<ConnSync>>)>>(rx);
-
     let rid = op_state.resource_table.add(resource);
 
     if let Some(watcher) = conn_sync {

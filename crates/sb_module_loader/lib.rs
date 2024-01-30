@@ -1,6 +1,5 @@
 use deno_core::{FastString, ModuleLoader};
 use sb_node::NpmResolver;
-use sb_npm::CliNpmResolver;
 use std::rc::Rc;
 use std::sync::Arc;
 

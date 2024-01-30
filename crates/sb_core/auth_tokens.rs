@@ -18,6 +18,7 @@ pub struct AuthToken {
 }
 
 impl fmt::Display for AuthToken {
+    #[allow(deprecated)]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match &self.token {
             AuthTokenData::Bearer(token) => write!(f, "Bearer {token}"),

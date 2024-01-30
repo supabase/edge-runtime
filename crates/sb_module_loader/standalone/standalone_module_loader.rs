@@ -92,7 +92,7 @@ impl ModuleLoader for EmbeddedModuleLoader {
         &self,
         original_specifier: &ModuleSpecifier,
         maybe_referrer: Option<&ModuleSpecifier>,
-        is_dynamic: bool,
+        _is_dynamic: bool,
     ) -> Pin<Box<deno_core::ModuleSourceFuture>> {
         let is_data_uri = get_source_from_data_url(original_specifier).ok();
         let permissions = sb_node::allow_all();

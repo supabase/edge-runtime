@@ -1,6 +1,3 @@
-use std::collections::BTreeMap;
-use std::collections::HashMap;
-
 use deno_npm::registry::parse_dep_entry_name_and_raw_version;
 use deno_npm::registry::PackageDepNpmSchemeValueParseError;
 use deno_semver::package::PackageReq;

@@ -6,9 +6,9 @@ use std::pin::Pin;
 use std::rc::Rc;
 use std::task::Poll;
 
+use deno_core::error::bad_resource;
 use deno_core::error::bad_resource_id;
 use deno_core::error::AnyError;
-use deno_core::error::{bad_resource, not_supported};
 use deno_core::OpState;
 use deno_core::ResourceId;
 use deno_core::{op2, ToJsBuffer};
@@ -138,8 +138,8 @@ pub struct HttpUpgradeResult {
 #[op2(async)]
 #[serde]
 async fn op_http_upgrade(
-    state: Rc<RefCell<OpState>>,
-    #[smi] rid: ResourceId,
+    _state: Rc<RefCell<OpState>>,
+    #[smi] _rid: ResourceId,
 ) -> Result<(), AnyError> {
     Ok(())
 }

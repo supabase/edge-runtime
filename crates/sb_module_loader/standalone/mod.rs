@@ -8,7 +8,6 @@ use anyhow::Context;
 use deno_core::error::AnyError;
 use deno_core::url::Url;
 use deno_core::{FastString, ModuleSpecifier};
-use deno_npm::NpmSystemInfo;
 use deno_tls::rustls::RootCertStore;
 use deno_tls::RootCertStoreProvider;
 use import_map::{parse_from_json, ImportMap};

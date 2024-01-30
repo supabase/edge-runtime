@@ -8,6 +8,9 @@ async fn test_custom_readable_stream_response() {
         "./test_cases/main",
         8999,
         "readable-stream-resp",
+        None,
+        None,
+        None::<reqwest::RequestBuilder>,
         (|resp: Result<reqwest::Response, reqwest::Error>| async {
             assert_eq!(
                 resp.unwrap().text().await.unwrap(),

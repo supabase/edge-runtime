@@ -616,6 +616,7 @@ pub fn load_cjs_module(
     Ok(())
 }
 
+#[allow(clippy::disallowed_types)]
 pub fn allow_all() -> Arc<dyn NodePermissions> {
     Arc::new(AllowAllNodePermissions)
 }

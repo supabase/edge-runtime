@@ -1,6 +1,5 @@
 use deno_ast::Diagnostic;
 use deno_core::error::AnyError;
-use deno_graph::source::ResolveError::{Other, Specifier};
 use deno_graph::ResolutionError;
 use deno_graph::{ModuleError, ModuleGraphError};
 use import_map::ImportMapError;

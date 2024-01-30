@@ -1,11 +1,11 @@
 #[macro_export]
 macro_rules! integration_test {
-    ($main_file:expr, $port:expr, $url:expr, ($($function:tt)+) $(, $termination_token: expr)?) => {
+    ($main_file:expr, $port:expr, $url:expr, $shot_policy:expr, $import_map:expr, $req_builder:expr, ($($function:tt)+) $(, $termination_token: expr)?) => {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<base::server::ServerHealth>(1);
 
         let signal = tokio::spawn(async move {
             while let Some(base::server::ServerHealth::Listening(event_rx)) = rx.recv().await {
-                integration_test!(@req event_rx, $port, $url, ($($function)+));
+                integration_test!(@req event_rx, $port, $url, $req_builder, ($($function)+));
             }
             None
         });
@@ -24,8 +24,8 @@ macro_rules! integration_test {
                 $port,
                 String::from($main_file),
                 None,
-                None,
-                None,
+                $shot_policy,
+                $import_map,
                 false,
                 Some(tx.clone()),
                 $crate::server::WorkerEntrypoints {
@@ -47,13 +47,17 @@ macro_rules! integration_test {
         None
     };
 
-    (@req $event_rx:ident, $port:expr, $url:expr, ($req:expr, $_:expr)) => {
-        return $req($port, $url, $event_rx).await;
+    (@req $event_rx:ident, $port:expr, $url:expr, $req_builder:expr, ($req:expr, $_:expr)) => {
+        return $req($port, $url, $req_builder, $event_rx).await;
     };
 
-    (@req $_:ident, $port:expr, $url:expr, $__:expr) => {
-        let req = reqwest::get(format!("http://localhost:{}/{}", $port, $url)).await;
-        return Some(req);
+    (@req $_:ident, $port:expr, $url:expr, $req_builder:expr, $__:expr) => {
+        if let Some(req_factory) = $req_builder {
+            return Some(req_factory.send().await);
+        } else {
+            let req = reqwest::get(format!("http://localhost:{}/{}", $port, $url)).await;
+            return Some(req);
+        }
     };
 
     (@resp $var:ident, ($_:expr, $resp:expr)) => {

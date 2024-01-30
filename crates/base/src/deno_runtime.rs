@@ -475,11 +475,10 @@ impl DenoRuntime {
         {
             Err(err) => Err(anyhow!("event loop error: {}", err)),
             Ok(_) => match mod_result_rx.await {
-                Err(_) => Err(anyhow!("mod result sender dropped")),
-                // Ok(Err(err)) => {
-                //     error!("{}", err.to_string());
-                //     Err(err)
-                // }
+                Err(e) => {
+                    error!("{}", e.to_string());
+                    Err(e)
+                }
                 Ok(_) => Ok(()),
             },
         };

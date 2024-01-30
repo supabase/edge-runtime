@@ -1,13 +1,10 @@
-use crate::EmitterFactory;
-use anyhow::{anyhow, bail};
-use deno_ast::swc::bundler::Resolve;
+use anyhow::anyhow;
 use deno_config::JsxImportSourceConfig;
 use deno_core::error::AnyError;
 use deno_core::futures::future::LocalBoxFuture;
 use deno_core::futures::FutureExt;
 use deno_core::ModuleSpecifier;
 use deno_npm::registry::NpmRegistryApi;
-use deno_semver::npm::NpmPackageReqReference;
 use deno_semver::package::PackageReq;
 use eszip::deno_graph;
 use eszip::deno_graph::source::{
@@ -18,11 +15,10 @@ use eszip::deno_graph::NpmPackageReqResolution;
 use import_map::ImportMap;
 use log::debug;
 use sb_core::util::sync::AtomicFlag;
-use sb_node::{is_builtin_node_module, NodeResolution, NodeResolutionMode};
+use sb_node::is_builtin_node_module;
 use sb_npm::installer::PackageJsonDepsInstaller;
 use sb_npm::package_json::{PackageJsonDeps, PackageJsonDepsProvider};
 use sb_npm::registry::CliNpmRegistryApi;
-use sb_npm::resolution::NpmResolution;
 use sb_npm::{CliNpmResolver, InnerCliNpmResolverRef};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -125,7 +121,6 @@ pub struct CliGraphResolver {
     maybe_vendor_specifier: Option<ModuleSpecifier>,
     no_npm: bool,
     npm_registry_api: Arc<CliNpmRegistryApi>,
-    npm_resolution: Arc<NpmResolution>,
     package_json_deps_installer: Arc<PackageJsonDepsInstaller>,
     found_package_json_dep_flag: Arc<AtomicFlag>,
     npm_resolver: Option<Arc<dyn CliNpmResolver>>,
@@ -142,7 +137,6 @@ pub struct CliGraphResolverOptions<'a> {
 impl CliGraphResolver {
     pub fn new(
         npm_registry_api: Arc<CliNpmRegistryApi>,
-        npm_resolution: Arc<NpmResolution>,
         package_json_deps_provider: Arc<PackageJsonDepsProvider>,
         package_json_deps_installer: Arc<PackageJsonDepsInstaller>,
         options: CliGraphResolverOptions,
@@ -165,7 +159,6 @@ impl CliGraphResolver {
                 .and_then(|v| ModuleSpecifier::from_directory_path(v).ok()),
             no_npm: options.no_npm,
             npm_registry_api,
-            npm_resolution,
             package_json_deps_installer,
             found_package_json_dep_flag: Default::default(),
             npm_resolver,
@@ -213,15 +206,8 @@ impl Resolver for CliGraphResolver {
         &self,
         specifier: &str,
         referrer_range: &deno_graph::Range,
-        mode: ResolutionMode,
+        _mode: ResolutionMode,
     ) -> Result<ModuleSpecifier, ResolveError> {
-        fn to_node_mode(mode: ResolutionMode) -> NodeResolutionMode {
-            match mode {
-                ResolutionMode::Execution => NodeResolutionMode::Execution,
-                ResolutionMode::Types => NodeResolutionMode::Types,
-            }
-        }
-
         let referrer = &referrer_range.specifier;
         let result = self
             .mapped_specifier_resolver

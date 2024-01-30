@@ -2,11 +2,9 @@ use crate::graph_resolver::{CliGraphResolver, CliGraphResolverOptions};
 use deno_ast::EmitOptions;
 use deno_core::error::AnyError;
 use deno_core::parking_lot::Mutex;
-use deno_core::ModuleSpecifier;
 use deno_lockfile::Lockfile;
 use deno_npm::resolution::ValidSerializedNpmResolutionSnapshot;
-use deno_npm::NpmSystemInfo;
-use eszip::deno_graph::source::{Loader, Resolver};
+use eszip::deno_graph::source::Loader;
 use import_map::ImportMap;
 use sb_core::cache::caches::Caches;
 use sb_core::cache::deno_dir::{DenoDir, DenoDirProvider};
@@ -18,18 +16,16 @@ use sb_core::cache::{CacheSetting, GlobalHttpCache, HttpCache, RealDenoCacheEnv}
 use sb_core::emit::Emitter;
 use sb_core::file_fetcher::{FileCache, FileFetcher};
 use sb_core::util::http_util::HttpClient;
-use sb_node::{NodeResolver, PackageJson};
+use sb_node::PackageJson;
 use sb_npm::cache::NpmCache;
-use sb_npm::cache_dir::NpmCacheDir;
 use sb_npm::installer::PackageJsonDepsInstaller;
 use sb_npm::package_json::{
     get_local_package_json_version_reqs, PackageJsonDeps, PackageJsonDepsProvider,
 };
 use sb_npm::registry::CliNpmRegistryApi;
 use sb_npm::resolution::NpmResolution;
-use sb_npm::resolvers::{create_npm_fs_resolver, NpmPackageFsResolver};
 use sb_npm::{
-    create_api, create_managed_npm_resolver, CliNpmResolver, CliNpmResolverManagedCreateOptions,
+    create_managed_npm_resolver, CliNpmResolver, CliNpmResolverManagedCreateOptions,
     CliNpmResolverManagedPackageJsonInstallerOption, CliNpmResolverManagedSnapshotOption,
 };
 use std::collections::HashMap;
@@ -86,10 +82,6 @@ pub struct EmitterFactory {
     lockfile: Deferred<Option<Arc<Mutex<Lockfile>>>>,
     package_json_deps_provider: Deferred<Arc<PackageJsonDepsProvider>>,
     package_json_deps_installer: Deferred<Arc<PackageJsonDepsInstaller>>,
-    npm_api: Deferred<Arc<CliNpmRegistryApi>>,
-    npm_cache: Deferred<Arc<NpmCache>>,
-    npm_resolution: Deferred<Arc<NpmResolution>>,
-    node_resolver: Deferred<Arc<NodeResolver>>,
     maybe_package_json_deps: Option<PackageJsonDeps>,
     maybe_lockfile: Option<LockfileOpts>,
     npm_resolver: Deferred<Arc<dyn CliNpmResolver>>,
@@ -116,10 +108,6 @@ impl EmitterFactory {
             lockfile: Default::default(),
             package_json_deps_provider: Default::default(),
             package_json_deps_installer: Default::default(),
-            npm_api: Default::default(),
-            npm_cache: Default::default(),
-            node_resolver: Default::default(),
-            npm_resolution: Default::default(),
             maybe_package_json_deps: None,
             maybe_lockfile: None,
             npm_resolver: Default::default(),
@@ -314,7 +302,6 @@ impl EmitterFactory {
             .get_or_try_init_async(async {
                 Ok(Arc::new(CliGraphResolver::new(
                     self.npm_api().await.clone(),
-                    self.npm_resolution().await.clone(),
                     self.package_json_deps_provider().clone(),
                     self.package_json_deps_installer().await.clone(),
                     self.cli_graph_resolver_options(),

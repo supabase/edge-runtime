@@ -147,8 +147,8 @@ mod supabase_startup_snapshot {
 
         fn check_read_with_api_name(
             &self,
-            path: &Path,
-            api_name: Option<&str>,
+            _path: &Path,
+            _api_name: Option<&str>,
         ) -> Result<(), AnyError> {
             unreachable!("snapshotting!")
         }

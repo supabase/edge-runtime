@@ -47,3 +47,4 @@ encoding_rs = { version = "=0.8.33" }
 base64.workspace = true
 futures.workspace = true
 percent-encoding.workspace = true
+scopeguard.workspace = true

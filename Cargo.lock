@@ -3826,6 +3826,7 @@ dependencies = [
  "percent-encoding",
  "ring",
  "sb_node",
+ "scopeguard",
  "serde",
  "thiserror",
  "tokio",

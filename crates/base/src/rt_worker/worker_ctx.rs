@@ -363,9 +363,8 @@ pub fn create_supervisor(
                     .await
                     .unwrap();
             } else {
-				is_termination_requested.raise();
-			}
-
+                is_termination_requested.raise();
+            }
 
             // NOTE: If we issue a hard CPU time limit, It's OK because it is
             // still possible the worker's context is in the v8 event loop. The

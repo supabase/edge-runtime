@@ -29,6 +29,7 @@ use uuid::Uuid;
 
 use super::rt;
 use super::supervisor::{self, CPUTimerParam, CPUUsageMetrics};
+use super::worker::UnixStreamEntry;
 use super::worker_pool::{SupervisorPolicy, WorkerPoolPolicy};
 
 #[derive(Clone)]
@@ -75,7 +76,7 @@ impl TerminationToken {
 }
 
 async fn handle_request(
-    unix_stream_tx: mpsc::UnboundedSender<(UnixStream, Option<watch::Receiver<ConnSync>>)>,
+    unix_stream_tx: mpsc::UnboundedSender<UnixStreamEntry>,
     msg: WorkerRequestMsg,
 ) -> Result<(), Error> {
     // create a unix socket pair
@@ -310,8 +311,7 @@ pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
     init_opts: Opt,
 ) -> Result<mpsc::UnboundedSender<WorkerRequestMsg>, Error> {
     let (worker_boot_result_tx, worker_boot_result_rx) = oneshot::channel::<Result<(), Error>>();
-    let (unix_stream_tx, unix_stream_rx) =
-        mpsc::unbounded_channel::<(UnixStream, Option<watch::Receiver<ConnSync>>)>();
+    let (unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStreamEntry>();
 
     let CreateWorkerArgs(init_opts, maybe_supervisor_policy, maybe_termination_token) =
         init_opts.into();
@@ -331,7 +331,7 @@ pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
     if let Some(worker_struct_ref) = downcast_reference {
         worker_struct_ref.start(
             init_opts,
-            unix_stream_rx,
+            (unix_stream_tx.clone(), unix_stream_rx),
             worker_boot_result_tx,
             maybe_termination_token.clone(),
         );
@@ -339,19 +339,23 @@ pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
         // create an async task waiting for requests for worker
         let (worker_req_tx, mut worker_req_rx) = mpsc::unbounded_channel::<WorkerRequestMsg>();
 
-        let worker_req_handle: tokio::task::JoinHandle<Result<(), Error>> =
-            tokio::task::spawn(async move {
+        let worker_req_handle: tokio::task::JoinHandle<Result<(), Error>> = tokio::task::spawn({
+            let stream_tx = unix_stream_tx;
+            async move {
                 while let Some(msg) = worker_req_rx.recv().await {
-                    let unix_stream_tx_clone = unix_stream_tx.clone();
-                    tokio::task::spawn(async move {
-                        if let Err(err) = handle_request(unix_stream_tx_clone, msg).await {
-                            error!("worker failed to handle request: {:?}", err);
+                    tokio::task::spawn({
+                        let stream_tx_inner = stream_tx.clone();
+                        async move {
+                            if let Err(err) = handle_request(stream_tx_inner, msg).await {
+                                error!("worker failed to handle request: {:?}", err);
+                            }
                         }
                     });
                 }
 
                 Ok(())
-            });
+            }
+        });
 
         // wait for worker to be successfully booted
         let worker_boot_result = worker_boot_result_rx.await?;

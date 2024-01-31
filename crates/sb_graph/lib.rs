@@ -10,6 +10,7 @@ use deno_npm::NpmSystemInfo;
 use eszip::{EszipV2, ModuleKind};
 use sb_fs::{build_vfs, VfsOpts};
 use sb_npm::InnerCliNpmResolverRef;
+use std::borrow::Cow;
 use std::fs;
 use std::fs::{create_dir_all, File};
 use std::io::Write;

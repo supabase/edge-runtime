@@ -494,10 +494,11 @@ impl DenoRuntime {
             let get_current_cpu_time_ns_fn =
                 || get_thread_time().context("can't get current thread time");
 
-            unsafe { js_runtime.v8_isolate().enter() };
-            let mut js_runtime = scopeguard::guard(&mut js_runtime, |it| unsafe {
+            let mut js_runtime = scopeguard::guard(&mut self.js_runtime, |it| unsafe {
                 it.v8_isolate().exit();
             });
+
+            unsafe { js_runtime.v8_isolate().enter() };
 
             send_cpu_metrics_fn(CPUUsageMetrics::Enter(thread_id));
 

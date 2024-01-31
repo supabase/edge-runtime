@@ -1,15 +1,12 @@
 use crate::deno_runtime::DenoRuntime;
 use crate::rt_worker::supervisor::CPUUsageMetrics;
-use crate::rt_worker::worker::{HandleCreationType, Worker, WorkerHandler};
+use crate::rt_worker::worker::{HandleCreationType, UnixStreamEntry, Worker, WorkerHandler};
 use anyhow::Error;
 use event_worker::events::{BootFailureEvent, PseudoEvent, UncaughtExceptionEvent, WorkerEvents};
 use log::error;
-use sb_core::conn_sync::ConnSync;
 use std::any::Any;
-use tokio::net::UnixStream;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot::Receiver;
-use tokio::sync::watch;
 
 impl WorkerHandler for Worker {
     fn handle_error(&self, error: Error) -> Result<WorkerEvents, Error> {
@@ -22,7 +19,7 @@ impl WorkerHandler for Worker {
     fn handle_creation(
         &self,
         mut created_rt: DenoRuntime,
-        unix_stream_rx: UnboundedReceiver<(UnixStream, Option<watch::Receiver<ConnSync>>)>,
+        unix_stream_rx: UnboundedReceiver<UnixStreamEntry>,
         termination_event_rx: Receiver<WorkerEvents>,
         maybe_cpu_usage_metrics_tx: Option<UnboundedSender<CPUUsageMetrics>>,
         name: Option<String>,

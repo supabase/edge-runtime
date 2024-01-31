@@ -41,13 +41,14 @@ pub struct Worker {
 }
 
 pub type HandleCreationType = Pin<Box<dyn Future<Output = Result<WorkerEvents, Error>>>>;
+pub type UnixStreamEntry = (UnixStream, Option<watch::Receiver<ConnSync>>);
 
 pub trait WorkerHandler: Send {
     fn handle_error(&self, error: Error) -> Result<WorkerEvents, Error>;
     fn handle_creation(
         &self,
         created_rt: DenoRuntime,
-        unix_stream_rx: UnboundedReceiver<(UnixStream, Option<watch::Receiver<ConnSync>>)>,
+        unix_stream_rx: UnboundedReceiver<UnixStreamEntry>,
         termination_event_rx: Receiver<WorkerEvents>,
         maybe_cpu_metrics_tx: Option<UnboundedSender<CPUUsageMetrics>>,
         name: Option<String>,
@@ -57,10 +58,10 @@ pub trait WorkerHandler: Send {
 
 impl Worker {
     pub fn new(init_opts: &WorkerContextInitOpts) -> Result<Self, Error> {
-        let (worker_key, pool_msg_tx, events_msg_tx, cancel, thread_name) =
+        let (worker_key, pool_msg_tx, events_msg_tx, cancel, worker_name) =
             parse_worker_conf(&init_opts.conf);
-        let event_metadata = get_event_metadata(&init_opts.conf);
 
+        let event_metadata = get_event_metadata(&init_opts.conf);
         let worker_boot_start_time = Instant::now();
 
         Ok(Self {
@@ -71,7 +72,7 @@ impl Worker {
             cancel,
             event_metadata,
             worker_key,
-            worker_name: thread_name,
+            worker_name,
         })
     }
 
@@ -82,7 +83,10 @@ impl Worker {
     pub fn start(
         &self,
         mut opts: WorkerContextInitOpts,
-        unix_channel_rx: UnboundedReceiver<(UnixStream, Option<watch::Receiver<ConnSync>>)>,
+        unix_stream_pair: (
+            UnboundedSender<UnixStreamEntry>,
+            UnboundedReceiver<UnixStreamEntry>,
+        ),
         booter_signal: Sender<Result<(), Error>>,
         termination_token: Option<TerminationToken>,
     ) {
@@ -91,6 +95,7 @@ impl Worker {
         let event_metadata = self.event_metadata.clone();
         let supervisor_policy = self.supervisor_policy.unwrap_or_default();
 
+        let (unix_stream_tx, unix_stream_rx) = unix_stream_pair;
         let events_msg_tx = self.events_msg_tx.clone();
         let pool_msg_tx = self.pool_msg_tx.clone();
 
@@ -191,7 +196,7 @@ impl Worker {
 
                         let data = method_cloner.handle_creation(
                             new_runtime,
-                            unix_channel_rx,
+                            unix_stream_rx,
                             termination_event_rx,
                             maybe_cpu_usage_metrics_tx,
                             Some(worker_name),
@@ -215,6 +220,8 @@ impl Worker {
                         method_cloner.handle_error(err)
                     }
                 };
+
+                drop(unix_stream_tx);
 
                 match result {
                     Ok(event) => {

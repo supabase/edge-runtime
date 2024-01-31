@@ -1,4 +1,5 @@
 use crate::rt_worker::supervisor::{CPUUsage, CPUUsageMetrics};
+use crate::rt_worker::worker::UnixStreamEntry;
 use crate::utils::units::mib_to_bytes;
 
 use anyhow::{anyhow, bail, Context, Error};
@@ -25,7 +26,6 @@ use std::fmt;
 use std::os::fd::RawFd;
 use std::sync::Arc;
 use std::task::Poll;
-use tokio::net::UnixStream;
 use tokio::sync::{mpsc, watch};
 
 use crate::snapshot;
@@ -372,17 +372,14 @@ impl DenoRuntime {
 
     pub async fn run(
         &mut self,
-        unix_stream_rx: mpsc::UnboundedReceiver<(UnixStream, Option<watch::Receiver<ConnSync>>)>,
+        unix_stream_rx: mpsc::UnboundedReceiver<UnixStreamEntry>,
         maybe_cpu_usage_metrics_tx: Option<mpsc::UnboundedSender<CPUUsageMetrics>>,
         name: Option<String>,
     ) -> (Result<(), Error>, i64) {
         {
             let op_state_rc = self.js_runtime.op_state();
             let mut op_state = op_state_rc.borrow_mut();
-            op_state
-                .put::<mpsc::UnboundedReceiver<(UnixStream, Option<watch::Receiver<ConnSync>>)>>(
-                    unix_stream_rx,
-                );
+            op_state.put::<mpsc::UnboundedReceiver<UnixStreamEntry>>(unix_stream_rx);
 
             if self.conf.is_main_worker() {
                 op_state.put::<mpsc::UnboundedSender<UserWorkerMsgs>>(
@@ -447,7 +444,7 @@ impl DenoRuntime {
                 cx,
                 PollEventLoopOptions {
                     wait_for_inspector: false,
-                    pump_v8_message_loop: true,
+                    pump_v8_message_loop: !is_termination_requested.is_raised(),
                 },
             );
 
@@ -533,8 +530,8 @@ fn set_v8_flags() {
 #[cfg(test)]
 mod test {
     use crate::deno_runtime::DenoRuntime;
+    use crate::rt_worker::worker::UnixStreamEntry;
     use deno_core::{FastString, ModuleCode, PollEventLoopOptions};
-    use sb_core::conn_sync::ConnSync;
     use sb_graph::emitter::EmitterFactory;
     use sb_graph::{generate_binary_eszip, EszipPayloadKind};
     use sb_workers::context::{
@@ -548,8 +545,7 @@ mod test {
     use std::io::Write;
     use std::path::PathBuf;
     use std::sync::Arc;
-    use tokio::net::UnixStream;
-    use tokio::sync::{mpsc, watch};
+    use tokio::sync::mpsc;
 
     #[tokio::test]
     #[serial]
@@ -1059,8 +1055,7 @@ mod test {
     #[serial]
     async fn test_read_file_user_rt() {
         let mut user_rt = create_basic_user_runtime("./test_cases/readFile", 20, 1000).await;
-        let (_tx, unix_stream_rx) =
-            mpsc::unbounded_channel::<(UnixStream, Option<watch::Receiver<ConnSync>>)>();
+        let (_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStreamEntry>();
 
         let (result, _) = user_rt.run(unix_stream_rx, None, None).await;
         match result {
@@ -1077,8 +1072,7 @@ mod test {
     #[serial]
     async fn test_array_buffer_allocation_below_limit() {
         let mut user_rt = create_basic_user_runtime("./test_cases/array_buffers", 20, 1000).await;
-        let (_tx, unix_stream_rx) =
-            mpsc::unbounded_channel::<(UnixStream, Option<watch::Receiver<ConnSync>>)>();
+        let (_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStreamEntry>();
         let (result, _) = user_rt.run(unix_stream_rx, None, None).await;
         assert!(result.is_ok(), "expected no errors");
     }
@@ -1087,8 +1081,7 @@ mod test {
     #[serial]
     async fn test_array_buffer_allocation_above_limit() {
         let mut user_rt = create_basic_user_runtime("./test_cases/array_buffers", 15, 1000).await;
-        let (_tx, unix_stream_rx) =
-            mpsc::unbounded_channel::<(UnixStream, Option<watch::Receiver<ConnSync>>)>();
+        let (_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStreamEntry>();
         let (result, _) = user_rt.run(unix_stream_rx, None, None).await;
         match result {
             Err(err) => {

@@ -48,7 +48,7 @@ deno_websocket = { version = "0.141.0" }
 deno_webstorage = { version = "0.131.0" }
 enum-as-inner = "0.6.0"
 serde = { version = "1.0.149", features = ["derive"] }
-hyper = "0.14.28"
+hyper = { version = "0.14", features = ["backports"] }
 tokio = { version = "1.28.1", features = ["full"] }
 bytes = { version = "1.4.0" }
 once_cell = "1.17.1"

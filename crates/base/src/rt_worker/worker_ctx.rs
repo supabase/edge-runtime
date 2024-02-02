@@ -216,8 +216,8 @@ pub fn create_supervisor(
                 .inspector()
                 .borrow_mut()
                 .get_session_sender(),
-            worker_runtime.is_termination_requested.clone(),
             worker_runtime.is_terminated.clone(),
+            worker_runtime.is_found_inspector_session.clone(),
         )
     });
 
@@ -285,9 +285,7 @@ pub fn create_supervisor(
                 cancel.notify_waiters();
             }
 
-            if let Some((session_tx, need_inspect_disconnect, is_terminated)) =
-                maybe_inspector_params
-            {
+            if let Some((session_tx, is_terminated, is_found)) = maybe_inspector_params {
                 use deno_core::futures::channel::mpsc;
                 use deno_core::serde_json::Value;
 
@@ -296,15 +294,19 @@ pub fn create_supervisor(
                         let wait_inspector_disconnect_fut = async move {
                             let ls = tokio::task::LocalSet::new();
                             ls.run_until(async move {
-                                if is_terminated.is_raised() || need_inspect_disconnect.is_raised()
+                                if is_terminated.is_raised() || is_termination_requested.is_raised()
                                 {
+                                    return;
+                                }
+
+                                is_termination_requested.raise();
+
+                                if is_found.is_raised() {
                                     return;
                                 }
 
                                 let (outbound_tx, outbound_rx) = mpsc::unbounded();
                                 let (inbound_tx, inbound_rx) = mpsc::unbounded();
-
-                                need_inspect_disconnect.raise();
 
                                 if session_tx
                                     .unbounded_send(InspectorSessionProxy {

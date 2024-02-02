@@ -103,8 +103,10 @@ pub struct DenoRuntime {
     pub js_runtime: JsRuntime,
     pub env_vars: HashMap<String, String>, // TODO: does this need to be pub?
     pub conf: WorkerRuntimeOpts,
+
     pub is_termination_requested: Arc<AtomicFlag>,
     pub is_terminated: Arc<AtomicFlag>,
+    pub is_found_inspector_session: Arc<AtomicFlag>,
 
     main_module_id: ModuleId,
     maybe_inspector: Option<Inspector>,
@@ -420,6 +422,7 @@ impl DenoRuntime {
             maybe_inspector,
             is_termination_requested: Arc::default(),
             is_terminated: Arc::default(),
+            is_found_inspector_session: Arc::default(),
         })
     }
 
@@ -446,15 +449,22 @@ impl DenoRuntime {
             unsafe { self.js_runtime.v8_isolate().enter() };
 
             if inspector.is_some() {
-                // XXX(Nyannyacha): Suppose the user skips this function by passing
-                // the `--inspect` argument. In that case, the runtime may terminate
-                // before the inspector session is connected if the function doesn't
-                // have a long execution time. Should we wait for an inspector
-                // session to connect with the V8?
-                self.wait_for_inspector_session();
+                {
+                    let _guard = scopeguard::guard(self.is_found_inspector_session.clone(), |v| {
+                        v.raise();
+                    });
+
+                    // XXX(Nyannyacha): Suppose the user skips this function by passing
+                    // the `--inspect` argument. In that case, the runtime may terminate
+                    // before the inspector session is connected if the function doesn't
+                    // have a long execution time. Should we wait for an inspector
+                    // session to connect with the V8?
+                    self.wait_for_inspector_session();
+                }
 
                 if self.is_termination_requested.is_raised() {
                     unsafe { self.js_runtime.v8_isolate().exit() };
+                    self.is_terminated.raise();
                     return (Ok(()), 0i64);
                 }
             }
@@ -519,7 +529,7 @@ impl DenoRuntime {
                 cx,
                 PollEventLoopOptions {
                     wait_for_inspector,
-                    pump_v8_message_loop: !is_termination_requested.is_raised(),
+                    pump_v8_message_loop: true,
                 },
             );
 

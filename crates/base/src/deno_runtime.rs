@@ -18,6 +18,7 @@ use deno_tls::rustls::RootCertStore;
 use deno_tls::RootCertStoreProvider;
 use futures_util::future::poll_fn;
 use log::{error, trace};
+use once_cell::sync::OnceCell;
 use sb_core::conn_sync::ConnSync;
 use sb_core::util::sync::AtomicFlag;
 use serde::de::DeserializeOwned;
@@ -77,6 +78,8 @@ impl fmt::Debug for DenoRuntimeError {
 fn get_error_class_name(e: &AnyError) -> &'static str {
     sb_core::errors_rt::get_error_class_name(e).unwrap_or("Error")
 }
+
+pub static MAYBE_DENO_VERSION: OnceCell<String> = OnceCell::new();
 
 pub struct DenoRuntime {
     pub js_runtime: JsRuntime,
@@ -303,11 +306,16 @@ impl DenoRuntime {
 
         // Bootstrapping stage
         let script = format!(
-            "globalThis.bootstrapSBEdge({}, {}, {}, '{}')",
+            // opts, isUserWorker, isEventsWorker, edgeRuntimeVersion, denoVersion
+            "globalThis.bootstrapSBEdge({}, {}, {}, '{}', '{}')",
             deno_core::serde_json::json!({ "target": env!("TARGET") }),
             conf.is_user_worker(),
             conf.is_events_worker(),
-            version.unwrap_or("0.1.0")
+            version.unwrap_or("0.1.0"),
+            MAYBE_DENO_VERSION
+                .get()
+                .map(|it| &**it)
+                .unwrap_or("UNKNOWN")
         );
 
         js_runtime
@@ -903,7 +911,7 @@ mod test {
             .to_vec();
         assert_eq!(
             deno_version_array.first().unwrap().as_str().unwrap(),
-            "supabase-edge-runtime-0.1.0"
+            "supabase-edge-runtime-0.1.0 (compatible with Deno vUNKNOWN)"
         );
         assert_eq!(
             deno_version_array.get(1).unwrap().as_str().unwrap(),

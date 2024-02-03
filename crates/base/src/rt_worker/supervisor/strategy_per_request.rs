@@ -185,13 +185,17 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
 
             Some(reason) => {
                 is_retired.raise();
-                thread_safe_handle.request_interrupt(
-                    handle_interrupt,
-                    Box::into_raw(Box::new(IsolateInterruptData {
-                        should_terminate: true,
-                        isolate_memory_usage_tx: Some(isolate_memory_usage_tx),
-                    })) as *mut std::ffi::c_void,
-                );
+
+                let data_ptr_mut = Box::into_raw(Box::new(IsolateInterruptData {
+                    should_terminate: true,
+                    isolate_memory_usage_tx: Some(isolate_memory_usage_tx),
+                }));
+
+                if !thread_safe_handle
+                    .request_interrupt(handle_interrupt, data_ptr_mut as *mut std::ffi::c_void)
+                {
+                    drop(unsafe { Box::from_raw(data_ptr_mut) });
+                }
 
                 return (reason, cpu_usage_accumulated_ms);
             }

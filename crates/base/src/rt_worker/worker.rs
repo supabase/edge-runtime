@@ -161,16 +161,20 @@ impl Worker {
                             rt::SUPERVISOR_RT
                                 .spawn(async move {
                                     token.inbound.cancelled().await;
-
                                     is_termination_requested.raise();
-                                    thread_safe_handle.request_interrupt(
-                                        supervisor::handle_interrupt,
+
+                                    let data_ptr_mut =
                                         Box::into_raw(Box::new(supervisor::IsolateInterruptData {
                                             should_terminate: true,
                                             isolate_memory_usage_tx: None,
-                                        }))
-                                            as *mut std::ffi::c_void,
-                                    );
+                                        }));
+
+                                    if !thread_safe_handle.request_interrupt(
+                                        supervisor::handle_interrupt,
+                                        data_ptr_mut as *mut std::ffi::c_void,
+                                    ) {
+                                        drop(unsafe { Box::from_raw(data_ptr_mut) });
+                                    }
 
                                     while !is_terminated.is_raised() {
                                         waker.wake();

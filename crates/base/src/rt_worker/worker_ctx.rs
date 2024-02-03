@@ -194,7 +194,7 @@ pub fn create_supervisor(
     cancel: Option<Arc<Notify>>,
     timing: Option<Timing>,
     termination_token: Option<TerminationToken>,
-) -> Result<Option<CPUTimer>, Error> {
+) -> Result<(Option<CPUTimer>, CancellationToken), Error> {
     let (memory_limit_tx, memory_limit_rx) = mpsc::unbounded_channel::<()>();
     let (waker, thread_safe_handle) = {
         let js_runtime = &mut worker_runtime.js_runtime;
@@ -207,7 +207,13 @@ pub fn create_supervisor(
     // we assert supervisor is only run for user workers
     let conf = worker_runtime.conf.as_user_worker().unwrap().clone();
     let is_termination_requested = worker_runtime.is_termination_requested.clone();
-    let cancel = cancel.clone();
+
+    let giveup_process_requests_token = cancel.clone();
+    let supervise_cancel_token = CancellationToken::new();
+    let tokens = supervisor::Tokens {
+        termination: termination_token,
+        supervise: supervise_cancel_token.clone(),
+    };
 
     let maybe_inspector_params = worker_runtime.inspector().map(|_| {
         (
@@ -247,6 +253,7 @@ pub fn create_supervisor(
     drop({
         let _rt_guard = rt::SUPERVISOR_RT.enter();
         let maybe_cpu_timer_inner = maybe_cpu_timer.clone();
+        let supervise_cancel_token_inner = supervise_cancel_token.clone();
 
         tokio::spawn(async move {
             let (isolate_memory_usage_tx, isolate_memory_usage_rx) =
@@ -265,7 +272,7 @@ pub fn create_supervisor(
                 isolate_memory_usage_tx,
                 thread_safe_handle,
                 waker: waker.clone(),
-                termination_token,
+                tokens,
             };
 
             let (reason, cpu_usage_ms) = {
@@ -281,7 +288,7 @@ pub fn create_supervisor(
             // NOTE: Sending a signal to the pooler that it is the user worker going
             // disposed down and will not accept awaiting subsequent requests, so
             // they must be re-polled again.
-            if let Some(cancel) = cancel.as_ref() {
+            if let Some(cancel) = giveup_process_requests_token.as_ref() {
                 cancel.notify_waiters();
             }
 
@@ -387,7 +394,10 @@ pub fn create_supervisor(
                     external: v.external_memory,
                 },
                 Err(_) => {
-                    error!("isolate memory usage sender dropped");
+                    if !supervise_cancel_token_inner.is_cancelled() {
+                        error!("isolate memory usage sender dropped");
+                    }
+
                     WorkerMemoryUsed {
                         total: 0,
                         heap: 0,
@@ -407,7 +417,7 @@ pub fn create_supervisor(
         })
     });
 
-    Ok(maybe_cpu_timer)
+    Ok((maybe_cpu_timer, supervise_cancel_token))
 }
 
 pub struct CreateWorkerArgs(

@@ -13,6 +13,7 @@ use tokio::sync::{
     mpsc::{self, UnboundedReceiver},
     oneshot,
 };
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use super::{worker_ctx::TerminationToken, worker_pool::SupervisorPolicy};
@@ -112,6 +113,11 @@ impl CPUTimerParam {
     }
 }
 
+pub struct Tokens {
+    pub termination: Option<TerminationToken>,
+    pub supervise: CancellationToken,
+}
+
 pub struct Arguments {
     pub key: Uuid,
     pub runtime_opts: UserWorkerRuntimeOpts,
@@ -125,7 +131,7 @@ pub struct Arguments {
     pub isolate_memory_usage_tx: oneshot::Sender<IsolateMemoryStats>,
     pub thread_safe_handle: IsolateHandle,
     pub waker: Arc<AtomicWaker>,
-    pub termination_token: Option<TerminationToken>,
+    pub tokens: Tokens,
 }
 
 pub struct CPUUsage {

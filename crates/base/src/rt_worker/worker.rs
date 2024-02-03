@@ -158,11 +158,12 @@ impl Worker {
                             oneshot::channel::<WorkerEvents>();
 
                         let _cpu_timer;
+                        let mut supervise_cancel_token = None;
 
                         // TODO: Allow customization of supervisor
                         let termination_fut = if worker_kind.is_user_worker() {
                             // cputimer is returned from supervisor and assigned here to keep it in scope.
-                            let Ok(maybe_timer) = create_supervisor(
+                            let Ok((maybe_timer, cancel_token)) = create_supervisor(
                                 worker_key.unwrap_or(Uuid::nil()),
                                 &mut new_runtime,
                                 supervisor_policy,
@@ -177,6 +178,8 @@ impl Worker {
                             };
 
                             _cpu_timer = maybe_timer;
+                            supervise_cancel_token = Some(cancel_token);
+
                             pending().boxed()
                         } else if let Some(token) = termination_token.clone() {
                             let is_terminated = new_runtime.is_terminated.clone();
@@ -231,15 +234,37 @@ impl Worker {
                             pending().boxed()
                         };
 
-                        let data = method_cloner.handle_creation(
-                            new_runtime,
-                            unix_stream_rx,
-                            termination_event_rx,
-                            maybe_cpu_usage_metrics_tx,
-                            Some(worker_name),
-                        );
+                        let result = unsafe {
+                            let mut runtime = scopeguard::guard(new_runtime, |mut runtime| {
+                                runtime.js_runtime.v8_isolate().enter();
+                            });
 
-                        let result = data.await;
+                            runtime.js_runtime.v8_isolate().exit();
+
+                            let result = method_cloner
+                                .handle_creation(
+                                    &mut runtime,
+                                    unix_stream_rx,
+                                    termination_event_rx,
+                                    maybe_cpu_usage_metrics_tx,
+                                    Some(worker_name),
+                                )
+                                .await;
+
+                            let found_unexpected_error = result.is_err()
+                                || matches!(
+                                    result.as_ref(),
+                                    Ok(WorkerEvents::UncaughtException(_))
+                                );
+
+                            if found_unexpected_error {
+                                if let Some(token) = supervise_cancel_token {
+                                    token.cancel();
+                                }
+                            }
+
+                            result
+                        };
 
                         if let Some(token) = termination_token.as_ref() {
                             if !worker_kind.is_user_worker() {

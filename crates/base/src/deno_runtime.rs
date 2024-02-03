@@ -410,10 +410,6 @@ impl DenoRuntime {
             .load_main_module(&main_module_url, mod_code)
             .await?;
 
-        unsafe {
-            js_runtime.v8_isolate().exit();
-        }
-
         Ok(Self {
             js_runtime,
             env_vars,
@@ -445,8 +441,8 @@ impl DenoRuntime {
         }
 
         let inspector = self.inspector();
-        let mod_result_rx = {
-            unsafe { self.js_runtime.v8_isolate().enter() };
+        let mod_result_rx = unsafe {
+            self.js_runtime.v8_isolate().enter();
 
             if inspector.is_some() {
                 {
@@ -463,13 +459,13 @@ impl DenoRuntime {
                 }
 
                 if self.is_termination_requested.is_raised() {
-                    unsafe { self.js_runtime.v8_isolate().exit() };
+                    self.js_runtime.v8_isolate().exit();
                     self.is_terminated.raise();
                     return (Ok(()), 0i64);
                 }
             }
 
-            let mut js_runtime = scopeguard::guard(&mut self.js_runtime, |it| unsafe {
+            let mut js_runtime = scopeguard::guard(&mut self.js_runtime, |it| {
                 it.v8_isolate().exit();
             });
 
@@ -504,12 +500,11 @@ impl DenoRuntime {
             let get_current_cpu_time_ns_fn =
                 || get_thread_time().context("can't get current thread time");
 
-            let mut js_runtime = scopeguard::guard(&mut self.js_runtime, |it| unsafe {
+            let mut js_runtime = scopeguard::guard(&mut self.js_runtime, |it| {
                 it.v8_isolate().exit();
             });
 
-            unsafe { js_runtime.v8_isolate().enter() };
-
+            js_runtime.v8_isolate().enter();
             send_cpu_metrics_fn(CPUUsageMetrics::Enter(thread_id));
 
             current_cpu_time_ns = match get_current_cpu_time_ns_fn() {
@@ -681,12 +676,6 @@ mod test {
         }, None)
         .await
         .expect("It should not panic");
-
-        unsafe {
-            // NOTE: This is necessary because `DenoRuntime::new()` does detach
-            // its isolation from the current thread.
-            rt.js_runtime.v8_isolate().enter();
-        }
     }
 
     #[tokio::test]
@@ -727,12 +716,6 @@ mod test {
         .await;
 
         let mut rt = runtime.unwrap();
-        unsafe {
-            // NOTE: This is necessary because `DenoRuntime::new()` does detach
-            // its isolation from the current thread.
-            rt.js_runtime.v8_isolate().enter();
-        }
-
         let main_mod_ev = rt.js_runtime.mod_evaluate(rt.main_module_id);
         let _ = rt
             .js_runtime
@@ -794,12 +777,6 @@ mod test {
         .await;
 
         let mut rt = runtime.unwrap();
-        unsafe {
-            // NOTE: This is necessary because `DenoRuntime::new()` does detach
-            // its isolation from the current thread.
-            rt.js_runtime.v8_isolate().enter();
-        }
-
         let main_mod_ev = rt.js_runtime.mod_evaluate(rt.main_module_id);
         let _ = rt
             .js_runtime
@@ -859,12 +836,7 @@ mod test {
         .await
         .unwrap();
 
-        unsafe {
-            // NOTE: This is necessary because `DenoRuntime::new()` does detach
-            // its isolation from the current thread.
-            rt.js_runtime.v8_isolate().enter();
-            rt
-        }
+        rt
     }
 
     // Main Runtime should have access to `EdgeRuntime`

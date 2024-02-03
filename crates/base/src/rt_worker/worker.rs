@@ -43,19 +43,19 @@ pub struct Worker {
     pub worker_name: String,
 }
 
-pub type HandleCreationType = Pin<Box<dyn Future<Output = Result<WorkerEvents, Error>>>>;
+pub type HandleCreationType<'r> = Pin<Box<dyn Future<Output = Result<WorkerEvents, Error>> + 'r>>;
 pub type UnixStreamEntry = (UnixStream, Option<watch::Receiver<ConnSync>>);
 
 pub trait WorkerHandler: Send {
     fn handle_error(&self, error: Error) -> Result<WorkerEvents, Error>;
-    fn handle_creation(
+    fn handle_creation<'r>(
         &self,
-        created_rt: DenoRuntime,
+        created_rt: &'r mut DenoRuntime,
         unix_stream_rx: UnboundedReceiver<UnixStreamEntry>,
         termination_event_rx: Receiver<WorkerEvents>,
         maybe_cpu_metrics_tx: Option<UnboundedSender<CPUUsageMetrics>>,
         name: Option<String>,
-    ) -> HandleCreationType;
+    ) -> HandleCreationType<'r>;
     fn as_any(&self) -> &dyn Any;
 }
 

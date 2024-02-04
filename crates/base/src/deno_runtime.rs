@@ -810,7 +810,7 @@ mod test {
     ) -> DenoRuntime {
         let (worker_pool_tx, _) = mpsc::unbounded_channel::<UserWorkerMsgs>();
 
-        let mut rt = DenoRuntime::new(WorkerContextInitOpts {
+        DenoRuntime::new(WorkerContextInitOpts {
             service_path: path.unwrap_or(PathBuf::from("./test_cases/main")),
             no_module_cache: false,
             import_map_path: None,
@@ -834,9 +834,7 @@ mod test {
             None,
         )
         .await
-        .unwrap();
-
-        rt
+        .unwrap()
     }
 
     // Main Runtime should have access to `EdgeRuntime`

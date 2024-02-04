@@ -269,9 +269,8 @@ impl Worker {
                         if let Some(token) = termination_token.as_ref() {
                             if !worker_kind.is_user_worker() {
                                 let _ = termination_fut.await;
+                                token.outbound.cancel();
                             }
-
-                            token.outbound.cancel();
                         }
 
                         result

@@ -61,7 +61,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
-            GIT_V_VERSION=${{ steps.semantic.outputs.new_release_version }}
+            GIT_V_VERSION=${{ needs.release.outputs.version }}
 
   publish_arm:
     needs:
@@ -103,6 +103,8 @@ jobs:
           platforms: linux/${{ env.arch }}
           tags: ${{ steps.meta.outputs.tags }}
           no-cache: true
+          build-args: |
+            GIT_V_VERSION=${{ needs.release.outputs.version }}
 
   merge_manifest:
     needs: [release, publish_x86, publish_arm]

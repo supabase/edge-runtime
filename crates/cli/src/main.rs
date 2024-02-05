@@ -2,6 +2,7 @@ mod logger;
 
 use anyhow::{anyhow, bail, Error};
 use base::commands::start_server;
+use base::deno_runtime::MAYBE_DENO_VERSION;
 use base::rt_worker::worker_pool::{SupervisorPolicy, WorkerPoolPolicy};
 use base::server::WorkerEntrypoints;
 use clap::builder::{FalseyValueParser, TypedValueParser};
@@ -102,6 +103,8 @@ fn cli() -> Command {
 //}
 
 fn main() -> Result<(), anyhow::Error> {
+    MAYBE_DENO_VERSION.get_or_init(|| env!("DENO_VERSION").to_string());
+
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

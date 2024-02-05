@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use crate::cache::module_info::MODULE_INFO_CACHE_DB;
 use crate::util::versions_util::deno;
 use once_cell::sync::OnceCell;
 
@@ -12,7 +13,6 @@ use super::check::TYPE_CHECK_CACHE_DB;
 use super::deno_dir::DenoDirProvider;
 use super::incremental::INCREMENTAL_CACHE_DB;
 use super::node::NODE_ANALYSIS_CACHE_DB;
-use super::parsed_source::PARSED_SOURCE_CACHE_DB;
 
 pub struct Caches {
     dir_provider: Arc<DenoDirProvider>,
@@ -75,7 +75,7 @@ impl Caches {
     pub fn dep_analysis_db(&self) -> CacheDB {
         Self::make_db(
             &self.dep_analysis_db,
-            &PARSED_SOURCE_CACHE_DB,
+            &MODULE_INFO_CACHE_DB,
             self.dir_provider
                 .get_or_create()
                 .ok()

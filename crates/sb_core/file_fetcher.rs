@@ -150,11 +150,11 @@ pub fn map_content_type(
     }
 }
 
-pub struct FetchOptions {
-    pub specifier: ModuleSpecifier,
+pub struct FetchOptions<'a> {
+    pub specifier: &'a ModuleSpecifier,
     pub permissions: FcPermissions,
-    pub maybe_accept: Option<String>,
-    pub maybe_cache_setting: Option<CacheSetting>,
+    pub maybe_accept: Option<&'a str>,
+    pub maybe_cache_setting: Option<&'a CacheSetting>,
 }
 
 /// A structure for resolving, fetching and caching source files.
@@ -485,7 +485,7 @@ impl FileFetcher {
         permissions: FcPermissions,
     ) -> Result<File, AnyError> {
         self.fetch_with_options(FetchOptions {
-            specifier: specifier.clone(),
+            specifier,
             permissions,
             maybe_accept: None,
             maybe_cache_setting: None,
@@ -493,7 +493,10 @@ impl FileFetcher {
         .await
     }
 
-    pub async fn fetch_with_options(&self, mut options: FetchOptions) -> Result<File, AnyError> {
+    pub async fn fetch_with_options(
+        &self,
+        mut options: FetchOptions<'_>,
+    ) -> Result<File, AnyError> {
         let specifier = options.specifier.clone();
         debug!("FileFetcher::fetch() - specifier: {}", specifier);
         let scheme = get_validated_scheme(&specifier)?;
@@ -514,17 +517,15 @@ impl FileFetcher {
                 format!("A remote specifier was requested: \"{specifier}\", but --no-remote is specified."),
             ))
         } else {
-            let cache_settings = options
-                .maybe_cache_setting
-                .clone()
-                .unwrap_or(self.cache_setting.clone());
+            let def_sett = self.cache_setting.clone();
+            let cache_settings = options.maybe_cache_setting.unwrap_or(&def_sett);
             let result = self
                 .fetch_remote(
                     &specifier,
                     options.permissions,
                     10,
                     options.maybe_accept.map(String::from),
-                    &cache_settings,
+                    cache_settings,
                 )
                 .await;
             if let Ok(file) = &result {

@@ -9,6 +9,7 @@ pub mod fc_permissions;
 pub mod fetch_cacher;
 pub mod http_cache;
 pub mod incremental;
+pub mod module_info;
 pub mod node;
 pub mod parsed_source;
 

@@ -13,9 +13,9 @@ use deno_core::url::Url;
 use deno_fs::FileSystem;
 use deno_graph::NpmPackageReqResolution;
 use deno_npm::registry::NpmRegistryApi;
-use deno_npm::resolution::NpmResolutionSnapshot;
 use deno_npm::resolution::PackageReqNotFoundError;
 use deno_npm::resolution::ValidSerializedNpmResolutionSnapshot;
+use deno_npm::resolution::{NpmResolutionSnapshot, SnapshotFromLockfileParams};
 use deno_npm::NpmPackageId;
 use deno_npm::NpmResolutionPackage;
 use deno_npm::NpmSystemInfo;
@@ -106,7 +106,12 @@ async fn snapshot_from_lockfile(
         let lock = lockfile.lock();
         deno_npm::resolution::incomplete_snapshot_from_lockfile(&lock)?
     };
-    let snapshot = deno_npm::resolution::snapshot_from_lockfile(incomplete_snapshot, api).await?;
+    let snapshot = deno_npm::resolution::snapshot_from_lockfile(SnapshotFromLockfileParams {
+        incomplete_snapshot,
+        api,
+        skip_integrity_check: true, // TODO
+    })
+    .await?;
     Ok(snapshot)
 }
 

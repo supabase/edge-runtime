@@ -11,6 +11,7 @@ use sb_core::cache::deno_dir::{DenoDir, DenoDirProvider};
 use sb_core::cache::emit::EmitCache;
 use sb_core::cache::fc_permissions::FcPermissions;
 use sb_core::cache::fetch_cacher::FetchCacher;
+use sb_core::cache::module_info::ModuleInfoCache;
 use sb_core::cache::parsed_source::ParsedSourceCache;
 use sb_core::cache::{CacheSetting, GlobalHttpCache, HttpCache, RealDenoCacheEnv};
 use sb_core::emit::Emitter;
@@ -90,6 +91,7 @@ pub struct EmitterFactory {
     file_fetcher_allow_remote: bool,
     pub maybe_import_map: Option<Arc<ImportMap>>,
     file_cache: Deferred<Arc<FileCache>>,
+    module_info_cache: Deferred<Arc<ModuleInfoCache>>,
 }
 
 impl Default for EmitterFactory {
@@ -103,6 +105,7 @@ impl EmitterFactory {
         let deno_dir = DenoDir::new(None).unwrap();
 
         Self {
+            module_info_cache: Default::default(),
             deno_dir,
             npm_snapshot: None,
             lockfile: Default::default(),
@@ -148,12 +151,20 @@ impl EmitterFactory {
         Ok(caches)
     }
 
+    pub fn module_info_cache(&self) -> Result<&Arc<ModuleInfoCache>, AnyError> {
+        self.module_info_cache.get_or_try_init(|| {
+            Ok(Arc::new(ModuleInfoCache::new(
+                self.caches()?.dep_analysis_db(),
+            )))
+        })
+    }
+
     pub fn emit_cache(&self) -> Result<EmitCache, AnyError> {
         Ok(EmitCache::new(self.deno_dir.gen_cache.clone()))
     }
 
     pub fn parsed_source_cache(&self) -> Result<Arc<ParsedSourceCache>, AnyError> {
-        let source_cache = Arc::new(ParsedSourceCache::new(self.caches()?.dep_analysis_db()));
+        let source_cache = Arc::new(ParsedSourceCache::default());
         Ok(source_cache)
     }
 
@@ -337,6 +348,7 @@ impl EmitterFactory {
         let parsed_source = self.parsed_source_cache().unwrap();
 
         Box::new(FetchCacher::new(
+            self.module_info_cache().unwrap().clone(),
             self.emit_cache().unwrap(),
             Arc::new(self.file_fetcher()),
             HashMap::new(),

@@ -4,7 +4,7 @@ use anyhow::Context;
 use deno_ast::MediaType;
 use deno_core::error::AnyError;
 use deno_core::parking_lot::Mutex;
-use deno_core::{ModuleCode, ModuleSpecifier};
+use deno_core::{ModuleCodeString, ModuleSpecifier};
 use sb_node::NodePermissions;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -17,7 +17,7 @@ pub struct NpmModuleLoader {
 }
 
 pub struct ModuleCodeSource {
-    pub code: ModuleCode,
+    pub code: ModuleCodeString,
     pub found_url: ModuleSpecifier,
     pub media_type: MediaType,
 }

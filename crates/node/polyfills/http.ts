@@ -4,6 +4,7 @@
 // deno-lint-ignore-file prefer-primordials
 
 import { core } from "ext:core/mod.js";
+import { createDeferredPromise } from "ext:deno_node/internal/util.mjs";
 import {
   op_fetch_response_upgrade,
   op_fetch_send,
@@ -1572,10 +1573,10 @@ export class ServerImpl extends EventEmitter {
 
   #addr: Deno.NetAddr;
   #hasClosed = false;
-  #server: Deno.HttpServer;
+  #server: Deno.Server;
   #unref = false;
   #ac?: AbortController;
-  #serveDeferred: ReturnType<typeof Promise.withResolvers<void>>;
+  #servePromise: any;
   listening = false;
 
   constructor(opts, requestListener?: ServerHandler) {
@@ -1592,15 +1593,14 @@ export class ServerImpl extends EventEmitter {
 
     this._opts = opts;
 
-    this.#serveDeferred = Promise.withResolvers<void>();
-    this.#serveDeferred.promise.then(() => this.emit("close"));
+    this.#servePromise = createDeferredPromise();
+    this.#servePromise.promise.finally(() => this.emit("close"));
     if (requestListener !== undefined) {
       this.on("request", requestListener);
     }
   }
 
   listen(...args: unknown[]): this {
-    // TODO(bnoordhuis) Delegate to net.Server#listen().
     const normalized = _normalizeArgs(args);
     const options = normalized[0] as Partial<ListenOptions>;
     const cb = normalized[1];
@@ -1624,7 +1624,7 @@ export class ServerImpl extends EventEmitter {
       port,
     } as Deno.NetAddr;
     this.listening = true;
-    nextTick(() => this._serve());
+    this._serve();
 
     return this;
   }
@@ -1643,8 +1643,6 @@ export class ServerImpl extends EventEmitter {
         const socket = new Socket({
           handle: new TCP(constants.SERVER, conn),
         });
-        // Update socket held by `req`.
-        req.socket = socket;
         this.emit("upgrade", req, socket, Buffer.from([]));
         return response;
       } else {
@@ -1659,29 +1657,33 @@ export class ServerImpl extends EventEmitter {
       return;
     }
     this.#ac = ac;
-    try {
-      this.#server = serve(
-        {
-          handler: handler as Deno.ServeHandler,
-          ...this.#addr,
-          signal: ac.signal,
-          // @ts-ignore Might be any without `--unstable` flag
-          onListen: ({ port }) => {
-            this.#addr!.port = port;
-            this.emit("listening");
-          },
-          ...this._additionalServeOptions?.(),
-        },
-      );
-    } catch (e) {
-      this.emit("error", e);
-      return;
-    }
 
+    this.#server = Deno.serve((req) => {
+      return handler(req, {
+        remoteAddr: {
+          hostname: "0.0.0.0",
+          port: 9999
+        }
+      });
+    });
+    //
+    // this.#server = serve(
+    //   {
+    //     handler: handler as Deno.ServeHandler,
+    //     ...this.#addr,
+    //     signal: ac.signal,
+    //     // @ts-ignore Might be any without `--unstable` flag
+    //     onListen: ({ port }) => {
+    //       this.#addr!.port = port;
+    //       this.emit("listening");
+    //     },
+    //     ...this._additionalServeOptions?.(),
+    //   },
+    // );
     if (this.#unref) {
       this.#server.unref();
     }
-    this.#server.finished.then(() => this.#serveDeferred!.resolve());
+    this.#server.then((p) => p.finished.then(() => this.#servePromise!.resolve()));
   }
 
   setTimeout() {
@@ -1721,7 +1723,7 @@ export class ServerImpl extends EventEmitter {
       this.#ac.abort();
       this.#ac = undefined;
     } else {
-      this.#serveDeferred!.resolve();
+      this.#servePromise!.resolve();
     }
 
     this.#server = undefined;
@@ -1735,6 +1737,7 @@ export class ServerImpl extends EventEmitter {
     };
   }
 }
+
 
 Server.prototype = ServerImpl.prototype;
 

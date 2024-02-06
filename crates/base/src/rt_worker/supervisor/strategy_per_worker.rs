@@ -62,15 +62,16 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
     let interrupt_fn = {
         let thread_safe_handle = thread_safe_handle.clone();
         move |should_terminate: bool| {
-            let interrupt_data = IsolateInterruptData {
+            let data_ptr_mut = Box::into_raw(Box::new(IsolateInterruptData {
                 should_terminate,
                 isolate_memory_usage_tx: Some(isolate_memory_usage_tx),
-            };
+            }));
 
-            thread_safe_handle.request_interrupt(
-                handle_interrupt,
-                Box::into_raw(Box::new(interrupt_data)) as *mut std::ffi::c_void,
-            );
+            if !thread_safe_handle
+                .request_interrupt(handle_interrupt, data_ptr_mut as *mut std::ffi::c_void)
+            {
+                drop(unsafe { Box::from_raw(data_ptr_mut) });
+            }
         }
     };
 

@@ -1,5 +1,5 @@
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use deno_npm::registry::parse_dep_entry_name_and_raw_version;
-use deno_npm::registry::PackageDepNpmSchemeValueParseError;
 use deno_semver::package::PackageReq;
 use deno_semver::VersionReq;
 use deno_semver::VersionReqSpecifierParseError;
@@ -9,8 +9,6 @@ use thiserror::Error;
 
 #[derive(Debug, Error, Clone)]
 pub enum PackageJsonDepValueParseError {
-    #[error(transparent)]
-    SchemeValue(#[from] PackageDepNpmSchemeValueParseError),
     #[error(transparent)]
     Specifier(#[from] VersionReqSpecifierParseError),
     #[error("Not implemented scheme '{scheme}'")]
@@ -31,7 +29,7 @@ impl PackageJsonDepsProvider {
         self.0.as_ref()
     }
 
-    pub fn reqs(&self) -> Vec<&PackageReq> {
+    pub fn reqs(&self) -> Option<Vec<&PackageReq>> {
         match &self.0 {
             Some(deps) => {
                 let mut package_reqs = deps
@@ -39,9 +37,9 @@ impl PackageJsonDepsProvider {
                     .filter_map(|r| r.as_ref().ok())
                     .collect::<Vec<_>>();
                 package_reqs.sort(); // deterministic resolution
-                package_reqs
+                Some(package_reqs)
             }
-            None => Vec::new(),
+            None => None,
         }
     }
 }
@@ -64,9 +62,7 @@ pub fn get_local_package_json_version_reqs(package_json: &PackageJson) -> Packag
                 scheme: value.split(':').next().unwrap().to_string(),
             });
         }
-        let (name, version_req) = parse_dep_entry_name_and_raw_version(key, value)
-            .map_err(PackageJsonDepValueParseError::SchemeValue)?;
-
+        let (name, version_req) = parse_dep_entry_name_and_raw_version(key, value);
         let result = VersionReq::parse_from_specifier(version_req);
         match result {
             Ok(version_req) => Ok(PackageReq {

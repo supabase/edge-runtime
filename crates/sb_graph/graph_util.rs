@@ -81,7 +81,13 @@ impl ModuleGraphBuilder {
         let cli_resolver = self.resolver().await;
         let graph_resolver = cli_resolver.as_graph_resolver();
         let graph_npm_resolver = cli_resolver.as_graph_npm_resolver();
-        let analyzer = self.parsed_source_cache().as_analyzer();
+        let psc = self.parsed_source_cache();
+        let parser = psc.as_capturing_parser();
+        let analyzer = self
+            .emitter_factory
+            .module_info_cache()
+            .unwrap()
+            .as_module_analyzer(&parser);
 
         let mut graph = ModuleGraph::new(graph_kind);
         self.build_graph_with_npm_resolution(
@@ -94,9 +100,11 @@ impl ModuleGraphBuilder {
                 file_system: None,
                 resolver: Some(graph_resolver),
                 npm_resolver: Some(graph_npm_resolver),
-                module_analyzer: Some(&*analyzer),
+                module_analyzer: Some(&analyzer),
+                module_parser: Some(&parser),
                 reporter: None,
                 // todo(dsherret): workspace support
+                workspace_fast_check: false,
                 workspace_members: vec![],
             },
         )
@@ -152,7 +160,7 @@ impl ModuleGraphBuilder {
                             .strip_prefix("jsr:")
                             .and_then(|value| PackageNv::from_str(value).ok())
                         {
-                            graph.packages.add(key, value);
+                            graph.packages.add_nv(key, value);
                         }
                     }
                 }
@@ -212,7 +220,13 @@ impl ModuleGraphBuilder {
         let cli_resolver = self.resolver().await.clone();
         let graph_resolver = cli_resolver.as_graph_resolver();
         let graph_npm_resolver = cli_resolver.as_graph_npm_resolver();
-        let analyzer = self.parsed_source_cache().as_analyzer();
+        let psc = self.parsed_source_cache();
+        let parser = psc.as_capturing_parser();
+        let analyzer = self
+            .emitter_factory
+            .module_info_cache()
+            .unwrap()
+            .as_module_analyzer(&parser);
         let graph_kind = deno_graph::GraphKind::CodeOnly;
         let mut graph = ModuleGraph::new(graph_kind);
 
@@ -226,8 +240,10 @@ impl ModuleGraphBuilder {
                 file_system: None,
                 resolver: Some(&*graph_resolver),
                 npm_resolver: Some(&*graph_npm_resolver),
-                module_analyzer: Some(&*analyzer),
+                module_analyzer: Some(&analyzer),
+                module_parser: Some(&parser),
                 reporter: None,
+                workspace_fast_check: false,
                 workspace_members: vec![],
             },
         )

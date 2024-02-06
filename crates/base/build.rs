@@ -156,6 +156,14 @@ mod supabase_startup_snapshot {
         fn check_sys(&self, _kind: &str, _api_name: &str) -> Result<(), AnyError> {
             unreachable!("snapshotting!")
         }
+
+        fn check_write_with_api_name(
+            &self,
+            _path: &Path,
+            _api_name: Option<&str>,
+        ) -> Result<(), AnyError> {
+            unreachable!("snapshotting!")
+        }
     }
 
     pub fn create_runtime_snapshot(snapshot_path: PathBuf) {
@@ -170,6 +178,8 @@ mod supabase_startup_snapshot {
                 Arc::new(deno_web::BlobStore::default()),
                 None,
             ),
+            deno_webgpu::deno_webgpu::init_ops_and_esm(),
+            deno_canvas::deno_canvas::init_ops_and_esm(),
             deno_fetch::deno_fetch::init_ops_and_esm::<Permissions>(deno_fetch::Options {
                 user_agent: user_agent.clone(),
                 root_cert_store_provider: None,

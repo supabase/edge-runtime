@@ -6,13 +6,12 @@ use deno_core::error::generic_error;
 use deno_core::error::type_error;
 use deno_core::error::AnyError;
 use deno_core::futures::FutureExt;
-use deno_core::ModuleSpecifier;
 use deno_core::ModuleType;
 use deno_core::ResolutionKind;
 use deno_core::{ModuleLoader, ModuleSourceCode};
+use deno_core::{ModuleSpecifier, RequestedModuleType};
 use deno_semver::npm::NpmPackageReqReference;
-use sb_core::file_fetcher::get_source_from_data_url;
-use std::pin::Pin;
+use eszip::deno_graph;
 use std::sync::Arc;
 
 use crate::node::cli_node_resolver::CliNodeResolver;
@@ -93,16 +92,26 @@ impl ModuleLoader for EmbeddedModuleLoader {
         original_specifier: &ModuleSpecifier,
         maybe_referrer: Option<&ModuleSpecifier>,
         _is_dynamic: bool,
-    ) -> Pin<Box<deno_core::ModuleSourceFuture>> {
-        let is_data_uri = get_source_from_data_url(original_specifier).ok();
+        _requested_module_type: RequestedModuleType,
+    ) -> deno_core::ModuleLoadResponse {
         let permissions = sb_node::allow_all();
-        if let Some((source, _)) = is_data_uri {
-            return Box::pin(deno_core::futures::future::ready(Ok(
-                deno_core::ModuleSource::new(
-                    deno_core::ModuleType::JavaScript,
-                    ModuleSourceCode::String(source.into()),
-                    original_specifier,
-                ),
+
+        if original_specifier.scheme() == "data" {
+            let data_url_text = match deno_graph::source::RawDataUrl::parse(original_specifier)
+                .and_then(|url| url.decode().map_err(|err| err.into()))
+            {
+                Ok(response) => response,
+                Err(err) => {
+                    return deno_core::ModuleLoadResponse::Sync(Err(type_error(format!(
+                        "{:#}",
+                        err
+                    ))));
+                }
+            };
+            return deno_core::ModuleLoadResponse::Sync(Ok(deno_core::ModuleSource::new(
+                deno_core::ModuleType::JavaScript,
+                ModuleSourceCode::String(data_url_text.into()),
+                original_specifier,
             )));
         }
 
@@ -112,7 +121,7 @@ impl ModuleLoader for EmbeddedModuleLoader {
             &*permissions,
         ) {
             return match result {
-                Ok(code_source) => Box::pin(deno_core::futures::future::ready(Ok(
+                Ok(code_source) => deno_core::ModuleLoadResponse::Sync(Ok(
                     deno_core::ModuleSource::new_with_redirect(
                         match code_source.media_type {
                             MediaType::Json => ModuleType::Json,
@@ -122,44 +131,45 @@ impl ModuleLoader for EmbeddedModuleLoader {
                         original_specifier,
                         &code_source.found_url,
                     ),
-                ))),
-                Err(err) => Box::pin(deno_core::futures::future::ready(Err(err))),
+                )),
+                Err(err) => deno_core::ModuleLoadResponse::Sync(Err(err)),
             };
         }
 
         let Some(module) = self.shared.eszip.get_module(original_specifier.as_str()) else {
-            return Box::pin(deno_core::futures::future::ready(Err(type_error(format!(
+            return deno_core::ModuleLoadResponse::Sync(Err(type_error(format!(
                 "Module not found: {}",
                 original_specifier
-            )))));
+            ))));
         };
         let original_specifier = original_specifier.clone();
         let found_specifier =
             ModuleSpecifier::parse(&module.specifier).expect("invalid url in eszip");
 
-        async move {
-            let code = module
-                .source()
-                .await
-                .ok_or_else(|| type_error(format!("Module not found: {}", original_specifier)))?;
-            let code =
-                arc_u8_to_arc_str(code).map_err(|_| type_error("Module source is not utf-8"))?;
-            Ok(deno_core::ModuleSource::new_with_redirect(
-                match module.kind {
-                    eszip::ModuleKind::JavaScript => ModuleType::JavaScript,
-                    eszip::ModuleKind::Json => ModuleType::Json,
-                    eszip::ModuleKind::Jsonc => {
-                        return Err(type_error("jsonc modules not supported"))
-                    }
-                    eszip::ModuleKind::OpaqueData => {
-                        unreachable!();
-                    }
-                },
-                ModuleSourceCode::String(code.into()),
-                &original_specifier,
-                &found_specifier,
-            ))
-        }
-        .boxed_local()
+        deno_core::ModuleLoadResponse::Async(
+            async move {
+                let code = module.source().await.ok_or_else(|| {
+                    type_error(format!("Module not found: {}", original_specifier))
+                })?;
+                let code = arc_u8_to_arc_str(code)
+                    .map_err(|_| type_error("Module source is not utf-8"))?;
+                Ok(deno_core::ModuleSource::new_with_redirect(
+                    match module.kind {
+                        eszip::ModuleKind::JavaScript => ModuleType::JavaScript,
+                        eszip::ModuleKind::Json => ModuleType::Json,
+                        eszip::ModuleKind::Jsonc => {
+                            return Err(type_error("jsonc modules not supported"))
+                        }
+                        eszip::ModuleKind::OpaqueData => {
+                            unreachable!();
+                        }
+                    },
+                    ModuleSourceCode::String(code.into()),
+                    &original_specifier,
+                    &found_specifier,
+                ))
+            }
+            .boxed_local(),
+        )
     }
 }

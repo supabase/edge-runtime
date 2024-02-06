@@ -1,5 +1,6 @@
 use crate::cache::emit::EmitCache;
 use crate::cache::fc_permissions::FcPermissions;
+use crate::cache::module_info::{ModuleInfoCache, ModuleInfoCacheSourceHash};
 use crate::cache::parsed_source::ParsedSourceCache;
 use crate::cache::{CacheSetting, GlobalHttpCache};
 use crate::file_fetcher::{FetchOptions, FileFetcher};
@@ -28,7 +29,9 @@ pub fn resolve_specifier_into_node_modules(specifier: &ModuleSpecifier) -> Modul
 
 /// A "wrapper" for the FileFetcher and DiskCache for the Deno CLI that provides
 /// a concise interface to the DENO_DIR when building module graphs.
+#[allow(dead_code)]
 pub struct FetchCacher {
+    module_info_cache: Arc<ModuleInfoCache>,
     emit_cache: EmitCache,
     file_fetcher: Arc<FileFetcher>,
     file_header_overrides: HashMap<ModuleSpecifier, HashMap<String, String>>,
@@ -40,7 +43,9 @@ pub struct FetchCacher {
 }
 
 impl FetchCacher {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
+        module_info_cache: Arc<ModuleInfoCache>,
         emit_cache: EmitCache,
         file_fetcher: Arc<FileFetcher>,
         file_header_overrides: HashMap<ModuleSpecifier, HashMap<String, String>>,
@@ -50,6 +55,7 @@ impl FetchCacher {
         maybe_local_node_modules_url: Option<ModuleSpecifier>,
     ) -> Self {
         Self {
+            module_info_cache,
             emit_cache,
             file_fetcher,
             file_header_overrides,
@@ -145,19 +151,19 @@ impl Loader for FetchCacher {
     ) -> LoadFuture {
         use deno_graph::source::CacheSetting as LoaderCacheSetting;
 
-        if let Some(node_modules_url) = self.maybe_local_node_modules_url.as_ref() {
+        let path = specifier.path();
+
+        if path.contains("/node_modules/") {
             // The specifier might be in a completely different symlinked tree than
-            // what the resolved node_modules_url is in (ex. `/my-project-1/node_modules`
-            // symlinked to `/my-project-2/node_modules`), so first check if the path
-            // is in a node_modules dir to avoid needlessly canonicalizing, then compare
+            // what the node_modules url is in (ex. `/my-project-1/node_modules`
+            // symlinked to `/my-project-2/node_modules`), so first we checked if the path
+            // is in a node_modules dir to avoid needlessly canonicalizing, then now compare
             // against the canonicalized specifier.
-            if specifier.path().contains("/node_modules/") {
-                let specifier = resolve_specifier_into_node_modules(specifier);
-                if specifier.as_str().starts_with(node_modules_url.as_str()) {
-                    return Box::pin(futures::future::ready(Ok(Some(LoadResponse::External {
-                        specifier,
-                    }))));
-                }
+            let specifier = resolve_specifier_into_node_modules(specifier);
+            if specifier.as_str().starts_with(path) {
+                return Box::pin(futures::future::ready(Ok(Some(LoadResponse::External {
+                    specifier,
+                }))));
             }
         }
 
@@ -181,10 +187,10 @@ impl Loader for FetchCacher {
             };
             file_fetcher
                 .fetch_with_options(FetchOptions {
-                    specifier: specifier.clone(),
+                    specifier: &specifier,
                     permissions,
                     maybe_accept: None,
-                    maybe_cache_setting: maybe_cache_setting.clone(),
+                    maybe_cache_setting: maybe_cache_setting.as_ref(),
                 })
                 .await
                 .map(|file| {
@@ -200,7 +206,7 @@ impl Loader for FetchCacher {
                     Ok(Some(LoadResponse::Module {
                         specifier: file.specifier,
                         maybe_headers,
-                        content: file.source,
+                        content: file.source.into(),
                     }))
                 })
                 .unwrap_or_else(|err| {
@@ -225,13 +231,14 @@ impl Loader for FetchCacher {
     fn cache_module_info(
         &mut self,
         specifier: &ModuleSpecifier,
-        source: &str,
+        source: &Arc<[u8]>,
         module_info: &deno_graph::ModuleInfo,
     ) {
-        let result = self.parsed_source_cache.cache_module_info(
+        let source_hash = ModuleInfoCacheSourceHash::from_source(source);
+        let result = self.module_info_cache.set_module_info(
             specifier,
             MediaType::from_specifier(specifier),
-            source,
+            &source_hash,
             module_info,
         );
         if let Err(err) = result {

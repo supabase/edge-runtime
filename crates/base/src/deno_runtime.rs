@@ -8,7 +8,7 @@ use ctor::ctor;
 use deno_core::error::AnyError;
 use deno_core::url::Url;
 use deno_core::{
-    located_script_name, serde_v8, JsRuntime, ModuleCode, ModuleId, PollEventLoopOptions,
+    located_script_name, serde_v8, JsRuntime, ModuleCodeString, ModuleId, PollEventLoopOptions,
     RuntimeOptions,
 };
 use deno_http::DefaultHttpPropertyExtractor;
@@ -247,6 +247,8 @@ impl DenoRuntime {
                 Arc::new(deno_web::BlobStore::default()),
                 None,
             ),
+            deno_webgpu::deno_webgpu::init_ops(),
+            deno_canvas::deno_canvas::init_ops(),
             deno_fetch::deno_fetch::init_ops::<Permissions>(deno_fetch::Options {
                 user_agent: user_agent.clone(),
                 root_cert_store_provider: Some(root_cert_store_provider.clone()),
@@ -319,7 +321,7 @@ impl DenoRuntime {
         );
 
         js_runtime
-            .execute_script(located_script_name!(), ModuleCode::from(script))
+            .execute_script(located_script_name!(), ModuleCodeString::from(script))
             .expect("Failed to execute bootstrap script");
 
         {
@@ -539,7 +541,7 @@ fn set_v8_flags() {
 mod test {
     use crate::deno_runtime::DenoRuntime;
     use crate::rt_worker::worker::UnixStreamEntry;
-    use deno_core::{FastString, ModuleCode, PollEventLoopOptions};
+    use deno_core::{FastString, ModuleCodeString, PollEventLoopOptions};
     use sb_graph::emitter::EmitterFactory;
     use sb_graph::{generate_binary_eszip, EszipPayloadKind};
     use sb_workers::context::{
@@ -634,7 +636,7 @@ mod test {
             .js_runtime
             .execute_script(
                 "<anon>",
-                ModuleCode::from(
+                ModuleCodeString::from(
                     r#"
             globalThis.isTenEven;
         "#
@@ -695,7 +697,7 @@ mod test {
             .js_runtime
             .execute_script(
                 "<anon>",
-                ModuleCode::from(
+                ModuleCodeString::from(
                     r#"
             globalThis.isTenEven;
         "#
@@ -798,7 +800,7 @@ mod test {
             .js_runtime
             .execute_script(
                 "<anon>",
-                ModuleCode::from(
+                ModuleCodeString::from(
                     r#"
             Deno.readTextFileSync("./test_cases/readFile/hello_world.json");
         "#
@@ -853,7 +855,7 @@ mod test {
             .js_runtime
             .execute_script(
                 "<anon>",
-                ModuleCode::from(
+                ModuleCodeString::from(
                     r#"
             // Should not be able to set
             const data = {
@@ -947,7 +949,7 @@ mod test {
 
         let user_rt_execute_scripts = user_rt.js_runtime.execute_script(
             "<anon>",
-            ModuleCode::from(
+            ModuleCodeString::from(
                 r#"
             let cmd = new Deno.Command("", {});
             cmd.outputSync();
@@ -980,7 +982,7 @@ mod test {
             .js_runtime
             .execute_script(
                 "<anon>",
-                ModuleCode::from(
+                ModuleCodeString::from(
                     r#"
             // Should not be able to set
             Deno.env.set("Supa_Test", "Supa_Value");
@@ -998,7 +1000,7 @@ mod test {
             .js_runtime
             .execute_script(
                 "<anon>",
-                ModuleCode::from(
+                ModuleCodeString::from(
                     r#"
             // Should not be able to set
             Deno.env.get("Supa_Test");
@@ -1017,7 +1019,7 @@ mod test {
             .js_runtime
             .execute_script(
                 "<anon>",
-                ModuleCode::from(
+                ModuleCodeString::from(
                     r#"
             // Should not be able to set
             Deno.env.get("Supa_Test");

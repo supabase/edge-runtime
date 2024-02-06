@@ -42,10 +42,13 @@ import * as messagePort from 'ext:deno_web/13_message_port.js';
 import { SupabaseEventListener } from 'ext:sb_user_event_worker/event_worker.js';
 import * as MainWorker from 'ext:sb_core_main_js/js/main_worker.js';
 import * as DenoWebCompression from 'ext:deno_web/14_compression.js';
-import * as imageData from "ext:deno_web/16_image_data.js";
 import * as DenoWSStream from 'ext:deno_websocket/02_websocketstream.js';
 import * as eventSource from "ext:deno_fetch/27_eventsource.js";
+import * as WebGPU from "ext:deno_webgpu/00_init.js";
+import * as WebGPUSurface from "ext:deno_webgpu/02_surface.js";
+
 import { primordials, core } from "ext:core/mod.js";
+import { op_lazy_load_esm } from "ext:core/ops";
 const ops = core.ops;
 
 const {
@@ -56,6 +59,61 @@ const {
 	ObjectFreeze,
 	StringPrototypeSplit,
 } = primordials;
+
+let image;
+function ImageNonEnumerable(getter) {
+	let valueIsSet = false;
+	let value;
+
+	return {
+		get() {
+			loadImage();
+
+			if (valueIsSet) {
+				return value;
+			} else {
+				return getter();
+			}
+		},
+		set(v) {
+			loadImage();
+
+			valueIsSet = true;
+			value = v;
+		},
+		enumerable: false,
+		configurable: true,
+	};
+}
+function ImageWritable(getter) {
+	let valueIsSet = false;
+	let value;
+
+	return {
+		get() {
+			loadImage();
+
+			if (valueIsSet) {
+				return value;
+			} else {
+				return getter();
+			}
+		},
+		set(v) {
+			loadImage();
+
+			valueIsSet = true;
+			value = v;
+		},
+		enumerable: true,
+		configurable: true,
+	};
+}
+function loadImage() {
+	if (!image) {
+		image = op_lazy_load_esm("ext:deno_canvas/01_image.js");
+	}
+}
 
 const globalScope = {
 	console: nonEnumerable(
@@ -72,7 +130,6 @@ const globalScope = {
 	Request: nonEnumerable(request.Request),
 	Response: nonEnumerable(response.Response),
 	Headers: nonEnumerable(headers.Headers),
-	ImageData: nonEnumerable(imageData.ImageData),
 	fetch: writable(fetch.fetch),
 
 	// base64
@@ -154,6 +211,11 @@ const globalScope = {
 	// abort signal
 	AbortController: nonEnumerable(abortSignal.AbortController),
 	AbortSignal: nonEnumerable(abortSignal.AbortSignal),
+
+	// Image
+	ImageData: ImageNonEnumerable(() => image.ImageData),
+	ImageBitmap: ImageNonEnumerable(() => image.ImageBitmap),
+	createImageBitmap: ImageWritable(() => image.createImageBitmap),
 
 	// web sockets
 	WebSocket: nonEnumerable(webSocket.WebSocket),

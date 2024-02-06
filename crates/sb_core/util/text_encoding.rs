@@ -1,6 +1,6 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
-use deno_core::ModuleCode;
+use deno_core::ModuleCodeString;
 use encoding_rs::*;
 use std::borrow::Cow;
 use std::io::Error;
@@ -54,7 +54,7 @@ pub fn strip_bom(text: &str) -> &str {
 static SOURCE_MAP_PREFIX: &[u8] = b"//# sourceMappingURL=data:application/json;base64,";
 
 #[allow(deprecated)]
-pub fn source_map_from_code(code: &ModuleCode) -> Option<Vec<u8>> {
+pub fn source_map_from_code(code: &ModuleCodeString) -> Option<Vec<u8>> {
     let bytes = code.as_bytes();
     let last_line = bytes.rsplit(|u| *u == b'\n').next()?;
     if last_line.starts_with(SOURCE_MAP_PREFIX) {
@@ -68,7 +68,7 @@ pub fn source_map_from_code(code: &ModuleCode) -> Option<Vec<u8>> {
 }
 
 /// Truncate the source code before the source map.
-pub fn code_without_source_map(mut code: ModuleCode) -> ModuleCode {
+pub fn code_without_source_map(mut code: ModuleCodeString) -> ModuleCodeString {
     let bytes = code.as_bytes();
     for i in (0..bytes.len()).rev() {
         if bytes[i] == b'\n' {

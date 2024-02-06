@@ -4,7 +4,7 @@ use crate::cache::common::FastInsecureHasher;
 use crate::cache::emit::EmitCache;
 use crate::cache::parsed_source::ParsedSourceCache;
 use deno_core::error::AnyError;
-use deno_core::ModuleCode;
+use deno_core::ModuleCodeString;
 use deno_core::ModuleSpecifier;
 use deno_graph::MediaType;
 use deno_graph::Module;
@@ -36,7 +36,7 @@ impl Emitter {
 
     pub fn cache_module_emits(&self, graph: &ModuleGraph) -> Result<(), AnyError> {
         for module in graph.modules() {
-            if let Module::Esm(module) = module {
+            if let Module::Js(module) = module {
                 let is_emittable = matches!(
                     module.media_type,
                     MediaType::TypeScript
@@ -64,7 +64,7 @@ impl Emitter {
         specifier: &ModuleSpecifier,
         media_type: MediaType,
         source: &Arc<str>,
-    ) -> Result<ModuleCode, AnyError> {
+    ) -> Result<ModuleCodeString, AnyError> {
         let source_hash = self.get_source_hash(source);
 
         if let Some(emit_code) = self.emit_cache.get_emit_code(specifier, source_hash) {

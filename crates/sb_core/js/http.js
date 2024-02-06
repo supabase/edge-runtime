@@ -1,6 +1,8 @@
 import { HttpConn } from 'ext:deno_http/01_http.js';
 import { RequestPrototype } from 'ext:deno_fetch/23_request.js';
 import { core, primordials } from "ext:core/mod.js";
+
+const { internalRidSymbol } = core;
 const { ObjectPrototypeIsPrototypeOf } = primordials;
 
 const HttpConnPrototypeNextRequest = HttpConn.prototype.nextRequest;
@@ -40,7 +42,7 @@ function internalServerError() {
 }
 
 function serveHttp(conn) {
-	const [connRid, watcherRid] = ops.op_http_start(conn.rid);
+	const [connRid, watcherRid] = ops.op_http_start(conn[internalRidSymbol]);
 	const httpConn = new HttpConn(connRid, conn.remoteAddr, conn.localAddr);
 
 	httpConn.nextRequest = async () => {

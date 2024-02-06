@@ -52,7 +52,7 @@ pub fn op_node_check_prime(#[bigint] num: i64, #[number] checks: usize) -> bool 
     primes::is_probably_prime(&BigInt::from(num), checks)
 }
 
-#[op2(fast)]
+#[op2]
 pub fn op_node_check_prime_bytes(
     #[anybuffer] bytes: &[u8],
     #[number] checks: usize,

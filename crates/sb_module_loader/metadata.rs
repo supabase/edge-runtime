@@ -1,4 +1,3 @@
-use deno_npm::registry::PackageDepNpmSchemeValueParseError;
 use deno_semver::package::PackageReq;
 use deno_semver::VersionReqSpecifierParseError;
 use sb_npm::package_json::{PackageJsonDepValueParseError, PackageJsonDeps};
@@ -7,7 +6,6 @@ use std::collections::BTreeMap;
 
 #[derive(Serialize, Deserialize)]
 enum SerializablePackageJsonDepValueParseError {
-    SchemeValue(String),
     Specifier(String),
     Unsupported { scheme: String },
 }
@@ -15,7 +13,6 @@ enum SerializablePackageJsonDepValueParseError {
 impl SerializablePackageJsonDepValueParseError {
     pub fn from_err(err: PackageJsonDepValueParseError) -> Self {
         match err {
-            PackageJsonDepValueParseError::SchemeValue(err) => Self::SchemeValue(err.value),
             PackageJsonDepValueParseError::Specifier(err) => {
                 Self::Specifier(err.source.to_string())
             }
@@ -25,11 +22,6 @@ impl SerializablePackageJsonDepValueParseError {
 
     pub fn into_err(self) -> PackageJsonDepValueParseError {
         match self {
-            SerializablePackageJsonDepValueParseError::SchemeValue(value) => {
-                PackageJsonDepValueParseError::SchemeValue(PackageDepNpmSchemeValueParseError {
-                    value,
-                })
-            }
             SerializablePackageJsonDepValueParseError::Specifier(source) => {
                 PackageJsonDepValueParseError::Specifier(VersionReqSpecifierParseError {
                     source: monch::ParseErrorFailureError::new(source),

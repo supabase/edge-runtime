@@ -404,7 +404,7 @@ impl WorkerPool {
             match create_worker((worker_options, supervisor_policy, termination_token.clone()))
                 .await
             {
-                Ok(worker_request_msg_tx) => {
+                Ok((_, worker_request_msg_tx)) => {
                     let profile = UserWorkerProfile {
                         worker_request_msg_tx,
                         timing_tx_pair: (req_start_timing_tx, req_end_timing_tx),

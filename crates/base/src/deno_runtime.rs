@@ -573,7 +573,12 @@ mod test {
             maybe_module_code: Some(FastString::from(String::from(
                 "Deno.serve((req) => new Response('Hello World'));",
             ))),
-            conf: { WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts { worker_pool_tx }) },
+            conf: {
+                WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
+                    worker_pool_tx,
+                    event_worker_metric_src: None,
+                })
+            },
         })
         .await
         .expect("It should not panic");
@@ -612,7 +617,12 @@ mod test {
             maybe_eszip: Some(EszipPayloadKind::VecKind(eszip_code)),
             maybe_entrypoint: None,
             maybe_module_code: None,
-            conf: { WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts { worker_pool_tx }) },
+            conf: {
+                WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
+                    worker_pool_tx,
+                    event_worker_metric_src: None,
+                })
+            },
         })
         .await;
 
@@ -673,7 +683,12 @@ mod test {
             maybe_eszip: Some(EszipPayloadKind::VecKind(eszip_code)),
             maybe_entrypoint: None,
             maybe_module_code: None,
-            conf: { WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts { worker_pool_tx }) },
+            conf: {
+                WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
+                    worker_pool_tx,
+                    event_worker_metric_src: None,
+                })
+            },
         })
         .await;
 
@@ -731,7 +746,10 @@ mod test {
                 if let Some(uc) = user_conf {
                     uc
                 } else {
-                    WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts { worker_pool_tx })
+                    WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
+                        worker_pool_tx,
+                        event_worker_metric_src: None,
+                    })
                 }
             },
         })

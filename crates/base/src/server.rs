@@ -8,7 +8,7 @@ use futures_util::Stream;
 use hyper::{server::conn::Http, service::Service, Body, Request, Response};
 use log::{debug, error, info};
 use sb_core::conn_sync::ConnSync;
-use sb_workers::context::WorkerRequestMsg;
+use sb_workers::context::{MainWorkerRuntimeOpts, WorkerRequestMsg};
 use std::future::Future;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
@@ -180,17 +180,17 @@ impl Server {
         entrypoints: WorkerEntrypoints,
         termination_token: Option<TerminationToken>,
     ) -> Result<Self, Error> {
-        let mut worker_events_sender: Option<mpsc::UnboundedSender<WorkerEventWithMetadata>> = None;
+        let mut worker_events_tx: Option<mpsc::UnboundedSender<WorkerEventWithMetadata>> = None;
         let maybe_events_entrypoint = entrypoints.events;
         let maybe_main_entrypoint = entrypoints.main;
         let termination_token = termination_token.unwrap_or_default();
 
         // Create Event Worker
-        if let Some(events_service_path) = maybe_events_service_path {
+        let event_worker_metric_src = if let Some(events_service_path) = maybe_events_service_path {
             let events_path = Path::new(&events_service_path);
             let events_path_buf = events_path.to_path_buf();
 
-            let events_worker = create_events_worker(
+            let (metric, sender) = create_events_worker(
                 events_path_buf,
                 import_map_path.clone(),
                 no_module_cache,
@@ -199,13 +199,16 @@ impl Server {
             )
             .await?;
 
-            worker_events_sender = Some(events_worker);
-        }
+            worker_events_tx = Some(sender);
+            Some(metric)
+        } else {
+            None
+        };
 
         // Create a user worker pool
-        let user_worker_msgs_tx = create_user_worker_pool(
+        let worker_pool_tx = create_user_worker_pool(
             maybe_user_worker_policy.unwrap_or_default(),
-            worker_events_sender,
+            worker_events_tx,
             None,
         )
         .await?;
@@ -216,7 +219,10 @@ impl Server {
             main_worker_path,
             import_map_path.clone(),
             no_module_cache,
-            user_worker_msgs_tx,
+            MainWorkerRuntimeOpts {
+                worker_pool_tx,
+                event_worker_metric_src,
+            },
             maybe_main_entrypoint,
             Some(termination_token.child_token()),
         )

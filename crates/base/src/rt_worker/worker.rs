@@ -11,6 +11,7 @@ use event_worker::events::{
 use futures_util::FutureExt;
 use log::{debug, error};
 use sb_core::conn_sync::ConnSync;
+use sb_core::{RuntimeMetricSource, WorkerMetricSource};
 use sb_workers::context::{UserWorkerMsgs, WorkerContextInitOpts};
 use std::any::Any;
 use std::future::{pending, Future};
@@ -87,7 +88,7 @@ impl Worker {
             UnboundedSender<UnixStreamEntry>,
             UnboundedReceiver<UnixStreamEntry>,
         ),
-        booter_signal: Sender<Result<(), Error>>,
+        booter_signal: Sender<Result<WorkerMetricSource, Error>>,
         termination_token: Option<TerminationToken>,
     ) {
         let worker_name = self.worker_name.clone();
@@ -101,10 +102,15 @@ impl Worker {
 
         let method_cloner = self.clone();
         let timing = opts.timing.take();
-        let is_user_worker = opts.conf.is_user_worker();
+        let worker_kind = opts.conf.to_worker_kind();
+        let maybe_event_worker_metric_src = opts
+            .conf
+            .as_main_worker()
+            .as_ref()
+            .and_then(|it| it.event_worker_metric_src.clone());
 
         let cancel = self.cancel.clone();
-        let rt = if is_user_worker {
+        let rt = if worker_kind.is_user_worker() {
             &rt::USER_WORKER_RT
         } else {
             &rt::PRIMARY_WORKER_RT
@@ -112,13 +118,31 @@ impl Worker {
 
         let _worker_handle = rt.spawn_pinned(move || {
             tokio::task::spawn_local(async move {
-                let (maybe_cpu_usage_metrics_tx, maybe_cpu_usage_metrics_rx) = is_user_worker
+                let (maybe_cpu_usage_metrics_tx, maybe_cpu_usage_metrics_rx) = worker_kind
+                    .is_user_worker()
                     .then(unbounded_channel::<CPUUsageMetrics>)
                     .unzip();
 
                 let result = match DenoRuntime::new(opts).await {
                     Ok(mut new_runtime) => {
-                        let _ = booter_signal.send(Ok(()));
+                        let metric = {
+                            let js_runtime = &mut new_runtime.js_runtime;
+                            let metric = WorkerMetricSource::from_js_runtime(js_runtime);
+
+                            if worker_kind.is_main_worker() {
+                                let state = js_runtime.op_state();
+                                let mut state_mut = state.borrow_mut();
+
+                                state_mut.put(RuntimeMetricSource::new(
+                                    metric.clone(),
+                                    maybe_event_worker_metric_src,
+                                ));
+                            }
+
+                            metric
+                        };
+
+                        let _ = booter_signal.send(Ok(metric));
 
                         // CPU TIMER
                         let (termination_event_tx, termination_event_rx) =
@@ -127,7 +151,7 @@ impl Worker {
                         let _cpu_timer;
 
                         // TODO: Allow customization of supervisor
-                        let termination_fut = if is_user_worker {
+                        let termination_fut = if worker_kind.is_user_worker() {
                             // cputimer is returned from supervisor and assigned here to keep it in scope.
                             let Ok(maybe_timer) = create_supervisor(
                                 worker_key.unwrap_or(Uuid::nil()),
@@ -209,7 +233,7 @@ impl Worker {
                         let result = data.await;
 
                         if let Some(token) = termination_token.as_ref() {
-                            if !is_user_worker {
+                            if !worker_kind.is_user_worker() {
                                 let _ = termination_fut.await;
                             }
 

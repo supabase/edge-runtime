@@ -4238,6 +4238,7 @@ dependencies = [
  "deno_websocket",
  "deno_webstorage",
  "encoding_rs",
+ "enum-as-inner 0.6.0",
  "fs3",
  "futures",
  "hyper 0.14.28",

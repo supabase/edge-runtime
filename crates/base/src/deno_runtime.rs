@@ -421,7 +421,7 @@ impl DenoRuntime {
         // the task from the other threads.
         // let mut current_thread_id = std::thread::current().id();
 
-        let result = match poll_fn(|cx| {
+        let poll_result = poll_fn(|cx| {
             // INVARIANT: Only can steal current task by other threads when LIFO
             // task scheduler heuristic disabled. Turning off the heuristic is
             // unstable now, so it's not considered.
@@ -487,8 +487,9 @@ impl DenoRuntime {
 
             poll_result
         })
-        .await
-        {
+        .await;
+
+        let result = match poll_result {
             Err(err) => Err(anyhow!("event loop error: {}", err)),
             Ok(_) => match mod_result_rx.await {
                 Err(e) => {
@@ -576,6 +577,7 @@ mod test {
             conf: {
                 WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
                     worker_pool_tx,
+                    shared_metric_src: None,
                     event_worker_metric_src: None,
                 })
             },
@@ -620,6 +622,7 @@ mod test {
             conf: {
                 WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
                     worker_pool_tx,
+                    shared_metric_src: None,
                     event_worker_metric_src: None,
                 })
             },
@@ -686,6 +689,7 @@ mod test {
             conf: {
                 WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
                     worker_pool_tx,
+                    shared_metric_src: None,
                     event_worker_metric_src: None,
                 })
             },
@@ -748,6 +752,7 @@ mod test {
                 } else {
                     WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
                         worker_pool_tx,
+                        shared_metric_src: None,
                         event_worker_metric_src: None,
                     })
                 }

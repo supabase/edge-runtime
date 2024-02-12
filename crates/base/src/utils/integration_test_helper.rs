@@ -192,7 +192,7 @@ impl TestBedBuilder {
     }
 
     pub async fn build(self) -> TestBed {
-        let (worker_pool_tx, pool_termination_token) = {
+        let ((_, worker_pool_tx), pool_termination_token) = {
             let token = TerminationToken::new();
             (
                 create_user_worker_pool(
@@ -219,6 +219,7 @@ impl TestBedBuilder {
             maybe_module_code: None,
             conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
                 worker_pool_tx,
+                shared_metric_src: None,
                 event_worker_metric_src: None,
             }),
         };

@@ -1,11 +1,13 @@
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use deno_core::error::AnyError;
 use deno_core::v8::IsolateHandle;
 use deno_core::OpState;
 use deno_core::{op2, JsRuntime};
+use enum_as_inner::EnumAsInner;
 use futures::task::AtomicWaker;
 use futures::FutureExt;
 use log::error;
@@ -26,6 +28,49 @@ pub mod permissions;
 pub mod runtime;
 pub mod transpiler;
 pub mod util;
+
+#[derive(Debug, Default, Clone)]
+pub struct SharedMetricSource {
+    active_user_workers: Arc<AtomicUsize>,
+    retired_user_workers: Arc<AtomicUsize>,
+    received_requests: Arc<AtomicUsize>,
+    handled_requests: Arc<AtomicUsize>,
+}
+
+impl SharedMetricSource {
+    pub fn incl_active_user_workers(&self) {
+        self.active_user_workers.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn decl_active_user_workers(&self) {
+        self.active_user_workers.fetch_sub(1, Ordering::Relaxed);
+    }
+
+    pub fn incl_retired_user_worker(&self) {
+        self.retired_user_workers.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn incl_received_requests(&self) {
+        self.received_requests.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn incl_handled_requests(&self) {
+        self.handled_requests.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn reset(&self) {
+        self.active_user_workers.store(0, Ordering::Relaxed);
+        self.retired_user_workers.store(0, Ordering::Relaxed);
+        self.received_requests.store(0, Ordering::Relaxed);
+        self.handled_requests.store(0, Ordering::Relaxed);
+    }
+}
+
+#[derive(Debug, Clone, EnumAsInner)]
+pub enum MetricSource {
+    Worker(WorkerMetricSource),
+    Runtime(RuntimeMetricSource),
+}
 
 #[derive(Debug, Clone)]
 pub struct WorkerMetricSource {
@@ -55,15 +100,21 @@ impl WorkerMetricSource {
 
 #[derive(Debug, Clone)]
 pub struct RuntimeMetricSource {
-    main: WorkerMetricSource,
-    event: Option<WorkerMetricSource>,
+    pub main: WorkerMetricSource,
+    pub event: Option<WorkerMetricSource>,
+    pub shared: SharedMetricSource,
 }
 
 impl RuntimeMetricSource {
-    pub fn new(main: WorkerMetricSource, maybe_event: Option<WorkerMetricSource>) -> Self {
+    pub fn new(
+        main: WorkerMetricSource,
+        maybe_event: Option<WorkerMetricSource>,
+        maybe_shared: Option<SharedMetricSource>,
+    ) -> Self {
         Self {
             main,
             event: maybe_event,
+            shared: maybe_shared.unwrap_or_default(),
         }
     }
 
@@ -158,14 +209,31 @@ struct RuntimeHeapStatistics {
 
 #[derive(Debug, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
-struct RuntimeMetrics {
-    #[serde(flatten)]
-    heap_stats: RuntimeHeapStatistics,
-
+struct RuntimeSharedStatistics {
     active_user_workers_count: usize,
     retired_user_workers_count: usize,
     received_requests_count: usize,
     handled_requests_count: usize,
+}
+
+impl RuntimeSharedStatistics {
+    fn from_shared_metric_src(src: &SharedMetricSource) -> Self {
+        Self {
+            active_user_workers_count: src.active_user_workers.load(Ordering::Relaxed),
+            retired_user_workers_count: src.retired_user_workers.load(Ordering::Relaxed),
+            received_requests_count: src.received_requests.load(Ordering::Relaxed),
+            handled_requests_count: src.handled_requests.load(Ordering::Relaxed),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct RuntimeMetrics {
+    #[serde(flatten)]
+    heap_stats: RuntimeHeapStatistics,
+    #[serde(flatten)]
+    shared_stats: RuntimeSharedStatistics,
 }
 
 #[op2(fast)]
@@ -187,14 +255,15 @@ fn op_console_size(_state: &mut OpState, #[buffer] _result: &mut [u32]) -> Resul
 #[op2(async)]
 #[serde]
 async fn op_runtime_metrics(state: Rc<RefCell<OpState>>) -> Result<RuntimeMetrics, AnyError> {
-    let state = state.borrow();
     let mut runtime_metrics = RuntimeMetrics::default();
+    let mut runtime_metric_src = {
+        let state = state.borrow();
+        state.borrow::<RuntimeMetricSource>().clone()
+    };
 
-    runtime_metrics.heap_stats = state
-        .borrow::<RuntimeMetricSource>()
-        .clone()
-        .get_heap_statistics()
-        .await;
+    runtime_metrics.heap_stats = runtime_metric_src.get_heap_statistics().await;
+    runtime_metrics.shared_stats =
+        RuntimeSharedStatistics::from_shared_metric_src(&runtime_metric_src.shared);
 
     Ok(runtime_metrics)
 }

@@ -5,7 +5,7 @@ use event_worker::events::WorkerEventWithMetadata;
 use hyper::{Body, Request, Response};
 use sb_core::conn_sync::ConnSync;
 use sb_core::util::sync::AtomicFlag;
-use sb_core::WorkerMetricSource;
+use sb_core::{MetricSource, SharedMetricSource};
 use std::path::PathBuf;
 use std::sync::atomic::AtomicUsize;
 use std::{collections::HashMap, sync::Arc};
@@ -76,7 +76,8 @@ pub struct UserWorkerProfile {
 #[derive(Debug, Clone)]
 pub struct MainWorkerRuntimeOpts {
     pub worker_pool_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
-    pub event_worker_metric_src: Option<WorkerMetricSource>,
+    pub shared_metric_src: Option<SharedMetricSource>,
+    pub event_worker_metric_src: Option<MetricSource>,
 }
 
 #[derive(Debug, Clone)]

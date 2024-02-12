@@ -111,7 +111,7 @@ async fn test_main_worker_boot_error() {
     let main_termination_token = TerminationToken::new();
 
     // create a user worker pool
-    let worker_pool_tx = create_user_worker_pool(
+    let (_, worker_pool_tx) = create_user_worker_pool(
         test_user_worker_pool_policy(),
         None,
         Some(pool_termination_token.clone()),
@@ -131,6 +131,7 @@ async fn test_main_worker_boot_error() {
         maybe_module_code: None,
         conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
             worker_pool_tx,
+            shared_metric_src: None,
             event_worker_metric_src: None,
         }),
     };

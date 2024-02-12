@@ -14,6 +14,11 @@ serve(async (req: Request) => {
 		);
 	}
 
+	if (pathname === '/_internal/metric') {
+		const metric = await EdgeRuntime.getRuntimeMetrics();
+		return Response.json(metric);
+	}
+
 	const path_parts = pathname.split('/');
 	const service_name = path_parts[1];
 

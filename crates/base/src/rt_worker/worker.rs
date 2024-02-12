@@ -11,7 +11,7 @@ use event_worker::events::{
 use futures_util::FutureExt;
 use log::{debug, error};
 use sb_core::conn_sync::ConnSync;
-use sb_core::{RuntimeMetricSource, WorkerMetricSource};
+use sb_core::{MetricSource, RuntimeMetricSource, WorkerMetricSource};
 use sb_workers::context::{UserWorkerMsgs, WorkerContextInitOpts};
 use std::any::Any;
 use std::future::{pending, Future};
@@ -88,7 +88,7 @@ impl Worker {
             UnboundedSender<UnixStreamEntry>,
             UnboundedReceiver<UnixStreamEntry>,
         ),
-        booter_signal: Sender<Result<WorkerMetricSource, Error>>,
+        booter_signal: Sender<Result<MetricSource, Error>>,
         termination_token: Option<TerminationToken>,
     ) {
         let worker_name = self.worker_name.clone();
@@ -103,11 +103,7 @@ impl Worker {
         let method_cloner = self.clone();
         let timing = opts.timing.take();
         let worker_kind = opts.conf.to_worker_kind();
-        let maybe_event_worker_metric_src = opts
-            .conf
-            .as_main_worker()
-            .as_ref()
-            .and_then(|it| it.event_worker_metric_src.clone());
+        let maybe_main_worker_opts = opts.conf.as_main_worker().cloned();
 
         let cancel = self.cancel.clone();
         let rt = if worker_kind.is_user_worker() {
@@ -125,24 +121,29 @@ impl Worker {
 
                 let result = match DenoRuntime::new(opts).await {
                     Ok(mut new_runtime) => {
-                        let metric = {
+                        let metric_src = {
                             let js_runtime = &mut new_runtime.js_runtime;
-                            let metric = WorkerMetricSource::from_js_runtime(js_runtime);
+                            let metric_src = WorkerMetricSource::from_js_runtime(js_runtime);
 
                             if worker_kind.is_main_worker() {
+                                let opts = maybe_main_worker_opts.unwrap();
                                 let state = js_runtime.op_state();
                                 let mut state_mut = state.borrow_mut();
+                                let metric_src = RuntimeMetricSource::new(
+                                    metric_src.clone(),
+                                    opts.event_worker_metric_src
+                                        .and_then(|it| it.into_worker().ok()),
+                                    opts.shared_metric_src,
+                                );
 
-                                state_mut.put(RuntimeMetricSource::new(
-                                    metric.clone(),
-                                    maybe_event_worker_metric_src,
-                                ));
+                                state_mut.put(metric_src.clone());
+                                MetricSource::Runtime(metric_src)
+                            } else {
+                                MetricSource::Worker(metric_src)
                             }
-
-                            metric
                         };
 
-                        let _ = booter_signal.send(Ok(metric));
+                        let _ = booter_signal.send(Ok(metric_src));
 
                         // CPU TIMER
                         let (termination_event_tx, termination_event_rx) =

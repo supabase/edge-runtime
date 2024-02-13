@@ -336,7 +336,7 @@ globalThis.bootstrapSBEdge = (opts, isUserWorker, isEventsWorker, edgeRuntimeVer
 	ObjectDefineProperty(globalThis, 'Deno', readOnly(denoOverrides));
 
 	setNumCpus(1); // explicitly setting no of CPUs to 1 (since we don't allow workers)
-	setUserAgent('Supabase Edge Runtime');
+	setUserAgent(`Deno/${globalThis.DENO_VERSION} (variant; SupabaseEdgeRuntime/${globalThis.SUPABASE_VERSION})`);
 	setLanguage('en');
 
 	if (isUserWorker) {

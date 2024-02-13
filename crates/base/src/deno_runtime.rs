@@ -18,7 +18,7 @@ use deno_tls::rustls::RootCertStore;
 use deno_tls::RootCertStoreProvider;
 use futures_util::future::poll_fn;
 use log::{error, trace};
-use once_cell::sync::OnceCell;
+use once_cell::sync::{Lazy, OnceCell};
 use sb_core::conn_sync::ConnSync;
 use sb_core::util::sync::AtomicFlag;
 use serde::de::DeserializeOwned;
@@ -80,6 +80,14 @@ fn get_error_class_name(e: &AnyError) -> &'static str {
 }
 
 pub static MAYBE_DENO_VERSION: OnceCell<String> = OnceCell::new();
+static SUPABASE_UA: Lazy<String> = Lazy::new(|| {
+    let deno_version = MAYBE_DENO_VERSION.get().map(|it| &**it).unwrap_or("1.0.0");
+    let supabase_version = option_env!("GIT_V_TAG").unwrap_or("0.1.0");
+    format!(
+        "Deno/{} (variant; SupabaseEdgeRuntime/{})",
+        deno_version, supabase_version
+    )
+});
 
 pub struct DenoRuntime {
     pub js_runtime: JsRuntime,
@@ -108,7 +116,6 @@ impl DenoRuntime {
             ..
         } = opts;
 
-        let user_agent = "supabase-edge-runtime".to_string();
         let base_dir_path = std::env::current_dir().map(|p| p.join(&service_path))?;
         let base_url = Url::from_directory_path(&base_dir_path).unwrap();
 
@@ -250,12 +257,12 @@ impl DenoRuntime {
             deno_webgpu::deno_webgpu::init_ops(),
             deno_canvas::deno_canvas::init_ops(),
             deno_fetch::deno_fetch::init_ops::<Permissions>(deno_fetch::Options {
-                user_agent: user_agent.clone(),
+                user_agent: SUPABASE_UA.clone(),
                 root_cert_store_provider: Some(root_cert_store_provider.clone()),
                 ..Default::default()
             }),
             deno_websocket::deno_websocket::init_ops::<Permissions>(
-                user_agent,
+                SUPABASE_UA.clone(),
                 Some(root_cert_store_provider.clone()),
                 None,
             ),

@@ -483,7 +483,7 @@ impl DenoRuntime {
         let mut current_cpu_time_ns = 0i64;
         let mut accumulated_cpu_time_ns = 0i64;
 
-        let poll_result = poll_fn(|cx| {
+        let poll_result = poll_fn(|cx| unsafe {
             // INVARIANT: Only can steal current task by other threads when LIFO
             // task scheduler heuristic disabled. Turning off the heuristic is
             // unstable now, so it's not considered.
@@ -654,26 +654,30 @@ mod test {
     #[serial]
     async fn test_module_code_no_eszip() {
         let (worker_pool_tx, _) = mpsc::unbounded_channel::<UserWorkerMsgs>();
-        let mut rt = DenoRuntime::new(WorkerContextInitOpts {
-            service_path: PathBuf::from("./test_cases/"),
-            no_module_cache: false,
-            import_map_path: None,
-            env_vars: Default::default(),
-            events_rx: None,
-            timing: None,
-            maybe_eszip: None,
-            maybe_entrypoint: None,
-            maybe_module_code: Some(FastString::from(String::from(
-                "Deno.serve((req) => new Response('Hello World'));",
-            ))),
-            conf: {
-                WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
-                    worker_pool_tx,
-                    shared_metric_src: None,
-                    event_worker_metric_src: None,
-                })
+
+        DenoRuntime::new(
+            WorkerContextInitOpts {
+                service_path: PathBuf::from("./test_cases/"),
+                no_module_cache: false,
+                import_map_path: None,
+                env_vars: Default::default(),
+                events_rx: None,
+                timing: None,
+                maybe_eszip: None,
+                maybe_entrypoint: None,
+                maybe_module_code: Some(FastString::from(String::from(
+                    "Deno.serve((req) => new Response('Hello World'));",
+                ))),
+                conf: {
+                    WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
+                        worker_pool_tx,
+                        shared_metric_src: None,
+                        event_worker_metric_src: None,
+                    })
+                },
             },
-        }, None)
+            None,
+        )
         .await
         .expect("It should not panic");
     }
@@ -695,24 +699,27 @@ mod test {
 
         let eszip_code = bin_eszip.into_bytes();
 
-        let runtime = DenoRuntime::new(WorkerContextInitOpts {
-            service_path: PathBuf::from("./test_cases/"),
-            no_module_cache: false,
-            import_map_path: None,
-            env_vars: Default::default(),
-            events_rx: None,
-            timing: None,
-            maybe_eszip: Some(EszipPayloadKind::VecKind(eszip_code)),
-            maybe_entrypoint: None,
-            maybe_module_code: None,
-            conf: {
-                WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
-                    worker_pool_tx,
-                    shared_metric_src: None,
-                    event_worker_metric_src: None,
-                })
+        let runtime = DenoRuntime::new(
+            WorkerContextInitOpts {
+                service_path: PathBuf::from("./test_cases/"),
+                no_module_cache: false,
+                import_map_path: None,
+                env_vars: Default::default(),
+                events_rx: None,
+                timing: None,
+                maybe_eszip: Some(EszipPayloadKind::VecKind(eszip_code)),
+                maybe_entrypoint: None,
+                maybe_module_code: None,
+                conf: {
+                    WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
+                        worker_pool_tx,
+                        shared_metric_src: None,
+                        event_worker_metric_src: None,
+                    })
+                },
             },
-        }, None)
+            None,
+        )
         .await;
 
         let mut rt = runtime.unwrap();
@@ -756,24 +763,27 @@ mod test {
 
         let eszip_code = binary_eszip.into_bytes();
 
-        let runtime = DenoRuntime::new(WorkerContextInitOpts {
-            service_path,
-            no_module_cache: false,
-            import_map_path: None,
-            env_vars: Default::default(),
-            events_rx: None,
-            timing: None,
-            maybe_eszip: Some(EszipPayloadKind::VecKind(eszip_code)),
-            maybe_entrypoint: None,
-            maybe_module_code: None,
-            conf: {
-                WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
-                    worker_pool_tx,
-                    shared_metric_src: None,
-                    event_worker_metric_src: None,
-                })
+        let runtime = DenoRuntime::new(
+            WorkerContextInitOpts {
+                service_path,
+                no_module_cache: false,
+                import_map_path: None,
+                env_vars: Default::default(),
+                events_rx: None,
+                timing: None,
+                maybe_eszip: Some(EszipPayloadKind::VecKind(eszip_code)),
+                maybe_entrypoint: None,
+                maybe_module_code: None,
+                conf: {
+                    WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
+                        worker_pool_tx,
+                        shared_metric_src: None,
+                        event_worker_metric_src: None,
+                    })
+                },
             },
-        }, None)
+            None,
+        )
         .await;
 
         let mut rt = runtime.unwrap();
@@ -810,26 +820,28 @@ mod test {
     ) -> DenoRuntime {
         let (worker_pool_tx, _) = mpsc::unbounded_channel::<UserWorkerMsgs>();
 
-        DenoRuntime::new(WorkerContextInitOpts {
-            service_path: path.unwrap_or(PathBuf::from("./test_cases/main")),
-            no_module_cache: false,
-            import_map_path: None,
-            env_vars: env_vars.unwrap_or_default(),
-            events_rx: None,
-            timing: None,
-            maybe_eszip: None,
-            maybe_entrypoint: None,
-            maybe_module_code: None,
-            conf: {
-                if let Some(uc) = user_conf {
-                    uc
-                } else {
-                    WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
-                        worker_pool_tx,
-                        shared_metric_src: None,
-                        event_worker_metric_src: None,
-                    })
-                }
+        DenoRuntime::new(
+            WorkerContextInitOpts {
+                service_path: path.unwrap_or(PathBuf::from("./test_cases/main")),
+                no_module_cache: false,
+                import_map_path: None,
+                env_vars: env_vars.unwrap_or_default(),
+                events_rx: None,
+                timing: None,
+                maybe_eszip: None,
+                maybe_entrypoint: None,
+                maybe_module_code: None,
+                conf: {
+                    if let Some(uc) = user_conf {
+                        uc
+                    } else {
+                        WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
+                            worker_pool_tx,
+                            shared_metric_src: None,
+                            event_worker_metric_src: None,
+                        })
+                    }
+                },
             },
             None,
         )

@@ -226,10 +226,12 @@ impl TestBedBuilder {
         };
 
         let main_termination_token = TerminationToken::new();
-        let (_, main_worker_msg_tx) =
-            create_worker((main_worker_init_opts, main_termination_token.clone()), None)
-                .await
-                .unwrap();
+        let (_, main_worker_msg_tx) = create_worker(
+            (main_worker_init_opts, main_termination_token.clone()),
+            None,
+        )
+        .await
+        .unwrap();
 
         TestBed {
             pool_termination_token,

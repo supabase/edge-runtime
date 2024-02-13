@@ -478,7 +478,6 @@ pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
     init_opts: Opt,
     inspector: Option<Inspector>,
 ) -> Result<(MetricSource, mpsc::UnboundedSender<WorkerRequestMsg>), Error> {
-    let (worker_boot_result_tx, worker_boot_result_rx) = oneshot::channel::<Result<(), Error>>();
     let (unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStreamEntry>();
     let (worker_boot_result_tx, worker_boot_result_rx) =
         oneshot::channel::<Result<MetricSource, Error>>();
@@ -608,21 +607,24 @@ pub async fn create_main_worker(
         }
     }
 
-    let (_, sender) = create_worker((
-        WorkerContextInitOpts {
-            service_path,
-            import_map_path,
-            no_module_cache,
-            events_rx: None,
-            timing: None,
-            maybe_eszip,
-            maybe_entrypoint,
-            maybe_module_code: None,
-            conf: WorkerRuntimeOpts::MainWorker(runtime_opts),
-            env_vars: std::env::vars().collect(),
-        },
-        termination_token,
-    ), inspector)
+    let (_, sender) = create_worker(
+        (
+            WorkerContextInitOpts {
+                service_path,
+                import_map_path,
+                no_module_cache,
+                events_rx: None,
+                timing: None,
+                maybe_eszip,
+                maybe_entrypoint,
+                maybe_module_code: None,
+                conf: WorkerRuntimeOpts::MainWorker(runtime_opts),
+                env_vars: std::env::vars().collect(),
+            },
+            termination_token,
+        ),
+        inspector,
+    )
     .await
     .map_err(|err| anyhow!("main worker boot error: {}", err))?;
 
@@ -649,21 +651,24 @@ pub async fn create_events_worker(
         }
     }
 
-    let (metric, _) = create_worker((
-        WorkerContextInitOpts {
-            service_path,
-            no_module_cache,
-            import_map_path,
-            env_vars: std::env::vars().collect(),
-            events_rx: Some(events_rx),
-            timing: None,
-            maybe_eszip,
-            maybe_entrypoint,
-            maybe_module_code: None,
-            conf: WorkerRuntimeOpts::EventsWorker(EventWorkerRuntimeOpts {}),
-        },
-        termination_token,
-    ), None)
+    let (metric, _) = create_worker(
+        (
+            WorkerContextInitOpts {
+                service_path,
+                no_module_cache,
+                import_map_path,
+                env_vars: std::env::vars().collect(),
+                events_rx: Some(events_rx),
+                timing: None,
+                maybe_eszip,
+                maybe_entrypoint,
+                maybe_module_code: None,
+                conf: WorkerRuntimeOpts::EventsWorker(EventWorkerRuntimeOpts {}),
+            },
+            termination_token,
+        ),
+        None,
+    )
     .await
     .map_err(|err| anyhow!("events worker boot error: {}", err))?;
 
@@ -692,7 +697,7 @@ pub async fn create_user_worker_pool(
                 metric_src_inner,
                 worker_event_sender,
                 user_worker_msgs_tx_clone,
-				inspector,
+                inspector,
             );
 
             // Note: Keep this loop non-blocking. Spawn a task to run blocking calls.

@@ -5,6 +5,7 @@ use event_worker::events::WorkerEventWithMetadata;
 use hyper::{Body, Request, Response};
 use sb_core::conn_sync::ConnSync;
 use sb_core::util::sync::AtomicFlag;
+use sb_core::{MetricSource, SharedMetricSource};
 use std::path::PathBuf;
 use std::sync::atomic::AtomicUsize;
 use std::{collections::HashMap, sync::Arc};
@@ -75,6 +76,8 @@ pub struct UserWorkerProfile {
 #[derive(Debug, Clone)]
 pub struct MainWorkerRuntimeOpts {
     pub worker_pool_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
+    pub shared_metric_src: Option<SharedMetricSource>,
+    pub event_worker_metric_src: Option<MetricSource>,
 }
 
 #[derive(Debug, Clone)]
@@ -85,6 +88,29 @@ pub enum WorkerRuntimeOpts {
     UserWorker(UserWorkerRuntimeOpts),
     MainWorker(MainWorkerRuntimeOpts),
     EventsWorker(EventWorkerRuntimeOpts),
+}
+
+impl WorkerRuntimeOpts {
+    pub fn to_worker_kind(&self) -> WorkerKind {
+        match self {
+            Self::UserWorker(_) => WorkerKind::UserWorker,
+            Self::MainWorker(_) => WorkerKind::MainWorker,
+            Self::EventsWorker(_) => WorkerKind::EventsWorker,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, EnumAsInner, PartialEq, Eq)]
+pub enum WorkerKind {
+    UserWorker,
+    MainWorker,
+    EventsWorker,
+}
+
+impl From<&WorkerRuntimeOpts> for WorkerKind {
+    fn from(value: &WorkerRuntimeOpts) -> Self {
+        value.to_worker_kind()
+    }
 }
 
 #[derive(Debug, Clone, Default)]

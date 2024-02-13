@@ -48,3 +48,4 @@ base64.workspace = true
 futures.workspace = true
 percent-encoding.workspace = true
 scopeguard.workspace = true
+enum-as-inner.workspace = true

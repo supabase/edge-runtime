@@ -421,7 +421,7 @@ impl DenoRuntime {
         // the task from the other threads.
         // let mut current_thread_id = std::thread::current().id();
 
-        let result = match poll_fn(|cx| {
+        let poll_result = poll_fn(|cx| {
             // INVARIANT: Only can steal current task by other threads when LIFO
             // task scheduler heuristic disabled. Turning off the heuristic is
             // unstable now, so it's not considered.
@@ -487,8 +487,9 @@ impl DenoRuntime {
 
             poll_result
         })
-        .await
-        {
+        .await;
+
+        let result = match poll_result {
             Err(err) => Err(anyhow!("event loop error: {}", err)),
             Ok(_) => match mod_result_rx.await {
                 Err(e) => {
@@ -573,7 +574,13 @@ mod test {
             maybe_module_code: Some(FastString::from(String::from(
                 "Deno.serve((req) => new Response('Hello World'));",
             ))),
-            conf: { WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts { worker_pool_tx }) },
+            conf: {
+                WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
+                    worker_pool_tx,
+                    shared_metric_src: None,
+                    event_worker_metric_src: None,
+                })
+            },
         })
         .await
         .expect("It should not panic");
@@ -612,7 +619,13 @@ mod test {
             maybe_eszip: Some(EszipPayloadKind::VecKind(eszip_code)),
             maybe_entrypoint: None,
             maybe_module_code: None,
-            conf: { WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts { worker_pool_tx }) },
+            conf: {
+                WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
+                    worker_pool_tx,
+                    shared_metric_src: None,
+                    event_worker_metric_src: None,
+                })
+            },
         })
         .await;
 
@@ -673,7 +686,13 @@ mod test {
             maybe_eszip: Some(EszipPayloadKind::VecKind(eszip_code)),
             maybe_entrypoint: None,
             maybe_module_code: None,
-            conf: { WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts { worker_pool_tx }) },
+            conf: {
+                WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
+                    worker_pool_tx,
+                    shared_metric_src: None,
+                    event_worker_metric_src: None,
+                })
+            },
         })
         .await;
 
@@ -731,7 +750,11 @@ mod test {
                 if let Some(uc) = user_conf {
                     uc
                 } else {
-                    WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts { worker_pool_tx })
+                    WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
+                        worker_pool_tx,
+                        shared_metric_src: None,
+                        event_worker_metric_src: None,
+                    })
                 }
             },
         })

@@ -21,7 +21,7 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
     let main_termination_token = TerminationToken::new();
 
     // create a user worker pool
-    let user_worker_msgs_tx = create_user_worker_pool(
+    let (_, worker_pool_tx) = create_user_worker_pool(
         integration_test_helper::test_user_worker_pool_policy(),
         None,
         Some(pool_termination_token.clone()),
@@ -40,11 +40,13 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
         maybe_entrypoint: None,
         maybe_module_code: None,
         conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
-            worker_pool_tx: user_worker_msgs_tx,
+            worker_pool_tx,
+            shared_metric_src: None,
+            event_worker_metric_src: None,
         }),
     };
 
-    let worker_req_tx = create_worker((opts, main_termination_token.clone()))
+    let (_, worker_req_tx) = create_worker((opts, main_termination_token.clone()))
         .await
         .unwrap();
 

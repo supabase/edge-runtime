@@ -192,7 +192,7 @@ impl TestBedBuilder {
     }
 
     pub async fn build(self) -> TestBed {
-        let (worker_pool_msg_tx, pool_termination_token) = {
+        let ((_, worker_pool_tx), pool_termination_token) = {
             let token = TerminationToken::new();
             (
                 create_user_worker_pool(
@@ -218,12 +218,14 @@ impl TestBedBuilder {
             maybe_entrypoint: None,
             maybe_module_code: None,
             conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
-                worker_pool_tx: worker_pool_msg_tx,
+                worker_pool_tx,
+                shared_metric_src: None,
+                event_worker_metric_src: None,
             }),
         };
 
         let main_termination_token = TerminationToken::new();
-        let main_worker_msg_tx =
+        let (_, main_worker_msg_tx) =
             create_worker((main_worker_init_opts, main_termination_token.clone()))
                 .await
                 .unwrap();
@@ -293,20 +295,24 @@ pub async fn create_test_user_worker<Opt: Into<CreateTestUserWorkerArgs>>(
         ..Default::default()
     });
 
-    Ok((
-        create_worker(
+    Ok({
+        let (_, sender) = create_worker(
             opts.with_policy(policy)
                 .with_termination_token(termination_token.clone()),
         )
-        .await?,
-        RequestScope {
-            policy,
-            req_start_tx,
-            req_end_tx,
-            termination_token,
-            conn: (Some(conn_tx), conn_rx),
-        },
-    ))
+        .await?;
+
+        (
+            sender,
+            RequestScope {
+                policy,
+                req_start_tx,
+                req_end_tx,
+                termination_token,
+                conn: (Some(conn_tx), conn_rx),
+            },
+        )
+    })
 }
 
 pub fn test_user_worker_pool_policy() -> WorkerPoolPolicy {

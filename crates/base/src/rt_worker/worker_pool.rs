@@ -7,6 +7,7 @@ use hyper::Body;
 use log::error;
 use sb_core::conn_sync::ConnSync;
 use sb_core::util::sync::AtomicFlag;
+use sb_core::SharedMetricSource;
 use sb_workers::context::{
     CreateUserWorkerResult, SendRequestResult, Timing, TimingStatus, UserWorkerMsgs,
     UserWorkerProfile, WorkerContextInitOpts, WorkerRuntimeOpts,
@@ -203,6 +204,7 @@ impl ActiveWorkerRegistry {
 // send_request is called with UUID
 pub struct WorkerPool {
     pub policy: WorkerPoolPolicy,
+    pub metric_src: SharedMetricSource,
     pub user_workers: HashMap<Uuid, UserWorkerProfile>,
     pub active_workers: HashMap<String, ActiveWorkerRegistry>,
     pub worker_pool_msgs_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
@@ -214,11 +216,13 @@ pub struct WorkerPool {
 impl WorkerPool {
     pub(crate) fn new(
         policy: WorkerPoolPolicy,
+        metric_src: SharedMetricSource,
         worker_event_sender: Option<UnboundedSender<WorkerEventWithMetadata>>,
         worker_pool_msgs_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
     ) -> Self {
         Self {
             policy,
+            metric_src,
             worker_event_sender,
             user_workers: HashMap::new(),
             active_workers: HashMap::new(),
@@ -404,7 +408,7 @@ impl WorkerPool {
             match create_worker((worker_options, supervisor_policy, termination_token.clone()))
                 .await
             {
-                Ok(worker_request_msg_tx) => {
+                Ok((_, worker_request_msg_tx)) => {
                     let profile = UserWorkerProfile {
                         worker_request_msg_tx,
                         timing_tx_pair: (req_start_timing_tx, req_end_timing_tx),
@@ -447,6 +451,7 @@ impl WorkerPool {
             .insert(WorkerId(key, self.policy.supervisor_policy.is_per_worker()));
 
         self.user_workers.insert(key, profile);
+        self.metric_src.incl_active_user_workers();
     }
 
     pub fn send_request(
@@ -552,6 +557,8 @@ impl WorkerPool {
         };
 
         let _ = notify_tx.send(None);
+
+        self.metric_src.decl_active_user_workers();
     }
 
     fn retire(&mut self, key: &Uuid) {
@@ -570,6 +577,7 @@ impl WorkerPool {
 
             if registry.workers.contains(key) {
                 registry.workers.remove(key);
+                self.metric_src.incl_retired_user_worker();
             }
         }
     }

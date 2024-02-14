@@ -572,6 +572,7 @@ mod manifest {
             self.serialized.modules.insert(url, new_data);
         }
 
+        #[allow(deprecated)]
         pub fn remove(&mut self, url: &Url, sub_path: &LocalCacheSubPath) -> bool {
             if self.serialized.modules.remove(url).is_some() {
                 if let Some(reverse_mapping) = &mut self.reverse_mapping {

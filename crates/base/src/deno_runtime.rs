@@ -33,6 +33,7 @@ use crate::snapshot;
 use event_worker::events::{EventMetadata, WorkerEventWithMetadata};
 use event_worker::js_interceptors::sb_events_js_interceptors;
 use event_worker::sb_user_event_worker;
+use sb_ai::sb_ai;
 use sb_core::cache::CacheSetting;
 use sb_core::cert::ValueRootCertStoreProvider;
 use sb_core::external_memory::custom_allocator;
@@ -277,6 +278,7 @@ impl DenoRuntime {
             deno_io::deno_io::init_ops(stdio),
             deno_fs::deno_fs::init_ops::<Permissions>(fs.clone()),
             sb_env_op::init_ops(),
+            sb_ai::init_ops(),
             sb_os::sb_os::init_ops(),
             sb_user_workers::init_ops(),
             sb_user_event_worker::init_ops(),

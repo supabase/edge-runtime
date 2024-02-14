@@ -10,7 +10,6 @@ serve(async (req: Request) => {
 	const { name }: reqPayload = await req.json();
 	const data = {
 		message: `Hello ${name} from foo!`,
-		test: 'foo',
 	};
 
 	return new Response(

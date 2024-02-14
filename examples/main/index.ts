@@ -37,6 +37,7 @@ serve(async (req: Request) => {
 		const memoryLimitMb = 150;
 		const workerTimeoutMs = 5 * 60 * 1000;
 		const noModuleCache = false;
+
 		// you can provide an import map inline
 		// const inlineImportMap = {
 		//   imports: {
@@ -59,8 +60,8 @@ serve(async (req: Request) => {
 		// or load module source from an inline module
 		// const maybeModuleCode = 'Deno.serve((req) => new Response("Hello from Module Code"));';
 		//
-		const cpuTimeSoftLimitMs = 50;
-		const cpuTimeHardLimitMs = 100;
+		const cpuTimeSoftLimitMs = 10000;
+		const cpuTimeHardLimitMs = 20000;
 
 		return await EdgeRuntime.userWorkers.create({
 			servicePath,
@@ -94,7 +95,7 @@ serve(async (req: Request) => {
 			return await worker.fetch(req, { signal });
 		} catch (e) {
 			console.error(e);
-			
+
 			if (e instanceof Deno.errors.WorkerRequestCancelled) {
 				// XXX(Nyannyacha): I can't think right now how to re-poll
 				// inside the worker pool without exposing the error to the
@@ -108,7 +109,7 @@ serve(async (req: Request) => {
 				// some internal reasons. We should repoll the worker and call
 				// `fetch` again.
 				// return await callWorker();
-				console.log("cancelled!");
+				console.log('cancelled!');
 			}
 
 			const error = { msg: e.toString() };

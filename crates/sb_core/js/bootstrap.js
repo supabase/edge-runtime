@@ -2,7 +2,7 @@ import * as abortSignal from 'ext:deno_web/03_abort_signal.js';
 import * as base64 from 'ext:deno_web/05_base64.js';
 import * as console from 'ext:deno_console/01_console.js';
 import * as crypto from 'ext:deno_crypto/00_crypto.js';
-import { DOMException } from "ext:deno_web/01_dom_exception.js";
+import { DOMException } from 'ext:deno_web/01_dom_exception.js';
 import * as encoding from 'ext:deno_web/08_text_encoding.js';
 import * as event from 'ext:deno_web/02_event.js';
 import * as fetch from 'ext:deno_fetch/26_fetch.js';
@@ -20,6 +20,7 @@ import * as response from 'ext:deno_fetch/23_response.js';
 import * as request from 'ext:deno_fetch/23_request.js';
 import * as globalInterfaces from 'ext:deno_web/04_global_interfaces.js';
 import { SUPABASE_ENV } from 'ext:sb_env/env.js';
+import { SupabaseAI } from 'ext:sb_ai/ai.js';
 import { registerErrors } from 'ext:sb_core_main_js/js/errors.js';
 import {
 	formatException,
@@ -43,12 +44,12 @@ import { SupabaseEventListener } from 'ext:sb_user_event_worker/event_worker.js'
 import * as MainWorker from 'ext:sb_core_main_js/js/main_worker.js';
 import * as DenoWebCompression from 'ext:deno_web/14_compression.js';
 import * as DenoWSStream from 'ext:deno_websocket/02_websocketstream.js';
-import * as eventSource from "ext:deno_fetch/27_eventsource.js";
-import * as WebGPU from "ext:deno_webgpu/00_init.js";
-import * as WebGPUSurface from "ext:deno_webgpu/02_surface.js";
+import * as eventSource from 'ext:deno_fetch/27_eventsource.js';
+import * as WebGPU from 'ext:deno_webgpu/00_init.js';
+import * as WebGPUSurface from 'ext:deno_webgpu/02_surface.js';
 
-import { primordials, core } from "ext:core/mod.js";
-import { op_lazy_load_esm } from "ext:core/ops";
+import { core, primordials } from 'ext:core/mod.js';
+import { op_lazy_load_esm } from 'ext:core/ops';
 const ops = core.ops;
 
 const {
@@ -111,7 +112,7 @@ function ImageWritable(getter) {
 }
 function loadImage() {
 	if (!image) {
-		image = op_lazy_load_esm("ext:deno_canvas/01_image.js");
+		image = op_lazy_load_esm('ext:deno_canvas/01_image.js');
 	}
 }
 
@@ -295,7 +296,13 @@ const deleteDenoApis = (apis) => {
 	});
 };
 
-globalThis.bootstrapSBEdge = (opts, isUserWorker, isEventsWorker, edgeRuntimeVersion, denoVersion) => {
+globalThis.bootstrapSBEdge = (
+	opts,
+	isUserWorker,
+	isEventsWorker,
+	edgeRuntimeVersion,
+	denoVersion,
+) => {
 	// We should delete this after initialization,
 	// Deleting it during bootstrapping can backfire
 	delete globalThis.__bootstrap;
@@ -318,7 +325,7 @@ globalThis.bootstrapSBEdge = (opts, isUserWorker, isEventsWorker, edgeRuntimeVer
 	});
 
 	ObjectDefineProperty(globalThis, 'SUPABASE_VERSION', readOnly(String(edgeRuntimeVersion)));
-	ObjectDefineProperty(globalThis, 'DENO_VERSION', readOnly(denoVersion))
+	ObjectDefineProperty(globalThis, 'DENO_VERSION', readOnly(denoVersion));
 
 	// set these overrides after runtimeStart
 	ObjectDefineProperties(denoOverrides, {
@@ -328,7 +335,8 @@ globalThis.bootstrapSBEdge = (opts, isUserWorker, isEventsWorker, edgeRuntimeVer
 		args: readOnly([]), // args are set to be empty
 		mainModule: getterOnly(() => ops.op_main_module()),
 		version: getterOnly(() => ({
-			deno: `supabase-edge-runtime-${globalThis.SUPABASE_VERSION} (compatible with Deno v${globalThis.DENO_VERSION})`,
+			deno:
+				`supabase-edge-runtime-${globalThis.SUPABASE_VERSION} (compatible with Deno v${globalThis.DENO_VERSION})`,
 			v8: '11.6.189.12',
 			typescript: '5.1.6',
 		})),
@@ -336,8 +344,19 @@ globalThis.bootstrapSBEdge = (opts, isUserWorker, isEventsWorker, edgeRuntimeVer
 	ObjectDefineProperty(globalThis, 'Deno', readOnly(denoOverrides));
 
 	setNumCpus(1); // explicitly setting no of CPUs to 1 (since we don't allow workers)
-	setUserAgent(`Deno/${globalThis.DENO_VERSION} (variant; SupabaseEdgeRuntime/${globalThis.SUPABASE_VERSION})`);
+	setUserAgent(
+		`Deno/${globalThis.DENO_VERSION} (variant; SupabaseEdgeRuntime/${globalThis.SUPABASE_VERSION})`,
+	);
 	setLanguage('en');
+
+	const ai = new SupabaseAI();
+	Object.defineProperty(globalThis, 'Supabase_UNSTABLE', {
+		get() {
+			return {
+				ai,
+			};
+		},
+	});
 
 	if (isUserWorker) {
 		delete globalThis.EdgeRuntime;
@@ -364,7 +383,7 @@ globalThis.bootstrapSBEdge = (opts, isUserWorker, isEventsWorker, edgeRuntimeVer
 	}
 
 	const nodeBootstrap = globalThis.nodeBootstrap;
-	if(nodeBootstrap) {
+	if (nodeBootstrap) {
 		nodeBootstrap(false, undefined);
 		delete globalThis.nodeBootstrap;
 	}

@@ -12,8 +12,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,id=${TARGETPLATFORM} --m
     GIT_V_TAG=${GIT_V_VERSION} cargo build --release && \
     cargo strip && \
     mv /usr/src/edge-runtime/target/release/edge-runtime /root
-RUN curl -O https://registry.npmjs.org/onnxruntime-node/-/onnxruntime-node-${ONNXRUNTIME_VERSION}.tgz && tar zxvf onnxruntime-node-${ONNXRUNTIME_VERSION}.tgz && \
-  mv ./package/bin/napi-v3/$TARGETPLATFORM/libonnxruntime.so.${ONNXRUNTIME_VERSION} /root/libonnxruntime.so
+RUN ./scripts/install_onnx.sh $ONNXRUNTIME_VERSION $TARGETPLATFORM /root/libonnxruntime.so
 
 
 FROM debian:bookworm-slim

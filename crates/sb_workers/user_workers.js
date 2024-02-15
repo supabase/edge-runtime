@@ -1,27 +1,17 @@
 import { primordials, core } from "ext:core/mod.js";
-const {
-	TypeError,
-} = primordials;
-
 import { readableStreamForRid, writableStreamForRid } from 'ext:deno_web/06_streams.js';
 import { getWatcherRid } from 'ext:sb_core_main_js/js/http.js';
+
+const NO_CONN_WATCHER_WARN_MSG = `Unable to find the connection watcher from the request instance.\n\
+Invoke \`EdgeRuntime.applyConnectionWatcher(origReq, newReq)\` if you have cloned the original request.`
+
 const ops = core.ops;
 
+const { TypeError } = primordials;
 const {
 	op_user_worker_fetch_send,
 	op_user_worker_create
 } = core.ensureFastOps();
-
-// interface WorkerOptions {
-//     servicePath: string;
-//     memoryLimitMb?: number;
-//     workerTimeoutMs?: number;
-//     noModuleCache?: boolean;
-//     importMapPath?: string;
-//     envVars?: Array<any>
-// }
-
-const chunkExpression = /(?:^|\W)chunked(?:$|\W)/i;
 
 function nullBodyStatus(status) {
 	return status === 101 || status === 204 || status === 205 || status === 304;
@@ -46,16 +36,11 @@ class UserWorker {
 		signal?.throwIfAborted();
 
 		if (watcherRid === void 0) {
-			console.warn(`Unable to find the connection watcher from the request instance.\n\
-Invoke \`EdgeRuntime.applyConnectionWatcher(origReq, newReq)\` if you have cloned the original request.`);
+			console.warn(NO_CONN_WATCHER_WARN_MSG);
 		} 
 
 		const headersArray = Array.from(headers.entries());
 		const hasReqBody = !bodyUsed && !!body;
-
-		// const hasReqBody = !bodyUsed && !!body &&
-		// 	(chunkExpression.test(headers.get('transfer-encoding')) ||
-		// 		Number.parseInt(headers.get('content-length'), 10) > 0);
 
 		const userWorkerReq = {
 			method,

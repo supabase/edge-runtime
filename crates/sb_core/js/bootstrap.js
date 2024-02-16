@@ -39,6 +39,10 @@ import { promiseRejectMacrotaskCallback } from 'ext:sb_core_main_js/js/promises.
 import { denoOverrides, fsVars } from 'ext:sb_core_main_js/js/denoOverrides.js';
 import * as performance from 'ext:deno_web/15_performance.js';
 import * as messagePort from 'ext:deno_web/13_message_port.js';
+import {
+	op_bootstrap_is_tty,
+	op_bootstrap_no_color,
+} from "ext:core/ops";
 import { SupabaseEventListener } from 'ext:sb_user_event_worker/event_worker.js';
 import * as MainWorker from 'ext:sb_core_main_js/js/main_worker.js';
 import * as DenoWebCompression from 'ext:deno_web/14_compression.js';
@@ -46,6 +50,8 @@ import * as DenoWSStream from 'ext:deno_websocket/02_websocketstream.js';
 
 const core = globalThis.Deno.core;
 const ops = core.ops;
+
+console.setNoColorFn(() => op_bootstrap_no_color() || !op_bootstrap_is_tty());
 
 const {
 	Error,
@@ -299,7 +305,7 @@ globalThis.bootstrapSBEdge = (opts, isUserWorker, isEventsWorker, version) => {
 	}
 
 	const nodeBootstrap = globalThis.nodeBootstrap;
-	if(nodeBootstrap) {
+	if (nodeBootstrap) {
 		nodeBootstrap(false, undefined);
 		delete globalThis.nodeBootstrap;
 	}

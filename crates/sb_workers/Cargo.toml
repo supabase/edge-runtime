@@ -23,6 +23,7 @@ log.workspace = true
 enum-as-inner.workspace = true
 futures-util.workspace = true
 thiserror.workspace = true
+http_utils = { version = "0.1.0", path = "../http_utils" }
 event_worker = { version = "0.1.0", path = "../event_worker" }
 sb_graph = { version = "0.1.0", path = "../sb_graph" }
 sb_core = { version = "0.1.0", path = "../sb_core" }

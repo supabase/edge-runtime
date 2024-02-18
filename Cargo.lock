@@ -351,6 +351,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "async-tungstenite",
  "bytes",
  "cityhash",
  "cpu_timer",
@@ -380,6 +381,7 @@ dependencies = [
  "flume",
  "futures-util",
  "http 0.2.11",
+ "http_utils",
  "httparse",
  "hyper 0.14.28",
  "import_map",
@@ -2618,6 +2620,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "http_utils"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "futures-util",
+ "http 0.2.11",
+ "hyper 0.14.28",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
 name = "httparse"
 version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4795,6 +4809,7 @@ dependencies = [
  "enum-as-inner 0.6.0",
  "event_worker",
  "futures-util",
+ "http_utils",
  "hyper 0.14.28",
  "log",
  "sb_core",

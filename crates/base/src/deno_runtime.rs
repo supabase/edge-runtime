@@ -20,6 +20,8 @@ use futures_util::future::poll_fn;
 use log::{error, trace};
 use once_cell::sync::{Lazy, OnceCell};
 use sb_core::conn_sync::ConnSync;
+use sb_core::http::sb_core_http;
+use sb_core::http_start::sb_core_http_start;
 use sb_core::util::sync::AtomicFlag;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
@@ -37,7 +39,6 @@ use sb_ai::sb_ai;
 use sb_core::cache::CacheSetting;
 use sb_core::cert::ValueRootCertStoreProvider;
 use sb_core::external_memory::custom_allocator;
-use sb_core::http_start::sb_core_http;
 use sb_core::net::sb_core_net;
 use sb_core::permissions::{sb_core_permissions, Permissions};
 use sb_core::runtime::sb_core_runtime;
@@ -286,6 +287,7 @@ impl DenoRuntime {
             sb_core_main_js::init_ops(),
             sb_core_net::init_ops(),
             sb_core_http::init_ops(),
+            sb_core_http_start::init_ops(),
             deno_node::init_ops::<Permissions>(Some(npm_resolver), file_system),
             sb_core_runtime::init_ops(Some(main_module_url.clone())),
         ];

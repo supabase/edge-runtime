@@ -1,6 +1,6 @@
 use crate::deno_runtime::DenoRuntime;
-use crate::utils::send_event_if_event_worker_available;
 use crate::utils::units::bytes_to_display;
+use crate::utils::{emit_status_code, get_upgrade_type, send_event_if_event_worker_available};
 
 use crate::rt_worker::worker::{Worker, WorkerHandler};
 use crate::rt_worker::worker_pool::WorkerPool;
@@ -9,6 +9,10 @@ use cpu_timer::CPUTimer;
 use event_worker::events::{
     BootEvent, ShutdownEvent, WorkerEventWithMetadata, WorkerEvents, WorkerMemoryUsed,
 };
+use http::StatusCode;
+use http_utils::io::Upgraded2;
+use hyper::client::conn::http1;
+use hyper::upgrade::OnUpgrade;
 use hyper::{Body, Request, Response};
 use log::{debug, error};
 use sb_core::conn_sync::ConnSync;
@@ -22,6 +26,7 @@ use sb_workers::errors::WorkerError;
 use std::future::pending;
 use std::path::PathBuf;
 use std::sync::Arc;
+use tokio::io::copy_bidirectional;
 use tokio::net::UnixStream;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::{mpsc, oneshot, watch, Notify};
@@ -83,41 +88,94 @@ async fn handle_request(
     // create a unix socket pair
     let (sender_stream, recv_stream) = UnixStream::pair()?;
     let WorkerRequestMsg {
-        req,
+        mut req,
         res_tx,
         conn_watch,
     } = msg;
 
     let _ = unix_stream_tx.send((recv_stream, conn_watch.clone()));
+    let req_upgrade_type = get_upgrade_type(req.headers());
+    let req_upgrade = req_upgrade_type
+        .clone()
+        .and_then(|it| Some(it).zip(req.extensions_mut().remove::<OnUpgrade>()));
 
     // send the HTTP request to the worker over Unix stream
-    let (mut request_sender, connection) = hyper::client::conn::handshake(sender_stream).await?;
+    let (mut request_sender, connection) = http1::Builder::new()
+        .writev(true)
+        .handshake(sender_stream)
+        .await?;
+
+    let (upgrade_tx, upgrade_rx) = oneshot::channel();
 
     // spawn a task to poll the connection and drive the HTTP state
-    tokio::task::spawn(async move {
-        match connection.without_shutdown().await {
-            Err(e) => {
-                error!("Error in worker connection: {}", e.message(),);
-            }
-
-            Ok(parts) => {
-                if let Some(mut watcher) = conn_watch {
-                    if watcher.wait_for(|it| *it == ConnSync::Recv).await.is_err() {
-                        error!("cannot track outbound connection correctly");
-                    }
+    tokio::task::spawn({
+        async move {
+            match connection.without_shutdown().await {
+                Err(e) => {
+                    error!("Error in worker connection: {}", e.message());
                 }
 
-                drop(parts);
+                Ok(parts) => {
+                    if let Some((requested, req_upgrade)) = req_upgrade {
+                        if let Ok((Some(accepted), status)) = upgrade_rx.await {
+                            if status == StatusCode::SWITCHING_PROTOCOLS && accepted == requested {
+                                tokio::spawn(relay_upgraded_request_and_response(
+                                    req_upgrade,
+                                    parts,
+                                ));
+
+                                return;
+                            }
+                        };
+                    }
+
+                    if let Some(mut watcher) = conn_watch {
+                        if watcher.wait_for(|it| *it == ConnSync::Recv).await.is_err() {
+                            error!("cannot track outbound connection correctly");
+                        }
+                    }
+                }
             }
         }
     });
 
     tokio::task::yield_now().await;
 
-    let result = request_sender.send_request(req).await;
-    let _ = res_tx.send(result);
+    let res = request_sender.send_request(req).await;
+    let Ok(res) = res else {
+        drop(res_tx.send(res));
+        return Ok(());
+    };
 
+    if let Some(requested) = req_upgrade_type {
+        let res_upgrade_type = get_upgrade_type(res.headers());
+        let _ = upgrade_tx.send((res_upgrade_type.clone(), res.status()));
+
+        match res_upgrade_type {
+            Some(accepted) if accepted == requested => {}
+            _ => {
+                drop(res_tx.send(Ok(emit_status_code(StatusCode::BAD_GATEWAY))));
+                return Ok(());
+            }
+        }
+    }
+
+    drop(res_tx.send(Ok(res)));
     Ok(())
+}
+
+async fn relay_upgraded_request_and_response(
+    downstream: OnUpgrade,
+    parts: http1::Parts<UnixStream>,
+) {
+    let mut upstream = Upgraded2::new(parts.io, parts.read_buf);
+    let mut downstream = downstream.await.expect("failed to upgrade request");
+
+    copy_bidirectional(&mut upstream, &mut downstream)
+        .await
+        .expect("coping between upgraded connections failed");
+
+    // XXX(Nyannyacha): Here you might want to emit the event metadata.
 }
 
 #[allow(clippy::too_many_arguments)]

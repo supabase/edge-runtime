@@ -304,7 +304,7 @@ impl Server {
                             tokio::task::spawn({
                                 let event_tx = event_tx.clone();
                                 async move {
-                                    let (service, cancel) = WorkerService::new(metric_src, main_worker_req_tx);
+                                    let (mut service, cancel) = WorkerService::new(metric_src, main_worker_req_tx);
                                     let _guard = cancel.drop_guard();
 
                                     service.ignore_accept_encoding = ignore_accept_encoding;

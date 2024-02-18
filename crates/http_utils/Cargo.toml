@@ -1,0 +1,12 @@
+[package]
+name = "http_utils"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { workspace = true }
+tokio-util = { workspace = true, features = ["rt"] }
+futures-util = { workspace = true }
+bytes = { workspace = true }
+hyper = { workspace = true, features = ["full"] }
+http = { version = "0.2" }

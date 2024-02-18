@@ -1,9 +1,9 @@
 import { primordials, core } from "ext:core/mod.js";
 import { readableStreamForRid, writableStreamForRid } from 'ext:deno_web/06_streams.js';
-import { getWatcherRid } from 'ext:sb_core_main_js/js/http.js';
+import { getSupabaseTag } from 'ext:sb_core_main_js/js/http.js';
 
-const NO_CONN_WATCHER_WARN_MSG = `Unable to find the connection watcher from the request instance.\n\
-Invoke \`EdgeRuntime.applyConnectionWatcher(origReq, newReq)\` if you have cloned the original request.`
+const NO_SUPABASE_TAG_WARN_MSG = `Unable to find the supabase tag from the request instance.\n\
+Invoke \`EdgeRuntime.applySupabaseTag(origReq, newReq)\` if you have cloned the original request.`
 
 const ops = core.ops;
 
@@ -28,25 +28,25 @@ class UserWorker {
 	}
 
 	async fetch(req, opts = {}) {
-		const watcherRid = getWatcherRid(req);
+		const tag = getSupabaseTag(req);
 		
 		const { method, url, headers, body, bodyUsed } = req;
 		const { signal } = opts;
 
 		signal?.throwIfAborted();
 
-		if (watcherRid === void 0) {
-			console.warn(NO_CONN_WATCHER_WARN_MSG);
+		if (tag === void 0) {
+			console.warn(NO_SUPABASE_TAG_WARN_MSG);
 		} 
 
 		const headersArray = Array.from(headers.entries());
-		const hasReqBody = !bodyUsed && !!body;
+		const hasBody = !bodyUsed && !!body;
 
 		const userWorkerReq = {
 			method,
 			url,
+			hasBody,
 			headers: headersArray,
-			hasBody: hasReqBody,
 		};
 
 		const { requestRid, requestBodyRid } = await ops.op_user_worker_fetch_build(
@@ -55,12 +55,18 @@ class UserWorker {
 
 		// stream the request body
 		let reqBodyPromise = null;
-		if (hasReqBody) {
+		if (hasBody) {
 			let writableStream = writableStreamForRid(requestBodyRid);
 			reqBodyPromise = body.pipeTo(writableStream, { signal });
 		}
 
-		const resPromise = op_user_worker_fetch_send(this.key, requestRid, watcherRid);
+		const resPromise = op_user_worker_fetch_send(
+			this.key,
+			requestRid,
+			tag.streamRid,
+			tag.watcherRid
+		);
+
 		let [sent, res] = await Promise.allSettled([reqBodyPromise, resPromise]);
 		
 		if (sent.status === "rejected") {

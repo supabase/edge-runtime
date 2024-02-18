@@ -372,6 +372,7 @@ pub async fn op_user_worker_fetch_send(
     state: Rc<RefCell<OpState>>,
     #[string] key: String,
     #[smi] rid: ResourceId,
+    #[smi] stream_rid: ResourceId,
     #[smi] watcher_rid: Option<ResourceId>,
 ) -> Result<UserWorkerResponse, AnyError> {
     let (tx, request) = {

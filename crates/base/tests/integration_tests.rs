@@ -4,16 +4,21 @@ mod integration_test_helper;
 use std::{collections::HashMap, path::Path, time::Duration};
 
 use anyhow::Context;
+use async_tungstenite::WebSocketStream;
 use base::{
     integration_test,
     rt_worker::worker_ctx::{create_user_worker_pool, create_worker, TerminationToken},
     server::ServerEvent,
 };
+use futures_util::{SinkExt, StreamExt};
 use http::{Method, Request, StatusCode};
+use http_utils::utils::get_upgrade_type;
 use hyper::{body::to_bytes, Body};
 use sb_workers::context::{MainWorkerRuntimeOpts, WorkerContextInitOpts, WorkerRuntimeOpts};
 use serial_test::serial;
 use tokio::{join, sync::mpsc};
+use tokio_util::compat::TokioAsyncReadCompatExt;
+use tungstenite::Message;
 use urlencoding::encode;
 
 use crate::integration_test_helper::{
@@ -680,8 +685,10 @@ async fn test_user_worker_json_imports() {
 
             let body_bytes = res.bytes().await.unwrap();
             assert_eq!(body_bytes, r#"{"version":"1.0.0"}"#);
+
+            term.cancel_and_wait().await;
         }),
-        term
+        term.clone()
     );
 }
 
@@ -918,4 +925,66 @@ async fn req_failure_case_intentional_peer_reset() {
     assert!(matches!(ev, ServerEvent::ConnectionError(e) if e.is_incomplete_message()));
 
     term.cancel_and_wait().await;
+}
+
+#[tokio::test]
+#[serial]
+async fn test_websocket_upgrade() {
+    let term = TerminationToken::new();
+    let port = 8498;
+    let client = reqwest::Client::new();
+    let nonce = tungstenite::handshake::client::generate_key();
+    let req = client
+        .request(
+            Method::GET,
+            format!("http://localhost:{}/websocket-upgrade", port),
+        )
+        .header(reqwest::header::CONNECTION, "upgrade")
+        .header(reqwest::header::UPGRADE, "websocket")
+        .header(reqwest::header::SEC_WEBSOCKET_KEY, &nonce)
+        .header(reqwest::header::SEC_WEBSOCKET_VERSION, "13")
+        .build()
+        .unwrap();
+
+    let original = reqwest::RequestBuilder::from_parts(client, req);
+    let request_builder = Some(original);
+
+    integration_test!(
+        "./test_cases/main",
+        port,
+        "",
+        None,
+        None,
+        request_builder,
+        (|resp: Result<reqwest::Response, reqwest::Error>| async {
+            let res = resp.unwrap();
+            let accepted = get_upgrade_type(res.headers());
+
+            assert!(res.status().as_u16() == 101);
+            assert!(accepted.is_some());
+            assert_eq!(accepted.as_ref().unwrap(), "websocket");
+
+            let upgraded = res.upgrade().await.unwrap();
+            let mut ws = WebSocketStream::from_raw_socket(
+                upgraded.compat(),
+                tungstenite::protocol::Role::Client,
+                None,
+            )
+            .await;
+
+            assert_eq!(
+                ws.next().await.unwrap().unwrap().into_text().unwrap(),
+                "meow"
+            );
+
+            ws.send(Message::Text("meow!!".into())).await.unwrap();
+            assert_eq!(
+                ws.next().await.unwrap().unwrap().into_text().unwrap(),
+                "meow!!"
+            );
+
+            term.cancel_and_wait().await;
+        }),
+        term.clone()
+    );
 }

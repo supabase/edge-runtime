@@ -5,7 +5,6 @@ members = [
   "./crates/sb_workers",
   "./crates/sb_env",
   "./crates/sb_core",
-  "./crates/flaky_test",
   "./crates/sb_os",
   "./crates/cpu_timer",
   "./crates/event_worker",

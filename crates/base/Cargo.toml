@@ -65,7 +65,6 @@ deno_webgpu.workspace = true
 sb_ai = { version = "0.1.0", path = "../sb_ai" }
 
 [dev-dependencies]
-flaky_test = { version = "0.1.0", path = "../flaky_test" }
 serial_test = { version = "3.0.0" }
 
 [build-dependencies]

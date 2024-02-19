@@ -1,6 +1,6 @@
 use crate::deno_runtime::DenoRuntime;
+use crate::utils::send_event_if_event_worker_available;
 use crate::utils::units::bytes_to_display;
-use crate::utils::{emit_status_code, get_upgrade_type, send_event_if_event_worker_available};
 
 use crate::rt_worker::worker::{Worker, WorkerHandler};
 use crate::rt_worker::worker_pool::WorkerPool;
@@ -11,6 +11,7 @@ use event_worker::events::{
 };
 use http::StatusCode;
 use http_utils::io::Upgraded2;
+use http_utils::utils::{emit_status_code, get_upgrade_type};
 use hyper::client::conn::http1;
 use hyper::upgrade::OnUpgrade;
 use hyper::{Body, Request, Response};

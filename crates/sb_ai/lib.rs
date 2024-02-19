@@ -11,45 +11,52 @@ use tokenizers::Tokenizer;
 
 deno_core::extension!(
     sb_ai,
-    ops = [op_sb_ai_run_model],
+    ops = [op_sb_ai_run_model, op_sb_ai_init_model],
     esm_entry_point = "ext:sb_ai/ai.js",
     esm = ["ai.js",]
 );
 
-fn run_gte(state: &mut OpState, prompt: String) -> Result<Vec<f32>, Error> {
+fn init_gte(state: &mut OpState) -> Result<(), Error> {
     // Create the ONNX Runtime environment, for all sessions created in this process.
     ort::init().with_name("GTE").commit()?;
 
     let models_dir = std::env::var("SB_AI_MODELS_DIR").unwrap_or("/etc/sb_ai/models".to_string());
 
-    let mut session = state.try_take::<Session>();
+    let session = Session::builder()?
+        .with_optimization_level(GraphOptimizationLevel::Disable)?
+        .with_intra_threads(1)?
+        .with_model_from_file(
+            Path::new(&models_dir)
+                .join("gte")
+                .join("gte_small_quantized.onnx"),
+        )?;
+
+    let tokenizer = Tokenizer::from_file(
+        Path::new(&models_dir)
+            .join("gte")
+            .join("gte_small_tokenizer.json"),
+    )
+    .map_err(anyhow::Error::msg)?;
+
+    state.put::<Session>(session);
+    state.put::<Tokenizer>(tokenizer);
+
+    Ok(())
+}
+
+fn run_gte(state: &mut OpState, prompt: String) -> Result<Vec<f32>, Error> {
+    let session = state.try_borrow::<Session>();
     if session.is_none() {
-        session = Some(
-            Session::builder()?
-                .with_optimization_level(GraphOptimizationLevel::Disable)?
-                .with_intra_threads(1)?
-                .with_model_from_file(
-                    Path::new(&models_dir)
-                        .join("gte")
-                        .join("gte_small_quantized.onnx"),
-                )?,
-        );
+        bail!("inference session not available. init model first")
     }
     let session = session.unwrap();
 
     // Load the tokenizer and encode the prompt into a sequence of tokens.
-    let mut tokenizer = state.try_take::<Tokenizer>();
+    let tokenizer = state.try_borrow::<Tokenizer>();
     if tokenizer.is_none() {
-        tokenizer = Some(
-            Tokenizer::from_file(
-                Path::new(&models_dir)
-                    .join("gte")
-                    .join("gte_small_tokenizer.json"),
-            )
-            .map_err(anyhow::Error::msg)?,
-        )
+        bail!("tokenizer not available. init model first")
     }
-    let mut tokenizer = tokenizer.unwrap();
+    let mut tokenizer = tokenizer.unwrap().clone();
 
     let tokenizer_impl = tokenizer
         .with_normalizer(BertNormalizer::default())
@@ -88,12 +95,17 @@ fn run_gte(state: &mut OpState, prompt: String) -> Result<Vec<f32>, Error> {
 
     let slice = normalized.view().to_slice().unwrap().to_vec();
 
-    drop(outputs);
-
-    state.put::<Session>(session);
-    state.put::<Tokenizer>(tokenizer);
-
     Ok(slice)
+}
+
+#[op2]
+#[serde]
+pub fn op_sb_ai_init_model(state: &mut OpState, #[string] name: String) -> Result<(), AnyError> {
+    if name == "gte-small" {
+        init_gte(state)
+    } else {
+        bail!("model not supported")
+    }
 }
 
 #[op2]
@@ -103,7 +115,7 @@ pub fn op_sb_ai_run_model(
     #[string] name: String,
     #[string] prompt: String,
 ) -> Result<Vec<f32>, AnyError> {
-    if name == "gte" {
+    if name == "gte-small" {
         run_gte(state, prompt)
     } else {
         bail!("model not supported")

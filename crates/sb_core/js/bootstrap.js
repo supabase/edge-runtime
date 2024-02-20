@@ -267,6 +267,7 @@ function runtimeStart(runtimeOptions, source) {
 	ops.op_set_format_exception_callback(formatException);
 
 	setBuildInfo(runtimeOptions.target);
+	core.setBuildInfo(runtimeOptions.target);
 
 	// deno-lint-ignore prefer-primordials
 	Error.prepareStackTrace = core.prepareStackTrace;

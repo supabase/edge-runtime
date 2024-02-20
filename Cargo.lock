@@ -4548,6 +4548,7 @@ dependencies = [
  "rand",
  "serde",
  "tokenizers",
+ "tokio",
 ]
 
 [[package]]

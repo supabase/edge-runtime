@@ -235,29 +235,6 @@ const globalScope = {
 	[webidl.brand]: nonEnumerable(webidl.brand),
 };
 
-// set build info
-const build = {
-	target: 'unknown',
-	arch: 'unknown',
-	os: 'unknown',
-	vendor: 'unknown',
-	env: undefined,
-};
-
-function setBuildInfo(target) {
-	const { 0: arch, 1: vendor, 2: os, 3: env } = StringPrototypeSplit(
-		target,
-		'-',
-		4,
-	);
-	build.target = target;
-	build.arch = arch;
-	build.vendor = vendor;
-	build.os = os;
-	build.env = env;
-
-	ObjectFreeze(build);
-}
 
 function runtimeStart(runtimeOptions, source) {
 	core.setMacrotaskCallback(timers.handleTimerMacrotask);
@@ -266,7 +243,6 @@ function runtimeStart(runtimeOptions, source) {
 
 	ops.op_set_format_exception_callback(formatException);
 
-	setBuildInfo(runtimeOptions.target);
 	core.setBuildInfo(runtimeOptions.target);
 
 	// deno-lint-ignore prefer-primordials
@@ -330,7 +306,7 @@ globalThis.bootstrapSBEdge = (
 
 	// set these overrides after runtimeStart
 	ObjectDefineProperties(denoOverrides, {
-		build: readOnly(build),
+		build: readOnly(core.build),
 		env: readOnly(SUPABASE_ENV),
 		pid: readOnly(globalThis.__pid),
 		args: readOnly([]), // args are set to be empty

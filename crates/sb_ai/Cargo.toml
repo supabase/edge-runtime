@@ -18,4 +18,5 @@ ort = { version = "2.0.0-alpha.4", default-features = false, features = [ "ndarr
 ndarray = "0.15"
 ndarray-linalg = "0.15"
 tokenizers = { version = ">=0.13.4", default-features = false, features = [ "onig" ] }
+tokio.workspace = true
 rand = "0.8"

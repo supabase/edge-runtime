@@ -1,10 +1,17 @@
 const core = globalThis.Deno.core;
 
-class SupabaseAI {
-	runModel(name, prompt) {
-		const result = core.ops.op_sb_ai_run_model(name, prompt);
+class Session {
+	model;
+
+	constructor(model) {
+		this.model = model;
+		core.ops.op_sb_ai_init_model(model);
+	}
+
+	async run(prompt) {
+		const result = await core.ops.op_sb_ai_run_model(this.model, prompt);
 		return result;
 	}
 }
 
-export { SupabaseAI };
+export default { Session };

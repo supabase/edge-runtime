@@ -34,6 +34,7 @@ fn init_gte(state: &mut OpState) -> Result<(), Error> {
     let (req_tx, mut req_rx) = mpsc::unbounded_channel::<GteModelRequest>();
     state.put::<mpsc::UnboundedSender<GteModelRequest>>(req_tx);
 
+    #[allow(clippy::let_underscore_future)]
     let _: task::JoinHandle<Result<(), Error>> = task::spawn(async move {
         let session = Session::builder()?
             .with_optimization_level(GraphOptimizationLevel::Disable)?
@@ -103,13 +104,15 @@ fn init_gte(state: &mut OpState) -> Result<(), Error> {
 }
 
 async fn run_gte(state: Rc<RefCell<OpState>>, prompt: String) -> Result<Vec<f32>, Error> {
-    let op_state = state.borrow_mut();
-    let req_tx = op_state.try_borrow::<mpsc::UnboundedSender<GteModelRequest>>();
-    if req_tx.is_none() {
-        bail!("Run init model first")
+    let req_tx;
+    {
+        let op_state = state.borrow();
+        let maybe_req_tx = op_state.try_borrow::<mpsc::UnboundedSender<GteModelRequest>>();
+        if maybe_req_tx.is_none() {
+            bail!("Run init model first")
+        }
+        req_tx = maybe_req_tx.unwrap().clone();
     }
-    let req_tx = req_tx.unwrap().clone();
-    drop(op_state);
 
     let (result_tx, mut result_rx) = mpsc::unbounded_channel::<Vec<f32>>();
 

@@ -55,6 +55,10 @@ fn cli() -> Command {
                 )
                 .arg(arg!(--"main-service" <DIR> "Path to main service directory or eszip").default_value("examples/main"))
                 .arg(arg!(--"disable-module-cache" "Disable using module cache").default_value("false").value_parser(FalseyValueParser::new()))
+                .arg(
+                    arg!(--"ignore-accept-encoding" "Ignore `Accept-Encoding` header in the request")
+                        .action(ArgAction::SetTrue)
+                )
                 .arg(arg!(--"import-map" <Path> "Path to import map file"))
                 .arg(arg!(--"event-worker" <Path> "Path to event worker directory"))
                 .arg(arg!(--"main-entrypoint" <Path> "Path to entrypoint in main service (only for eszips)"))
@@ -133,10 +137,16 @@ fn main() -> Result<(), anyhow::Error> {
                     .cloned()
                     .unwrap();
                 let import_map_path = sub_matches.get_one::<String>("import-map").cloned();
+
                 let no_module_cache = sub_matches
                     .get_one::<bool>("disable-module-cache")
                     .cloned()
                     .unwrap();
+                let ignore_accept_encoding = sub_matches
+                    .get_one::<bool>("ignore-accept-encoding")
+                    .cloned()
+                    .unwrap();
+
                 let event_service_manager_path =
                     sub_matches.get_one::<String>("event-worker").cloned();
                 let maybe_main_entrypoint =
@@ -170,6 +180,7 @@ fn main() -> Result<(), anyhow::Error> {
                     )),
                     import_map_path,
                     no_module_cache,
+                    ignore_accept_encoding,
                     None,
                     WorkerEntrypoints {
                         main: maybe_main_entrypoint,

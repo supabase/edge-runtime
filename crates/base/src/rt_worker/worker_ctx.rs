@@ -9,7 +9,7 @@ use cpu_timer::CPUTimer;
 use event_worker::events::{
     BootEvent, ShutdownEvent, WorkerEventWithMetadata, WorkerEvents, WorkerMemoryUsed,
 };
-use hyper::{Body, Request, Response};
+use hyper::{client, Body, Request, Response};
 use log::{debug, error};
 use sb_core::conn_sync::ConnSync;
 use sb_core::{MetricSource, SharedMetricSource};
@@ -91,7 +91,10 @@ async fn handle_request(
     let _ = unix_stream_tx.send((recv_stream, conn_watch.clone()));
 
     // send the HTTP request to the worker over Unix stream
-    let (mut request_sender, connection) = hyper::client::conn::handshake(sender_stream).await?;
+    let (mut request_sender, connection) = client::conn::http1::Builder::new()
+        .writev(true)
+        .handshake(sender_stream)
+        .await?;
 
     // spawn a task to poll the connection and drive the HTTP state
     tokio::task::spawn(async move {

@@ -41,26 +41,40 @@ function internalServerError() {
 	);
 }
 
+async function httpConnNextRequest() {
+	const nextRequest = await HttpConnPrototypeNextRequest.call(this.httpConn);
+
+	if (nextRequest === null) {
+		return null;
+	}
+
+	Object.defineProperty(nextRequest.request, watcher, {
+		value: this.watcherRid
+	});
+
+	return nextRequest;
+}
+
+function httpConnClose() {
+	core.tryClose(this.watcherRid);
+	HttpConnPrototypeClose.call(this.httpConn);
+}
+
 function serveHttp(conn) {
 	const [connRid, watcherRid] = ops.op_http_start(conn[internalRidSymbol]);
 	const httpConn = new HttpConn(connRid, conn.remoteAddr, conn.localAddr);
-
-	httpConn.nextRequest = async () => {
-		const nextRequest = await HttpConnPrototypeNextRequest.call(httpConn);
-
-		if (nextRequest === null) {
-			return null;
-		}
-
-		nextRequest.request[watcher] = watcherRid;
-
-		return nextRequest;
+	const context = {
+		httpConn,
+		watcherRid
 	};
 
-	httpConn.close = () => {
-		core.tryClose(watcherRid);
-		HttpConnPrototypeClose.call(httpConn);
-	};
+	Object.defineProperty(httpConn, "nextRequest", {
+		value: httpConnNextRequest.bind(context)
+	});
+
+	Object.defineProperty(httpConn, "close", {
+		value: httpConnClose.bind(context)
+	});
 
 	return httpConn;
 }
@@ -144,13 +158,15 @@ function getWatcherRid(req) {
 
 function applyWatcherRid(src, dest) {
 	if (
-		!ObjectPrototypeIsPrototypeOf(RequestPrototype, src) 
+		!ObjectPrototypeIsPrototypeOf(RequestPrototype, src)
 		|| !ObjectPrototypeIsPrototypeOf(RequestPrototype, dest)
 	) {
 		throw new TypeError("Only Request instance can apply the connection watcher");
 	}
 
-	dest[watcher] = src[watcher];
+	Object.defineProperty(dest, watcher, {
+		value: src[watcher]
+	});
 }
 
 export { serve, serveHttp, getWatcherRid, applyWatcherRid };

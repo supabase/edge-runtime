@@ -4,14 +4,16 @@ import { core } from "ext:core/mod.js";
 
 const ops = core.ops;
 
+function applyConnectionWatcher(src, dest) {
+	applyWatcherRid(src, dest);
+}
+
 Object.defineProperty(globalThis, 'EdgeRuntime', {
 	get() {
 		return {
 			userWorkers: SUPABASE_USER_WORKERS,
 			getRuntimeMetrics: () => /* async */ ops.op_runtime_metrics(),
-			applyConnectionWatcher: (src, dest) => {
-				applyWatcherRid(src, dest);
-			}
+			applyConnectionWatcher,
 		};
 	},
 	configurable: true,

@@ -27,6 +27,7 @@ macro_rules! integration_test {
                 $shot_policy,
                 $import_map,
                 false,
+                false,
                 Some(tx.clone()),
                 $crate::server::WorkerEntrypoints {
                     main: None,

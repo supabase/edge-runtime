@@ -76,17 +76,21 @@ async function serve(args1, args2) {
 
 	if (typeof args1 === 'function') {
 		opts['handler'] = args1;
-	} else if (typeof args1 === 'object' && typeof args2 === 'function') {
+	} else if (typeof args2 === 'function') {
 		opts['handler'] = args2;
-	} else if (typeof args1 === 'object') {
-		if (typeof args1['handler'] === 'function') {
-			opts['handler'] = args1['handler'];
-		}
+	} else if (typeof args1 === 'object' && typeof args1['handler'] === 'function') {
+		opts['handler'] = args1['handler'];
+	} else {
+		throw new TypeError('A handler function must be provided.');
+	}
+
+	if (typeof args1 === 'object') {
 		if (typeof args1['onListen'] === 'function') {
 			opts['onListen'] = args1['onListen'];
 		}
-	} else {
-		throw new TypeError('A handler function must be provided.');
+		if (typeof args1['onError'] === 'function') {
+			opts['onError'] = args1['onError'];
+		}
 	}
 
 	let serve;
@@ -105,6 +109,15 @@ async function serve(args1, args2) {
 
 				e.respondWith(res);
 			} catch (error) {
+				if (opts['onError'] !== void 0) {
+					try {
+						const res = await opts['onError'](error);
+						return e.respondWith(res);
+					} catch(error2) {
+						error = error2;
+					}
+				}
+
 				console.error(error);
 				return e.respondWith(internalServerError());
 			}

@@ -40,6 +40,10 @@ import { promiseRejectMacrotaskCallback } from 'ext:sb_core_main_js/js/promises.
 import { denoOverrides, fsVars } from 'ext:sb_core_main_js/js/denoOverrides.js';
 import * as performance from 'ext:deno_web/15_performance.js';
 import * as messagePort from 'ext:deno_web/13_message_port.js';
+import {
+	op_bootstrap_is_tty,
+	op_bootstrap_no_color,
+} from "ext:core/ops";
 import { SupabaseEventListener } from 'ext:sb_user_event_worker/event_worker.js';
 import * as MainWorker from 'ext:sb_core_main_js/js/main_worker.js';
 import * as DenoWebCompression from 'ext:deno_web/14_compression.js';
@@ -51,6 +55,8 @@ import * as WebGPUSurface from 'ext:deno_webgpu/02_surface.js';
 import { core, primordials } from 'ext:core/mod.js';
 import { op_lazy_load_esm } from 'ext:core/ops';
 const ops = core.ops;
+
+console.setNoColorFn(() => op_bootstrap_no_color() || !op_bootstrap_is_tty());
 
 const {
 	Error,

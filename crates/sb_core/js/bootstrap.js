@@ -48,17 +48,22 @@ import * as eventSource from 'ext:deno_fetch/27_eventsource.js';
 import * as WebGPU from 'ext:deno_webgpu/00_init.js';
 import * as WebGPUSurface from 'ext:deno_webgpu/02_surface.js';
 
-import { core, primordials } from 'ext:core/mod.js';
+import { core, internals, primordials } from 'ext:core/mod.js';
 import { op_lazy_load_esm } from 'ext:core/ops';
-const ops = core.ops;
 
+const ops = core.ops;
 const {
 	Error,
+	ArrayPrototypePop,
+	ArrayPrototypeShift,
+	ObjectAssign,
 	ObjectDefineProperty,
 	ObjectDefineProperties,
 	ObjectSetPrototypeOf,
-	ObjectFreeze,
+	SafeSet,
+	StringPrototypeIncludes,
 	StringPrototypeSplit,
+	StringPrototypeTrim
 } = primordials;
 
 let image;
@@ -235,15 +240,111 @@ const globalScope = {
 	[webidl.brand]: nonEnumerable(webidl.brand),
 };
 
+let verboseDeprecatedApiWarning = false;
+let deprecatedApiWarningDisabled = false;
+const ALREADY_WARNED_DEPRECATED = new SafeSet();
 
-function runtimeStart(runtimeOptions, source) {
+function warnOnDeprecatedApi(apiName, stack, ...suggestions) {
+	if (deprecatedApiWarningDisabled) {
+		return;
+	}
+
+	if (!verboseDeprecatedApiWarning) {
+		if (ALREADY_WARNED_DEPRECATED.has(apiName)) {
+			return;
+		}
+		ALREADY_WARNED_DEPRECATED.add(apiName);
+		globalThis.console.error(
+			`%cwarning: %cUse of deprecated "${apiName}" API. This API will be removed in Deno 2. Run again with DENO_VERBOSE_WARNINGS=1 to get more details.`,
+			"color: yellow;",
+			"font-weight: bold;",
+		);
+		return;
+	}
+
+	if (ALREADY_WARNED_DEPRECATED.has(apiName + stack)) {
+		return;
+	}
+
+	// If we haven't warned yet, let's do some processing of the stack trace
+	// to make it more useful.
+	const stackLines = StringPrototypeSplit(stack, "\n");
+	ArrayPrototypeShift(stackLines);
+	while (stackLines.length > 0) {
+		// Filter out internal frames at the top of the stack - they are not useful
+		// to the user.
+		if (
+			StringPrototypeIncludes(stackLines[0], "(ext:") ||
+			StringPrototypeIncludes(stackLines[0], "(node:") ||
+			StringPrototypeIncludes(stackLines[0], "<anonymous>")
+		) {
+			ArrayPrototypeShift(stackLines);
+		} else {
+			break;
+		}
+	}
+	// Now remove the last frame if it's coming from "ext:core" - this is most likely
+	// event loop tick or promise handler calling a user function - again not
+	// useful to the user.
+	if (
+		stackLines.length > 0 &&
+		StringPrototypeIncludes(stackLines[stackLines.length - 1], "(ext:core/")
+	) {
+		ArrayPrototypePop(stackLines);
+	}
+
+	let isFromRemoteDependency = false;
+	const firstStackLine = stackLines[0];
+	if (firstStackLine && !StringPrototypeIncludes(firstStackLine, "file:")) {
+		isFromRemoteDependency = true;
+	}
+
+	ALREADY_WARNED_DEPRECATED.add(apiName + stack);
+	globalThis.console.error(
+		`%cwarning: %cUse of deprecated "${apiName}" API. This API will be removed in Deno 2.`,
+		"color: yellow;",
+		"font-weight: bold;",
+	);
+
+	globalThis.console.error();
+	globalThis.console.error(
+		"See the Deno 1 to 2 Migration Guide for more information at https://docs.deno.com/runtime/manual/advanced/migrate_deprecations",
+	);
+	globalThis.console.error();
+	if (stackLines.length > 0) {
+		globalThis.console.error("Stack trace:");
+		for (let i = 0; i < stackLines.length; i++) {
+			globalThis.console.error(`  ${StringPrototypeTrim(stackLines[i])}`);
+		}
+		globalThis.console.error();
+	}
+
+	for (let i = 0; i < suggestions.length; i++) {
+		const suggestion = suggestions[i];
+		globalThis.console.error(
+			`%chint: ${suggestion}`,
+			"font-weight: bold;",
+		);
+	}
+
+	if (isFromRemoteDependency) {
+		globalThis.console.error(
+			`%chint: It appears this API is used by a remote dependency. Try upgrading to the latest version of that dependency.`,
+			"font-weight: bold;",
+		);
+	}
+	globalThis.console.error();
+}
+ObjectAssign(internals, { warnOnDeprecatedApi });
+
+function runtimeStart(target) {
 	core.setMacrotaskCallback(timers.handleTimerMacrotask);
 	core.setMacrotaskCallback(promiseRejectMacrotaskCallback);
 	core.setWasmStreamingCallback(fetch.handleWasmStreaming);
 
 	ops.op_set_format_exception_callback(formatException);
 
-	core.setBuildInfo(runtimeOptions.target);
+	core.setBuildInfo(target);
 
 	// deno-lint-ignore prefer-primordials
 	Error.prepareStackTrace = core.prepareStackTrace;
@@ -273,13 +374,7 @@ const deleteDenoApis = (apis) => {
 	});
 };
 
-globalThis.bootstrapSBEdge = (
-	opts,
-	isUserWorker,
-	isEventsWorker,
-	edgeRuntimeVersion,
-	denoVersion,
-) => {
+globalThis.bootstrapSBEdge = opts => {
 	// We should delete this after initialization,
 	// Deleting it during bootstrapping can backfire
 	delete globalThis.__bootstrap;
@@ -292,14 +387,20 @@ globalThis.bootstrapSBEdge = (
 	const eventHandlers = ['error', 'load', 'beforeunload', 'unload', 'unhandledrejection'];
 	eventHandlers.forEach((handlerName) => event.defineEventHandler(globalThis, handlerName));
 
-	runtimeStart({
-		denoVersion: 'NA',
-		v8Version: 'NA',
-		tsVersion: 'NA',
-		noColor: true,
-		isTty: false,
-		...opts,
-	});
+	const {
+		0: target,
+		1: isUserWorker,
+		2: isEventsWorker,
+		3: edgeRuntimeVersion,
+		4: denoVersion,
+		5: shouldDisableDeprecatedApiWarning,
+		6: shouldUseVerboseDeprecatedApiWarning
+	} = opts;
+
+	deprecatedApiWarningDisabled = shouldDisableDeprecatedApiWarning;
+	verboseDeprecatedApiWarning = shouldUseVerboseDeprecatedApiWarning;
+
+	runtimeStart(target);
 
 	ObjectDefineProperty(globalThis, 'SUPABASE_VERSION', readOnly(String(edgeRuntimeVersion)));
 	ObjectDefineProperty(globalThis, 'DENO_VERSION', readOnly(denoVersion));

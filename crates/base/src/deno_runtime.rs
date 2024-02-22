@@ -8,8 +8,8 @@ use ctor::ctor;
 use deno_core::error::AnyError;
 use deno_core::url::Url;
 use deno_core::{
-    located_script_name, serde_v8, JsRuntime, ModuleCodeString, ModuleId, PollEventLoopOptions,
-    RuntimeOptions,
+    located_script_name, serde_json, serde_v8, JsRuntime, ModuleCodeString, ModuleId,
+    PollEventLoopOptions, RuntimeOptions,
 };
 use deno_http::DefaultHttpPropertyExtractor;
 use deno_tls::deno_native_certs::load_native_certs;
@@ -52,6 +52,23 @@ use sb_node::deno_node;
 use sb_workers::context::{UserWorkerMsgs, WorkerContextInitOpts, WorkerRuntimeOpts};
 use sb_workers::sb_user_workers;
 
+static SUPABASE_UA: Lazy<String> = Lazy::new(|| {
+    let deno_version = MAYBE_DENO_VERSION.get().map(|it| &**it).unwrap_or("1.0.0");
+    let supabase_version = option_env!("GIT_V_TAG").unwrap_or("0.1.0");
+    format!(
+        "Deno/{} (variant; SupabaseEdgeRuntime/{})",
+        deno_version, supabase_version
+    )
+});
+
+static SHOULD_DISABLE_DEPRECATED_API_WARNING: Lazy<bool> =
+    Lazy::new(|| std::env::var("DENO_NO_DEPRECATION_WARNINGS").ok().is_some());
+
+static SHOULD_USE_VERBOSE_DEPRECATED_API_WARNING: Lazy<bool> =
+    Lazy::new(|| std::env::var("DENO_VERBOSE_WARNINGS").ok().is_some());
+
+pub static MAYBE_DENO_VERSION: OnceCell<String> = OnceCell::new();
+
 #[ctor]
 fn init_v8_platform() {
     set_v8_flags();
@@ -79,16 +96,6 @@ impl fmt::Debug for DenoRuntimeError {
 fn get_error_class_name(e: &AnyError) -> &'static str {
     sb_core::errors_rt::get_error_class_name(e).unwrap_or("Error")
 }
-
-pub static MAYBE_DENO_VERSION: OnceCell<String> = OnceCell::new();
-static SUPABASE_UA: Lazy<String> = Lazy::new(|| {
-    let deno_version = MAYBE_DENO_VERSION.get().map(|it| &**it).unwrap_or("1.0.0");
-    let supabase_version = option_env!("GIT_V_TAG").unwrap_or("0.1.0");
-    format!(
-        "Deno/{} (variant; SupabaseEdgeRuntime/{})",
-        deno_version, supabase_version
-    )
-});
 
 pub struct DenoRuntime {
     pub js_runtime: JsRuntime,
@@ -317,16 +324,26 @@ impl DenoRuntime {
 
         // Bootstrapping stage
         let script = format!(
-            // opts, isUserWorker, isEventsWorker, edgeRuntimeVersion, denoVersion
-            "globalThis.bootstrapSBEdge({}, {}, {}, '{}', '{}')",
-            deno_core::serde_json::json!({ "target": env!("TARGET") }),
-            conf.is_user_worker(),
-            conf.is_events_worker(),
-            version.unwrap_or("0.1.0"),
-            MAYBE_DENO_VERSION
-                .get()
-                .map(|it| &**it)
-                .unwrap_or("UNKNOWN")
+            "globalThis.bootstrapSBEdge({})",
+            serde_json::json!([
+                // 0: target
+                env!("TARGET"),
+                // 1: isUserWorker
+                conf.is_user_worker(),
+                // 2: isEventsWorker
+                conf.is_events_worker(),
+                // 3: edgeRuntimeVersion
+                version.unwrap_or("0.1.0"),
+                // 4: denoVersion
+                MAYBE_DENO_VERSION
+                    .get()
+                    .map(|it| &**it)
+                    .unwrap_or("UNKNOWN"),
+                // 5: shouldDisableDeprecatedApiWarning
+                &*SHOULD_DISABLE_DEPRECATED_API_WARNING,
+                // 6: shouldUseVerboseDeprecatedApiWarning
+                &*SHOULD_USE_VERBOSE_DEPRECATED_API_WARNING,
+            ])
         );
 
         js_runtime

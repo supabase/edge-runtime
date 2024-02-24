@@ -19,6 +19,28 @@ serve(async (req: Request) => {
 		return Response.json(metric);
 	}
 
+	// NOTE: You can test WebSocket in the main worker by uncommenting below.
+	// if (pathname === '/_internal/ws') {
+	// 	const upgrade = req.headers.get("upgrade") || "";
+
+	// 	if (upgrade.toLowerCase() != "websocket") {
+	// 		return new Response("request isn't trying to upgrade to websocket.");
+	// 	}
+	
+	// 	const { socket, response } = Deno.upgradeWebSocket(req);
+	
+	// 	socket.onopen = () => console.log("socket opened");
+	// 	socket.onmessage = (e) => {
+	// 		console.log("socket message:", e.data);
+	// 		socket.send(new Date().toString());
+	// 	};
+	
+	// 	socket.onerror = e => console.log("socket errored:", e.message);
+	// 	socket.onclose = () => console.log("socket closed");
+	
+	// 	return response; // 101 (Switching Protocols)
+	// }
+
 	const path_parts = pathname.split('/');
 	const service_name = path_parts[1];
 

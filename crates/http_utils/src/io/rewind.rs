@@ -1,3 +1,6 @@
+// Copyright 2014-2021 Sean McArthur
+// SPDX-License-Identifier: MIT
+
 use std::marker::Unpin;
 use std::pin::Pin;
 use std::task::{Context, Poll};

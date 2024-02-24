@@ -1,3 +1,6 @@
+// Copyright 2014-2021 Sean McArthur
+// SPDX-License-Identifier: MIT
+
 use std::{
     fmt, io,
     pin::Pin,

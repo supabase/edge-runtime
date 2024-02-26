@@ -296,4 +296,20 @@ impl deno_fs::FileSystem for StaticFs {
     ) -> FsResult<()> {
         Err(FsError::NotSupported)
     }
+
+    async fn read_file_async(&self, path: PathBuf) -> FsResult<Vec<u8>> {
+        todo!()
+    }
+
+    fn read_file_sync(&self, path: &Path) -> FsResult<Vec<u8>> {
+        let is_npm = self.is_valid_npm_package(path);
+        if is_npm {
+            let options = OpenOptions::read();
+            let file = self.open_sync(path, options)?;
+            let buf = file.read_all_sync()?;
+            Ok(buf)
+        } else {
+            Err(FsError::NotSupported)
+        }
+    }
 }

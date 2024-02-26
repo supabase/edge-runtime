@@ -224,11 +224,6 @@ fn main() -> Result<(), anyhow::Error> {
 
                 include_glob_patterns_in_eszip(static_patterns, &mut eszip).await;
 
-                let sp = eszip.specifiers();
-                for x in sp {
-                    println!("Mod {}", x);
-                }
-
                 let bin = eszip.into_bytes();
 
                 if output_path == "-" {

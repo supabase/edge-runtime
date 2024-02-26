@@ -95,12 +95,6 @@ pub async fn create_module_loader_for_eszip(
     let static_files = extract_static_files_from_eszip(&eszip).await;
     let vfs_root_dir_path = npm_cache_dir.registry_folder(&npm_registry_url);
 
-    if let Some(npm_s) = snapshot.clone() {
-        for x in &npm_s.as_serialized().packages {
-            println!("{}", x.id.nv.name);
-        }
-    }
-
     let (fs, vfs) = {
         let vfs_data: Vec<u8> = eszip
             .get_module(VFS_ESZIP_KEY)

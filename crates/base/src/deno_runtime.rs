@@ -256,7 +256,6 @@ impl DenoRuntime {
 
         let op_fs = {
             if is_user_worker {
-                println!("Static FS");
                 Arc::new(sb_fs::static_fs::StaticFs::new(
                     static_files,
                     vfs_path,

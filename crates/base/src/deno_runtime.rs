@@ -11,6 +11,7 @@ use deno_core::{
     located_script_name, serde_json, serde_v8, JsRuntime, ModuleCodeString, ModuleId,
     PollEventLoopOptions, RuntimeOptions,
 };
+use deno_fs::FileSystem;
 use deno_http::DefaultHttpPropertyExtractor;
 use deno_tls::deno_native_certs::load_native_certs;
 use deno_tls::rustls;
@@ -235,21 +236,37 @@ impl DenoRuntime {
             });
         }
 
-        let fs = Arc::new(deno_fs::RealFs);
-
         let rt_provider = create_module_loader_for_standalone_from_eszip_kind(
             eszip,
             maybe_arc_import_map,
             import_map_path,
+            is_user_worker,
         )
         .await?;
 
         let RuntimeProviders {
             npm_resolver,
-            fs: file_system,
+            vfs,
             module_loader,
             module_code,
+            static_files,
+            npm_snapshot,
+            vfs_path,
         } = rt_provider;
+
+        let op_fs = {
+            if is_user_worker {
+                println!("Static FS");
+                Arc::new(sb_fs::static_fs::StaticFs::new(
+                    static_files,
+                    vfs_path,
+                    vfs,
+                    npm_snapshot,
+                )) as Arc<dyn deno_fs::FileSystem>
+            } else {
+                Arc::new(deno_fs::RealFs) as Arc<dyn deno_fs::FileSystem>
+            }
+        };
 
         let mod_code = module_code;
 
@@ -283,7 +300,7 @@ impl DenoRuntime {
             deno_tls::deno_tls::init_ops(),
             deno_http::deno_http::init_ops::<DefaultHttpPropertyExtractor>(),
             deno_io::deno_io::init_ops(stdio),
-            deno_fs::deno_fs::init_ops::<Permissions>(fs.clone()),
+            deno_fs::deno_fs::init_ops::<Permissions>(op_fs.clone()),
             sb_env_op::init_ops(),
             sb_ai::init_ops(),
             sb_os::sb_os::init_ops(),
@@ -293,7 +310,7 @@ impl DenoRuntime {
             sb_core_main_js::init_ops(),
             sb_core_net::init_ops(),
             sb_core_http::init_ops(),
-            deno_node::init_ops::<Permissions>(Some(npm_resolver), file_system),
+            deno_node::init_ops::<Permissions>(Some(npm_resolver), op_fs),
             sb_core_runtime::init_ops(Some(main_module_url.clone())),
         ];
 

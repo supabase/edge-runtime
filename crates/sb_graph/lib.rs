@@ -6,11 +6,14 @@ use deno_core::futures::io::{AllowStdIo, BufReader};
 use deno_core::{serde_json, FastString, JsBuffer, ModuleSpecifier};
 use deno_fs::{FileSystem, RealFs};
 use deno_npm::NpmSystemInfo;
-use eszip::{EszipV2, ModuleKind};
+use eszip::{EszipV2, ModuleKind, ParseError};
+use glob::{glob, GlobResult};
+use log::error;
 use sb_fs::{build_vfs, VfsOpts};
 use sb_npm::InnerCliNpmResolverRef;
 use std::fs;
 use std::fs::{create_dir_all, File};
+use std::future::Future;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -22,6 +25,7 @@ pub mod import_map;
 
 pub const VFS_ESZIP_KEY: &str = "---SUPABASE-VFS-DATA-ESZIP---";
 pub const SOURCE_CODE_ESZIP_KEY: &str = "---SUPABASE-SOURCE-CODE-ESZIP---";
+pub const STATIC_FILES_ESZIP_KEY: &str = "---SUPABASE-STATIC-FILES-ESZIP---";
 
 #[derive(Debug)]
 pub enum EszipPayloadKind {
@@ -102,7 +106,7 @@ pub async fn generate_binary_eszip(
             InnerCliNpmResolverRef::Byonm(_) => unreachable!(),
         };
 
-        let npm_vfs = serde_json::to_string(&npm_vfs)?.as_bytes().to_vec();
+        let npm_vfs = serde_json::to_vec(&npm_vfs).unwrap().to_vec();
         let boxed_slice = npm_vfs.into_boxed_slice();
 
         eszip.add_opaque_data(String::from(VFS_ESZIP_KEY), Arc::from(boxed_slice));
@@ -127,6 +131,36 @@ pub async fn generate_binary_eszip(
         Ok(eszip)
     } else {
         eszip
+    }
+}
+
+pub async fn include_glob_patterns_in_eszip(patterns: Vec<&str>, eszip: &mut EszipV2) {
+    let mut static_files: Vec<String> = vec![];
+    for pattern in patterns {
+        for entry in glob(pattern).expect("Failed to read pattern") {
+            match entry {
+                Ok(path) => {
+                    let mod_path = path.to_str().unwrap().to_string();
+
+                    if path.exists() {
+                        let content = std::fs::read(path).unwrap();
+                        let arc_slice: Arc<[u8]> = Arc::from(content.into_boxed_slice());
+                        eszip.add_opaque_data(mod_path.clone(), arc_slice);
+                    }
+
+                    static_files.push(mod_path);
+                }
+                Err(e) => {
+                    error!("Error reading pattern {} for static files", pattern)
+                }
+            };
+        }
+    }
+
+    if !static_files.is_empty() {
+        let file_specifiers_as_bytes = serde_json::to_vec(&static_files).unwrap();
+        let arc_slice: Arc<[u8]> = Arc::from(file_specifiers_as_bytes.into_boxed_slice());
+        eszip.add_opaque_data(String::from(STATIC_FILES_ESZIP_KEY), arc_slice);
     }
 }
 

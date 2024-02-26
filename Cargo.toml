@@ -73,6 +73,7 @@ futures-util = { version = "0.3.28" }
 ctor = { version = "0.2.6" }
 percent-encoding = "=2.3.0"
 scopeguard = { version = "1.2.0" }
+glob = "0.3.1"
 
 # DEBUG
 #[patch.crates-io]

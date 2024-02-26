@@ -245,7 +245,8 @@ impl Worker {
                     }
 
                     Err(err) => {
-                        let _ = booter_signal.send(Err(anyhow!("worker boot error")));
+                        let _ = booter_signal
+                            .send(Err(anyhow!("worker boot error {}", err.to_string())));
                         method_cloner.handle_error(err)
                     }
                 };

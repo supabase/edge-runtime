@@ -30,3 +30,4 @@ deno_web.workspace = true
 urlencoding.workspace = true
 deno_lockfile.workspace = true
 deno_config.workspace = true
+glob.workspace = true

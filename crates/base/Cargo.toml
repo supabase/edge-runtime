@@ -63,6 +63,7 @@ ctor = { workspace = true }
 deno_canvas.workspace = true
 deno_webgpu.workspace = true
 sb_ai = { version = "0.1.0", path = "../sb_ai" }
+sb_fs = { version = "0.1.0", path = "../sb_fs" }
 
 [dev-dependencies]
 serial_test = { version = "3.0.0" }

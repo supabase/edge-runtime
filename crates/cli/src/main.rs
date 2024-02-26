@@ -10,7 +10,7 @@ use clap::{arg, crate_version, value_parser, ArgAction, Command};
 use deno_core::url::Url;
 use sb_graph::emitter::EmitterFactory;
 use sb_graph::import_map::load_import_map;
-use sb_graph::{extract_from_file, generate_binary_eszip};
+use sb_graph::{extract_from_file, generate_binary_eszip, include_glob_patterns_in_eszip};
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
@@ -83,6 +83,7 @@ fn cli() -> Command {
                 .about("Creates an 'eszip' file that can be executed by the EdgeRuntime. Such file contains all the modules in contained in a single binary.")
                 .arg(arg!(--"output" <DIR> "Path to output eszip file").default_value("bin.eszip"))
                 .arg(arg!(--"entrypoint" <Path> "Path to entrypoint to bundle as an eszip").required(true))
+                .arg(arg!(--"static" <Path> "Glob pattern for static files to be included"))
                 .arg(arg!(--"import-map" <Path> "Path to import map file"))
         ).subcommand(
         Command::new("unbundle")
@@ -182,6 +183,11 @@ fn main() -> Result<(), anyhow::Error> {
             Some(("bundle", sub_matches)) => {
                 let output_path = sub_matches.get_one::<String>("output").cloned().unwrap();
                 let import_map_path = sub_matches.get_one::<String>("import-map").cloned();
+                let static_patterns = sub_matches
+                    .get_many::<String>("static")
+                    .unwrap()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<&str>>();
 
                 let entry_point_path = sub_matches
                     .get_one::<String>("entrypoint")
@@ -208,13 +214,21 @@ fn main() -> Result<(), anyhow::Error> {
                 }
                 emitter_factory.set_import_map(maybe_import_map.clone());
 
-                let eszip = generate_binary_eszip(
+                let mut eszip = generate_binary_eszip(
                     path.canonicalize().unwrap(),
                     Arc::new(emitter_factory),
                     None,
                     maybe_import_map_url,
                 )
                 .await?;
+
+                include_glob_patterns_in_eszip(static_patterns, &mut eszip).await;
+
+                let sp = eszip.specifiers();
+                for x in sp {
+                    println!("Mod {}", x);
+                }
+
                 let bin = eszip.into_bytes();
 
                 if output_path == "-" {

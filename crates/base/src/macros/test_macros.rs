@@ -22,6 +22,7 @@ macro_rules! integration_test {
             _ = base::commands::start_server(
                 "0.0.0.0",
                 $port,
+                None,
                 String::from($main_file),
                 None,
                 $shot_policy,

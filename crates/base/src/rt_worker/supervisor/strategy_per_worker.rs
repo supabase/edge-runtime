@@ -7,7 +7,7 @@ use event_worker::events::ShutdownReason;
 use log::error;
 use sb_workers::context::{Timing, TimingStatus, UserWorkerMsgs};
 
-use crate::rt_worker::supervisor::{wait_cpu_alarm, CPUUsage};
+use crate::rt_worker::supervisor::{wait_cpu_alarm, CPUUsage, Tokens};
 
 use super::{handle_interrupt, Arguments, CPUUsageMetrics, IsolateInterruptData};
 
@@ -23,7 +23,10 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
         pool_msg_tx,
         isolate_memory_usage_tx,
         thread_safe_handle,
-        termination_token,
+        tokens: Tokens {
+            termination,
+            supervise,
+        },
         ..
     } = args;
 
@@ -79,8 +82,12 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
 
     loop {
         tokio::select! {
+            _ = supervise.cancelled() => {
+                return (ShutdownReason::TerminationRequested, cpu_usage_ms);
+            }
+
             _ = async {
-                match termination_token.as_ref() {
+                match termination.as_ref() {
                     Some(token) => token.inbound.cancelled().await,
                     None => pending().await,
                 }

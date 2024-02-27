@@ -1,7 +1,9 @@
+use crate::inspector_server::Inspector;
 use crate::rt_worker::worker_ctx::{
     create_events_worker, create_main_worker, create_user_worker_pool, TerminationToken,
 };
 use crate::rt_worker::worker_pool::WorkerPoolPolicy;
+use crate::InspectorOption;
 use anyhow::Error;
 use event_worker::events::WorkerEventWithMetadata;
 use futures_util::Stream;
@@ -19,9 +21,11 @@ use std::pin::Pin;
 use std::str;
 use std::str::FromStr;
 use std::task::Poll;
+use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::{mpsc, oneshot, watch};
+use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 
 pub enum ServerEvent {
@@ -177,12 +181,20 @@ pub struct WorkerEntrypoints {
     pub events: Option<String>,
 }
 
+#[derive(Debug, Default, Clone, Copy)]
+pub struct ServerFlags {
+    pub no_module_cache: bool,
+    pub allow_main_inspector: bool,
+    pub graceful_exit_deadline_sec: u64,
+}
+
 pub struct Server {
     ip: Ipv4Addr,
     port: u16,
     main_worker_req_tx: mpsc::UnboundedSender<WorkerRequestMsg>,
     callback_tx: Option<Sender<ServerHealth>>,
     termination_token: TerminationToken,
+    flags: ServerFlags,
     metric_src: SharedMetricSource,
 }
 
@@ -195,10 +207,11 @@ impl Server {
         maybe_events_service_path: Option<String>,
         maybe_user_worker_policy: Option<WorkerPoolPolicy>,
         import_map_path: Option<String>,
-        no_module_cache: bool,
+        flags: ServerFlags,
         callback_tx: Option<Sender<ServerHealth>>,
         entrypoints: WorkerEntrypoints,
         termination_token: Option<TerminationToken>,
+        inspector: Option<Inspector>,
     ) -> Result<Self, Error> {
         let mut worker_events_tx: Option<mpsc::UnboundedSender<WorkerEventWithMetadata>> = None;
         let maybe_events_entrypoint = entrypoints.events;
@@ -213,7 +226,7 @@ impl Server {
             let (event_worker_metric, sender) = create_events_worker(
                 events_path_buf,
                 import_map_path.clone(),
-                no_module_cache,
+                flags.no_module_cache,
                 maybe_events_entrypoint,
                 Some(termination_token.child_token()),
             )
@@ -230,6 +243,7 @@ impl Server {
             maybe_user_worker_policy.unwrap_or_default(),
             worker_events_tx,
             None,
+            inspector.clone(),
         )
         .await?;
 
@@ -238,7 +252,7 @@ impl Server {
         let main_worker_req_tx = create_main_worker(
             main_worker_path,
             import_map_path.clone(),
-            no_module_cache,
+            flags.no_module_cache,
             MainWorkerRuntimeOpts {
                 worker_pool_tx,
                 shared_metric_src: Some(shared_metric_src.clone()),
@@ -246,16 +260,26 @@ impl Server {
             },
             maybe_main_entrypoint,
             Some(termination_token.child_token()),
+            if flags.allow_main_inspector {
+                inspector.map(|it| Inspector {
+                    option: InspectorOption::Inspect(it.option.socket_addr()),
+                    server: it.server,
+                })
+            } else {
+                None
+            },
         )
         .await?;
 
         let ip = Ipv4Addr::from_str(ip)?;
+
         Ok(Self {
             ip,
             port,
             main_worker_req_tx,
             callback_tx,
             termination_token,
+            flags,
             metric_src: shared_metric_src,
         })
     }
@@ -268,6 +292,7 @@ impl Server {
         let addr = SocketAddr::new(IpAddr::V4(self.ip), self.port);
         let listener = TcpListener::bind(&addr).await?;
         let termination_token = self.termination_token.clone();
+        let flags = self.flags;
 
         let mut can_receive_event = false;
         let (event_tx, event_rx) = mpsc::unbounded_channel();
@@ -330,6 +355,31 @@ impl Server {
                 }
             }
         }
+
+        let graceful_exit_deadline = flags.graceful_exit_deadline_sec;
+
+        if graceful_exit_deadline > 0 {
+            let timeout_fut = timeout(
+                Duration::from_secs(graceful_exit_deadline),
+                termination_token.cancel_and_wait(),
+            );
+
+            tokio::select! {
+                res = timeout_fut => {
+                    if res.is_err() {
+                        error!(
+                            "did not able to terminate the workers within {} seconds",
+                            graceful_exit_deadline,
+                        );
+                    }
+                }
+
+                _ = tokio::signal::ctrl_c() => {
+                    error!("received interrupt signal while waiting workers");
+                }
+            }
+        }
+
         Ok(())
     }
 }

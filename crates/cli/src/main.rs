@@ -4,15 +4,18 @@ use anyhow::{anyhow, bail, Error};
 use base::commands::start_server;
 use base::deno_runtime::MAYBE_DENO_VERSION;
 use base::rt_worker::worker_pool::{SupervisorPolicy, WorkerPoolPolicy};
-use base::server::WorkerEntrypoints;
+use base::server::{ServerFlags, WorkerEntrypoints};
+use base::InspectorOption;
 use clap::builder::{FalseyValueParser, TypedValueParser};
-use clap::{arg, crate_version, value_parser, ArgAction, Command};
+use clap::{arg, crate_version, value_parser, ArgAction, ArgGroup, Command};
 use deno_core::url::Url;
+use log::warn;
 use sb_graph::emitter::EmitterFactory;
 use sb_graph::import_map::load_import_map;
 use sb_graph::{extract_from_file, generate_binary_eszip};
 use std::fs::File;
 use std::io::Write;
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -65,6 +68,14 @@ fn cli() -> Command {
                         .value_parser(["per_worker", "per_request", "oneshot"])
                 )
                 .arg(
+                    arg!(--"graceful-exit-timeout" <SECONDS> "Maximum time in seconds that can wait for workers before terminating forcibly")
+                        .default_value("0")
+                        .value_parser(
+                            value_parser!(u64)
+                                .range(0..u64::MAX)
+                        )
+                )
+                .arg(
                     arg!(--"max-parallelism" <COUNT> "Maximum count of workers that can exist in the worker pool simultaneously")
                         .value_parser(
                             // NOTE: Acceptable bounds were chosen arbitrarily.
@@ -75,7 +86,37 @@ fn cli() -> Command {
                 )
                 .arg(
                     arg!(--"request-wait-timeout" <MILLISECONDS> "Maximum time in milliseconds that can wait to establish a connection with a worker")
-                    .value_parser(value_parser!(u64))
+                        .value_parser(value_parser!(u64))
+                )
+                .arg(
+                    arg!(--"inspect" [HOST_AND_PORT] "Activate inspector on host:port (default: 127.0.0.1:9229)")
+                        .num_args(0..=1)
+                        .value_parser(value_parser!(SocketAddr))
+                        .require_equals(true)
+                        .default_missing_value("127.0.0.1:9229")
+                )
+                .arg(
+                    arg!(--"inspect-brk" [HOST_AND_PORT] "Activate inspector on host:port, wait for debugger to connect and break at the start of user script")
+                        .num_args(0..=1)
+                        .value_parser(value_parser!(SocketAddr))
+                        .require_equals(true)
+                        .default_missing_value("127.0.0.1:9229")
+                )
+                .arg(
+                    arg!(--"inspect-wait" [HOST_AND_PORT] "Activate inspector on host:port and wait for debugger to connect before running user code")
+                        .num_args(0..=1)
+                        .value_parser(value_parser!(SocketAddr))
+                        .require_equals(true)
+                        .default_missing_value("127.0.0.1:9229")
+                )
+                .group(
+                    ArgGroup::new("inspector")
+                        .args(["inspect", "inspect-brk", "inspect-wait"])
+                )
+                .arg(
+                    arg!(--"inspect-main" "Allow creating inspector for main worker")
+                        .requires("inspector")
+                        .action(ArgAction::SetTrue)
                 )
         )
         .subcommand(
@@ -91,16 +132,6 @@ fn cli() -> Command {
             .arg(arg!(--"eszip" <DIR> "Path of eszip to extract").required(true))
     )
 }
-
-//async fn exit_with_code(result: Result<(), Error>) {
-//    match result {
-//        Ok(()) => std::process::exit(0),
-//        Err(error) => {
-//            eprintln!("{:?}", error);
-//            std::process::exit(1)
-//        }
-//    }
-//}
 
 fn main() -> Result<(), anyhow::Error> {
     MAYBE_DENO_VERSION.get_or_init(|| env!("DENO_VERSION").to_string());
@@ -133,23 +164,55 @@ fn main() -> Result<(), anyhow::Error> {
                     .cloned()
                     .unwrap();
                 let import_map_path = sub_matches.get_one::<String>("import-map").cloned();
+
                 let no_module_cache = sub_matches
                     .get_one::<bool>("disable-module-cache")
                     .cloned()
                     .unwrap();
+
+                let allow_main_inspector = sub_matches
+                    .get_one::<bool>("inspect-main")
+                    .cloned()
+                    .unwrap();
+
                 let event_service_manager_path =
                     sub_matches.get_one::<String>("event-worker").cloned();
                 let maybe_main_entrypoint =
                     sub_matches.get_one::<String>("main-entrypoint").cloned();
                 let maybe_events_entrypoint =
                     sub_matches.get_one::<String>("events-entrypoint").cloned();
+
                 let maybe_supervisor_policy = sub_matches
                     .get_one::<String>("policy")
                     .map(|it| it.parse::<SupervisorPolicy>().unwrap());
+
+                let graceful_exit_timeout = sub_matches.get_one::<u64>("graceful-exit-timeout").cloned();
                 let maybe_max_parallelism =
                     sub_matches.get_one::<usize>("max-parallelism").cloned();
                 let maybe_request_wait_timeout =
                     sub_matches.get_one::<u64>("request-wait-timeout").cloned();
+
+                let inspector = sub_matches.get_one::<clap::Id>("inspector").zip(
+                    sub_matches
+                        .get_one("inspect")
+                        .or(sub_matches.get_one("inspect-brk"))
+                        .or(sub_matches.get_one::<SocketAddr>("inspect-wait")),
+                );
+
+                let maybe_inspector_option = if inspector.is_some()
+                    && !maybe_supervisor_policy
+                        .as_ref()
+                        .map(SupervisorPolicy::is_oneshot)
+                        .unwrap_or(false)
+                {
+                    bail!(
+                        "specifying `oneshot` policy is required to enable the inspector feature"
+                    );
+                } else if let Some((key, addr)) = inspector {
+                    Some(get_inspector_option(key.as_str(), addr).unwrap())
+                } else {
+                    None
+                };
 
                 start_server(
                     ip.as_str(),
@@ -162,6 +225,12 @@ fn main() -> Result<(), anyhow::Error> {
                             .as_ref()
                             .map(SupervisorPolicy::is_oneshot)
                         {
+                            if let Some(parallelism) = maybe_max_parallelism {
+                                if parallelism == 0 || parallelism > 1 {
+                                    warn!("if `oneshot` policy is enabled, the maximum parallelism is fixed to `1` as forcibly");
+                                }
+                            }
+
                             Some(1)
                         } else {
                             maybe_max_parallelism
@@ -169,13 +238,18 @@ fn main() -> Result<(), anyhow::Error> {
                         maybe_request_wait_timeout,
                     )),
                     import_map_path,
-                    no_module_cache,
+                    ServerFlags {
+                        no_module_cache,
+                        allow_main_inspector,
+                        graceful_exit_deadline_sec: graceful_exit_timeout.unwrap_or(0),
+                    },
                     None,
                     WorkerEntrypoints {
                         main: maybe_main_entrypoint,
                         events: maybe_events_entrypoint,
                     },
                     None,
+                    maybe_inspector_option
                 )
                 .await?;
             }
@@ -249,4 +323,13 @@ fn main() -> Result<(), anyhow::Error> {
     });
 
     res
+}
+
+fn get_inspector_option(key: &str, addr: &SocketAddr) -> Result<InspectorOption, anyhow::Error> {
+    match key {
+        "inspect" => Ok(InspectorOption::Inspect(*addr)),
+        "inspect-brk" => Ok(InspectorOption::WithBreak(*addr)),
+        "inspect-wait" => Ok(InspectorOption::WithWait(*addr)),
+        key => bail!("invalid inspector key: {}", key),
+    }
 }

@@ -237,6 +237,13 @@ fn register_sigalrm() {
                                             debug!("failed to send cpu alarm to the provided channel");
                                         }
                                     } else {
+                                        // NOTE: Unix signals are being
+                                        // delivered asynchronously, and there
+                                        // are no guarantees to cancel the
+                                        // signal after a timer has been
+                                        // deleted, and after a signal is
+                                        // received, there may no longer be a
+                                        // target to accept it.
                                         error!("can't find the cpu alarm signal matched with the received timer id: {}", *timer_id);
                                     }
                                 }

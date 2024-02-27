@@ -391,6 +391,7 @@ dependencies = [
  "enum-as-inner 0.6.0",
  "eszip",
  "event_worker",
+ "fastwebsockets 0.4.4",
  "flume",
  "futures-util",
  "http 0.2.11",
@@ -1586,7 +1587,7 @@ dependencies = [
  "deno_core",
  "deno_net",
  "deno_tls",
- "fastwebsockets",
+ "fastwebsockets 0.6.0",
  "h2 0.4.2",
  "http 1.0.0",
  "http-body-util",
@@ -1993,6 +1994,23 @@ name = "fallible-streaming-iterator"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7360491ce676a36bf9bb3c56c1aa791658183a54d2744120f27285738d90465a"
+
+[[package]]
+name = "fastwebsockets"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9e6185b6dc9dddc4db0dedd2e213047e93bcbf7a0fb092abc4c4e4f3195efdb4"
+dependencies = [
+ "base64 0.21.7",
+ "hyper 0.14.28",
+ "pin-project",
+ "rand",
+ "sha1",
+ "simdutf8",
+ "thiserror",
+ "tokio",
+ "utf-8",
+]
 
 [[package]]
 name = "fastwebsockets"

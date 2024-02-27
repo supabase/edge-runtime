@@ -158,6 +158,7 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
         integration_test_helper::test_user_worker_pool_policy(),
         None,
         Some(pool_termination_token.clone()),
+        None,
     )
     .await
     .unwrap();
@@ -179,7 +180,7 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
         }),
     };
 
-    let (_, worker_req_tx) = create_worker((opts, main_termination_token.clone()))
+    let (_, worker_req_tx) = create_worker((opts, main_termination_token.clone()), None)
         .await
         .unwrap();
 
@@ -316,6 +317,7 @@ async fn test_main_worker_boot_error() {
         test_user_worker_pool_policy(),
         None,
         Some(pool_termination_token.clone()),
+        None,
     )
     .await
     .unwrap();
@@ -337,7 +339,7 @@ async fn test_main_worker_boot_error() {
         }),
     };
 
-    let result = create_worker((opts, main_termination_token.clone())).await;
+    let result = create_worker((opts, main_termination_token.clone()), None).await;
 
     assert!(result.is_err());
     assert_eq!(result.unwrap_err().to_string(), "worker boot error");

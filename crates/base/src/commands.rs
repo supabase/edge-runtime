@@ -1,6 +1,8 @@
 use crate::{
+    inspector_server::Inspector,
     rt_worker::{worker_ctx::TerminationToken, worker_pool::WorkerPoolPolicy},
-    server::{Server, ServerHealth, WorkerEntrypoints},
+    server::{Server, ServerFlags, ServerHealth, WorkerEntrypoints},
+    InspectorOption,
 };
 use anyhow::Error;
 use tokio::sync::mpsc::Sender;
@@ -13,10 +15,11 @@ pub async fn start_server(
     event_worker_path: Option<String>,
     user_worker_policy: Option<WorkerPoolPolicy>,
     import_map_path: Option<String>,
-    no_module_cache: bool,
+    flags: ServerFlags,
     callback_tx: Option<Sender<ServerHealth>>,
     entrypoints: WorkerEntrypoints,
     termination_token: Option<TerminationToken>,
+    inspector_option: Option<InspectorOption>,
 ) -> Result<(), Error> {
     let mut server = Server::new(
         ip,
@@ -25,10 +28,11 @@ pub async fn start_server(
         event_worker_path,
         user_worker_policy,
         import_map_path,
-        no_module_cache,
+        flags,
         callback_tx,
         entrypoints,
         termination_token,
+        inspector_option.map(Inspector::from_option),
     )
     .await?;
 

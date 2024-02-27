@@ -1,4 +1,5 @@
 use crate::deno_runtime::DenoRuntime;
+use crate::inspector_server::Inspector;
 use crate::rt_worker::supervisor;
 use crate::rt_worker::utils::{get_event_metadata, parse_worker_conf};
 use crate::rt_worker::worker_ctx::create_supervisor;
@@ -37,23 +38,24 @@ pub struct Worker {
     pub cancel: Option<Arc<Notify>>,
     pub event_metadata: EventMetadata,
     pub worker_key: Option<Uuid>,
-    pub supervisor_policy: Option<SupervisorPolicy>,
+    pub inspector: Option<Inspector>,
+    pub supervisor_policy: SupervisorPolicy,
     pub worker_name: String,
 }
 
-pub type HandleCreationType = Pin<Box<dyn Future<Output = Result<WorkerEvents, Error>>>>;
+pub type HandleCreationType<'r> = Pin<Box<dyn Future<Output = Result<WorkerEvents, Error>> + 'r>>;
 pub type UnixStreamEntry = (UnixStream, Option<watch::Receiver<ConnSync>>);
 
 pub trait WorkerHandler: Send {
     fn handle_error(&self, error: Error) -> Result<WorkerEvents, Error>;
-    fn handle_creation(
+    fn handle_creation<'r>(
         &self,
-        created_rt: DenoRuntime,
+        created_rt: &'r mut DenoRuntime,
         unix_stream_rx: UnboundedReceiver<UnixStreamEntry>,
         termination_event_rx: Receiver<WorkerEvents>,
         maybe_cpu_metrics_tx: Option<UnboundedSender<CPUUsageMetrics>>,
         name: Option<String>,
-    ) -> HandleCreationType;
+    ) -> HandleCreationType<'r>;
     fn as_any(&self) -> &dyn Any;
 }
 
@@ -66,19 +68,24 @@ impl Worker {
         let worker_boot_start_time = Instant::now();
 
         Ok(Self {
-            supervisor_policy: None,
             worker_boot_start_time,
             events_msg_tx,
             pool_msg_tx,
             cancel,
             event_metadata,
             worker_key,
+            supervisor_policy: SupervisorPolicy::default(),
+            inspector: None,
             worker_name,
         })
     }
 
+    pub fn set_inspector(&mut self, inspector: Inspector) {
+        self.inspector = Some(inspector);
+    }
+
     pub fn set_supervisor_policy(&mut self, supervisor_policy: Option<SupervisorPolicy>) {
-        self.supervisor_policy = supervisor_policy;
+        self.supervisor_policy = supervisor_policy.unwrap_or_default();
     }
 
     pub fn start(
@@ -90,11 +97,12 @@ impl Worker {
         ),
         booter_signal: Sender<Result<MetricSource, Error>>,
         termination_token: Option<TerminationToken>,
+        inspector: Option<Inspector>,
     ) {
         let worker_name = self.worker_name.clone();
         let worker_key = self.worker_key;
         let event_metadata = self.event_metadata.clone();
-        let supervisor_policy = self.supervisor_policy.unwrap_or_default();
+        let supervisor_policy = self.supervisor_policy;
 
         let (unix_stream_tx, unix_stream_rx) = unix_stream_pair;
         let events_msg_tx = self.events_msg_tx.clone();
@@ -119,7 +127,7 @@ impl Worker {
                     .then(unbounded_channel::<CPUUsageMetrics>)
                     .unzip();
 
-                let result = match DenoRuntime::new(opts).await {
+                let result = match DenoRuntime::new(opts, inspector).await {
                     Ok(mut new_runtime) => {
                         let metric_src = {
                             let js_runtime = &mut new_runtime.js_runtime;
@@ -150,11 +158,12 @@ impl Worker {
                             oneshot::channel::<WorkerEvents>();
 
                         let _cpu_timer;
+                        let mut supervise_cancel_token = None;
 
                         // TODO: Allow customization of supervisor
                         let termination_fut = if worker_kind.is_user_worker() {
                             // cputimer is returned from supervisor and assigned here to keep it in scope.
-                            let Ok(maybe_timer) = create_supervisor(
+                            let Ok((maybe_timer, cancel_token)) = create_supervisor(
                                 worker_key.unwrap_or(Uuid::nil()),
                                 &mut new_runtime,
                                 supervisor_policy,
@@ -169,6 +178,8 @@ impl Worker {
                             };
 
                             _cpu_timer = maybe_timer;
+                            supervise_cancel_token = Some(cancel_token);
+
                             pending().boxed()
                         } else if let Some(token) = termination_token.clone() {
                             let is_terminated = new_runtime.is_terminated.clone();
@@ -223,22 +234,43 @@ impl Worker {
                             pending().boxed()
                         };
 
-                        let data = method_cloner.handle_creation(
-                            new_runtime,
-                            unix_stream_rx,
-                            termination_event_rx,
-                            maybe_cpu_usage_metrics_tx,
-                            Some(worker_name),
-                        );
+                        let result = unsafe {
+                            let mut runtime = scopeguard::guard(new_runtime, |mut runtime| {
+                                runtime.js_runtime.v8_isolate().enter();
+                            });
 
-                        let result = data.await;
+                            runtime.js_runtime.v8_isolate().exit();
+
+                            let result = method_cloner
+                                .handle_creation(
+                                    &mut runtime,
+                                    unix_stream_rx,
+                                    termination_event_rx,
+                                    maybe_cpu_usage_metrics_tx,
+                                    Some(worker_name),
+                                )
+                                .await;
+
+                            let found_unexpected_error = result.is_err()
+                                || matches!(
+                                    result.as_ref(),
+                                    Ok(WorkerEvents::UncaughtException(_))
+                                );
+
+                            if found_unexpected_error {
+                                if let Some(token) = supervise_cancel_token {
+                                    token.cancel();
+                                }
+                            }
+
+                            result
+                        };
 
                         if let Some(token) = termination_token.as_ref() {
                             if !worker_kind.is_user_worker() {
                                 let _ = termination_fut.await;
+                                token.outbound.cancel();
                             }
-
-                            token.outbound.cancel();
                         }
 
                         result

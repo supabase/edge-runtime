@@ -6,6 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+http_utils = { version = "0.1.0", path = "../http_utils" }
 async-trait.workspace = true
 thiserror.workspace = true
 monch.workspace = true
@@ -31,7 +32,7 @@ deno_webidl = { workspace = true }
 deno_web = { workspace = true }
 deno_websocket = { workspace = true }
 httparse = { version = "1.8.0" }
-hyper = { workspace = true, features = ["full"] }
+hyper = { workspace = true, features = ["full", "backports"] }
 http = { version = "0.2" }
 import_map.workspace = true
 log = { workspace = true }
@@ -65,7 +66,10 @@ deno_webgpu.workspace = true
 sb_ai = { version = "0.1.0", path = "../sb_ai" }
 
 [dev-dependencies]
+tokio-util = { workspace = true, features = ["rt", "compat"] }
 serial_test = { version = "3.0.0" }
+async-tungstenite = { version = "0.25.0", default-features = false }
+tungstenite = { version = "0.21.0", default-features = false, features = ["handshake"] }
 
 [build-dependencies]
 sb_core = { version = "0.1.0", path = "../sb_core" }

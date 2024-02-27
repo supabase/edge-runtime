@@ -15,9 +15,12 @@ use deno_core::{
     AsyncRefCell, AsyncResult, BufView, ByteString, CancelFuture, CancelHandle, CancelTryFuture,
     JsBuffer, OpState, RcRef, Resource, ResourceId, WriteOutcome,
 };
+use deno_http::{HttpRequestReader, HttpStreamResource};
 use errors::WorkerError;
+use http_utils::utils::get_upgrade_type;
 use hyper::body::HttpBody;
 use hyper::header::{HeaderName, HeaderValue, CONTENT_LENGTH};
+use hyper::upgrade::OnUpgrade;
 use hyper::{Body, Method, Request};
 use log::error;
 use sb_core::conn_sync::{ConnSync, ConnWatcher};
@@ -324,7 +327,7 @@ pub fn op_user_worker_fetch_build(
 ) -> Result<UserWorkerBuiltRequest, AnyError> {
     let method = Method::from_bytes(&req.method)?;
 
-    let mut request = Request::builder().uri(req.url).method(&method);
+    let mut builder = Request::builder().uri(req.url).method(&method);
     let mut body = Body::empty();
     let mut request_body_rid = None;
 
@@ -353,12 +356,12 @@ pub fn op_user_worker_fetch_build(
                 header_value = HeaderValue::from(0);
             }
 
-            request = request.header(header_name, header_value);
+            builder = builder.header(header_name, header_value);
         }
     }
 
-    let request = request.body(body)?;
-    let request_rid = state.resource_table.add(UserWorkerRequestResource(request));
+    let req = builder.body(body)?;
+    let request_rid = state.resource_table.add(UserWorkerRequestResource(req));
 
     Ok(UserWorkerBuiltRequest {
         request_rid,
@@ -372,24 +375,44 @@ pub async fn op_user_worker_fetch_send(
     state: Rc<RefCell<OpState>>,
     #[string] key: String,
     #[smi] rid: ResourceId,
+    #[smi] stream_rid: ResourceId,
     #[smi] watcher_rid: Option<ResourceId>,
 ) -> Result<UserWorkerResponse, AnyError> {
-    let (tx, request) = {
-        let mut op_state = state.borrow_mut();
-        let tx = op_state
-            .borrow::<mpsc::UnboundedSender<UserWorkerMsgs>>()
-            .clone();
+    let (tx, req) = {
+        let (tx, mut req) = {
+            let mut op_state = state.borrow_mut();
+            let tx = op_state
+                .borrow::<mpsc::UnboundedSender<UserWorkerMsgs>>()
+                .clone();
 
-        let request = op_state
-            .resource_table
-            .take::<UserWorkerRequestResource>(rid)?;
+            let req = Rc::try_unwrap(
+                op_state
+                    .resource_table
+                    .take::<UserWorkerRequestResource>(rid)?,
+            )
+            .ok()
+            .expect("multiple op_user_worker_fetch_send ongoing");
 
-        (tx, request)
+            (tx, req)
+        };
+
+        if get_upgrade_type(req.0.headers()).is_some() {
+            let req_stream = state
+                .borrow_mut()
+                .resource_table
+                .get::<HttpStreamResource>(stream_rid)?;
+
+            let mut req_reader_mut = RcRef::map(&req_stream, |r| &r.rd).borrow_mut().await;
+
+            if let HttpRequestReader::Headers(orig_req) = &mut *req_reader_mut {
+                if let Some(upgrade) = orig_req.extensions_mut().remove::<OnUpgrade>() {
+                    let _ = req.0.extensions_mut().insert(upgrade);
+                }
+            }
+        }
+
+        (tx, req)
     };
-
-    let request = Rc::try_unwrap(request)
-        .ok()
-        .expect("multiple op_user_worker_fetch_send ongoing");
 
     let (result_tx, result_rx) = oneshot::channel::<Result<SendRequestResult, Error>>();
     let key_parsed = Uuid::try_parse(key.as_str())?;
@@ -416,14 +439,14 @@ pub async fn op_user_worker_fetch_send(
 
     tx.send(UserWorkerMsgs::SendRequest(
         key_parsed,
-        request.0,
+        req.0,
         result_tx,
         watcher.clone(),
     ))?;
 
-    let result = result_rx.await?;
-    let (result, req_end_tx) = match result {
-        Ok((result, req_end_tx)) => (result, req_end_tx),
+    let res = result_rx.await?;
+    let (res, req_end_tx) = match res {
+        Ok((res, req_end_tx)) => (res, req_end_tx),
         Err(err) => {
             error!("user worker failed to respond: {}", err);
             match err.downcast_ref() {
@@ -442,24 +465,23 @@ pub async fn op_user_worker_fetch_send(
     };
 
     let mut headers = vec![];
-    for (key, value) in result.headers().iter() {
+    for (key, value) in res.headers().iter() {
         headers.push((
             ByteString::from(key.as_str()),
             ByteString::from(value.to_str().unwrap_or_default()),
         ));
     }
 
-    let status = result.status().as_u16();
-    let status_text = result
+    let status = res.status().as_u16();
+    let status_text = res
         .status()
         .canonical_reason()
         .unwrap_or("<unknown status code>")
         .to_string();
 
-    let size = HttpBody::size_hint(result.body()).exact();
+    let size = HttpBody::size_hint(res.body()).exact();
     let stream: BytesStream = Box::pin(
-        result
-            .into_body()
+        res.into_body()
             .map(|r| r.map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))),
     );
 

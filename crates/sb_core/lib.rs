@@ -22,6 +22,7 @@ pub mod emit;
 pub mod errors_rt;
 pub mod external_memory;
 pub mod file_fetcher;
+pub mod http;
 pub mod http_start;
 pub mod net;
 pub mod permissions;
@@ -303,5 +304,6 @@ deno_core::extension!(
         "js/navigator.js",
         "js/bootstrap.js",
         "js/main_worker.js",
+        "js/01_http.js"
     ]
 );

@@ -3,7 +3,7 @@ import * as tls from 'ext:deno_net/02_tls.js';
 import * as timers from 'ext:deno_web/02_timers.js';
 import * as permissions from 'ext:sb_core_main_js/js/permissions.js';
 import { errors } from 'ext:sb_core_main_js/js/errors.js';
-import { serve, serveHttp } from 'ext:sb_core_main_js/js/http.js';
+import { serve, serveHttp, upgradeWebSocket } from 'ext:sb_core_main_js/js/http.js';
 import * as fs from 'ext:deno_fs/30_fs.js';
 import { osCalls } from 'ext:sb_os/os.js';
 import * as io from 'ext:deno_io/12_io.js';
@@ -95,20 +95,21 @@ const ioVars = {
 };
 
 const denoOverrides = {
+	serve,
+	serveHttp,
+	upgradeWebSocket,
 	listen: net.listen,
 	connect: net.connect,
 	connectTls: tls.connectTls,
 	startTls: tls.startTls,
 	resolveDns: net.resolveDns,
-	serveHttp: serveHttp,
-	serve: serve,
 	permissions: permissions.permissions,
 	Permissions: permissions.Permissions,
 	PermissionStatus: permissions.PermissionStatus,
 	errors: errors,
 	refTimer: timers.refTimer,
 	unrefTimer: timers.unrefTimer,
-	isatty: (arg) => false,
+	isatty: (_arg) => false,
 	...ioVars,
 	...fsVars,
 	...osCallsVars,

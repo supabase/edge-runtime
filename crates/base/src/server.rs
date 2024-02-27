@@ -160,7 +160,7 @@ impl Service<Request<Body>> for WorkerService {
                 parts,
                 Body::wrap_stream(NotifyOnEos {
                     inner: body,
-                    cancel: Some(cancel.clone()),
+                    cancel: Some(cancel),
                 }),
             );
 
@@ -294,7 +294,8 @@ impl Server {
                                     let _guard = cancel.drop_guard();
 
                                     let conn_fut = Http::new()
-                                        .serve_connection(conn, service);
+                                        .serve_connection(conn, service)
+                                        .with_upgrades();
 
                                     if let Err(e) = conn_fut.await {
                                         // Most common cause for these errors are

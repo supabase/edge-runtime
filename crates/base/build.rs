@@ -12,7 +12,8 @@ mod supabase_startup_snapshot {
     use event_worker::js_interceptors::sb_events_js_interceptors;
     use event_worker::sb_user_event_worker;
     use sb_ai::sb_ai;
-    use sb_core::http_start::sb_core_http;
+    use sb_core::http::sb_core_http;
+    use sb_core::http_start::sb_core_http_start;
     use sb_core::net::sb_core_net;
     use sb_core::permissions::sb_core_permissions;
     use sb_core::runtime::sb_core_runtime;
@@ -206,6 +207,7 @@ mod supabase_startup_snapshot {
             sb_core_main_js::init_ops_and_esm(),
             sb_core_net::init_ops_and_esm(),
             sb_core_http::init_ops_and_esm(),
+            sb_core_http_start::init_ops_and_esm(),
             deno_node::init_ops_and_esm::<Permissions>(None, fs),
             sb_core_runtime::init_ops_and_esm(None),
         ];

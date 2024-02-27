@@ -199,6 +199,7 @@ impl Server {
         callback_tx: Option<Sender<ServerHealth>>,
         entrypoints: WorkerEntrypoints,
         termination_token: Option<TerminationToken>,
+        static_patterns: Vec<String>,
     ) -> Result<Self, Error> {
         let mut worker_events_tx: Option<mpsc::UnboundedSender<WorkerEventWithMetadata>> = None;
         let maybe_events_entrypoint = entrypoints.events;
@@ -230,6 +231,7 @@ impl Server {
             maybe_user_worker_policy.unwrap_or_default(),
             worker_events_tx,
             None,
+            static_patterns,
         )
         .await?;
 

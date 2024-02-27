@@ -449,6 +449,7 @@ pub async fn create_main_worker(
             maybe_module_code: None,
             conf: WorkerRuntimeOpts::MainWorker(runtime_opts),
             env_vars: std::env::vars().collect(),
+            static_patterns: vec![],
         },
         termination_token,
     ))
@@ -490,6 +491,7 @@ pub async fn create_events_worker(
             maybe_entrypoint,
             maybe_module_code: None,
             conf: WorkerRuntimeOpts::EventsWorker(EventWorkerRuntimeOpts {}),
+            static_patterns: vec![],
         },
         termination_token,
     ))
@@ -503,6 +505,7 @@ pub async fn create_user_worker_pool(
     policy: WorkerPoolPolicy,
     worker_event_sender: Option<mpsc::UnboundedSender<WorkerEventWithMetadata>>,
     termination_token: Option<TerminationToken>,
+    static_patterns: Vec<String>,
 ) -> Result<(SharedMetricSource, mpsc::UnboundedSender<UserWorkerMsgs>), Error> {
     let metric_src = SharedMetricSource::default();
     let (user_worker_msgs_tx, mut user_worker_msgs_rx) =
@@ -548,7 +551,10 @@ pub async fn create_user_worker_pool(
                         match msg {
                             None => break,
                             Some(UserWorkerMsgs::Create(worker_options, tx)) => {
-                                worker_pool.create_user_worker(worker_options, tx, termination_token.as_ref().map(|it| it.child_token()));
+                                worker_pool.create_user_worker(WorkerContextInitOpts {
+                                    static_patterns: static_patterns.clone(),
+                                    ..worker_options
+                                }, tx, termination_token.as_ref().map(|it| it.child_token()));
                             }
                             Some(UserWorkerMsgs::Created(key, profile)) => {
                                 worker_pool.add_user_worker(key, profile);

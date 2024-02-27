@@ -44,9 +44,10 @@ use sb_core::permissions::{sb_core_permissions, Permissions};
 use sb_core::runtime::sb_core_runtime;
 use sb_core::sb_core_main_js;
 use sb_env::sb_env as sb_env_op;
+use sb_fs::file_system::DenoCompileFileSystem;
 use sb_graph::emitter::EmitterFactory;
 use sb_graph::import_map::load_import_map;
-use sb_graph::{generate_binary_eszip, EszipPayloadKind};
+use sb_graph::{generate_binary_eszip, include_glob_patterns_in_eszip, EszipPayloadKind};
 use sb_module_loader::standalone::create_module_loader_for_standalone_from_eszip_kind;
 use sb_module_loader::RuntimeProviders;
 use sb_node::deno_node;
@@ -122,8 +123,13 @@ impl DenoRuntime {
             maybe_eszip,
             maybe_entrypoint,
             maybe_module_code,
+            static_patterns,
             ..
         } = opts;
+
+        for x in &static_patterns {
+            println!("{}", x);
+        }
 
         let base_dir_path = std::env::current_dir().map(|p| p.join(&service_path))?;
         let base_url = Url::from_directory_path(&base_dir_path).unwrap();
@@ -177,13 +183,19 @@ impl DenoRuntime {
                 None
             };
 
-            let eszip = generate_binary_eszip(
+            let mut eszip = generate_binary_eszip(
                 main_module_url_file_path,
                 arc_emitter_factory,
                 maybe_code,
                 import_map_path.clone(),
             )
             .await?;
+
+            include_glob_patterns_in_eszip(
+                static_patterns.iter().map(|s| s.as_str()).collect(),
+                &mut eszip,
+            )
+            .await;
 
             EszipPayloadKind::Eszip(eszip)
         };
@@ -263,7 +275,7 @@ impl DenoRuntime {
                     npm_snapshot,
                 )) as Arc<dyn deno_fs::FileSystem>
             } else {
-                Arc::new(deno_fs::RealFs) as Arc<dyn deno_fs::FileSystem>
+                Arc::new(DenoCompileFileSystem::from_rc(vfs)) as Arc<dyn deno_fs::FileSystem>
             }
         };
 

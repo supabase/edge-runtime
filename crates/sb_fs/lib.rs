@@ -2,13 +2,14 @@ use crate::virtual_fs::{
     FileBackedVfs, VfsBuilder, VfsEntry, VfsRoot, VirtualDirectory, VirtualFile,
 };
 use deno_core::error::AnyError;
-use deno_core::serde_json;
+use deno_core::{normalize_path, serde_json};
 use deno_npm::NpmSystemInfo;
 use eszip::EszipV2;
 use sb_npm::cache::NpmCache;
 use sb_npm::registry::CliNpmRegistryApi;
 use sb_npm::resolution::NpmResolution;
 use sb_npm::{CliNpmResolver, InnerCliNpmResolverRef};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -23,11 +24,11 @@ pub struct VfsOpts {
     pub npm_resolution: Arc<NpmResolution>,
 }
 
-pub type EszipStaticFiles = Vec<(String, Vec<u8>)>;
+pub type EszipStaticFiles = HashMap<String, Vec<u8>>;
 
 pub async fn extract_static_files_from_eszip(eszip: &EszipV2) -> EszipStaticFiles {
     let key = String::from("---SUPABASE-STATIC-FILES-ESZIP---");
-    let mut files: Vec<(String, Vec<u8>)> = vec![];
+    let mut files: EszipStaticFiles = HashMap::new();
 
     if eszip.specifiers().contains(&key) {
         let eszip_static_files = eszip.get_module(key.as_str()).unwrap();
@@ -36,10 +37,13 @@ pub async fn extract_static_files_from_eszip(eszip: &EszipV2) -> EszipStaticFile
         let data: Vec<String> = serde_json::from_slice(data.as_slice()).unwrap();
         for static_specifier in data {
             let file_mod = eszip.get_module(static_specifier.as_str()).unwrap();
-            files.push((
-                static_specifier,
+            files.insert(
+                normalize_path(PathBuf::from(static_specifier))
+                    .to_str()
+                    .unwrap()
+                    .to_string(),
                 file_mod.take_source().await.unwrap().to_vec(),
-            ))
+            );
         }
     }
 

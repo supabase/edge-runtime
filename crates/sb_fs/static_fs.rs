@@ -1,4 +1,5 @@
 use crate::{EszipStaticFiles, FileBackedVfs};
+use deno_core::normalize_path;
 use deno_fs::{FsDirEntry, FsFileType, OpenOptions, RealFs};
 use deno_io::fs::{File, FsError, FsResult, FsStat};
 use deno_npm::resolution::ValidSerializedNpmResolutionSnapshot;
@@ -298,7 +299,7 @@ impl deno_fs::FileSystem for StaticFs {
     }
 
     async fn read_file_async(&self, path: PathBuf) -> FsResult<Vec<u8>> {
-        todo!()
+        self.read_file_sync(path.as_path())
     }
 
     fn read_file_sync(&self, path: &Path) -> FsResult<Vec<u8>> {
@@ -309,7 +310,15 @@ impl deno_fs::FileSystem for StaticFs {
             let buf = file.read_all_sync()?;
             Ok(buf)
         } else {
-            Err(FsError::NotSupported)
+            let normalize_path = normalize_path(path);
+            let path = normalize_path.to_str().unwrap();
+            let is_file_in_vfs = self.files.contains_key(path);
+            if is_file_in_vfs {
+                let res = self.files.get(path).unwrap().to_vec();
+                Ok(res)
+            } else {
+                Err(std::io::Error::new(std::io::ErrorKind::NotFound, "path not found").into())
+            }
         }
     }
 }

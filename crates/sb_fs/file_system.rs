@@ -18,6 +18,10 @@ impl DenoCompileFileSystem {
         Self(Arc::new(vfs))
     }
 
+    pub fn from_rc(vfs: Arc<FileBackedVfs>) -> Self {
+        Self(vfs)
+    }
+
     pub fn file_backed_vfs(&self) -> Arc<FileBackedVfs> {
         self.0.clone()
     }

@@ -152,6 +152,7 @@ pub struct WorkerContextInitOpts {
     pub maybe_eszip: Option<EszipPayloadKind>,
     pub maybe_module_code: Option<FastString>,
     pub maybe_entrypoint: Option<String>,
+    pub static_patterns: Vec<String>,
 }
 
 #[derive(Debug)]

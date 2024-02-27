@@ -77,6 +77,7 @@ fn cli() -> Command {
                     arg!(--"request-wait-timeout" <MILLISECONDS> "Maximum time in milliseconds that can wait to establish a connection with a worker")
                     .value_parser(value_parser!(u64))
                 )
+                .arg(arg!(--"static" <Path> "Glob pattern for static files to be included"))
         )
         .subcommand(
             Command::new("bundle")
@@ -151,6 +152,14 @@ fn main() -> Result<(), anyhow::Error> {
                     sub_matches.get_one::<usize>("max-parallelism").cloned();
                 let maybe_request_wait_timeout =
                     sub_matches.get_one::<u64>("request-wait-timeout").cloned();
+                let static_patterns = sub_matches
+                    .get_many::<String>("static")
+                    .unwrap()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<&str>>();
+
+                let static_patterns: Vec<String> =
+                    static_patterns.into_iter().map(|s| s.to_string()).collect();
 
                 start_server(
                     ip.as_str(),
@@ -177,6 +186,7 @@ fn main() -> Result<(), anyhow::Error> {
                         events: maybe_events_entrypoint,
                     },
                     None,
+                    static_patterns,
                 )
                 .await?;
             }

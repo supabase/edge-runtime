@@ -361,6 +361,7 @@ impl WorkerPool {
                                 maybe_eszip,
                                 maybe_module_code,
                                 maybe_entrypoint,
+                                static_patterns: vec![],
                             },
                             tx,
                         ))

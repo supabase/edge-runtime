@@ -6,7 +6,7 @@ use crate::rt_worker::worker_pool::WorkerPoolPolicy;
 use crate::InspectorOption;
 use anyhow::{anyhow, bail, Context, Error};
 use event_worker::events::WorkerEventWithMetadata;
-use futures_util::{FutureExt, Stream};
+use futures_util::Stream;
 use hyper::{server::conn::Http, service::Service, Body, Request, Response};
 use log::{debug, error, info};
 use sb_core::conn_sync::ConnSync;
@@ -393,9 +393,10 @@ impl Server {
 
                 msg = async {
                     if let Some((listener, _addr)) = secure_listener.as_mut() {
-                        listener.accept().boxed()
+                        listener.accept()
                     } else {
-                        pending().boxed()
+                        pending::<()>().await;
+                        unreachable!();
                     }.await
                 } => {
                     match msg {

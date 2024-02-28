@@ -385,9 +385,9 @@ impl Server {
                 msg = non_secure_listener.accept() => {
                     match msg {
                         Ok((stream, _)) => {
-                            accept_tcp_stream(stream, main_worker_req_tx, event_tx, metric_src)
+                            accept_stream(stream, main_worker_req_tx, event_tx, metric_src)
                         }
-                        Err(e) => error!("socket error: {}", e),
+                        Err(e) => error!("socket error: {}", e)
                     }
                 }
 
@@ -401,9 +401,9 @@ impl Server {
                 } => {
                     match msg {
                         Ok((stream, _)) => {
-                            accept_tcp_stream(stream, main_worker_req_tx, event_tx, metric_src);
+                            accept_stream(stream, main_worker_req_tx, event_tx, metric_src);
                         }
-                        Err(e) => error!("socket error: {}", e),
+                        Err(e) => error!("socket error: {}", e)
                     }
                 }
 
@@ -448,7 +448,7 @@ impl Server {
     }
 }
 
-fn accept_tcp_stream<I>(
+fn accept_stream<I>(
     io: I,
     req_tx: UnboundedSender<WorkerRequestMsg>,
     event_tx: Option<UnboundedSender<ServerEvent>>,
@@ -464,9 +464,8 @@ fn accept_tcp_stream<I>(
             let conn_fut = Http::new().serve_connection(io, service).with_upgrades();
 
             if let Err(e) = conn_fut.await {
-                // Most common cause for these errors are
-                // when the client closes the connection
-                // before we could send a response
+                // Most common cause for these errors are when the client closes
+                // the connection before we could send a response
                 if e.is_incomplete_message() {
                     debug!("connection reset ({:?})", e);
                 } else {

@@ -32,9 +32,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::copy_bidirectional;
-use tokio::net::UnixStream;
+use tokio::net::{TcpStream, UnixStream};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::{mpsc, oneshot, watch, Mutex, Notify};
+use tokio_rustls::server::TlsStream;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -173,12 +174,29 @@ async fn relay_upgraded_request_and_response(
     downstream: OnUpgrade,
     parts: http1::Parts<UnixStream>,
 ) {
+    use std::io::ErrorKind;
+
     let mut upstream = Upgraded2::new(parts.io, parts.read_buf);
     let mut downstream = downstream.await.expect("failed to upgrade request");
 
-    copy_bidirectional(&mut upstream, &mut downstream)
-        .await
-        .expect("coping between upgraded connections failed");
+    match copy_bidirectional(&mut upstream, &mut downstream).await {
+        Ok(_) => {}
+        Err(err) if err.kind() == ErrorKind::UnexpectedEof => {
+            let Ok(_) = downstream.downcast::<TlsStream<TcpStream>>() else {
+                // TODO(Nyannyacha): It would be better if we send
+                // `close_notify` before shutdown an upstream if downstream is a
+                // TLS stream.
+
+                // INVARIANT: `UnexpectedEof` due to shutdown `UnixStream` is
+                // only expected to occur in the context of `TlsStream`.
+                panic!("unhandleable unexpected eof");
+            };
+        }
+
+        _ => {
+            unreachable!("coping between upgraded connections failed");
+        }
+    }
 
     // XXX(Nyannyacha): Here you might want to emit the event metadata.
 }

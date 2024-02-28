@@ -1,11 +1,13 @@
 #[macro_export]
 macro_rules! integration_test {
-    ($main_file:expr, $port:expr, $url:expr, $shot_policy:expr, $import_map:expr, $req_builder:expr, ($($function:tt)+) $(, $termination_token: expr)?) => {
+    ($main_file:expr, $port:expr, $url:expr, $shot_policy:expr, $import_map:expr, $req_builder:expr, $tls:expr, ($($function:tt)+) $(, $termination_token:expr)?) => {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<base::server::ServerHealth>(1);
 
+        let req_builder: Option<reqwest::RequestBuilder> = $req_builder;
+        let tls: Option<base::server::Tls> = $tls;
         let signal = tokio::spawn(async move {
             while let Some(base::server::ServerHealth::Listening(event_rx)) = rx.recv().await {
-                integration_test!(@req event_rx, $port, $url, $req_builder, ($($function)+));
+                integration_test!(@req event_rx, $port, $url, req_builder, ($($function)+));
             }
             None
         });
@@ -22,7 +24,7 @@ macro_rules! integration_test {
             _ = base::commands::start_server(
                 "0.0.0.0",
                 $port,
-                None,
+                tls,
                 String::from($main_file),
                 None,
                 $shot_policy,

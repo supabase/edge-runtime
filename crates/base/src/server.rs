@@ -194,10 +194,21 @@ pub struct ServerFlags {
     pub graceful_exit_deadline_sec: u64,
 }
 
+#[derive(Debug)]
 pub struct Tls {
     port: u16,
     key: PrivateKeyDer<'static>,
     cert: CertificateDer<'static>,
+}
+
+impl Clone for Tls {
+    fn clone(&self) -> Self {
+        Self {
+            port: self.port,
+            key: self.key.clone_key(),
+            cert: self.cert.clone(),
+        }
+    }
 }
 
 impl Tls {

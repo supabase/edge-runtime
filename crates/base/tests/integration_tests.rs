@@ -8,12 +8,13 @@ use async_tungstenite::WebSocketStream;
 use base::{
     integration_test,
     rt_worker::worker_ctx::{create_user_worker_pool, create_worker, TerminationToken},
-    server::ServerEvent,
+    server::{ServerEvent, Tls},
 };
 use futures_util::{SinkExt, StreamExt};
 use http::{Method, Request, StatusCode};
 use http_utils::utils::get_upgrade_type;
 use hyper::{body::to_bytes, Body};
+use reqwest::Certificate;
 use sb_workers::context::{MainWorkerRuntimeOpts, WorkerContextInitOpts, WorkerRuntimeOpts};
 use serial_test::serial;
 use tokio::{join, sync::mpsc};
@@ -25,17 +26,25 @@ use crate::integration_test_helper::{
     create_test_user_worker, test_user_runtime_opts, test_user_worker_pool_policy, TestBedBuilder,
 };
 
+const NON_SECURE_PORT: u16 = 8498;
+const SECURE_PORT: u16 = 4433;
+
+const TLS_LOCALHOST_ROOT_CA: &[u8] = include_bytes!("./fixture/tls/root-ca.pem");
+const TLS_LOCALHOST_CERT: &[u8] = include_bytes!("./fixture/tls/localhost.pem");
+const TLS_LOCALHOST_KEY: &[u8] = include_bytes!("./fixture/tls/localhost-key.pem");
+
 #[tokio::test]
 #[serial]
 async fn test_custom_readable_stream_response() {
     let term = TerminationToken::new();
     integration_test!(
         "./test_cases/main",
-        8999,
+        NON_SECURE_PORT,
         "readable-stream-resp",
         None,
         None,
-        None::<reqwest::RequestBuilder>,
+        None,
+        None,
         (|resp: Result<reqwest::Response, reqwest::Error>| async {
             assert_eq!(
                 resp.unwrap().text().await.unwrap(),
@@ -54,11 +63,12 @@ async fn test_import_map_file_path() {
     let term = TerminationToken::new();
     integration_test!(
         "./test_cases/with_import_map",
-        8989,
+        NON_SECURE_PORT,
         "",
         None,
         Some("./test_cases/with_import_map/import_map.json".to_string()),
-        None::<reqwest::RequestBuilder>,
+        None,
+        None,
         (|resp: Result<reqwest::Response, reqwest::Error>| async {
             let res = resp.unwrap();
             assert!(res.status().as_u16() == 200);
@@ -96,11 +106,12 @@ async fn test_import_map_inline() {
 
     integration_test!(
         "./test_cases/with_import_map",
-        8978,
+        NON_SECURE_PORT,
         "",
         None,
         Some(inline_import_map),
-        None::<reqwest::RequestBuilder>,
+        None,
+        None,
         (|resp: Result<reqwest::Response, reqwest::Error>| async {
             let res = resp.unwrap();
             assert!(res.status().as_u16() == 200);
@@ -121,11 +132,12 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_cli() {
     let term = TerminationToken::new();
     integration_test!(
         "./test_cases/main",
-        8999,
+        NON_SECURE_PORT,
         "slow_resp",
         None,
         None,
-        None::<reqwest::RequestBuilder>,
+        None,
+        None,
         (|resp: Result<reqwest::Response, reqwest::Error>| async {
             assert!(resp.unwrap().text().await.unwrap().starts_with("meow: "));
             term.cancel_and_wait().await;
@@ -217,12 +229,11 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
 #[serial]
 async fn test_main_worker_options_request() {
     let term = TerminationToken::new();
-    let port = 8968;
     let client = reqwest::Client::new();
     let req = client
         .request(
             Method::OPTIONS,
-            format!("http://localhost:{}/std_user_worker", port),
+            format!("http://localhost:{}/std_user_worker", NON_SECURE_PORT),
         )
         .body(Body::empty())
         .build()
@@ -234,11 +245,12 @@ async fn test_main_worker_options_request() {
 
     integration_test!(
         "./test_cases/main",
-        port,
+        NON_SECURE_PORT,
         "",
         None,
         None,
         request_builder,
+        None,
         (|resp: Result<reqwest::Response, reqwest::Error>| async {
             let res = resp.unwrap();
             assert!(res.status().as_u16() == 200);
@@ -262,7 +274,6 @@ async fn test_main_worker_options_request() {
 #[serial]
 async fn test_main_worker_post_request() {
     let term = TerminationToken::new();
-    let port = 8958;
     let body_chunk = "{ \"name\": \"bar\"}";
 
     let content_length = &body_chunk.len();
@@ -274,7 +285,7 @@ async fn test_main_worker_post_request() {
     let req = client
         .request(
             Method::POST,
-            format!("http://localhost:{}/std_user_worker", port),
+            format!("http://localhost:{}/std_user_worker", NON_SECURE_PORT),
         )
         .body(body)
         .header("Content-Type", "application/json")
@@ -288,11 +299,12 @@ async fn test_main_worker_post_request() {
 
     integration_test!(
         "./test_cases/main",
-        port,
+        NON_SECURE_PORT,
         "",
         None,
         None,
         request_builder,
+        None,
         (|resp: Result<reqwest::Response, reqwest::Error>| async {
             let res = resp.unwrap();
             assert!(res.status().as_u16() == 200);
@@ -359,12 +371,11 @@ async fn test_main_worker_abort_request() {
     let stream = futures_util::stream::iter(chunks);
     let body = Body::wrap_stream(stream);
 
-    let port = 8948;
     let client = reqwest::Client::new();
     let req = client
         .request(
             Method::POST,
-            format!("http://localhost:{}/std_user_worker", port),
+            format!("http://localhost:{}/std_user_worker", NON_SECURE_PORT),
         )
         .body(body)
         .header("Content-Type", "application/json")
@@ -378,11 +389,12 @@ async fn test_main_worker_abort_request() {
 
     integration_test!(
         "./test_cases/main_with_abort",
-        port,
+        NON_SECURE_PORT,
         "",
         None,
         None,
         request_builder,
+        None,
         (|resp: Result<reqwest::Response, reqwest::Error>| async {
             let res = resp.unwrap();
             assert!(res.status().as_u16() == 500);
@@ -435,20 +447,33 @@ async fn test_main_worker_abort_request() {
 //    );
 //}
 
-#[tokio::test]
-#[serial]
-async fn test_main_worker_post_request_with_transfer_encoding() {
+async fn test_main_worker_post_request_with_transfer_encoding(maybe_tls: Option<Tls>) {
     let term = TerminationToken::new();
     let chunks: Vec<Result<_, std::io::Error>> = vec![Ok("{\"name\":"), Ok("\"bar\"}")];
     let stream = futures_util::stream::iter(chunks);
     let body = Body::wrap_stream(stream);
 
-    let port = 8938;
-    let client = reqwest::Client::new();
+    let client = if maybe_tls.is_some() {
+        reqwest::Client::builder()
+            .add_root_certificate(Certificate::from_pem(TLS_LOCALHOST_ROOT_CA).unwrap())
+            .build()
+            .unwrap()
+    } else {
+        reqwest::Client::new()
+    };
+
     let req = client
         .request(
             Method::POST,
-            format!("http://localhost:{}/std_user_worker", port),
+            format!(
+                "{}://localhost:{}/std_user_worker",
+                if maybe_tls.is_some() { "https" } else { "http" },
+                if maybe_tls.is_some() {
+                    SECURE_PORT
+                } else {
+                    NON_SECURE_PORT
+                }
+            ),
         )
         .body(body)
         .header("Transfer-Encoding", "chunked")
@@ -456,16 +481,16 @@ async fn test_main_worker_post_request_with_transfer_encoding() {
         .unwrap();
 
     let original = reqwest::RequestBuilder::from_parts(client, req);
-
     let request_builder = Some(original);
 
     integration_test!(
         "./test_cases/main",
-        port,
+        NON_SECURE_PORT,
         "",
         None,
         None,
         request_builder,
+        maybe_tls,
         (|resp: Result<reqwest::Response, reqwest::Error>| async {
             let res = resp.unwrap();
             assert!(res.status().as_u16() == 200);
@@ -481,16 +506,32 @@ async fn test_main_worker_post_request_with_transfer_encoding() {
 
 #[tokio::test]
 #[serial]
+async fn test_main_worker_post_request_with_transfer_encoding_non_secure() {
+    test_main_worker_post_request_with_transfer_encoding(None).await;
+}
+
+#[tokio::test]
+#[serial]
+async fn test_main_worker_post_request_with_transfer_encoding_secure() {
+    test_main_worker_post_request_with_transfer_encoding(Some(
+        Tls::new(SECURE_PORT, TLS_LOCALHOST_KEY, TLS_LOCALHOST_CERT).unwrap(),
+    ))
+    .await;
+}
+
+#[tokio::test]
+#[serial]
 async fn test_null_body_with_204_status() {
     let term = TerminationToken::new();
-    let port = 8878;
+
     integration_test!(
         "./test_cases/empty-response",
-        port,
+        NON_SECURE_PORT,
         "",
         None,
         None,
-        None::<reqwest::RequestBuilder>,
+        None,
+        None,
         (|resp: Result<reqwest::Response, reqwest::Error>| async {
             let res = resp.unwrap();
             assert!(res.status().as_u16() == 204);
@@ -508,10 +549,12 @@ async fn test_null_body_with_204_status() {
 #[serial]
 async fn test_null_body_with_204_status_post() {
     let term = TerminationToken::new();
-    let port = 8888;
     let client = reqwest::Client::new();
     let req = client
-        .request(Method::POST, format!("http://localhost:{}", port))
+        .request(
+            Method::POST,
+            format!("http://localhost:{}", NON_SECURE_PORT),
+        )
         .body(Body::empty())
         .build()
         .unwrap();
@@ -522,11 +565,12 @@ async fn test_null_body_with_204_status_post() {
 
     integration_test!(
         "./test_cases/empty-response",
-        port,
+        NON_SECURE_PORT,
         "",
         None,
         None,
         request_builder,
+        None,
         (|resp: Result<reqwest::Response, reqwest::Error>| async {
             let res = resp.unwrap();
             assert!(res.status().as_u16() == 204);
@@ -544,14 +588,15 @@ async fn test_null_body_with_204_status_post() {
 #[serial]
 async fn test_oak_server() {
     let term = TerminationToken::new();
-    let port = 8798;
+
     integration_test!(
         "./test_cases/oak",
-        port,
+        NON_SECURE_PORT,
         "oak",
         None,
         None,
-        None::<reqwest::RequestBuilder>,
+        None,
+        None,
         (|resp: Result<reqwest::Response, reqwest::Error>| async {
             let res = resp.unwrap();
             assert!(res.status().as_u16() == 200);
@@ -579,12 +624,11 @@ async fn test_file_upload() {
     let stream = futures_util::stream::iter(chunks);
     let body = Body::wrap_stream(stream);
 
-    let port = 8788;
     let client = reqwest::Client::new();
     let req = client
         .request(
             Method::POST,
-            format!("http://localhost:{}/file-upload", port),
+            format!("http://localhost:{}/file-upload", NON_SECURE_PORT),
         )
         .header("Content-Type", "multipart/form-data; boundary=TEST")
         .header("Content-Length", content_length.to_string())
@@ -598,11 +642,12 @@ async fn test_file_upload() {
 
     integration_test!(
         "./test_cases/oak",
-        port,
+        NON_SECURE_PORT,
         "",
         None,
         None,
         request_builder,
+        None,
         (|resp: Result<reqwest::Response, reqwest::Error>| async {
             let res = resp.unwrap();
             assert!(res.status().as_u16() == 201);
@@ -620,14 +665,15 @@ async fn test_file_upload() {
 #[serial]
 async fn test_node_server() {
     let term = TerminationToken::new();
-    let port = 8698;
+
     integration_test!(
         "./test_cases/node-server",
-        port,
+        NON_SECURE_PORT,
         "",
         None,
         None,
-        None::<reqwest::RequestBuilder>,
+        None,
+        None,
         (|resp: Result<reqwest::Response, reqwest::Error>| async {
             let res = resp.unwrap();
             assert_eq!(res.status().as_u16(), 200);
@@ -648,14 +694,15 @@ async fn test_node_server() {
 #[serial]
 async fn test_tls_throw_invalid_data() {
     let term = TerminationToken::new();
-    let port = 8598;
+
     integration_test!(
         "./test_cases/tls_invalid_data",
-        port,
+        NON_SECURE_PORT,
         "",
         None,
         None,
-        None::<reqwest::RequestBuilder>,
+        None,
+        None,
         (|resp: Result<reqwest::Response, reqwest::Error>| async {
             let res = resp.unwrap();
             assert!(res.status().as_u16() == 200);
@@ -673,14 +720,15 @@ async fn test_tls_throw_invalid_data() {
 #[serial]
 async fn test_user_worker_json_imports() {
     let term = TerminationToken::new();
-    let port = 8498;
+
     integration_test!(
         "./test_cases/json_import",
-        port,
+        NON_SECURE_PORT,
         "",
         None,
         None,
-        None::<reqwest::RequestBuilder>,
+        None,
+        None,
         (|resp: Result<reqwest::Response, reqwest::Error>| async {
             let res = resp.unwrap();
             assert!(res.status().as_u16() == 200);
@@ -698,14 +746,15 @@ async fn test_user_worker_json_imports() {
 #[serial]
 async fn test_user_imports_npm() {
     let term = TerminationToken::new();
-    let port = 8488;
+
     integration_test!(
         "./test_cases/npm",
-        port,
+        NON_SECURE_PORT,
         "",
         None,
         None,
-        None::<reqwest::RequestBuilder>,
+        None,
+        None,
         (|resp: Result<reqwest::Response, reqwest::Error>| async {
             let res = resp.unwrap();
             assert!(res.status().as_u16() == 200);
@@ -873,21 +922,20 @@ async fn req_failure_case_wall_clock_reached_less_than_100ms() {
     tb.exit().await;
 }
 
-#[tokio::test]
-#[serial]
-async fn req_failure_case_intentional_peer_reset() {
+async fn req_failure_case_intentional_peer_reset(maybe_tls: Option<Tls>) {
     let term = TerminationToken::new();
     let (server_ev_tx, mut server_ev_rx) = mpsc::unbounded_channel();
 
     integration_test!(
         "./test_cases/main",
-        8999,
+        NON_SECURE_PORT,
         "slow_resp",
         None,
         None,
-        None::<reqwest::RequestBuilder>,
+        None,
+        maybe_tls.clone(),
         (
-            |port: usize,
+            |port: u16,
              url: &'static str,
              _req_builder: Option<reqwest::RequestBuilder>,
              mut ev: mpsc::UnboundedReceiver<ServerEvent>| async move {
@@ -904,9 +952,27 @@ async fn req_failure_case_intentional_peer_reset() {
                     }
                 });
 
-                Some(
+                let client = if maybe_tls.is_some() {
+                    reqwest::Client::builder()
+                        .add_root_certificate(Certificate::from_pem(TLS_LOCALHOST_ROOT_CA).unwrap())
+                        .build()
+                        .unwrap()
+                } else {
                     reqwest::Client::new()
-                        .get(format!("http://localhost:{}/{}", port, url))
+                };
+
+                Some(
+                    client
+                        .get(format!(
+                            "{}://localhost:{}/{}",
+                            if maybe_tls.is_some() { "https" } else { "http" },
+                            if maybe_tls.is_some() {
+                                SECURE_PORT
+                            } else {
+                                port
+                            },
+                            url
+                        ))
                         .timeout(Duration::from_millis(100))
                         .send()
                         .await,
@@ -931,15 +997,43 @@ async fn req_failure_case_intentional_peer_reset() {
 
 #[tokio::test]
 #[serial]
-async fn test_websocket_upgrade() {
+async fn req_failure_case_intentional_peer_reset_non_secure() {
+    req_failure_case_intentional_peer_reset(None).await;
+}
+
+#[tokio::test]
+#[serial]
+async fn req_failure_case_intentional_peer_reset_secure() {
+    req_failure_case_intentional_peer_reset(Some(
+        Tls::new(SECURE_PORT, TLS_LOCALHOST_KEY, TLS_LOCALHOST_CERT).unwrap(),
+    ))
+    .await;
+}
+
+async fn test_websocket_upgrade(maybe_tls: Option<Tls>) {
     let term = TerminationToken::new();
-    let port = 8498;
-    let client = reqwest::Client::new();
+    let client = if maybe_tls.is_some() {
+        reqwest::Client::builder()
+            .add_root_certificate(Certificate::from_pem(TLS_LOCALHOST_ROOT_CA).unwrap())
+            .build()
+            .unwrap()
+    } else {
+        reqwest::Client::new()
+    };
+
     let nonce = tungstenite::handshake::client::generate_key();
     let req = client
         .request(
             Method::GET,
-            format!("http://localhost:{}/websocket-upgrade", port),
+            format!(
+                "{}://localhost:{}/websocket-upgrade",
+                if maybe_tls.is_some() { "https" } else { "http" },
+                if maybe_tls.is_some() {
+                    SECURE_PORT
+                } else {
+                    NON_SECURE_PORT
+                }
+            ),
         )
         .header(reqwest::header::CONNECTION, "upgrade")
         .header(reqwest::header::UPGRADE, "websocket")
@@ -953,11 +1047,12 @@ async fn test_websocket_upgrade() {
 
     integration_test!(
         "./test_cases/main",
-        port,
+        NON_SECURE_PORT,
         "",
         None,
         None,
         request_builder,
+        maybe_tls,
         (|resp: Result<reqwest::Response, reqwest::Error>| async {
             let res = resp.unwrap();
             let accepted = get_upgrade_type(res.headers());
@@ -989,4 +1084,19 @@ async fn test_websocket_upgrade() {
         }),
         term.clone()
     );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_websocket_upgrade_non_secure() {
+    test_websocket_upgrade(None).await;
+}
+
+#[tokio::test]
+#[serial]
+async fn test_websocket_upgrade_secure() {
+    test_websocket_upgrade(Some(
+        Tls::new(SECURE_PORT, TLS_LOCALHOST_KEY, TLS_LOCALHOST_CERT).unwrap(),
+    ))
+    .await;
 }

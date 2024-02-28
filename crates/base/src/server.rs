@@ -198,7 +198,7 @@ pub struct ServerFlags {
 pub struct Tls {
     port: u16,
     key: PrivateKeyDer<'static>,
-    cert: CertificateDer<'static>,
+    cert_chain: Vec<CertificateDer<'static>>,
 }
 
 impl Clone for Tls {
@@ -206,7 +206,7 @@ impl Clone for Tls {
         Self {
             port: self.port,
             key: self.key.clone_key(),
-            cert: self.cert.clone(),
+            cert_chain: self.cert_chain.clone(),
         }
     }
 }
@@ -222,11 +222,24 @@ impl Tls {
             bail!("invalid key data")
         };
 
-        let Some((Item::X509Certificate(cert), _)) =
-            read_one_from_slice(cert).map_err(|err| anyhow!("can't resolve cert: {:?}", err))?
-        else {
-            bail!("invalid cert data")
-        };
+        let mut cert_chain = vec![];
+        let mut cert_slice = cert;
+        loop {
+            let Some((Item::X509Certificate(cert), remain_cert_slice)) =
+                read_one_from_slice(cert_slice)
+                    .map_err(|err| anyhow!("can't resolve cert: {:?}", err))?
+            else {
+                bail!("invalid cert data")
+            };
+
+            cert_chain.push(cert);
+
+            if remain_cert_slice.is_empty() {
+                break;
+            }
+
+            cert_slice = remain_cert_slice;
+        }
 
         let key = match key_item {
             Item::Pkcs1Key(key) => PrivateKeyDer::Pkcs1(key),
@@ -235,14 +248,18 @@ impl Tls {
             _ => bail!("invalid key data"),
         };
 
-        Ok(Self { port, key, cert })
+        Ok(Self {
+            port,
+            key,
+            cert_chain,
+        })
     }
 
     fn into_acceptor(self) -> anyhow::Result<TlsAcceptor> {
         Ok(Arc::new(
             ServerConfig::builder()
                 .with_no_client_auth()
-                .with_single_cert(vec![self.cert], self.key)
+                .with_single_cert(self.cert_chain, self.key)
                 .with_context(|| "can't make TLS acceptor")?,
         )
         .into())

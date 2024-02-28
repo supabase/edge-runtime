@@ -1,10 +1,10 @@
 use crate::{EszipStaticFiles, FileBackedVfs};
 use deno_core::normalize_path;
-use deno_fs::{FsDirEntry, FsFileType, OpenOptions, RealFs};
+use deno_fs::{FsDirEntry, FsFileType, OpenOptions};
 use deno_io::fs::{File, FsError, FsResult, FsStat};
 use deno_npm::resolution::ValidSerializedNpmResolutionSnapshot;
 use deno_semver::Version;
-use std::fmt::{Debug, Formatter};
+use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -42,17 +42,17 @@ impl StaticFs {
 
                 let package_info = gen_path_str.replace(main_path, "");
                 let package_info = {
-                    if let Some(res) = package_info.strip_prefix("/") {
+                    if let Some(res) = package_info.strip_prefix('/') {
                         res.to_string()
                     } else {
                         package_info
                     }
                 };
 
-                let package_info: Vec<&str> = package_info.split("/").collect();
+                let package_info: Vec<&str> = package_info.split('/').collect();
 
                 let (name, ver) = {
-                    let name = package_info.get(0).unwrap().to_string();
+                    let name = package_info.first().unwrap().to_string();
                     let ver = package_info.get(1).unwrap().to_string();
                     (name, ver)
                 };
@@ -82,15 +82,15 @@ impl deno_fs::FileSystem for StaticFs {
         Err(FsError::NotSupported)
     }
 
-    fn chdir(&self, path: &Path) -> FsResult<()> {
+    fn chdir(&self, _path: &Path) -> FsResult<()> {
         Err(FsError::NotSupported)
     }
 
-    fn umask(&self, mask: Option<u32>) -> FsResult<u32> {
+    fn umask(&self, _mask: Option<u32>) -> FsResult<u32> {
         Err(FsError::NotSupported)
     }
 
-    fn open_sync(&self, path: &Path, options: OpenOptions) -> FsResult<Rc<dyn File>> {
+    fn open_sync(&self, path: &Path, _options: OpenOptions) -> FsResult<Rc<dyn File>> {
         if self.vfs.is_path_within(path) {
             Ok(self.vfs.open_file(path)?)
         } else {
@@ -98,7 +98,7 @@ impl deno_fs::FileSystem for StaticFs {
         }
     }
 
-    async fn open_async(&self, path: PathBuf, options: OpenOptions) -> FsResult<Rc<dyn File>> {
+    async fn open_async(&self, path: PathBuf, _options: OpenOptions) -> FsResult<Rc<dyn File>> {
         if self.vfs.is_path_within(&path) {
             Ok(self.vfs.open_file(&path)?)
         } else {
@@ -106,51 +106,56 @@ impl deno_fs::FileSystem for StaticFs {
         }
     }
 
-    fn mkdir_sync(&self, path: &Path, recursive: bool, mode: u32) -> FsResult<()> {
+    fn mkdir_sync(&self, _path: &Path, _recursive: bool, _mode: u32) -> FsResult<()> {
         Err(FsError::NotSupported)
     }
 
-    async fn mkdir_async(&self, path: PathBuf, recursive: bool, mode: u32) -> FsResult<()> {
+    async fn mkdir_async(&self, _path: PathBuf, _recursive: bool, _mode: u32) -> FsResult<()> {
         Err(FsError::NotSupported)
     }
 
-    fn chmod_sync(&self, path: &Path, mode: u32) -> FsResult<()> {
+    fn chmod_sync(&self, _path: &Path, _mode: u32) -> FsResult<()> {
         Err(FsError::NotSupported)
     }
 
-    async fn chmod_async(&self, path: PathBuf, mode: u32) -> FsResult<()> {
+    async fn chmod_async(&self, _path: PathBuf, _mode: u32) -> FsResult<()> {
         Err(FsError::NotSupported)
     }
 
-    fn chown_sync(&self, path: &Path, uid: Option<u32>, gid: Option<u32>) -> FsResult<()> {
+    fn chown_sync(&self, _path: &Path, _uid: Option<u32>, _gid: Option<u32>) -> FsResult<()> {
         Err(FsError::NotSupported)
     }
 
-    async fn chown_async(&self, path: PathBuf, uid: Option<u32>, gid: Option<u32>) -> FsResult<()> {
+    async fn chown_async(
+        &self,
+        _path: PathBuf,
+        _uid: Option<u32>,
+        _gid: Option<u32>,
+    ) -> FsResult<()> {
         Err(FsError::NotSupported)
     }
 
-    fn remove_sync(&self, path: &Path, recursive: bool) -> FsResult<()> {
+    fn remove_sync(&self, _path: &Path, _recursive: bool) -> FsResult<()> {
         Err(FsError::NotSupported)
     }
 
-    async fn remove_async(&self, path: PathBuf, recursive: bool) -> FsResult<()> {
+    async fn remove_async(&self, _path: PathBuf, _recursive: bool) -> FsResult<()> {
         Err(FsError::NotSupported)
     }
 
-    fn copy_file_sync(&self, oldpath: &Path, newpath: &Path) -> FsResult<()> {
+    fn copy_file_sync(&self, _oldpath: &Path, _newpath: &Path) -> FsResult<()> {
         Err(FsError::NotSupported)
     }
 
-    async fn copy_file_async(&self, oldpath: PathBuf, newpath: PathBuf) -> FsResult<()> {
+    async fn copy_file_async(&self, _oldpath: PathBuf, _newpath: PathBuf) -> FsResult<()> {
         Err(FsError::NotSupported)
     }
 
-    fn cp_sync(&self, path: &Path, new_path: &Path) -> FsResult<()> {
+    fn cp_sync(&self, _path: &Path, _new_path: &Path) -> FsResult<()> {
         Err(FsError::NotSupported)
     }
 
-    async fn cp_async(&self, path: PathBuf, new_path: PathBuf) -> FsResult<()> {
+    async fn cp_async(&self, _path: PathBuf, _new_path: PathBuf) -> FsResult<()> {
         Err(FsError::NotSupported)
     }
 
@@ -218,36 +223,36 @@ impl deno_fs::FileSystem for StaticFs {
         }
     }
 
-    fn rename_sync(&self, oldpath: &Path, newpath: &Path) -> FsResult<()> {
+    fn rename_sync(&self, _oldpath: &Path, _newpath: &Path) -> FsResult<()> {
         Err(FsError::NotSupported)
     }
 
-    async fn rename_async(&self, oldpath: PathBuf, newpath: PathBuf) -> FsResult<()> {
+    async fn rename_async(&self, _oldpath: PathBuf, _newpath: PathBuf) -> FsResult<()> {
         Err(FsError::NotSupported)
     }
 
-    fn link_sync(&self, oldpath: &Path, newpath: &Path) -> FsResult<()> {
+    fn link_sync(&self, _oldpath: &Path, _newpath: &Path) -> FsResult<()> {
         Err(FsError::NotSupported)
     }
 
-    async fn link_async(&self, oldpath: PathBuf, newpath: PathBuf) -> FsResult<()> {
+    async fn link_async(&self, _oldpath: PathBuf, _newpath: PathBuf) -> FsResult<()> {
         Err(FsError::NotSupported)
     }
 
     fn symlink_sync(
         &self,
-        oldpath: &Path,
-        newpath: &Path,
-        file_type: Option<FsFileType>,
+        _oldpath: &Path,
+        _newpath: &Path,
+        _file_type: Option<FsFileType>,
     ) -> FsResult<()> {
         Err(FsError::NotSupported)
     }
 
     async fn symlink_async(
         &self,
-        oldpath: PathBuf,
-        newpath: PathBuf,
-        file_type: Option<FsFileType>,
+        _oldpath: PathBuf,
+        _newpath: PathBuf,
+        _file_type: Option<FsFileType>,
     ) -> FsResult<()> {
         Err(FsError::NotSupported)
     }
@@ -268,38 +273,34 @@ impl deno_fs::FileSystem for StaticFs {
         }
     }
 
-    fn truncate_sync(&self, path: &Path, len: u64) -> FsResult<()> {
+    fn truncate_sync(&self, _path: &Path, _len: u64) -> FsResult<()> {
         Err(FsError::NotSupported)
     }
 
-    async fn truncate_async(&self, path: PathBuf, len: u64) -> FsResult<()> {
+    async fn truncate_async(&self, _path: PathBuf, _len: u64) -> FsResult<()> {
         Err(FsError::NotSupported)
     }
 
     fn utime_sync(
         &self,
-        path: &Path,
-        atime_secs: i64,
-        atime_nanos: u32,
-        mtime_secs: i64,
-        mtime_nanos: u32,
+        _path: &Path,
+        _atime_secs: i64,
+        _atime_nanos: u32,
+        _mtime_secs: i64,
+        _mtime_nanos: u32,
     ) -> FsResult<()> {
         Err(FsError::NotSupported)
     }
 
     async fn utime_async(
         &self,
-        path: PathBuf,
-        atime_secs: i64,
-        atime_nanos: u32,
-        mtime_secs: i64,
-        mtime_nanos: u32,
+        _path: PathBuf,
+        _atime_secs: i64,
+        _atime_nanos: u32,
+        _mtime_secs: i64,
+        _mtime_nanos: u32,
     ) -> FsResult<()> {
         Err(FsError::NotSupported)
-    }
-
-    async fn read_file_async(&self, path: PathBuf) -> FsResult<Vec<u8>> {
-        self.read_file_sync(path.as_path())
     }
 
     fn read_file_sync(&self, path: &Path) -> FsResult<Vec<u8>> {
@@ -320,5 +321,9 @@ impl deno_fs::FileSystem for StaticFs {
                 Err(std::io::Error::new(std::io::ErrorKind::NotFound, "path not found").into())
             }
         }
+    }
+
+    async fn read_file_async(&self, path: PathBuf) -> FsResult<Vec<u8>> {
+        self.read_file_sync(path.as_path())
     }
 }

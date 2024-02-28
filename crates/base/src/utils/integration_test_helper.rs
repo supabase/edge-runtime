@@ -200,6 +200,7 @@ impl TestBedBuilder {
                         .unwrap_or_else(test_user_worker_pool_policy),
                     None,
                     Some(token.clone()),
+                    vec![],
                 )
                 .await
                 .unwrap(),
@@ -222,6 +223,7 @@ impl TestBedBuilder {
                 shared_metric_src: None,
                 event_worker_metric_src: None,
             }),
+            static_patterns: vec![],
         };
 
         let main_termination_token = TerminationToken::new();

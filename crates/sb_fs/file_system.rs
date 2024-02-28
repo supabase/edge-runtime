@@ -1,6 +1,5 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
-use crate::EszipStaticFiles;
 use deno_fs::{FileSystem, FsDirEntry, FsFileType, OpenOptions, RealFs};
 use deno_io::fs::{File, FsError, FsResult, FsStat};
 use std::path::Path;

@@ -6,14 +6,13 @@ use deno_core::futures::io::{AllowStdIo, BufReader};
 use deno_core::{serde_json, FastString, JsBuffer, ModuleSpecifier};
 use deno_fs::{FileSystem, RealFs};
 use deno_npm::NpmSystemInfo;
-use eszip::{EszipV2, ModuleKind, ParseError};
-use glob::{glob, GlobResult};
+use eszip::{EszipV2, ModuleKind};
+use glob::glob;
 use log::error;
 use sb_fs::{build_vfs, VfsOpts};
 use sb_npm::InnerCliNpmResolverRef;
 use std::fs;
 use std::fs::{create_dir_all, File};
-use std::future::Future;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -150,7 +149,7 @@ pub async fn include_glob_patterns_in_eszip(patterns: Vec<&str>, eszip: &mut Esz
 
                     static_files.push(mod_path);
                 }
-                Err(e) => {
+                Err(_) => {
                     error!("Error reading pattern {} for static files", pattern)
                 }
             };

@@ -1,6 +1,4 @@
-use crate::virtual_fs::{
-    FileBackedVfs, VfsBuilder, VfsEntry, VfsRoot, VirtualDirectory, VirtualFile,
-};
+use crate::virtual_fs::{FileBackedVfs, VfsBuilder, VfsRoot, VirtualDirectory};
 use deno_core::error::AnyError;
 use deno_core::{normalize_path, serde_json};
 use deno_npm::NpmSystemInfo;
@@ -51,7 +49,7 @@ pub async fn extract_static_files_from_eszip(eszip: &EszipV2) -> EszipStaticFile
 }
 
 pub fn load_npm_vfs(root_dir_path: PathBuf, vfs_data: &[u8]) -> Result<FileBackedVfs, AnyError> {
-    let mut dir: Option<VirtualDirectory> = serde_json::from_slice(vfs_data)?;
+    let dir: Option<VirtualDirectory> = serde_json::from_slice(vfs_data)?;
 
     let fs_root: VfsRoot = if let Some(mut dir) = dir {
         // align the name of the directory with the root dir
@@ -61,12 +59,10 @@ pub fn load_npm_vfs(root_dir_path: PathBuf, vfs_data: &[u8]) -> Result<FileBacke
             .to_string_lossy()
             .to_string();
 
-        let fs_root = VfsRoot {
+        VfsRoot {
             dir,
             root_path: root_dir_path,
-        };
-
-        fs_root
+        }
     } else {
         VfsRoot {
             dir: VirtualDirectory {

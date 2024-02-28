@@ -311,6 +311,7 @@ async fn test_main_worker_boot_error() {
         test_user_worker_pool_policy(),
         None,
         Some(pool_termination_token.clone()),
+        vec![],
     )
     .await
     .unwrap();
@@ -330,6 +331,7 @@ async fn test_main_worker_boot_error() {
             shared_metric_src: None,
             event_worker_metric_src: None,
         }),
+        static_patterns: vec![],
     };
 
     let result = create_worker((opts, main_termination_token.clone())).await;
@@ -727,6 +729,7 @@ async fn test_worker_boot_invalid_imports() {
         maybe_entrypoint: None,
         maybe_module_code: None,
         conf: WorkerRuntimeOpts::UserWorker(test_user_runtime_opts()),
+        static_patterns: vec![],
     };
 
     let result = create_test_user_worker(opts).await;

@@ -11,7 +11,6 @@ use deno_core::{
     located_script_name, serde_json, serde_v8, JsRuntime, ModuleCodeString, ModuleId,
     PollEventLoopOptions, RuntimeOptions,
 };
-use deno_fs::FileSystem;
 use deno_http::DefaultHttpPropertyExtractor;
 use deno_tls::deno_native_certs::load_native_certs;
 use deno_tls::rustls;
@@ -252,7 +251,6 @@ impl DenoRuntime {
             eszip,
             maybe_arc_import_map,
             import_map_path,
-            is_user_worker,
         )
         .await?;
 
@@ -635,6 +633,7 @@ mod test {
                     event_worker_metric_src: None,
                 })
             },
+            static_patterns: vec![],
         })
         .await
         .expect("It should not panic");
@@ -680,6 +679,7 @@ mod test {
                     event_worker_metric_src: None,
                 })
             },
+            static_patterns: vec![],
         })
         .await;
 
@@ -747,6 +747,7 @@ mod test {
                     event_worker_metric_src: None,
                 })
             },
+            static_patterns: vec![],
         })
         .await;
 
@@ -811,6 +812,7 @@ mod test {
                     })
                 }
             },
+            static_patterns: vec![],
         })
         .await
         .unwrap();

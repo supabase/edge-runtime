@@ -2,13 +2,16 @@ use anyhow::{bail, Error};
 use deno_core::error::AnyError;
 use deno_core::op2;
 use deno_core::OpState;
+use log::error;
 use ndarray::{Array1, Array2, Axis, Ix2};
 use ndarray_linalg::norm::{normalize, NormalizeAxis};
 use ort::{inputs, GraphOptimizationLevel, Session, Tensor};
 use std::cell::RefCell;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use tokenizers::normalizers::bert::BertNormalizer;
+use tokenizers::utils::padding::{PaddingDirection, PaddingParams, PaddingStrategy};
+use tokenizers::utils::truncation::{TruncationDirection, TruncationParams, TruncationStrategy};
 use tokenizers::Tokenizer;
 use tokio::sync::mpsc;
 use tokio::task;
@@ -22,7 +25,16 @@ deno_core::extension!(
 
 struct GteModelRequest {
     prompt: String,
-    result_tx: mpsc::UnboundedSender<Vec<f32>>,
+    result_tx: mpsc::UnboundedSender<Result<Vec<f32>, Error>>,
+}
+
+fn create_session(model_file_path: PathBuf) -> Result<Session, Error> {
+    let session = Session::builder()?
+        .with_optimization_level(GraphOptimizationLevel::Level3)?
+        .with_intra_threads(1)?
+        .with_model_from_file(model_file_path)?;
+
+    Ok(session)
 }
 
 fn init_gte(state: &mut OpState) -> Result<(), Error> {
@@ -35,38 +47,66 @@ fn init_gte(state: &mut OpState) -> Result<(), Error> {
     state.put::<mpsc::UnboundedSender<GteModelRequest>>(req_tx);
 
     #[allow(clippy::let_underscore_future)]
-    let _: task::JoinHandle<Result<(), Error>> = task::spawn(async move {
-        let session = Session::builder()?
-            .with_optimization_level(GraphOptimizationLevel::Disable)?
-            .with_intra_threads(1)?
-            .with_model_from_file(
-                Path::new(&models_dir)
-                    .join("gte")
-                    .join("gte_small_quantized.onnx"),
-            )?;
+    let _handle: task::JoinHandle<()> = task::spawn(async move {
+        let session = create_session(
+            Path::new(&models_dir)
+                .join("gte")
+                .join("gte_small_quantized.onnx"),
+        );
+        if session.is_err() {
+            let err = session.as_ref().unwrap_err();
+            error!("sb_ai: failed to create session - {}", err);
+            return ();
+        }
+        let session = session.unwrap();
 
-        let mut tokenizer = Tokenizer::from_file(
+        let tokenizer = Tokenizer::from_file(
             Path::new(&models_dir)
                 .join("gte")
                 .join("gte_small_tokenizer.json"),
         )
-        .map_err(anyhow::Error::msg)?;
+        .map_err(anyhow::Error::msg);
+        if tokenizer.is_err() {
+            let err = tokenizer.as_ref().unwrap_err();
+            error!("sb_ai: failed to create tokenizer - {}", err);
+            return ();
+        }
+        let mut tokenizer = tokenizer.unwrap();
 
-        let tokenizer_impl = tokenizer
-            .with_normalizer(BertNormalizer::default())
-            .with_padding(None)
-            .with_truncation(None)
-            .map_err(anyhow::Error::msg)?;
+        //let mut bert_normalizer = BertNormalizer::default();
+        //bert_normalizer.clean_text = true;
+        //bert_normalizer.handle_chinese_chars = true;
+        //bert_normalizer.strip_accents = None;
+        //bert_normalizer.lowercase = true;
 
-        loop {
-            let req = req_rx.recv().await;
-            if req.is_none() {
-                break;
-            }
-            let req = req.unwrap();
+        //let mut padding_params = PaddingParams::default();
+        ////padding_params.strategy = PaddingStrategy::Fixed(128);
+        //padding_params.direction = PaddingDirection::Right;
+        //padding_params.pad_to_multiple_of = None;
+        //padding_params.pad_id = 0;
+        //padding_params.pad_type_id = 0;
+        //padding_params.pad_token = "[PAD]".to_string();
 
-            let tokens = tokenizer_impl
-                .encode(req.prompt, true)
+        //let tokenizer_impl = tokenizer
+        //    .with_normalizer(bert_normalizer)
+        //    .with_padding(Some(padding_params))
+        //    .with_truncation(Some(TruncationParams {
+        //        direction: TruncationDirection::Right,
+        //        stride: 0,
+        //        max_length: 128,
+        //        strategy: TruncationStrategy::LongestFirst,
+        //    }))
+        //    .map_err(anyhow::Error::msg);
+        //if tokenizer_impl.is_err() {
+        //    let err = tokenizer_impl.as_ref().unwrap_err();
+        //    error!("sb_ai: failed to initialize tokenizer - {}", err);
+        //    return ();
+        //}
+        //let tokenizer_impl = tokenizer_impl.unwrap();
+
+        let run_inference = move |prompt: String| -> Result<Vec<f32>, Error> {
+            let tokens = tokenizer
+                .encode(prompt, true)
                 .map_err(anyhow::Error::msg)?
                 .get_ids()
                 .iter()
@@ -94,10 +134,22 @@ fn init_gte(state: &mut OpState) -> Result<(), Error> {
                 NormalizeAxis::Row,
             );
 
-            let result = normalized.view().to_slice().unwrap().to_vec();
-            req.result_tx.send(result)?;
+            Ok(normalized.view().to_slice().unwrap().to_vec())
+        };
+
+        loop {
+            let req = req_rx.recv().await;
+            if req.is_none() {
+                break;
+            }
+            let req = req.unwrap();
+
+            let result = run_inference(req.prompt);
+            if req.result_tx.send(result).is_err() {
+                error!("sb_ai: failed to send inference results (channel error)");
+            };
         }
-        Ok(())
+        return ();
     });
 
     Ok(())
@@ -114,7 +166,7 @@ async fn run_gte(state: Rc<RefCell<OpState>>, prompt: String) -> Result<Vec<f32>
         req_tx = maybe_req_tx.unwrap().clone();
     }
 
-    let (result_tx, mut result_rx) = mpsc::unbounded_channel::<Vec<f32>>();
+    let (result_tx, mut result_rx) = mpsc::unbounded_channel::<Result<Vec<f32>, Error>>();
 
     req_tx.send(GteModelRequest {
         prompt,
@@ -122,7 +174,7 @@ async fn run_gte(state: Rc<RefCell<OpState>>, prompt: String) -> Result<Vec<f32>
     })?;
 
     let result = result_rx.recv().await;
-    Ok(result.unwrap())
+    result.unwrap()
 }
 
 #[op2]

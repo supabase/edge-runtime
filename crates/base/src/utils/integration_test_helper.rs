@@ -201,6 +201,7 @@ impl TestBedBuilder {
                     None,
                     Some(token.clone()),
                     vec![],
+                    None,
                 )
                 .await
                 .unwrap(),
@@ -227,10 +228,12 @@ impl TestBedBuilder {
         };
 
         let main_termination_token = TerminationToken::new();
-        let (_, main_worker_msg_tx) =
-            create_worker((main_worker_init_opts, main_termination_token.clone()))
-                .await
-                .unwrap();
+        let (_, main_worker_msg_tx) = create_worker(
+            (main_worker_init_opts, main_termination_token.clone()),
+            None,
+        )
+        .await
+        .unwrap();
 
         TestBed {
             pool_termination_token,
@@ -301,6 +304,7 @@ pub async fn create_test_user_worker<Opt: Into<CreateTestUserWorkerArgs>>(
         let (_, sender) = create_worker(
             opts.with_policy(policy)
                 .with_termination_token(termination_token.clone()),
+            None,
         )
         .await?;
 

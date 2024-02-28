@@ -16,16 +16,16 @@ impl WorkerHandler for Worker {
         }))
     }
 
-    fn handle_creation(
+    fn handle_creation<'r>(
         &self,
-        mut created_rt: DenoRuntime,
+        created_rt: &'r mut DenoRuntime,
         unix_stream_rx: UnboundedReceiver<UnixStreamEntry>,
         termination_event_rx: Receiver<WorkerEvents>,
         maybe_cpu_usage_metrics_tx: Option<UnboundedSender<CPUUsageMetrics>>,
         name: Option<String>,
-    ) -> HandleCreationType {
+    ) -> HandleCreationType<'r> {
         let run_worker_rt = async move {
-            let result = match created_rt
+            match created_rt
                 .run(unix_stream_rx, maybe_cpu_usage_metrics_tx, name)
                 .await
             {
@@ -48,14 +48,7 @@ impl WorkerHandler for Worker {
                     }
                 }
                 (Ok(()), _) => Ok(WorkerEvents::EventLoopCompleted(PseudoEvent {})),
-            };
-
-            unsafe {
-                created_rt.js_runtime.v8_isolate().enter();
             }
-
-            drop(created_rt);
-            result
         };
 
         Box::pin(run_worker_rt)

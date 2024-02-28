@@ -303,6 +303,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-tungstenite"
+version = "0.25.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef0f8d64ef9351752fbe5462f242c625d9c4910d2bc3f7ec44c43857ca123f5d"
+dependencies = [
+ "futures-io",
+ "futures-util",
+ "log",
+ "pin-project-lite",
+ "tungstenite",
+]
+
+[[package]]
 name = "atty"
 version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -351,6 +364,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "async-tungstenite",
  "bytes",
  "cityhash",
  "cpu_timer",
@@ -377,9 +391,11 @@ dependencies = [
  "enum-as-inner 0.6.0",
  "eszip",
  "event_worker",
+ "fastwebsockets 0.4.4",
  "flume",
  "futures-util",
  "http 0.2.11",
+ "http_utils",
  "httparse",
  "hyper 0.14.28",
  "import_map",
@@ -405,6 +421,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-util",
+ "tungstenite",
  "url",
  "urlencoding",
  "uuid",
@@ -1572,7 +1589,7 @@ dependencies = [
  "deno_core",
  "deno_net",
  "deno_tls",
- "fastwebsockets",
+ "fastwebsockets 0.6.0",
  "h2 0.4.2",
  "http 1.0.0",
  "http-body-util",
@@ -1979,6 +1996,23 @@ name = "fallible-streaming-iterator"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7360491ce676a36bf9bb3c56c1aa791658183a54d2744120f27285738d90465a"
+
+[[package]]
+name = "fastwebsockets"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9e6185b6dc9dddc4db0dedd2e213047e93bcbf7a0fb092abc4c4e4f3195efdb4"
+dependencies = [
+ "base64 0.21.7",
+ "hyper 0.14.28",
+ "pin-project",
+ "rand",
+ "sha1",
+ "simdutf8",
+ "thiserror",
+ "tokio",
+ "utf-8",
+]
 
 [[package]]
 name = "fastwebsockets"
@@ -2617,6 +2651,18 @@ dependencies = [
  "http 1.0.0",
  "http-body 1.0.0",
  "pin-project-lite",
+]
+
+[[package]]
+name = "http_utils"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "futures-util",
+ "http 0.2.11",
+ "hyper 0.14.28",
+ "tokio",
+ "tokio-util",
 ]
 
 [[package]]
@@ -4799,6 +4845,7 @@ dependencies = [
  "enum-as-inner 0.6.0",
  "event_worker",
  "futures-util",
+ "http_utils",
  "hyper 0.14.28",
  "log",
  "sb_core",
@@ -5983,6 +6030,7 @@ checksum = "5419f34732d9eb6ee4c3578b7989078579b7f039cbbb9ca2c4da015749371e15"
 dependencies = [
  "bytes",
  "futures-core",
+ "futures-io",
  "futures-sink",
  "futures-util",
  "hashbrown 0.14.3",
@@ -6080,6 +6128,25 @@ name = "try-lock"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
+
+[[package]]
+name = "tungstenite"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ef1a641ea34f399a848dea702823bbecfb4c486f911735368f1f137cb8257e1"
+dependencies = [
+ "byteorder",
+ "bytes",
+ "data-encoding",
+ "http 1.0.0",
+ "httparse",
+ "log",
+ "rand",
+ "sha1",
+ "thiserror",
+ "url",
+ "utf-8",
+]
 
 [[package]]
 name = "twox-hash"

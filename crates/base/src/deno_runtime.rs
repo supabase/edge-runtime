@@ -1,3 +1,4 @@
+use crate::inspector_server::Inspector;
 use crate::rt_worker::supervisor::{CPUUsage, CPUUsageMetrics};
 use crate::rt_worker::worker::UnixStreamEntry;
 use crate::utils::units::mib_to_bytes;
@@ -20,6 +21,8 @@ use futures_util::future::poll_fn;
 use log::{error, trace};
 use once_cell::sync::{Lazy, OnceCell};
 use sb_core::conn_sync::ConnSync;
+use sb_core::http::sb_core_http;
+use sb_core::http_start::sb_core_http_start;
 use sb_core::util::sync::AtomicFlag;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
@@ -37,7 +40,6 @@ use sb_ai::sb_ai;
 use sb_core::cache::CacheSetting;
 use sb_core::cert::ValueRootCertStoreProvider;
 use sb_core::external_memory::custom_allocator;
-use sb_core::http_start::sb_core_http;
 use sb_core::net::sb_core_net;
 use sb_core::permissions::{sb_core_permissions, Permissions};
 use sb_core::runtime::sb_core_runtime;
@@ -102,16 +104,22 @@ pub struct DenoRuntime {
     pub js_runtime: JsRuntime,
     pub env_vars: HashMap<String, String>, // TODO: does this need to be pub?
     pub conf: WorkerRuntimeOpts,
+
     pub is_termination_requested: Arc<AtomicFlag>,
     pub is_terminated: Arc<AtomicFlag>,
+    pub is_found_inspector_session: Arc<AtomicFlag>,
 
     main_module_id: ModuleId,
+    maybe_inspector: Option<Inspector>,
 }
 
 impl DenoRuntime {
     #[allow(clippy::unnecessary_literal_unwrap)]
     #[allow(clippy::arc_with_non_send_sync)]
-    pub async fn new(opts: WorkerContextInitOpts) -> Result<Self, Error> {
+    pub async fn new(
+        opts: WorkerContextInitOpts,
+        maybe_inspector: Option<Inspector>,
+    ) -> Result<Self, Error> {
         let WorkerContextInitOpts {
             service_path,
             no_module_cache,
@@ -125,10 +133,6 @@ impl DenoRuntime {
             static_patterns,
             ..
         } = opts;
-
-        for x in &static_patterns {
-            println!("{}", x);
-        }
 
         let base_dir_path = std::env::current_dir().map(|p| p.join(&service_path))?;
         let base_url = Url::from_directory_path(&base_dir_path).unwrap();
@@ -320,6 +324,7 @@ impl DenoRuntime {
             sb_core_net::init_ops(),
             sb_core_http::init_ops(),
             deno_node::init_ops::<Permissions>(Some(npm_resolver), op_fs),
+            sb_core_http_start::init_ops(),
             sb_core_runtime::init_ops(Some(main_module_url.clone())),
         ];
 
@@ -336,6 +341,7 @@ impl DenoRuntime {
         let runtime_options = RuntimeOptions {
             extensions,
             is_main: true,
+            inspector: maybe_inspector.is_some(),
             create_params,
             get_error_class_fn: Some(&get_error_class_name),
             shared_array_buffer_store: None,
@@ -371,6 +377,14 @@ impl DenoRuntime {
                 &*SHOULD_USE_VERBOSE_DEPRECATED_API_WARNING,
             ])
         );
+
+        if let Some(inspector) = maybe_inspector.clone() {
+            inspector.server.register_inspector(
+                main_module_url.to_string(),
+                &mut js_runtime,
+                inspector.should_wait_for_session(),
+            );
+        }
 
         js_runtime
             .execute_script(located_script_name!(), ModuleCodeString::from(script))
@@ -418,17 +432,15 @@ impl DenoRuntime {
             .load_main_module(&main_module_url, mod_code)
             .await?;
 
-        unsafe {
-            js_runtime.v8_isolate().exit();
-        }
-
         Ok(Self {
             js_runtime,
-            main_module_id,
             env_vars,
             conf,
+            main_module_id,
+            maybe_inspector,
             is_termination_requested: Arc::default(),
             is_terminated: Arc::default(),
+            is_found_inspector_session: Arc::default(),
         })
     }
 
@@ -450,11 +462,32 @@ impl DenoRuntime {
             }
         }
 
-        let mut js_runtime = &mut self.js_runtime;
+        let inspector = self.inspector();
+        let mod_result_rx = unsafe {
+            self.js_runtime.v8_isolate().enter();
 
-        let mod_result_rx = {
-            unsafe { js_runtime.v8_isolate().enter() };
-            let mut js_runtime = scopeguard::guard(&mut js_runtime, |it| unsafe {
+            if inspector.is_some() {
+                {
+                    let _guard = scopeguard::guard(self.is_found_inspector_session.clone(), |v| {
+                        v.raise();
+                    });
+
+                    // XXX(Nyannyacha): Suppose the user skips this function by passing
+                    // the `--inspect` argument. In that case, the runtime may terminate
+                    // before the inspector session is connected if the function doesn't
+                    // have a long execution time. Should we wait for an inspector
+                    // session to connect with the V8?
+                    self.wait_for_inspector_session();
+                }
+
+                if self.is_termination_requested.is_raised() {
+                    self.js_runtime.v8_isolate().exit();
+                    self.is_terminated.raise();
+                    return (Ok(()), 0i64);
+                }
+            }
+
+            let mut js_runtime = scopeguard::guard(&mut self.js_runtime, |it| {
                 it.v8_isolate().exit();
             });
 
@@ -464,16 +497,15 @@ impl DenoRuntime {
         let is_termination_requested = self.is_termination_requested.clone();
         let is_user_worker = self.conf.is_user_worker();
 
+        // NOTE: This is unnecessary on the LIFO task scheduler that can't steal
+        // the task from the other threads.
         #[cfg(debug_assertions)]
         let current_thread_id = std::thread::current().id();
+
         let mut current_cpu_time_ns = 0i64;
         let mut accumulated_cpu_time_ns = 0i64;
 
-        // NOTE: This is unnecessary on the LIFO task scheduler that can't steal
-        // the task from the other threads.
-        // let mut current_thread_id = std::thread::current().id();
-
-        let poll_result = poll_fn(|cx| {
+        let poll_result = poll_fn(|cx| unsafe {
             // INVARIANT: Only can steal current task by other threads when LIFO
             // task scheduler heuristic disabled. Turning off the heuristic is
             // unstable now, so it's not considered.
@@ -490,11 +522,11 @@ impl DenoRuntime {
             let get_current_cpu_time_ns_fn =
                 || get_thread_time().context("can't get current thread time");
 
-            unsafe { js_runtime.v8_isolate().enter() };
-            let mut js_runtime = scopeguard::guard(&mut js_runtime, |it| unsafe {
+            let mut js_runtime = scopeguard::guard(&mut self.js_runtime, |it| {
                 it.v8_isolate().exit();
             });
 
+            js_runtime.v8_isolate().enter();
             send_cpu_metrics_fn(CPUUsageMetrics::Enter(thread_id));
 
             current_cpu_time_ns = match get_current_cpu_time_ns_fn() {
@@ -502,11 +534,19 @@ impl DenoRuntime {
                 Err(err) => return Poll::Ready(Err(err)),
             };
 
+            let wait_for_inspector = if inspector.is_some() {
+                let inspector = js_runtime.inspector();
+                let inspector_ref = inspector.borrow();
+                inspector_ref.has_active_sessions() || inspector_ref.has_blocking_sessions()
+            } else {
+                false
+            };
+
             let poll_result = js_runtime.poll_event_loop(
                 cx,
                 PollEventLoopOptions {
-                    wait_for_inspector: false,
-                    pump_v8_message_loop: !is_termination_requested.is_raised(),
+                    wait_for_inspector,
+                    pump_v8_message_loop: true,
                 },
             );
 
@@ -533,6 +573,11 @@ impl DenoRuntime {
                 );
             }
 
+            // NOTE(Nyannyacha): If tasks are empty or V8 is not evaluating the
+            // function, and so V8 is no longer inside its loop, it turns out
+            // that requesting termination does not work; thus, we need another
+            // way to escape from the polling loop so the supervisor can
+            // terminate the runtime.
             if poll_result.is_pending() && is_termination_requested.is_raised() {
                 return Poll::Ready(Ok(()));
             }
@@ -555,6 +600,23 @@ impl DenoRuntime {
         self.is_terminated.raise();
 
         (result, accumulated_cpu_time_ns)
+    }
+
+    pub fn inspector(&self) -> Option<Inspector> {
+        self.maybe_inspector.clone()
+    }
+
+    fn wait_for_inspector_session(&mut self) {
+        if let Some(inspector) = self.maybe_inspector.as_ref() {
+            let inspector_impl = self.js_runtime.inspector();
+            let mut inspector_impl_ref = inspector_impl.borrow_mut();
+
+            if inspector.option.is_with_break() {
+                inspector_impl_ref.wait_for_session_and_break_on_next_statement();
+            } else if inspector.option.is_with_wait() {
+                inspector_impl_ref.wait_for_session();
+            }
+        }
     }
 
     #[allow(clippy::wrong_self_convention)]
@@ -614,35 +676,33 @@ mod test {
     #[serial]
     async fn test_module_code_no_eszip() {
         let (worker_pool_tx, _) = mpsc::unbounded_channel::<UserWorkerMsgs>();
-        let mut rt = DenoRuntime::new(WorkerContextInitOpts {
-            service_path: PathBuf::from("./test_cases/"),
-            no_module_cache: false,
-            import_map_path: None,
-            env_vars: Default::default(),
-            events_rx: None,
-            timing: None,
-            maybe_eszip: None,
-            maybe_entrypoint: None,
-            maybe_module_code: Some(FastString::from(String::from(
-                "Deno.serve((req) => new Response('Hello World'));",
-            ))),
-            conf: {
-                WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
-                    worker_pool_tx,
-                    shared_metric_src: None,
-                    event_worker_metric_src: None,
-                })
+
+        DenoRuntime::new(
+            WorkerContextInitOpts {
+                service_path: PathBuf::from("./test_cases/"),
+                no_module_cache: false,
+                import_map_path: None,
+                env_vars: Default::default(),
+                events_rx: None,
+                timing: None,
+                maybe_eszip: None,
+                maybe_entrypoint: None,
+                maybe_module_code: Some(FastString::from(String::from(
+                    "Deno.serve((req) => new Response('Hello World'));",
+                ))),
+                conf: {
+                    WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
+                        worker_pool_tx,
+                        shared_metric_src: None,
+                        event_worker_metric_src: None,
+                    })
+                },
+                static_patterns: vec![],
             },
-            static_patterns: vec![],
-        })
+            None,
+        )
         .await
         .expect("It should not panic");
-
-        unsafe {
-            // NOTE: This is necessary because `DenoRuntime::new()` does detach
-            // its isolation from the current thread.
-            rt.js_runtime.v8_isolate().enter();
-        }
     }
 
     #[tokio::test]
@@ -662,34 +722,31 @@ mod test {
 
         let eszip_code = bin_eszip.into_bytes();
 
-        let runtime = DenoRuntime::new(WorkerContextInitOpts {
-            service_path: PathBuf::from("./test_cases/"),
-            no_module_cache: false,
-            import_map_path: None,
-            env_vars: Default::default(),
-            events_rx: None,
-            timing: None,
-            maybe_eszip: Some(EszipPayloadKind::VecKind(eszip_code)),
-            maybe_entrypoint: None,
-            maybe_module_code: None,
-            conf: {
-                WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
-                    worker_pool_tx,
-                    shared_metric_src: None,
-                    event_worker_metric_src: None,
-                })
+        let runtime = DenoRuntime::new(
+            WorkerContextInitOpts {
+                service_path: PathBuf::from("./test_cases/"),
+                no_module_cache: false,
+                import_map_path: None,
+                env_vars: Default::default(),
+                events_rx: None,
+                timing: None,
+                maybe_eszip: Some(EszipPayloadKind::VecKind(eszip_code)),
+                maybe_entrypoint: None,
+                maybe_module_code: None,
+                conf: {
+                    WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
+                        worker_pool_tx,
+                        shared_metric_src: None,
+                        event_worker_metric_src: None,
+                    })
+                },
+                static_patterns: vec![],
             },
-            static_patterns: vec![],
-        })
+            None,
+        )
         .await;
 
         let mut rt = runtime.unwrap();
-        unsafe {
-            // NOTE: This is necessary because `DenoRuntime::new()` does detach
-            // its isolation from the current thread.
-            rt.js_runtime.v8_isolate().enter();
-        }
-
         let main_mod_ev = rt.js_runtime.mod_evaluate(rt.main_module_id);
         let _ = rt
             .js_runtime
@@ -730,34 +787,31 @@ mod test {
 
         let eszip_code = binary_eszip.into_bytes();
 
-        let runtime = DenoRuntime::new(WorkerContextInitOpts {
-            service_path,
-            no_module_cache: false,
-            import_map_path: None,
-            env_vars: Default::default(),
-            events_rx: None,
-            timing: None,
-            maybe_eszip: Some(EszipPayloadKind::VecKind(eszip_code)),
-            maybe_entrypoint: None,
-            maybe_module_code: None,
-            conf: {
-                WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
-                    worker_pool_tx,
-                    shared_metric_src: None,
-                    event_worker_metric_src: None,
-                })
+        let runtime = DenoRuntime::new(
+            WorkerContextInitOpts {
+                service_path,
+                no_module_cache: false,
+                import_map_path: None,
+                env_vars: Default::default(),
+                events_rx: None,
+                timing: None,
+                maybe_eszip: Some(EszipPayloadKind::VecKind(eszip_code)),
+                maybe_entrypoint: None,
+                maybe_module_code: None,
+                conf: {
+                    WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
+                        worker_pool_tx,
+                        shared_metric_src: None,
+                        event_worker_metric_src: None,
+                    })
+                },
+                static_patterns: vec![],
             },
-            static_patterns: vec![],
-        })
+            None,
+        )
         .await;
 
         let mut rt = runtime.unwrap();
-        unsafe {
-            // NOTE: This is necessary because `DenoRuntime::new()` does detach
-            // its isolation from the current thread.
-            rt.js_runtime.v8_isolate().enter();
-        }
-
         let main_mod_ev = rt.js_runtime.mod_evaluate(rt.main_module_id);
         let _ = rt
             .js_runtime
@@ -791,38 +845,34 @@ mod test {
     ) -> DenoRuntime {
         let (worker_pool_tx, _) = mpsc::unbounded_channel::<UserWorkerMsgs>();
 
-        let mut rt = DenoRuntime::new(WorkerContextInitOpts {
-            service_path: path.unwrap_or(PathBuf::from("./test_cases/main")),
-            no_module_cache: false,
-            import_map_path: None,
-            env_vars: env_vars.unwrap_or_default(),
-            events_rx: None,
-            timing: None,
-            maybe_eszip: None,
-            maybe_entrypoint: None,
-            maybe_module_code: None,
-            conf: {
-                if let Some(uc) = user_conf {
-                    uc
-                } else {
-                    WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
-                        worker_pool_tx,
-                        shared_metric_src: None,
-                        event_worker_metric_src: None,
-                    })
-                }
+        DenoRuntime::new(
+            WorkerContextInitOpts {
+                service_path: path.unwrap_or(PathBuf::from("./test_cases/main")),
+                no_module_cache: false,
+                import_map_path: None,
+                env_vars: env_vars.unwrap_or_default(),
+                events_rx: None,
+                timing: None,
+                maybe_eszip: None,
+                maybe_entrypoint: None,
+                maybe_module_code: None,
+                conf: {
+                    if let Some(uc) = user_conf {
+                        uc
+                    } else {
+                        WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
+                            worker_pool_tx,
+                            shared_metric_src: None,
+                            event_worker_metric_src: None,
+                        })
+                    }
+                },
+                static_patterns: vec![],
             },
-            static_patterns: vec![],
-        })
+            None,
+        )
         .await
-        .unwrap();
-
-        unsafe {
-            // NOTE: This is necessary because `DenoRuntime::new()` does detach
-            // its isolation from the current thread.
-            rt.js_runtime.v8_isolate().enter();
-            rt
-        }
+        .unwrap()
     }
 
     // Main Runtime should have access to `EdgeRuntime`

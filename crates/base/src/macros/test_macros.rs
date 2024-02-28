@@ -26,14 +26,15 @@ macro_rules! integration_test {
                 None,
                 $shot_policy,
                 $import_map,
-                false,
+                $crate::server::ServerFlags::default(),
                 Some(tx.clone()),
                 $crate::server::WorkerEntrypoints {
                     main: None,
                     events: None,
                 },
                 integration_test!(@term $(, $termination_token)?),
-                vec![]
+                vec![],
+                None
             ) => {
                 panic!("This one should not end first");
             }

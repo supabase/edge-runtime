@@ -1,3 +1,4 @@
+use crate::inspector_server::Inspector;
 use crate::rt_worker::worker_ctx::{create_worker, send_user_worker_request};
 use anyhow::{anyhow, Context, Error};
 use enum_as_inner::EnumAsInner;
@@ -208,6 +209,7 @@ pub struct WorkerPool {
     pub user_workers: HashMap<Uuid, UserWorkerProfile>,
     pub active_workers: HashMap<String, ActiveWorkerRegistry>,
     pub worker_pool_msgs_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
+    pub maybe_inspector: Option<Inspector>,
 
     // TODO: refactor this out of worker pool
     pub worker_event_sender: Option<mpsc::UnboundedSender<WorkerEventWithMetadata>>,
@@ -219,6 +221,7 @@ impl WorkerPool {
         metric_src: SharedMetricSource,
         worker_event_sender: Option<UnboundedSender<WorkerEventWithMetadata>>,
         worker_pool_msgs_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
+        inspector: Option<Inspector>,
     ) -> Self {
         Self {
             policy,
@@ -226,6 +229,7 @@ impl WorkerPool {
             worker_event_sender,
             user_workers: HashMap::new(),
             active_workers: HashMap::new(),
+            maybe_inspector: inspector,
             worker_pool_msgs_tx,
         }
     }
@@ -243,6 +247,8 @@ impl WorkerPool {
             .to_string();
 
         let is_oneshot_policy = self.policy.supervisor_policy.is_oneshot();
+        let inspector = self.maybe_inspector.clone();
+
         let force_create = worker_options
             .conf
             .as_user_worker()
@@ -406,8 +412,11 @@ impl WorkerPool {
 
             worker_options.conf = WorkerRuntimeOpts::UserWorker(user_worker_rt_opts);
 
-            match create_worker((worker_options, supervisor_policy, termination_token.clone()))
-                .await
+            match create_worker(
+                (worker_options, supervisor_policy, termination_token.clone()),
+                inspector,
+            )
+            .await
             {
                 Ok((_, worker_request_msg_tx)) => {
                     let profile = UserWorkerProfile {

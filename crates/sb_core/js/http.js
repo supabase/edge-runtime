@@ -1,6 +1,8 @@
-import { HttpConn } from 'ext:deno_http/01_http.js';
-import { RequestPrototype } from 'ext:deno_fetch/23_request.js';
+import "ext:deno_http/01_http.js";
+
 import { core, primordials } from "ext:core/mod.js";
+import { RequestPrototype } from "ext:deno_fetch/23_request.js";
+import { HttpConn, upgradeWebSocket } from "ext:sb_core_main_js/js/01_http.js";
 
 const { internalRidSymbol } = core;
 const { ObjectPrototypeIsPrototypeOf } = primordials;
@@ -9,7 +11,7 @@ const HttpConnPrototypeNextRequest = HttpConn.prototype.nextRequest;
 const HttpConnPrototypeClose = HttpConn.prototype.close;
 const ops = core.ops;
 
-const watcher = Symbol("watcher");
+const kSupabaseTag = Symbol("kSupabaseTag");
 
 function internalServerError() {
 	// "Internal Server Error"
@@ -52,7 +54,10 @@ function serveHttp(conn) {
 			return null;
 		}
 
-		nextRequest.request[watcher] = watcherRid;
+		nextRequest.request[kSupabaseTag] = {
+			watcherRid,
+			streamRid: nextRequest.streamRid
+		};
 
 		return nextRequest;
 	};
@@ -151,19 +156,25 @@ async function serve(args1, args2) {
 	};
 }
 
-function getWatcherRid(req) {
-	return req[watcher];
+function getSupabaseTag(req) {
+	return req[kSupabaseTag];
 }
 
-function applyWatcherRid(src, dest) {
+function applySupabaseTag(src, dest) {
 	if (
 		!ObjectPrototypeIsPrototypeOf(RequestPrototype, src) 
 		|| !ObjectPrototypeIsPrototypeOf(RequestPrototype, dest)
 	) {
-		throw new TypeError("Only Request instance can apply the connection watcher");
+		throw new TypeError("Only Request instance can apply the supabase tag");
 	}
 
-	dest[watcher] = src[watcher];
+	dest[kSupabaseTag] = src[kSupabaseTag];
 }
 
-export { serve, serveHttp, getWatcherRid, applyWatcherRid };
+export { 
+	serve,
+	serveHttp,
+	getSupabaseTag,
+	applySupabaseTag,
+	upgradeWebSocket
+};

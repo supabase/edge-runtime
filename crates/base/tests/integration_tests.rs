@@ -453,26 +453,14 @@ async fn test_main_worker_post_request_with_transfer_encoding(maybe_tls: Option<
     let stream = futures_util::stream::iter(chunks);
     let body = Body::wrap_stream(stream);
 
-    let client = if maybe_tls.is_some() {
-        reqwest::Client::builder()
-            .add_root_certificate(Certificate::from_pem(TLS_LOCALHOST_ROOT_CA).unwrap())
-            .build()
-            .unwrap()
-    } else {
-        reqwest::Client::new()
-    };
-
+    let client = maybe_tls.client();
     let req = client
         .request(
             Method::POST,
             format!(
                 "{}://localhost:{}/std_user_worker",
-                if maybe_tls.is_some() { "https" } else { "http" },
-                if maybe_tls.is_some() {
-                    SECURE_PORT
-                } else {
-                    NON_SECURE_PORT
-                }
+                maybe_tls.schema(),
+                maybe_tls.port(),
             ),
         )
         .body(body)
@@ -507,16 +495,13 @@ async fn test_main_worker_post_request_with_transfer_encoding(maybe_tls: Option<
 #[tokio::test]
 #[serial]
 async fn test_main_worker_post_request_with_transfer_encoding_non_secure() {
-    test_main_worker_post_request_with_transfer_encoding(None).await;
+    test_main_worker_post_request_with_transfer_encoding(new_localhost_tls(false)).await;
 }
 
 #[tokio::test]
 #[serial]
 async fn test_main_worker_post_request_with_transfer_encoding_secure() {
-    test_main_worker_post_request_with_transfer_encoding(Some(
-        Tls::new(SECURE_PORT, TLS_LOCALHOST_KEY, TLS_LOCALHOST_CERT).unwrap(),
-    ))
-    .await;
+    test_main_worker_post_request_with_transfer_encoding(new_localhost_tls(true)).await;
 }
 
 #[tokio::test]
@@ -935,7 +920,7 @@ async fn req_failure_case_intentional_peer_reset(maybe_tls: Option<Tls>) {
         None,
         maybe_tls.clone(),
         (
-            |port: u16,
+            |_port: u16,
              url: &'static str,
              _req_builder: Option<reqwest::RequestBuilder>,
              mut ev: mpsc::UnboundedReceiver<ServerEvent>| async move {
@@ -952,25 +937,13 @@ async fn req_failure_case_intentional_peer_reset(maybe_tls: Option<Tls>) {
                     }
                 });
 
-                let client = if maybe_tls.is_some() {
-                    reqwest::Client::builder()
-                        .add_root_certificate(Certificate::from_pem(TLS_LOCALHOST_ROOT_CA).unwrap())
-                        .build()
-                        .unwrap()
-                } else {
-                    reqwest::Client::new()
-                };
-
                 Some(
-                    client
+                    maybe_tls
+                        .client()
                         .get(format!(
                             "{}://localhost:{}/{}",
-                            if maybe_tls.is_some() { "https" } else { "http" },
-                            if maybe_tls.is_some() {
-                                SECURE_PORT
-                            } else {
-                                port
-                            },
+                            maybe_tls.schema(),
+                            maybe_tls.port(),
                             url
                         ))
                         .timeout(Duration::from_millis(100))
@@ -998,41 +971,26 @@ async fn req_failure_case_intentional_peer_reset(maybe_tls: Option<Tls>) {
 #[tokio::test]
 #[serial]
 async fn req_failure_case_intentional_peer_reset_non_secure() {
-    req_failure_case_intentional_peer_reset(None).await;
+    req_failure_case_intentional_peer_reset(new_localhost_tls(false)).await;
 }
 
 #[tokio::test]
 #[serial]
 async fn req_failure_case_intentional_peer_reset_secure() {
-    req_failure_case_intentional_peer_reset(Some(
-        Tls::new(SECURE_PORT, TLS_LOCALHOST_KEY, TLS_LOCALHOST_CERT).unwrap(),
-    ))
-    .await;
+    req_failure_case_intentional_peer_reset(new_localhost_tls(true)).await;
 }
 
 async fn test_websocket_upgrade(maybe_tls: Option<Tls>) {
     let term = TerminationToken::new();
-    let client = if maybe_tls.is_some() {
-        reqwest::Client::builder()
-            .add_root_certificate(Certificate::from_pem(TLS_LOCALHOST_ROOT_CA).unwrap())
-            .build()
-            .unwrap()
-    } else {
-        reqwest::Client::new()
-    };
-
     let nonce = tungstenite::handshake::client::generate_key();
+    let client = maybe_tls.client();
     let req = client
         .request(
             Method::GET,
             format!(
                 "{}://localhost:{}/websocket-upgrade",
-                if maybe_tls.is_some() { "https" } else { "http" },
-                if maybe_tls.is_some() {
-                    SECURE_PORT
-                } else {
-                    NON_SECURE_PORT
-                }
+                maybe_tls.schema(),
+                maybe_tls.port(),
             ),
         )
         .header(reqwest::header::CONNECTION, "upgrade")
@@ -1089,14 +1047,50 @@ async fn test_websocket_upgrade(maybe_tls: Option<Tls>) {
 #[tokio::test]
 #[serial]
 async fn test_websocket_upgrade_non_secure() {
-    test_websocket_upgrade(None).await;
+    test_websocket_upgrade(new_localhost_tls(false)).await;
 }
 
 #[tokio::test]
 #[serial]
 async fn test_websocket_upgrade_secure() {
-    test_websocket_upgrade(Some(
-        Tls::new(SECURE_PORT, TLS_LOCALHOST_KEY, TLS_LOCALHOST_CERT).unwrap(),
-    ))
-    .await;
+    test_websocket_upgrade(new_localhost_tls(true)).await;
+}
+
+trait TlsExt {
+    fn client(&self) -> reqwest::Client;
+    fn schema(&self) -> &'static str;
+    fn port(&self) -> u16;
+}
+
+impl TlsExt for Option<Tls> {
+    fn client(&self) -> reqwest::Client {
+        if self.is_some() {
+            reqwest::Client::builder()
+                .add_root_certificate(Certificate::from_pem(TLS_LOCALHOST_ROOT_CA).unwrap())
+                .build()
+                .unwrap()
+        } else {
+            reqwest::Client::new()
+        }
+    }
+
+    fn schema(&self) -> &'static str {
+        if self.is_some() {
+            "https"
+        } else {
+            "http"
+        }
+    }
+
+    fn port(&self) -> u16 {
+        if self.is_some() {
+            SECURE_PORT
+        } else {
+            NON_SECURE_PORT
+        }
+    }
+}
+
+fn new_localhost_tls(secure: bool) -> Option<Tls> {
+    secure.then(|| Tls::new(SECURE_PORT, TLS_LOCALHOST_KEY, TLS_LOCALHOST_CERT).unwrap())
 }

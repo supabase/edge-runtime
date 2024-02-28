@@ -65,13 +65,13 @@ fn cli() -> Command {
                         .requires("cert")
                 )
                 .arg(
-                    arg!(--key <Path> "Path to key to be used to TLS")
+                    arg!(--key <Path> "Path to PEM-encoded key to be used to TLS")
                         .value_parser(
                             value_parser!(PathBuf)
                         )
                 )
                 .arg(
-                    arg!(--cert <Path> "Path to X.509 certificate to be used to TLS")
+                    arg!(--cert <Path> "Path to PEM-encoded X.509 certificate to be used to TLS")
                         .value_parser(
                             value_parser!(PathBuf)
                         )
@@ -180,14 +180,14 @@ fn main() -> Result<(), anyhow::Error> {
                 let port = sub_matches.get_one::<u16>("port").copied().unwrap();
 
                 let maybe_tls = if let Some(port) = sub_matches.get_one::<u16>("tls").copied() {
-                    let Some((key_der, cert_der)) = sub_matches.get_one::<PathBuf>("key").and_then(|it| std::fs::read(it).ok())
+                    let Some((key_slice, cert_slice)) = sub_matches.get_one::<PathBuf>("key").and_then(|it| std::fs::read(it).ok())
                     .zip(
                         sub_matches.get_one::<PathBuf>("cert").and_then(|it| std::fs::read(it).ok())
                     ) else {
                         bail!("unable to load the key file or cert file");
                     };
 
-                    Some(Tls::new(port, &key_der, &cert_der)?)
+                    Some(Tls::new(port, &key_slice, &cert_slice)?)
                 } else {
                     None
                 };

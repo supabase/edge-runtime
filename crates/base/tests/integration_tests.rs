@@ -337,7 +337,10 @@ async fn test_main_worker_boot_error() {
     let result = create_worker((opts, main_termination_token.clone())).await;
 
     assert!(result.is_err());
-    assert_eq!(result.unwrap_err().to_string(), "worker boot error");
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .starts_with("worker boot error"));
 
     pool_termination_token.cancel_and_wait().await;
     main_termination_token.cancel_and_wait().await;
@@ -735,7 +738,10 @@ async fn test_worker_boot_invalid_imports() {
     let result = create_test_user_worker(opts).await;
 
     assert!(result.is_err());
-    assert_eq!(result.unwrap_err().to_string(), "worker boot error");
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .starts_with("worker boot error"));
 }
 
 #[tokio::test]

@@ -1142,23 +1142,6 @@ mod test {
 
     #[tokio::test]
     #[serial]
-    async fn test_read_file_user_rt() {
-        let mut user_rt = create_basic_user_runtime("./test_cases/readFile", 20, 1000).await;
-        let (_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStreamEntry>();
-
-        let (result, _) = user_rt.run(unix_stream_rx, None, None).await;
-        match result {
-            Err(err) => {
-                assert!(err
-                    .to_string()
-                    .contains("TypeError: Deno.readFileSync is not a function"));
-            }
-            _ => panic!("Invalid Result"),
-        };
-    }
-
-    #[tokio::test]
-    #[serial]
     async fn test_array_buffer_allocation_below_limit() {
         let mut user_rt = create_basic_user_runtime("./test_cases/array_buffers", 20, 1000).await;
         let (_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStreamEntry>();

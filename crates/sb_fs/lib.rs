@@ -69,7 +69,7 @@ pub fn load_npm_vfs(root_dir_path: PathBuf, vfs_data: &[u8]) -> Result<FileBacke
                 name: "".to_string(),
                 entries: vec![],
             },
-            root_path: Default::default(),
+            root_path: root_dir_path, // < we should still use the temp, otherwise it might fail when doing `.start_with`
         }
     };
 

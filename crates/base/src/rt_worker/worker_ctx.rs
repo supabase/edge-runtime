@@ -28,6 +28,7 @@ use sb_workers::context::{
 };
 use sb_workers::errors::WorkerError;
 use std::future::pending;
+use std::io::ErrorKind;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -174,8 +175,6 @@ async fn relay_upgraded_request_and_response(
     downstream: OnUpgrade,
     parts: http1::Parts<UnixStream>,
 ) {
-    use std::io::ErrorKind;
-
     let mut upstream = Upgraded2::new(parts.io, parts.read_buf);
     let mut downstream = downstream.await.expect("failed to upgrade request");
 

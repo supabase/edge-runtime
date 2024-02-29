@@ -9,6 +9,8 @@ use event_worker::events::WorkerEventWithMetadata;
 use futures_util::Stream;
 use hyper::{server::conn::Http, service::Service, Body, Request, Response};
 use log::{debug, error, info};
+use rustls_pemfile::read_one_from_slice;
+use rustls_pemfile::Item;
 use sb_core::conn_sync::ConnSync;
 use sb_core::SharedMetricSource;
 use sb_workers::context::{MainWorkerRuntimeOpts, WorkerRequestMsg};
@@ -213,9 +215,6 @@ impl Clone for Tls {
 
 impl Tls {
     pub fn new(port: u16, key: &[u8], cert: &[u8]) -> anyhow::Result<Self> {
-        use rustls_pemfile::read_one_from_slice;
-        use rustls_pemfile::Item;
-
         let Some((key_item, _)) =
             read_one_from_slice(key).map_err(|err| anyhow!("can't resolve key: {:?}", err))?
         else {

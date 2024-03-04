@@ -323,8 +323,8 @@ impl DenoRuntime {
             sb_core_main_js::init_ops(),
             sb_core_net::init_ops(),
             sb_core_http::init_ops(),
-            deno_node::init_ops::<Permissions>(Some(npm_resolver), op_fs),
             sb_core_http_start::init_ops(),
+            deno_node::init_ops::<Permissions>(Some(npm_resolver), op_fs),
             sb_core_runtime::init_ops(Some(main_module_url.clone())),
         ];
 

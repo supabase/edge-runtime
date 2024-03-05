@@ -27,6 +27,7 @@ pub mod import_map;
 pub const VFS_ESZIP_KEY: &str = "---SUPABASE-VFS-DATA-ESZIP---";
 pub const SOURCE_CODE_ESZIP_KEY: &str = "---SUPABASE-SOURCE-CODE-ESZIP---";
 pub const STATIC_FILES_ESZIP_KEY: &str = "---SUPABASE-STATIC-FILES-ESZIP---";
+pub const STATIC_FS_PREFIX: &str = "mnt/data";
 
 #[derive(Debug)]
 pub enum EszipPayloadKind {
@@ -141,13 +142,26 @@ pub async fn generate_binary_eszip(
     }
 }
 
-pub async fn include_glob_patterns_in_eszip(patterns: Vec<&str>, eszip: &mut EszipV2) {
+pub async fn include_glob_patterns_in_eszip(
+    patterns: Vec<&str>,
+    eszip: &mut EszipV2,
+    prefix: Option<String>,
+) {
     let mut static_files: Vec<String> = vec![];
     for pattern in patterns {
         for entry in glob(pattern).expect("Failed to read pattern") {
             match entry {
                 Ok(path) => {
                     let mod_path = path.to_str().unwrap().to_string();
+                    let mod_path = if let Some(file_prefix) = prefix.clone() {
+                        PathBuf::from(file_prefix)
+                            .join(PathBuf::from(mod_path))
+                            .to_str()
+                            .unwrap()
+                            .to_string()
+                    } else {
+                        mod_path
+                    };
 
                     if path.exists() {
                         let content = std::fs::read(path).unwrap();

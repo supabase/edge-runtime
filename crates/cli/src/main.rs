@@ -12,7 +12,9 @@ use deno_core::url::Url;
 use log::warn;
 use sb_graph::emitter::EmitterFactory;
 use sb_graph::import_map::load_import_map;
-use sb_graph::{extract_from_file, generate_binary_eszip, include_glob_patterns_in_eszip};
+use sb_graph::{
+    extract_from_file, generate_binary_eszip, include_glob_patterns_in_eszip, STATIC_FS_PREFIX,
+};
 use std::fs::File;
 use std::io::Write;
 use std::net::SocketAddr;
@@ -306,7 +308,7 @@ fn main() -> Result<(), anyhow::Error> {
                 )
                 .await?;
 
-                include_glob_patterns_in_eszip(static_patterns, &mut eszip).await;
+                include_glob_patterns_in_eszip(static_patterns, &mut eszip, Some(STATIC_FS_PREFIX.to_string())).await;
 
                 let bin = eszip.into_bytes();
 

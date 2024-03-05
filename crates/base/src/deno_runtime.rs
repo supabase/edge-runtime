@@ -48,7 +48,9 @@ use sb_env::sb_env as sb_env_op;
 use sb_fs::file_system::DenoCompileFileSystem;
 use sb_graph::emitter::EmitterFactory;
 use sb_graph::import_map::load_import_map;
-use sb_graph::{generate_binary_eszip, include_glob_patterns_in_eszip, EszipPayloadKind};
+use sb_graph::{
+    generate_binary_eszip, include_glob_patterns_in_eszip, EszipPayloadKind, STATIC_FS_PREFIX,
+};
 use sb_module_loader::standalone::create_module_loader_for_standalone_from_eszip_kind;
 use sb_module_loader::RuntimeProviders;
 use sb_node::deno_node;
@@ -197,6 +199,7 @@ impl DenoRuntime {
             include_glob_patterns_in_eszip(
                 static_patterns.iter().map(|s| s.as_str()).collect(),
                 &mut eszip,
+                Some(STATIC_FS_PREFIX.to_string()),
             )
             .await;
 
@@ -842,6 +845,7 @@ mod test {
         path: Option<PathBuf>,
         env_vars: Option<HashMap<String, String>>,
         user_conf: Option<WorkerRuntimeOpts>,
+        static_patterns: Vec<String>,
     ) -> DenoRuntime {
         let (worker_pool_tx, _) = mpsc::unbounded_channel::<UserWorkerMsgs>();
 
@@ -867,7 +871,7 @@ mod test {
                         })
                     }
                 },
-                static_patterns: vec![],
+                static_patterns,
             },
             None,
         )
@@ -879,7 +883,7 @@ mod test {
     #[tokio::test]
     #[serial]
     async fn test_main_runtime_creation() {
-        let mut runtime = create_runtime(None, None, None).await;
+        let mut runtime = create_runtime(None, None, None, vec![]).await;
 
         {
             let scope = &mut runtime.js_runtime.handle_scope();
@@ -903,6 +907,7 @@ mod test {
             None,
             None,
             Some(WorkerRuntimeOpts::UserWorker(Default::default())),
+            vec![],
         )
         .await;
 
@@ -923,7 +928,8 @@ mod test {
     #[tokio::test]
     #[serial]
     async fn test_main_rt_fs() {
-        let mut main_rt = create_runtime(None, Some(std::env::vars().collect()), None).await;
+        let mut main_rt =
+            create_runtime(None, Some(std::env::vars().collect()), None, vec![]).await;
 
         let global_value_deno_read_file_script = main_rt
             .js_runtime
@@ -972,11 +978,42 @@ mod test {
 
     #[tokio::test]
     #[serial]
+    async fn test_static_fs() {
+        let mut user_rt = create_runtime(
+            None,
+            None,
+            Some(WorkerRuntimeOpts::UserWorker(Default::default())),
+            vec![String::from("./test_cases/**/*.md")],
+        )
+        .await;
+
+        let user_rt_execute_scripts = user_rt
+            .js_runtime
+            .execute_script(
+                "<anon>",
+                ModuleCodeString::from(
+                    r#"Deno.readTextFileSync("./mnt/data/test_cases/content.md")"#.to_string(),
+                ),
+            )
+            .unwrap();
+        let serde_deno_env = user_rt
+            .to_value::<deno_core::serde_json::Value>(&user_rt_execute_scripts)
+            .unwrap();
+
+        assert_eq!(
+            serde_deno_env,
+            deno_core::serde_json::Value::String(String::from("Some test file"))
+        );
+    }
+
+    #[tokio::test]
+    #[serial]
     async fn test_os_ops() {
         let mut user_rt = create_runtime(
             None,
             None,
             Some(WorkerRuntimeOpts::UserWorker(Default::default())),
+            vec![],
         )
         .await;
 
@@ -1097,11 +1134,13 @@ mod test {
     #[serial]
     async fn test_os_env_vars() {
         std::env::set_var("Supa_Test", "Supa_Value");
-        let mut main_rt = create_runtime(None, Some(std::env::vars().collect()), None).await;
+        let mut main_rt =
+            create_runtime(None, Some(std::env::vars().collect()), None, vec![]).await;
         let mut user_rt = create_runtime(
             None,
             None,
             Some(WorkerRuntimeOpts::UserWorker(Default::default())),
+            vec![],
         )
         .await;
         assert!(!main_rt.env_vars.is_empty());
@@ -1186,6 +1225,7 @@ mod test {
                 cancel: None,
                 service_path: None,
             })),
+            vec![],
         )
         .await
     }

@@ -4,7 +4,7 @@ use anyhow::{anyhow, bail, Error};
 use base::commands::start_server;
 use base::deno_runtime::MAYBE_DENO_VERSION;
 use base::rt_worker::worker_pool::{SupervisorPolicy, WorkerPoolPolicy};
-use base::server::{ServerFlags, WorkerEntrypoints};
+use base::server::{ServerFlags, Tls, WorkerEntrypoints};
 use base::InspectorOption;
 use clap::builder::{FalseyValueParser, TypedValueParser};
 use clap::{arg, crate_version, value_parser, ArgAction, ArgGroup, Command};
@@ -56,7 +56,27 @@ fn cli() -> Command {
                 .arg(
                     arg!(-p --port <PORT> "Port to listen on")
                         .default_value("9000")
-                        .value_parser(value_parser!(u16)),
+                        .value_parser(value_parser!(u16))
+                )
+                .arg(
+                    arg!(--tls [PORT])
+                        .num_args(0..=1)
+                        .default_missing_value("443")
+                        .value_parser(value_parser!(u16))
+                        .requires("key")
+                        .requires("cert")
+                )
+                .arg(
+                    arg!(--key <Path> "Path to PEM-encoded key to be used to TLS")
+                        .value_parser(
+                            value_parser!(PathBuf)
+                        )
+                )
+                .arg(
+                    arg!(--cert <Path> "Path to PEM-encoded X.509 certificate to be used to TLS")
+                        .value_parser(
+                            value_parser!(PathBuf)
+                        )
                 )
                 .arg(arg!(--"main-service" <DIR> "Path to main service directory or eszip").default_value("examples/main"))
                 .arg(arg!(--"disable-module-cache" "Disable using module cache").default_value("false").value_parser(FalseyValueParser::new()))
@@ -163,6 +183,19 @@ fn main() -> Result<(), anyhow::Error> {
                 let ip = sub_matches.get_one::<String>("ip").cloned().unwrap();
                 let port = sub_matches.get_one::<u16>("port").copied().unwrap();
 
+                let maybe_tls = if let Some(port) = sub_matches.get_one::<u16>("tls").copied() {
+                    let Some((key_slice, cert_slice)) = sub_matches.get_one::<PathBuf>("key").and_then(|it| std::fs::read(it).ok())
+                    .zip(
+                        sub_matches.get_one::<PathBuf>("cert").and_then(|it| std::fs::read(it).ok())
+                    ) else {
+                        bail!("unable to load the key file or cert file");
+                    };
+
+                    Some(Tls::new(port, &key_slice, &cert_slice)?)
+                } else {
+                    None
+                };
+
                 let main_service_path = sub_matches
                     .get_one::<String>("main-service")
                     .cloned()
@@ -229,6 +262,7 @@ fn main() -> Result<(), anyhow::Error> {
                 start_server(
                     ip.as_str(),
                     port,
+                    maybe_tls,
                     main_service_path,
                     event_service_manager_path,
                     Some(WorkerPoolPolicy::new(

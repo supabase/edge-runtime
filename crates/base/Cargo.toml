@@ -40,6 +40,8 @@ reqwest.workspace = true
 serde = { workspace = true, features = ["derive"] }
 tokio = { workspace = true }
 tokio-util = { workspace = true, features = ["rt"] }
+tokio-rustls = { version = "0.25.0" }
+rustls-pemfile = { version = "2.1.0" }
 futures-util = { workspace = true }
 url.workspace = true
 event_worker ={ version = "0.1.0", path = "../event_worker" }
@@ -66,6 +68,7 @@ deno_webgpu.workspace = true
 fastwebsockets = { workspace = true }
 sb_ai = { version = "0.1.0", path = "../sb_ai" }
 sb_fs = { version = "0.1.0", path = "../sb_fs" }
+tls-listener = { version = "0.9", features = ["rustls"] }
 
 [dev-dependencies]
 tokio-util = { workspace = true, features = ["rt", "compat"] }

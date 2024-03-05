@@ -228,11 +228,12 @@ fn main() -> Result<(), anyhow::Error> {
                     sub_matches.get_one::<usize>("max-parallelism").cloned();
                 let maybe_request_wait_timeout =
                     sub_matches.get_one::<u64>("request-wait-timeout").cloned();
-                let static_patterns = sub_matches
-                    .get_many::<String>("static")
-                    .unwrap()
-                    .map(|s| s.as_str())
-                    .collect::<Vec<&str>>();
+                let static_patterns = if let Some(val_ref) = sub_matches
+                    .get_many::<String>("static") {
+                    val_ref.map(|s| s.as_str()).collect::<Vec<&str>>()
+                } else {
+                    vec![]
+                };
 
                 let static_patterns: Vec<String> =
                     static_patterns.into_iter().map(|s| s.to_string()).collect();
@@ -303,11 +304,12 @@ fn main() -> Result<(), anyhow::Error> {
             Some(("bundle", sub_matches)) => {
                 let output_path = sub_matches.get_one::<String>("output").cloned().unwrap();
                 let import_map_path = sub_matches.get_one::<String>("import-map").cloned();
-                let static_patterns = sub_matches
-                    .get_many::<String>("static")
-                    .unwrap()
-                    .map(|s| s.as_str())
-                    .collect::<Vec<&str>>();
+                let static_patterns = if let Some(val_ref) = sub_matches
+                    .get_many::<String>("static") {
+                    val_ref.map(|s| s.as_str()).collect::<Vec<&str>>()
+                } else {
+                    vec![]
+                };
 
                 let entry_point_path = sub_matches
                     .get_one::<String>("entrypoint")

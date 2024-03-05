@@ -170,6 +170,7 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
         integration_test_helper::test_user_worker_pool_policy(),
         None,
         Some(pool_termination_token.clone()),
+        vec![],
         None,
     )
     .await
@@ -190,6 +191,7 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
             shared_metric_src: None,
             event_worker_metric_src: None,
         }),
+        static_patterns: vec![],
     };
 
     let (_, worker_req_tx) = create_worker((opts, main_termination_token.clone()), None)

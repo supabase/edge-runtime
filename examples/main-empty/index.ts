@@ -9,7 +9,7 @@ console.log(Deno.version);
 let val = sum(1, 2);
 console.log(Deno.readFile)
 console.log(Deno.cwd())
-console.log(Deno.readFileSync('examples/postgres-on-the-edge/README.md'));
+console.log(Deno.readFileSync('mnt/data/examples/postgres-on-the-edge/README.md'));
 
 serve(async (req: Request) => {
     return new Response(

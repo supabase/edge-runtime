@@ -4,15 +4,17 @@ use crate::rt_worker::worker_ctx::{
 };
 use crate::rt_worker::worker_pool::WorkerPoolPolicy;
 use crate::InspectorOption;
-use anyhow::Error;
+use anyhow::{anyhow, bail, Context, Error};
 use event_worker::events::WorkerEventWithMetadata;
 use futures_util::Stream;
 use hyper::{server::conn::Http, service::Service, Body, Request, Response};
 use log::{debug, error, info};
+use rustls_pemfile::read_one_from_slice;
+use rustls_pemfile::Item;
 use sb_core::conn_sync::ConnSync;
 use sb_core::SharedMetricSource;
 use sb_workers::context::{MainWorkerRuntimeOpts, WorkerRequestMsg};
-use std::future::Future;
+use std::future::{pending, Future};
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
@@ -20,12 +22,18 @@ use std::path::Path;
 use std::pin::Pin;
 use std::str;
 use std::str::FromStr;
+use std::sync::Arc;
 use std::task::Poll;
 use std::time::Duration;
+use tls_listener::TlsListener;
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
-use tokio::sync::mpsc::Sender;
+use tokio::sync::mpsc::{Sender, UnboundedSender};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::timeout;
+use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use tokio_rustls::rustls::ServerConfig;
+use tokio_rustls::TlsAcceptor;
 use tokio_util::sync::CancellationToken;
 
 pub enum ServerEvent {
@@ -188,9 +196,79 @@ pub struct ServerFlags {
     pub graceful_exit_deadline_sec: u64,
 }
 
+#[derive(Debug)]
+pub struct Tls {
+    port: u16,
+    key: PrivateKeyDer<'static>,
+    cert_chain: Vec<CertificateDer<'static>>,
+}
+
+impl Clone for Tls {
+    fn clone(&self) -> Self {
+        Self {
+            port: self.port,
+            key: self.key.clone_key(),
+            cert_chain: self.cert_chain.clone(),
+        }
+    }
+}
+
+impl Tls {
+    pub fn new(port: u16, key: &[u8], cert: &[u8]) -> anyhow::Result<Self> {
+        let Some((key_item, _)) =
+            read_one_from_slice(key).map_err(|err| anyhow!("can't resolve key: {:?}", err))?
+        else {
+            bail!("invalid key data")
+        };
+
+        let mut cert_chain = vec![];
+        let mut cert_slice = cert;
+        loop {
+            let Some((Item::X509Certificate(cert), remain_cert_slice)) =
+                read_one_from_slice(cert_slice)
+                    .map_err(|err| anyhow!("can't resolve cert: {:?}", err))?
+            else {
+                bail!("invalid cert data")
+            };
+
+            cert_chain.push(cert);
+
+            if remain_cert_slice.is_empty() {
+                break;
+            }
+
+            cert_slice = remain_cert_slice;
+        }
+
+        let key = match key_item {
+            Item::Pkcs1Key(key) => PrivateKeyDer::Pkcs1(key),
+            Item::Pkcs8Key(key) => PrivateKeyDer::Pkcs8(key),
+            Item::Sec1Key(key) => PrivateKeyDer::Sec1(key),
+            _ => bail!("invalid key data"),
+        };
+
+        Ok(Self {
+            port,
+            key,
+            cert_chain,
+        })
+    }
+
+    fn into_acceptor(self) -> anyhow::Result<TlsAcceptor> {
+        Ok(Arc::new(
+            ServerConfig::builder()
+                .with_no_client_auth()
+                .with_single_cert(self.cert_chain, self.key)
+                .with_context(|| "can't make TLS acceptor")?,
+        )
+        .into())
+    }
+}
+
 pub struct Server {
     ip: Ipv4Addr,
     port: u16,
+    tls: Option<Tls>,
     main_worker_req_tx: mpsc::UnboundedSender<WorkerRequestMsg>,
     callback_tx: Option<Sender<ServerHealth>>,
     termination_token: TerminationToken,
@@ -203,6 +281,7 @@ impl Server {
     pub async fn new(
         ip: &str,
         port: u16,
+        tls: Option<Tls>,
         main_service_path: String,
         maybe_events_service_path: Option<String>,
         maybe_user_worker_policy: Option<WorkerPoolPolicy>,
@@ -276,6 +355,7 @@ impl Server {
         Ok(Self {
             ip,
             port,
+            tls,
             main_worker_req_tx,
             callback_tx,
             termination_token,
@@ -290,54 +370,65 @@ impl Server {
 
     pub async fn listen(&mut self) -> Result<(), Error> {
         let addr = SocketAddr::new(IpAddr::V4(self.ip), self.port);
-        let listener = TcpListener::bind(&addr).await?;
+        let non_secure_listener = TcpListener::bind(&addr).await?;
+        let mut secure_listener = if let Some(tls) = self.tls.take() {
+            let addr = SocketAddr::new(IpAddr::V4(self.ip), tls.port);
+            Some((
+                TlsListener::new(tls.into_acceptor()?, TcpListener::bind(addr).await?),
+                addr,
+            ))
+        } else {
+            None
+        };
+
         let termination_token = self.termination_token.clone();
         let flags = self.flags;
 
         let mut can_receive_event = false;
         let (event_tx, event_rx) = mpsc::unbounded_channel();
 
-        debug!("edge-runtime is listening on {:?}", listener.local_addr()?);
+        debug!(
+            "edge-runtime is listening on {:?}",
+            non_secure_listener.local_addr()?
+        );
+
+        if let Some((_, addr)) = secure_listener.as_ref() {
+            debug!("edge-runtime is listening on {:?} (secure)", addr);
+        }
 
         if let Some(callback) = self.callback_tx.clone() {
             can_receive_event = true;
             let _ = callback.send(ServerHealth::Listening(event_rx)).await;
         }
 
+        let event_tx = can_receive_event.then_some(event_tx.clone());
+
         loop {
             let main_worker_req_tx = self.main_worker_req_tx.clone();
+            let event_tx = event_tx.clone();
             let metric_src = self.metric_src.clone();
 
             tokio::select! {
-                msg = listener.accept() => {
+                msg = non_secure_listener.accept() => {
                     match msg {
-                        Ok((conn, _)) => {
-                            tokio::task::spawn({
-                                let event_tx = event_tx.clone();
-                                async move {
-                                    let (service, cancel) = WorkerService::new(metric_src, main_worker_req_tx);
-                                    let _guard = cancel.drop_guard();
+                        Ok((stream, _)) => {
+                            accept_stream(stream, main_worker_req_tx, event_tx, metric_src)
+                        }
+                        Err(e) => error!("socket error: {}", e)
+                    }
+                }
 
-                                    let conn_fut = Http::new()
-                                        .serve_connection(conn, service)
-                                        .with_upgrades();
-
-                                    if let Err(e) = conn_fut.await {
-                                        // Most common cause for these errors are
-                                        // when the client closes the connection
-                                        // before we could send a response
-                                        if e.is_incomplete_message() {
-                                            debug!("connection reset ({:?})", e);
-                                        } else {
-                                            error!("client connection error ({:?})", e);
-                                        }
-
-                                        if can_receive_event {
-                                            let _ = event_tx.send(ServerEvent::ConnectionError(e));
-                                        }
-                                    }
-                                }
-                            });
+                msg = async {
+                    if let Some((listener, _addr)) = secure_listener.as_mut() {
+                        listener.accept()
+                    } else {
+                        pending::<()>().await;
+                        unreachable!();
+                    }.await
+                } => {
+                    match msg {
+                        Ok((stream, _)) => {
+                            accept_stream(stream, main_worker_req_tx, event_tx, metric_src);
                         }
                         Err(e) => error!("socket error: {}", e)
                     }
@@ -382,4 +473,36 @@ impl Server {
 
         Ok(())
     }
+}
+
+fn accept_stream<I>(
+    io: I,
+    req_tx: UnboundedSender<WorkerRequestMsg>,
+    event_tx: Option<UnboundedSender<ServerEvent>>,
+    metric_src: SharedMetricSource,
+) where
+    I: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    tokio::task::spawn({
+        async move {
+            let (service, cancel) = WorkerService::new(metric_src, req_tx);
+            let _guard = cancel.drop_guard();
+
+            let conn_fut = Http::new().serve_connection(io, service).with_upgrades();
+
+            if let Err(e) = conn_fut.await {
+                // Most common cause for these errors are when the client closes
+                // the connection before we could send a response
+                if e.is_incomplete_message() {
+                    debug!("connection reset ({:?})", e);
+                } else {
+                    error!("client connection error ({:?})", e);
+                }
+
+                if let Some(tx) = event_tx {
+                    let _ = tx.send(ServerEvent::ConnectionError(e));
+                }
+            }
+        }
+    });
 }

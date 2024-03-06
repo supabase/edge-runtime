@@ -20,6 +20,7 @@ pub async fn start_server(
     callback_tx: Option<Sender<ServerHealth>>,
     entrypoints: WorkerEntrypoints,
     termination_token: Option<TerminationToken>,
+    static_patterns: Vec<String>,
     inspector_option: Option<InspectorOption>,
 ) -> Result<(), Error> {
     let mut server = Server::new(
@@ -34,6 +35,7 @@ pub async fn start_server(
         callback_tx,
         entrypoints,
         termination_token,
+        static_patterns,
         inspector_option.map(Inspector::from_option),
     )
     .await?;

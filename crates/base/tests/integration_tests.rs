@@ -170,6 +170,7 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
         integration_test_helper::test_user_worker_pool_policy(),
         None,
         Some(pool_termination_token.clone()),
+        vec![],
         None,
     )
     .await
@@ -190,6 +191,7 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
             shared_metric_src: None,
             event_worker_metric_src: None,
         }),
+        static_patterns: vec![],
     };
 
     let (_, worker_req_tx) = create_worker((opts, main_termination_token.clone()), None)
@@ -329,6 +331,7 @@ async fn test_main_worker_boot_error() {
         test_user_worker_pool_policy(),
         None,
         Some(pool_termination_token.clone()),
+        vec![],
         None,
     )
     .await
@@ -349,12 +352,16 @@ async fn test_main_worker_boot_error() {
             shared_metric_src: None,
             event_worker_metric_src: None,
         }),
+        static_patterns: vec![],
     };
 
     let result = create_worker((opts, main_termination_token.clone()), None).await;
 
     assert!(result.is_err());
-    assert_eq!(result.unwrap_err().to_string(), "worker boot error");
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .starts_with("worker boot error"));
 
     pool_termination_token.cancel_and_wait().await;
     main_termination_token.cancel_and_wait().await;
@@ -770,12 +777,16 @@ async fn test_worker_boot_invalid_imports() {
         maybe_entrypoint: None,
         maybe_module_code: None,
         conf: WorkerRuntimeOpts::UserWorker(test_user_runtime_opts()),
+        static_patterns: vec![],
     };
 
     let result = create_test_user_worker(opts).await;
 
     assert!(result.is_err());
-    assert_eq!(result.unwrap_err().to_string(), "worker boot error");
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .starts_with("worker boot error"));
 }
 
 #[tokio::test]

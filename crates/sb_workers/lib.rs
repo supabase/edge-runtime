@@ -131,6 +131,7 @@ pub async fn op_user_worker_create(
                 cancel: None,
                 service_path: None,
             }),
+            static_patterns: vec![],
         };
 
         tx.send(UserWorkerMsgs::Create(user_worker_options, result_tx))?;

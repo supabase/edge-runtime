@@ -290,6 +290,7 @@ impl Server {
         callback_tx: Option<Sender<ServerHealth>>,
         entrypoints: WorkerEntrypoints,
         termination_token: Option<TerminationToken>,
+        static_patterns: Vec<String>,
         inspector: Option<Inspector>,
     ) -> Result<Self, Error> {
         let mut worker_events_tx: Option<mpsc::UnboundedSender<WorkerEventWithMetadata>> = None;
@@ -322,6 +323,7 @@ impl Server {
             maybe_user_worker_policy.unwrap_or_default(),
             worker_events_tx,
             None,
+            static_patterns,
             inspector.clone(),
         )
         .await?;

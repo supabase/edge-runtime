@@ -12,7 +12,9 @@ use deno_core::url::Url;
 use log::warn;
 use sb_graph::emitter::EmitterFactory;
 use sb_graph::import_map::load_import_map;
-use sb_graph::{extract_from_file, generate_binary_eszip};
+use sb_graph::{
+    extract_from_file, generate_binary_eszip, include_glob_patterns_in_eszip, STATIC_FS_PREFIX,
+};
 use std::fs::File;
 use std::io::Write;
 use std::net::SocketAddr;
@@ -138,12 +140,14 @@ fn cli() -> Command {
                         .requires("inspector")
                         .action(ArgAction::SetTrue)
                 )
+                .arg(arg!(--"static" <Path> "Glob pattern for static files to be included"))
         )
         .subcommand(
             Command::new("bundle")
                 .about("Creates an 'eszip' file that can be executed by the EdgeRuntime. Such file contains all the modules in contained in a single binary.")
                 .arg(arg!(--"output" <DIR> "Path to output eszip file").default_value("bin.eszip"))
                 .arg(arg!(--"entrypoint" <Path> "Path to entrypoint to bundle as an eszip").required(true))
+                .arg(arg!(--"static" <Path> "Glob pattern for static files to be included"))
                 .arg(arg!(--"import-map" <Path> "Path to import map file"))
         ).subcommand(
         Command::new("unbundle")
@@ -224,6 +228,15 @@ fn main() -> Result<(), anyhow::Error> {
                     sub_matches.get_one::<usize>("max-parallelism").cloned();
                 let maybe_request_wait_timeout =
                     sub_matches.get_one::<u64>("request-wait-timeout").cloned();
+                let static_patterns = if let Some(val_ref) = sub_matches
+                    .get_many::<String>("static") {
+                    val_ref.map(|s| s.as_str()).collect::<Vec<&str>>()
+                } else {
+                    vec![]
+                };
+
+                let static_patterns: Vec<String> =
+                    static_patterns.into_iter().map(|s| s.to_string()).collect();
 
                 let inspector = sub_matches.get_one::<clap::Id>("inspector").zip(
                     sub_matches
@@ -283,6 +296,7 @@ fn main() -> Result<(), anyhow::Error> {
                         events: maybe_events_entrypoint,
                     },
                     None,
+                    static_patterns,
                     maybe_inspector_option
                 )
                 .await?;
@@ -290,6 +304,12 @@ fn main() -> Result<(), anyhow::Error> {
             Some(("bundle", sub_matches)) => {
                 let output_path = sub_matches.get_one::<String>("output").cloned().unwrap();
                 let import_map_path = sub_matches.get_one::<String>("import-map").cloned();
+                let static_patterns = if let Some(val_ref) = sub_matches
+                    .get_many::<String>("static") {
+                    val_ref.map(|s| s.as_str()).collect::<Vec<&str>>()
+                } else {
+                    vec![]
+                };
 
                 let entry_point_path = sub_matches
                     .get_one::<String>("entrypoint")
@@ -316,13 +336,16 @@ fn main() -> Result<(), anyhow::Error> {
                 }
                 emitter_factory.set_import_map(maybe_import_map.clone());
 
-                let eszip = generate_binary_eszip(
+                let mut eszip = generate_binary_eszip(
                     path.canonicalize().unwrap(),
                     Arc::new(emitter_factory),
                     None,
                     maybe_import_map_url,
                 )
                 .await?;
+
+                include_glob_patterns_in_eszip(static_patterns, &mut eszip, Some(STATIC_FS_PREFIX.to_string())).await;
+
                 let bin = eszip.into_bytes();
 
                 if output_path == "-" {

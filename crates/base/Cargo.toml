@@ -67,6 +67,7 @@ deno_canvas.workspace = true
 deno_webgpu.workspace = true
 fastwebsockets = { workspace = true }
 sb_ai = { version = "0.1.0", path = "../sb_ai" }
+sb_fs = { version = "0.1.0", path = "../sb_fs" }
 tls-listener = { version = "0.9", features = ["rustls"] }
 
 [dev-dependencies]

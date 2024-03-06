@@ -1,15 +1,18 @@
 use crate::virtual_fs::{FileBackedVfs, VfsBuilder, VfsRoot, VirtualDirectory};
 use deno_core::error::AnyError;
-use deno_core::serde_json;
+use deno_core::{normalize_path, serde_json};
 use deno_npm::NpmSystemInfo;
+use eszip::EszipV2;
 use sb_npm::cache::NpmCache;
 use sb_npm::registry::CliNpmRegistryApi;
 use sb_npm::resolution::NpmResolution;
 use sb_npm::{CliNpmResolver, InnerCliNpmResolverRef};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 pub mod file_system;
+pub mod static_fs;
 pub mod virtual_fs;
 
 pub struct VfsOpts {
@@ -19,20 +22,57 @@ pub struct VfsOpts {
     pub npm_resolution: Arc<NpmResolution>,
 }
 
+pub type EszipStaticFiles = HashMap<String, Vec<u8>>;
+
+pub async fn extract_static_files_from_eszip(eszip: &EszipV2) -> EszipStaticFiles {
+    let key = String::from("---SUPABASE-STATIC-FILES-ESZIP---");
+    let mut files: EszipStaticFiles = HashMap::new();
+
+    if eszip.specifiers().contains(&key) {
+        let eszip_static_files = eszip.get_module(key.as_str()).unwrap();
+        let data = eszip_static_files.take_source().await.unwrap();
+        let data = data.to_vec();
+        let data: Vec<String> = serde_json::from_slice(data.as_slice()).unwrap();
+        for static_specifier in data {
+            let file_mod = eszip.get_module(static_specifier.as_str()).unwrap();
+            files.insert(
+                normalize_path(PathBuf::from(static_specifier))
+                    .to_str()
+                    .unwrap()
+                    .to_string(),
+                file_mod.take_source().await.unwrap().to_vec(),
+            );
+        }
+    }
+
+    files
+}
+
 pub fn load_npm_vfs(root_dir_path: PathBuf, vfs_data: &[u8]) -> Result<FileBackedVfs, AnyError> {
-    let mut dir: VirtualDirectory = serde_json::from_slice(vfs_data)?;
+    let dir: Option<VirtualDirectory> = serde_json::from_slice(vfs_data)?;
 
-    // align the name of the directory with the root dir
-    dir.name = root_dir_path
-        .file_name()
-        .unwrap()
-        .to_string_lossy()
-        .to_string();
+    let fs_root: VfsRoot = if let Some(mut dir) = dir {
+        // align the name of the directory with the root dir
+        dir.name = root_dir_path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
 
-    let fs_root = VfsRoot {
-        dir,
-        root_path: root_dir_path,
+        VfsRoot {
+            dir,
+            root_path: root_dir_path,
+        }
+    } else {
+        VfsRoot {
+            dir: VirtualDirectory {
+                name: "".to_string(),
+                entries: vec![],
+            },
+            root_path: root_dir_path, // < we should still use the temp, otherwise it might fail when doing `.start_with`
+        }
     };
+
     Ok(FileBackedVfs::new(fs_root))
 }
 

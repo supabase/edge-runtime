@@ -17,6 +17,14 @@ impl DenoCompileFileSystem {
         Self(Arc::new(vfs))
     }
 
+    pub fn from_rc(vfs: Arc<FileBackedVfs>) -> Self {
+        Self(vfs)
+    }
+
+    pub fn file_backed_vfs(&self) -> Arc<FileBackedVfs> {
+        self.0.clone()
+    }
+
     fn error_if_in_vfs(&self, path: &Path) -> FsResult<()> {
         if self.0.is_path_within(path) {
             Err(FsError::NotSupported)

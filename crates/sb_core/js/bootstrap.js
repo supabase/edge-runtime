@@ -447,8 +447,10 @@ globalThis.bootstrapSBEdge = opts => {
 			),
 		});
 
+		const allowedFs = ['cwd', 'readFile', 'readFileSync', 'readTextFile', 'readTextFileSync'];
+
 		// remove all fs APIs except Deno.cwd
-		deleteDenoApis(Object.keys(fsVars).filter((k) => k !== 'cwd'));
+		deleteDenoApis(Object.keys(fsVars).filter((k) => !allowedFs.includes(k)));
 	}
 
 	if (isEventsWorker) {

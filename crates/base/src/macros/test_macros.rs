@@ -36,6 +36,7 @@ macro_rules! integration_test {
                     events: None,
                 },
                 integration_test!(@term $(, $termination_token)?),
+                vec![],
                 None
             ) => {
                 panic!("This one should not end first");

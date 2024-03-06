@@ -1,8 +1,14 @@
 import { serve } from "https://deno.land/std@0.131.0/http/server.ts";
 import {sum} from "./some-import.ts";
+import isEven from "npm:is-even";
+
+console.log('Hello A');
+globalThis.isTenEven = isEven(10);
 
 console.log(Deno.version);
 let val = sum(1, 2);
+console.log(Deno.cwd())
+console.log(Deno.readFileSync('mnt/data/examples/postgres-on-the-edge/README.md'));
 
 serve(async (req: Request) => {
     return new Response(

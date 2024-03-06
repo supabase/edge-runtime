@@ -18,7 +18,7 @@ use sb_core::cache::CacheSetting;
 use sb_core::cert::{get_root_cert_store, CaData};
 use sb_core::util::http_util::HttpClient;
 use sb_fs::file_system::DenoCompileFileSystem;
-use sb_fs::load_npm_vfs;
+use sb_fs::{extract_static_files_from_eszip, load_npm_vfs};
 use sb_graph::graph_resolver::MappedSpecifierResolver;
 use sb_graph::{payload_to_eszip, EszipPayloadKind, SOURCE_CODE_ESZIP_KEY, VFS_ESZIP_KEY};
 use sb_node::analyze::NodeCodeTranslator;
@@ -90,10 +90,11 @@ pub async fn create_module_loader_for_eszip(
         None
     };
 
-    let (fs, snapshot) = if let Some(snapshot) = eszip.take_npm_snapshot() {
-        // TODO: Support node_modules
-        let vfs_root_dir_path = npm_cache_dir.registry_folder(&npm_registry_url);
+    let snapshot = eszip.take_npm_snapshot();
+    let static_files = extract_static_files_from_eszip(&eszip).await;
+    let vfs_root_dir_path = npm_cache_dir.registry_folder(&npm_registry_url);
 
+    let (fs, vfs) = {
         let vfs_data: Vec<u8> = eszip
             .get_module(VFS_ESZIP_KEY)
             .unwrap()
@@ -102,17 +103,13 @@ pub async fn create_module_loader_for_eszip(
             .unwrap()
             .to_vec();
 
-        let vfs = load_npm_vfs(vfs_root_dir_path, &vfs_data).context("Failed to load npm vfs.")?;
+        let vfs = load_npm_vfs(vfs_root_dir_path.clone(), &vfs_data)
+            .context("Failed to load npm vfs.")?;
 
-        (
-            Arc::new(DenoCompileFileSystem::new(vfs)) as Arc<dyn deno_fs::FileSystem>,
-            Some(snapshot),
-        )
-    } else {
-        (
-            Arc::new(deno_fs::RealFs) as Arc<dyn deno_fs::FileSystem>,
-            None,
-        )
+        let fs = DenoCompileFileSystem::new(vfs);
+        let fs_backed_vfs = fs.file_backed_vfs().clone();
+
+        (Arc::new(fs) as Arc<dyn deno_fs::FileSystem>, fs_backed_vfs)
     };
 
     let package_json_deps_provider = Arc::new(PackageJsonDepsProvider::new(
@@ -122,7 +119,7 @@ pub async fn create_module_loader_for_eszip(
     ));
 
     let npm_resolver = create_managed_npm_resolver(CliNpmResolverManagedCreateOptions {
-        snapshot: CliNpmResolverManagedSnapshotOption::Specified(snapshot),
+        snapshot: CliNpmResolverManagedSnapshotOption::Specified(snapshot.clone()),
         maybe_lockfile: None,
         fs: fs.clone(),
         http_client,
@@ -183,8 +180,11 @@ pub async fn create_module_loader_for_eszip(
             shared: module_loader_factory.shared.clone(),
         }),
         npm_resolver: npm_resolver.into_npm_resolver(),
-        fs,
+        vfs,
         module_code: code_fs,
+        static_files,
+        npm_snapshot: snapshot,
+        vfs_path: vfs_root_dir_path,
     })
 }
 

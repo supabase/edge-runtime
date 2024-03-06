@@ -74,6 +74,7 @@ ctor = { version = "0.2.6" }
 fastwebsockets = { version = "0.4.4", features = ["upgrade"] }
 percent-encoding = "=2.3.0"
 scopeguard = { version = "1.2.0" }
+glob = "0.3.1"
 
 # DEBUG
 #[patch.crates-io]

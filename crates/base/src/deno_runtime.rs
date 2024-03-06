@@ -45,9 +45,12 @@ use sb_core::permissions::{sb_core_permissions, Permissions};
 use sb_core::runtime::sb_core_runtime;
 use sb_core::sb_core_main_js;
 use sb_env::sb_env as sb_env_op;
+use sb_fs::file_system::DenoCompileFileSystem;
 use sb_graph::emitter::EmitterFactory;
 use sb_graph::import_map::load_import_map;
-use sb_graph::{generate_binary_eszip, EszipPayloadKind};
+use sb_graph::{
+    generate_binary_eszip, include_glob_patterns_in_eszip, EszipPayloadKind, STATIC_FS_PREFIX,
+};
 use sb_module_loader::standalone::create_module_loader_for_standalone_from_eszip_kind;
 use sb_module_loader::RuntimeProviders;
 use sb_node::deno_node;
@@ -129,6 +132,7 @@ impl DenoRuntime {
             maybe_eszip,
             maybe_entrypoint,
             maybe_module_code,
+            static_patterns,
             ..
         } = opts;
 
@@ -184,13 +188,20 @@ impl DenoRuntime {
                 None
             };
 
-            let eszip = generate_binary_eszip(
+            let mut eszip = generate_binary_eszip(
                 main_module_url_file_path,
                 arc_emitter_factory,
                 maybe_code,
                 import_map_path.clone(),
             )
             .await?;
+
+            include_glob_patterns_in_eszip(
+                static_patterns.iter().map(|s| s.as_str()).collect(),
+                &mut eszip,
+                Some(STATIC_FS_PREFIX.to_string()),
+            )
+            .await;
 
             EszipPayloadKind::Eszip(eszip)
         };
@@ -243,8 +254,6 @@ impl DenoRuntime {
             });
         }
 
-        let fs = Arc::new(deno_fs::RealFs);
-
         let rt_provider = create_module_loader_for_standalone_from_eszip_kind(
             eszip,
             maybe_arc_import_map,
@@ -254,10 +263,26 @@ impl DenoRuntime {
 
         let RuntimeProviders {
             npm_resolver,
-            fs: file_system,
+            vfs,
             module_loader,
             module_code,
+            static_files,
+            npm_snapshot,
+            vfs_path,
         } = rt_provider;
+
+        let op_fs = {
+            if is_user_worker {
+                Arc::new(sb_fs::static_fs::StaticFs::new(
+                    static_files,
+                    vfs_path,
+                    vfs,
+                    npm_snapshot,
+                )) as Arc<dyn deno_fs::FileSystem>
+            } else {
+                Arc::new(DenoCompileFileSystem::from_rc(vfs)) as Arc<dyn deno_fs::FileSystem>
+            }
+        };
 
         let mod_code = module_code;
 
@@ -291,7 +316,7 @@ impl DenoRuntime {
             deno_tls::deno_tls::init_ops(),
             deno_http::deno_http::init_ops::<DefaultHttpPropertyExtractor>(),
             deno_io::deno_io::init_ops(stdio),
-            deno_fs::deno_fs::init_ops::<Permissions>(fs.clone()),
+            deno_fs::deno_fs::init_ops::<Permissions>(op_fs.clone()),
             sb_env_op::init_ops(),
             sb_ai::init_ops(),
             sb_os::sb_os::init_ops(),
@@ -302,7 +327,7 @@ impl DenoRuntime {
             sb_core_net::init_ops(),
             sb_core_http::init_ops(),
             sb_core_http_start::init_ops(),
-            deno_node::init_ops::<Permissions>(Some(npm_resolver), file_system),
+            deno_node::init_ops::<Permissions>(Some(npm_resolver), op_fs),
             sb_core_runtime::init_ops(Some(main_module_url.clone())),
         ];
 
@@ -675,6 +700,7 @@ mod test {
                         event_worker_metric_src: None,
                     })
                 },
+                static_patterns: vec![],
             },
             None,
         )
@@ -717,6 +743,7 @@ mod test {
                         event_worker_metric_src: None,
                     })
                 },
+                static_patterns: vec![],
             },
             None,
         )
@@ -781,6 +808,7 @@ mod test {
                         event_worker_metric_src: None,
                     })
                 },
+                static_patterns: vec![],
             },
             None,
         )
@@ -817,6 +845,7 @@ mod test {
         path: Option<PathBuf>,
         env_vars: Option<HashMap<String, String>>,
         user_conf: Option<WorkerRuntimeOpts>,
+        static_patterns: Vec<String>,
     ) -> DenoRuntime {
         let (worker_pool_tx, _) = mpsc::unbounded_channel::<UserWorkerMsgs>();
 
@@ -842,6 +871,7 @@ mod test {
                         })
                     }
                 },
+                static_patterns,
             },
             None,
         )
@@ -853,7 +883,7 @@ mod test {
     #[tokio::test]
     #[serial]
     async fn test_main_runtime_creation() {
-        let mut runtime = create_runtime(None, None, None).await;
+        let mut runtime = create_runtime(None, None, None, vec![]).await;
 
         {
             let scope = &mut runtime.js_runtime.handle_scope();
@@ -877,6 +907,7 @@ mod test {
             None,
             None,
             Some(WorkerRuntimeOpts::UserWorker(Default::default())),
+            vec![],
         )
         .await;
 
@@ -897,7 +928,8 @@ mod test {
     #[tokio::test]
     #[serial]
     async fn test_main_rt_fs() {
-        let mut main_rt = create_runtime(None, Some(std::env::vars().collect()), None).await;
+        let mut main_rt =
+            create_runtime(None, Some(std::env::vars().collect()), None, vec![]).await;
 
         let global_value_deno_read_file_script = main_rt
             .js_runtime
@@ -946,11 +978,42 @@ mod test {
 
     #[tokio::test]
     #[serial]
+    async fn test_static_fs() {
+        let mut user_rt = create_runtime(
+            None,
+            None,
+            Some(WorkerRuntimeOpts::UserWorker(Default::default())),
+            vec![String::from("./test_cases/**/*.md")],
+        )
+        .await;
+
+        let user_rt_execute_scripts = user_rt
+            .js_runtime
+            .execute_script(
+                "<anon>",
+                ModuleCodeString::from(
+                    r#"Deno.readTextFileSync("./mnt/data/test_cases/content.md")"#.to_string(),
+                ),
+            )
+            .unwrap();
+        let serde_deno_env = user_rt
+            .to_value::<deno_core::serde_json::Value>(&user_rt_execute_scripts)
+            .unwrap();
+
+        assert_eq!(
+            serde_deno_env,
+            deno_core::serde_json::Value::String(String::from("Some test file"))
+        );
+    }
+
+    #[tokio::test]
+    #[serial]
     async fn test_os_ops() {
         let mut user_rt = create_runtime(
             None,
             None,
             Some(WorkerRuntimeOpts::UserWorker(Default::default())),
+            vec![],
         )
         .await;
 
@@ -1071,11 +1134,13 @@ mod test {
     #[serial]
     async fn test_os_env_vars() {
         std::env::set_var("Supa_Test", "Supa_Value");
-        let mut main_rt = create_runtime(None, Some(std::env::vars().collect()), None).await;
+        let mut main_rt =
+            create_runtime(None, Some(std::env::vars().collect()), None, vec![]).await;
         let mut user_rt = create_runtime(
             None,
             None,
             Some(WorkerRuntimeOpts::UserWorker(Default::default())),
+            vec![],
         )
         .await;
         assert!(!main_rt.env_vars.is_empty());
@@ -1160,25 +1225,9 @@ mod test {
                 cancel: None,
                 service_path: None,
             })),
+            vec![],
         )
         .await
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn test_read_file_user_rt() {
-        let mut user_rt = create_basic_user_runtime("./test_cases/readFile", 20, 1000).await;
-        let (_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStreamEntry>();
-
-        let (result, _) = user_rt.run(unix_stream_rx, None, None).await;
-        match result {
-            Err(err) => {
-                assert!(err
-                    .to_string()
-                    .contains("TypeError: Deno.readFileSync is not a function"));
-            }
-            _ => panic!("Invalid Result"),
-        };
     }
 
     #[tokio::test]

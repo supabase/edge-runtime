@@ -29,6 +29,7 @@ import {
 	readOnly,
 	writable,
 } from 'ext:sb_core_main_js/js/fieldUtils.js';
+
 import {
 	Navigator,
 	navigator,
@@ -36,6 +37,7 @@ import {
 	setNumCpus,
 	setUserAgent,
 } from 'ext:sb_core_main_js/js/navigator.js';
+
 import { promiseRejectMacrotaskCallback } from 'ext:sb_core_main_js/js/promises.js';
 import { denoOverrides, fsVars } from 'ext:sb_core_main_js/js/denoOverrides.js';
 import * as performance from 'ext:deno_web/15_performance.js';
@@ -368,7 +370,7 @@ const globalProperties = {
 };
 ObjectDefineProperties(globalThis, globalProperties);
 
-const deleteDenoApis = (apis) => {
+const deleteDenoApis = apis => {
 	apis.forEach((key) => {
 		delete Deno[key];
 	});
@@ -434,6 +436,45 @@ globalThis.bootstrapSBEdge = opts => {
 			};
 		},
 	});
+
+	/// DISABLE SHARED MEMORY AND INSTALL MEM CHECK TIMING
+	
+	// NOTE: We should not allow user workers to use shared memory. This is
+	// because they are not counted in the external memory statistics of the
+	// individual isolates.
+
+	// NOTE(Nyannyacha): Put below inside `isUserWorker` block if we have the
+	// plan to support a shared array buffer across the isolates. But for now,
+	// we explicitly disabled the shared buffer option between isolate globally
+	// in `deno_runtime.rs`, so this patch also applies regardless of worker
+	// type.
+	const wasmMemoryCtor = globalThis.WebAssembly.Memory;
+	const wasmMemoryPrototypeGrow = wasmMemoryCtor.prototype.grow;
+
+	function patchedWasmMemoryPrototypeGrow(delta) {
+		let mem = wasmMemoryPrototypeGrow.call(this, delta); 
+
+		ops.op_schedule_mem_check();
+
+		return mem;
+	}
+	
+	function patchedWasmMemoryCtor(maybeOpts) {
+		if (typeof maybeOpts === "object" && maybeOpts["shared"] === true) {
+			throw new TypeError("Creating a shared memory is not supported");
+		}
+
+		const inst = new wasmMemoryCtor(maybeOpts);
+
+		inst.grow = patchedWasmMemoryPrototypeGrow;
+
+		return new wasmMemoryCtor(maybeOpts);
+	}
+
+	delete globalThis.SharedArrayBuffer;
+	globalThis.WebAssembly.Memory = patchedWasmMemoryCtor;
+
+	/// DISABLE SHARED MEMORY INSTALL MEM CHECK TIMING
 
 	if (isUserWorker) {
 		delete globalThis.EdgeRuntime;

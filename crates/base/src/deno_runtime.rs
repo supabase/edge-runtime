@@ -327,6 +327,8 @@ impl DenoRuntime {
             sb_core_net::init_ops(),
             sb_core_http::init_ops(),
             sb_core_http_start::init_ops(),
+            // NOTE(AndresP): Order is matters. Otherwise, it will lead to hard
+            // errors such as SIGBUS depending on the platform.
             deno_node::init_ops::<Permissions>(Some(npm_resolver), op_fs),
             sb_core_runtime::init_ops(Some(main_module_url.clone())),
         ];

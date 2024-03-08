@@ -293,7 +293,7 @@ impl Worker {
                                 cpu_time_used,
                                 ..
                             }) => {
-                                debug!("CPU time used: {:?}ms", cpu_time_used / 1_000_000);
+                                debug!("CPU time used: {:?}ms", cpu_time_used);
                             }
 
                             _ => {}

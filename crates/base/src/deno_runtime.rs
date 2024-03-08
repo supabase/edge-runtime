@@ -18,7 +18,7 @@ use deno_tls::rustls;
 use deno_tls::rustls::RootCertStore;
 use deno_tls::RootCertStoreProvider;
 use futures_util::future::poll_fn;
-use log::{error, trace};
+use log::{debug, error, trace};
 use once_cell::sync::{Lazy, OnceCell};
 use sb_core::conn_sync::ConnSync;
 use sb_core::http::sb_core_http;
@@ -522,6 +522,14 @@ impl DenoRuntime {
                 }
             };
 
+            debug!(
+                "mem({:?}): {}",
+                name.as_ref(),
+                self.js_runtime
+                    .v8_isolate()
+                    .adjust_amount_of_external_allocated_memory(0)
+            );
+
             let get_current_cpu_time_ns_fn =
                 || get_thread_time().context("can't get current thread time");
 
@@ -602,7 +610,7 @@ impl DenoRuntime {
 
         self.is_terminated.raise();
 
-        (result, accumulated_cpu_time_ns)
+        (result, accumulated_cpu_time_ns / 1_000_000)
     }
 
     pub fn inspector(&self) -> Option<Inspector> {

@@ -55,11 +55,13 @@ fn cli() -> Command {
                 .arg(arg!(-i --ip <HOST> "Host IP address to listen on").default_value("0.0.0.0"))
                 .arg(
                     arg!(-p --port <PORT> "Port to listen on")
+                        .env("EDGE_RUNTIME_PORT")
                         .default_value("9000")
                         .value_parser(value_parser!(u16))
                 )
                 .arg(
                     arg!(--tls [PORT])
+                        .env("EDGE_RUNTIME_TLS")
                         .num_args(0..=1)
                         .default_missing_value("443")
                         .value_parser(value_parser!(u16))
@@ -68,15 +70,13 @@ fn cli() -> Command {
                 )
                 .arg(
                     arg!(--key <Path> "Path to PEM-encoded key to be used to TLS")
-                        .value_parser(
-                            value_parser!(PathBuf)
-                        )
+                        .env("EDGE_RUNTIME_TLS_KEY_PATH")
+                        .value_parser(value_parser!(PathBuf))
                 )
                 .arg(
                     arg!(--cert <Path> "Path to PEM-encoded X.509 certificate to be used to TLS")
-                        .value_parser(
-                            value_parser!(PathBuf)
-                        )
+                        .env("EDGE_RUNTIME_TLS_CERT_PATH")
+                        .value_parser(value_parser!(PathBuf))
                 )
                 .arg(arg!(--"main-service" <DIR> "Path to main service directory or eszip").default_value("examples/main"))
                 .arg(arg!(--"disable-module-cache" "Disable using module cache").default_value("false").value_parser(FalseyValueParser::new()))

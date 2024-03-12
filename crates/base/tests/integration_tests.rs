@@ -37,7 +37,6 @@ const TLS_LOCALHOST_KEY: &[u8] = include_bytes!("./fixture/tls/localhost-key.pem
 #[tokio::test]
 #[serial]
 async fn test_custom_readable_stream_response() {
-    let term = TerminationToken::new();
     integration_test!(
         "./test_cases/main",
         NON_SECURE_PORT,
@@ -51,17 +50,14 @@ async fn test_custom_readable_stream_response() {
                 resp.unwrap().text().await.unwrap(),
                 "Hello world from streams"
             );
-
-            term.cancel_and_wait().await;
         }),
-        term.clone()
+        TerminationToken::new()
     );
 }
 
 #[tokio::test]
 #[serial]
 async fn test_import_map_file_path() {
-    let term = TerminationToken::new();
     integration_test!(
         "./test_cases/with_import_map",
         NON_SECURE_PORT,
@@ -76,17 +72,14 @@ async fn test_import_map_file_path() {
 
             let body_bytes = res.bytes().await.unwrap();
             assert_eq!(body_bytes, r#"{"message":"ok"}"#);
-
-            term.cancel_and_wait().await;
         }),
-        term.clone()
+        TerminationToken::new()
     );
 }
 
 #[tokio::test]
 #[serial]
 async fn test_import_map_inline() {
-    let term = TerminationToken::new();
     let inline_import_map = format!(
         "data:{}?{}",
         encode(
@@ -119,10 +112,8 @@ async fn test_import_map_inline() {
 
             let body_bytes = res.bytes().await.unwrap();
             assert_eq!(body_bytes, r#"{"message":"ok"}"#);
-
-            term.cancel_and_wait().await;
         }),
-        term.clone()
+        TerminationToken::new()
     );
 }
 
@@ -130,7 +121,6 @@ async fn test_import_map_inline() {
 #[tokio::test]
 #[serial]
 async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_cli() {
-    let term = TerminationToken::new();
     integration_test!(
         "./test_cases/main",
         NON_SECURE_PORT,
@@ -141,9 +131,8 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_cli() {
         None,
         (|resp: Result<reqwest::Response, reqwest::Error>| async {
             assert!(resp.unwrap().text().await.unwrap().starts_with("meow: "));
-            term.cancel_and_wait().await;
         }),
-        term.clone()
+        TerminationToken::new()
     );
 }
 
@@ -231,7 +220,6 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
 #[tokio::test]
 #[serial]
 async fn test_main_worker_options_request() {
-    let term = TerminationToken::new();
     let client = reqwest::Client::new();
     let req = client
         .request(
@@ -266,17 +254,14 @@ async fn test_main_worker_options_request() {
                 res.headers().get("Access-Control-Allow-Headers").unwrap(),
                 &"authorization, x-client-info, apikey"
             );
-
-            term.cancel_and_wait().await;
         }),
-        term.clone()
+        TerminationToken::new()
     );
 }
 
 #[tokio::test]
 #[serial]
 async fn test_main_worker_post_request() {
-    let term = TerminationToken::new();
     let body_chunk = "{ \"name\": \"bar\"}";
 
     let content_length = &body_chunk.len();
@@ -314,10 +299,8 @@ async fn test_main_worker_post_request() {
 
             let body_bytes = res.bytes().await.unwrap();
             assert_eq!(body_bytes, "{\"message\":\"Hello bar from foo!\"}");
-
-            term.cancel_and_wait().await;
         }),
-        term.clone()
+        TerminationToken::new()
     );
 }
 
@@ -371,7 +354,6 @@ async fn test_main_worker_boot_error() {
 #[tokio::test]
 #[serial]
 async fn test_main_worker_abort_request() {
-    let term = TerminationToken::new();
     let body_chunk = "{ \"name\": \"bar\"}";
 
     let content_length = &body_chunk.len();
@@ -412,10 +394,8 @@ async fn test_main_worker_abort_request() {
                 body_bytes,
                 "{\"msg\":\"AbortError: The signal has been aborted\"}"
             );
-
-            term.cancel_and_wait().await;
         }),
-        term.clone()
+        TerminationToken::new()
     );
 }
 
@@ -456,7 +436,6 @@ async fn test_main_worker_abort_request() {
 //}
 
 async fn test_main_worker_post_request_with_transfer_encoding(maybe_tls: Option<Tls>) {
-    let term = TerminationToken::new();
     let chunks: Vec<Result<_, std::io::Error>> = vec![Ok("{\"name\":"), Ok("\"bar\"}")];
     let stream = futures_util::stream::iter(chunks);
     let body = Body::wrap_stream(stream);
@@ -493,10 +472,8 @@ async fn test_main_worker_post_request_with_transfer_encoding(maybe_tls: Option<
 
             let body_bytes = res.bytes().await.unwrap();
             assert_eq!(body_bytes, "{\"message\":\"Hello bar from foo!\"}");
-
-            term.cancel_and_wait().await;
         }),
-        term.clone()
+        TerminationToken::new()
     );
 }
 
@@ -515,8 +492,6 @@ async fn test_main_worker_post_request_with_transfer_encoding_secure() {
 #[tokio::test]
 #[serial]
 async fn test_null_body_with_204_status() {
-    let term = TerminationToken::new();
-
     integration_test!(
         "./test_cases/empty-response",
         NON_SECURE_PORT,
@@ -531,17 +506,14 @@ async fn test_null_body_with_204_status() {
 
             let body_bytes = res.bytes().await.unwrap();
             assert_eq!(body_bytes.len(), 0);
-
-            term.cancel_and_wait().await;
         }),
-        term.clone()
+        TerminationToken::new()
     );
 }
 
 #[tokio::test]
 #[serial]
 async fn test_null_body_with_204_status_post() {
-    let term = TerminationToken::new();
     let client = reqwest::Client::new();
     let req = client
         .request(
@@ -570,18 +542,14 @@ async fn test_null_body_with_204_status_post() {
 
             let body_bytes = res.bytes().await.unwrap();
             assert_eq!(body_bytes.len(), 0);
-
-            term.cancel_and_wait().await;
         }),
-        term.clone()
+        TerminationToken::new()
     );
 }
 
 #[tokio::test]
 #[serial]
 async fn test_oak_server() {
-    let term = TerminationToken::new();
-
     integration_test!(
         "./test_cases/oak",
         NON_SECURE_PORT,
@@ -599,17 +567,14 @@ async fn test_oak_server() {
                 body_bytes,
                 "This is an example Oak server running on Edge Functions!"
             );
-
-            term.cancel_and_wait().await;
         }),
-        term.clone()
+        TerminationToken::new()
     );
 }
 
 #[tokio::test]
 #[serial]
 async fn test_file_upload() {
-    let term = TerminationToken::new();
     let body_chunk = "--TEST\r\nContent-Disposition: form-data; name=\"file\"; filename=\"test.txt\"\r\nContent-Type: text/plain\r\n\r\ntestuser\r\n--TEST--\r\n";
 
     let content_length = &body_chunk.len();
@@ -647,18 +612,14 @@ async fn test_file_upload() {
 
             let body_bytes = res.bytes().await.unwrap();
             assert_eq!(body_bytes, "file-type: text/plain");
-
-            term.cancel_and_wait().await;
         }),
-        term.clone()
+        TerminationToken::new()
     );
 }
 
 #[tokio::test]
 #[serial]
 async fn test_node_server() {
-    let term = TerminationToken::new();
-
     integration_test!(
         "./test_cases/node-server",
         NON_SECURE_PORT,
@@ -670,24 +631,27 @@ async fn test_node_server() {
         (|resp: Result<reqwest::Response, reqwest::Error>| async {
             let res = resp.unwrap();
             assert_eq!(res.status().as_u16(), 200);
-
             let body_bytes = res.bytes().await.unwrap();
             assert_eq!(
-        body_bytes,
-        "Look again at that dot. That's here. That's home. That's us. On it everyone you love, everyone you know, everyone you ever heard of, every human being who ever was, lived out their lives. The aggregate of our joy and suffering, thousands of confident religions, ideologies, and economic doctrines, every hunter and forager, every hero and coward, every creator and destroyer of civilization, every king and peasant, every young couple in love, every mother and father, hopeful child, inventor and explorer, every teacher of morals, every corrupt politician, every 'superstar,' every 'supreme leader,' every saint and sinner in the history of our species lived there-on a mote of dust suspended in a sunbeam."
-    );
-
-            term.cancel_and_wait().await;
+                body_bytes,
+                concat!(
+                    "Look again at that dot. That's here. That's home. That's us. On it everyone you love, ",
+                    "everyone you know, everyone you ever heard of, every human being who ever was, lived out ",
+                    "their lives. The aggregate of our joy and suffering, thousands of confident religions, ideologies, ",
+                    "and economic doctrines, every hunter and forager, every hero and coward, every creator and destroyer of ",
+                    "civilization, every king and peasant, every young couple in love, every mother and father, hopeful child, ",
+                    "inventor and explorer, every teacher of morals, every corrupt politician, every 'superstar,' every 'supreme leader,' ",
+                    "every saint and sinner in the history of our species lived there-on a mote of dust suspended in a sunbeam."
+                )
+            );
         }),
-        term.clone()
+        TerminationToken::new()
     );
 }
 
 #[tokio::test]
 #[serial]
 async fn test_tls_throw_invalid_data() {
-    let term = TerminationToken::new();
-
     integration_test!(
         "./test_cases/tls_invalid_data",
         NON_SECURE_PORT,
@@ -702,18 +666,14 @@ async fn test_tls_throw_invalid_data() {
 
             let body_bytes = res.bytes().await.unwrap();
             assert_eq!(body_bytes, r#"{"passed":true}"#);
-
-            term.cancel_and_wait().await;
         }),
-        term.clone()
+        TerminationToken::new()
     );
 }
 
 #[tokio::test]
 #[serial]
 async fn test_user_worker_json_imports() {
-    let term = TerminationToken::new();
-
     integration_test!(
         "./test_cases/json_import",
         NON_SECURE_PORT,
@@ -728,18 +688,14 @@ async fn test_user_worker_json_imports() {
 
             let body_bytes = res.bytes().await.unwrap();
             assert_eq!(body_bytes, r#"{"version":"1.0.0"}"#);
-
-            term.cancel_and_wait().await;
         }),
-        term.clone()
+        TerminationToken::new()
     );
 }
 
 #[tokio::test]
 #[serial]
 async fn test_user_imports_npm() {
-    let term = TerminationToken::new();
-
     integration_test!(
         "./test_cases/npm",
         NON_SECURE_PORT,
@@ -757,10 +713,8 @@ async fn test_user_imports_npm() {
                 body_bytes,
                 r#"{"is_even":true,"hello":"","numbers":{"Uno":1,"Dos":2}}"#
             );
-
-            term.cancel_and_wait().await;
         }),
-        term.clone()
+        TerminationToken::new()
     );
 }
 
@@ -920,7 +874,6 @@ async fn req_failure_case_wall_clock_reached_less_than_100ms() {
 }
 
 async fn req_failure_case_intentional_peer_reset(maybe_tls: Option<Tls>) {
-    let term = TerminationToken::new();
     let (server_ev_tx, mut server_ev_rx) = mpsc::unbounded_channel();
 
     integration_test!(
@@ -965,7 +918,7 @@ async fn req_failure_case_intentional_peer_reset(maybe_tls: Option<Tls>) {
             },
             |_resp: Result<reqwest::Response, reqwest::Error>| async {}
         ),
-        term.clone()
+        TerminationToken::new()
     );
 
     let ev = loop {
@@ -976,8 +929,6 @@ async fn req_failure_case_intentional_peer_reset(maybe_tls: Option<Tls>) {
     };
 
     assert!(matches!(ev, ServerEvent::ConnectionError(e) if e.is_incomplete_message()));
-
-    term.cancel_and_wait().await;
 }
 
 #[tokio::test]
@@ -993,7 +944,6 @@ async fn req_failure_case_intentional_peer_reset_secure() {
 }
 
 async fn test_websocket_upgrade(maybe_tls: Option<Tls>) {
-    let term = TerminationToken::new();
     let nonce = tungstenite::handshake::client::generate_key();
     let client = maybe_tls.client();
     let req = client
@@ -1049,10 +999,8 @@ async fn test_websocket_upgrade(maybe_tls: Option<Tls>) {
                 ws.next().await.unwrap().unwrap().into_text().unwrap(),
                 "meow!!"
             );
-
-            term.cancel_and_wait().await;
         }),
-        term.clone()
+        TerminationToken::new()
     );
 }
 

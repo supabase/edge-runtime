@@ -367,6 +367,7 @@ dependencies = [
  "async-tungstenite",
  "bytes",
  "cityhash",
+ "cooked-waker",
  "cpu_timer",
  "ctor",
  "deno_ast",
@@ -4872,6 +4873,7 @@ dependencies = [
  "serde",
  "thiserror",
  "tokio",
+ "tokio-util",
  "uuid",
 ]
 

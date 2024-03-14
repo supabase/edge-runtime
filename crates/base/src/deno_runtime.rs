@@ -1481,7 +1481,7 @@ mod test {
             "event loop error: Uncaught Error: execution terminated"
         );
 
-        if let Err(_) = timeout(Duration::from_secs(10), rx.recv()).await {
+        if timeout(Duration::from_secs(10), rx.recv()).await.is_err() {
             panic!("failed to detect a memory limit callback invocation within the given time");
         }
     }

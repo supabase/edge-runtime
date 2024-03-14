@@ -28,6 +28,7 @@ use crate::integration_test_helper::{
 
 const NON_SECURE_PORT: u16 = 8498;
 const SECURE_PORT: u16 = 4433;
+const TESTBED_DEADLINE_SEC: u64 = 5;
 
 const TLS_LOCALHOST_ROOT_CA: &[u8] = include_bytes!("./fixture/tls/root-ca.pem");
 const TLS_LOCALHOST_CERT: &[u8] = include_bytes!("./fixture/tls/localhost.pem");
@@ -825,7 +826,7 @@ async fn req_failure_case_timeout() {
         }
     }
 
-    tb.exit().await;
+    tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
     assert!(found_timeout);
 }
 
@@ -855,7 +856,7 @@ async fn req_failure_case_cpu_time_exhausted() {
         "{\"msg\":\"WorkerRequestCancelled: request has been cancelled by supervisor\"}"
     );
 
-    tb.exit().await;
+    tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
 }
 
 #[tokio::test]
@@ -884,7 +885,7 @@ async fn req_failure_case_wall_clock_reached() {
         "{\"msg\":\"WorkerRequestCancelled: request has been cancelled by supervisor\"}"
     );
 
-    tb.exit().await;
+    tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
 }
 
 #[tokio::test]
@@ -915,7 +916,7 @@ async fn req_failure_case_wall_clock_reached_less_than_100ms() {
                 == "{\"msg\":\"WorkerRequestCancelled: request has been cancelled by supervisor\"}"
     );
 
-    tb.exit().await;
+    tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
 }
 
 async fn req_failure_case_intentional_peer_reset(maybe_tls: Option<Tls>) {

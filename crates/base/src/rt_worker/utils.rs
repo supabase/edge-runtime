@@ -1,15 +1,14 @@
-use std::sync::Arc;
-
 use event_worker::events::{EventMetadata, WorkerEventWithMetadata};
 use sb_workers::context::{UserWorkerMsgs, WorkerRuntimeOpts};
-use tokio::sync::{mpsc::UnboundedSender, Notify};
+use tokio::sync::mpsc::UnboundedSender;
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 type WorkerCoreConfig = (
     Option<Uuid>,
     Option<UnboundedSender<UserWorkerMsgs>>,
     Option<UnboundedSender<WorkerEventWithMetadata>>,
-    Option<Arc<Notify>>,
+    Option<CancellationToken>,
     String,
 );
 

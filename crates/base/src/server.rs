@@ -69,6 +69,42 @@ impl<S: Stream + Unpin> Stream for NotifyOnEos<S> {
     }
 }
 
+#[derive(Clone)]
+struct TerminationTokens {
+    input: Option<TerminationToken>,
+    event: Option<TerminationToken>,
+    pool: TerminationToken,
+    main: TerminationToken,
+}
+
+impl TerminationTokens {
+    fn new(maybe_input: Option<TerminationToken>, with_event: bool) -> Self {
+        Self {
+            input: maybe_input,
+            event: with_event.then(TerminationToken::new),
+            pool: TerminationToken::new(),
+            main: TerminationToken::new(),
+        }
+    }
+
+    async fn terminate(&self) {
+        if let Some(token) = self.event.as_ref() {
+            token.cancel_and_wait().await;
+        }
+
+        self.pool.cancel_and_wait().await;
+        self.main.cancel_and_wait().await;
+
+        if let Some(token) = self.input.as_ref() {
+            assert!(token.inbound.is_cancelled());
+
+            if !token.outbound.is_cancelled() {
+                token.outbound.cancel();
+            }
+        }
+    }
+}
+
 struct WorkerService {
     metric_src: SharedMetricSource,
     worker_req_tx: mpsc::UnboundedSender<WorkerRequestMsg>,
@@ -271,7 +307,7 @@ pub struct Server {
     tls: Option<Tls>,
     main_worker_req_tx: mpsc::UnboundedSender<WorkerRequestMsg>,
     callback_tx: Option<Sender<ServerHealth>>,
-    termination_token: TerminationToken,
+    termination_tokens: TerminationTokens,
     flags: ServerFlags,
     metric_src: SharedMetricSource,
 }
@@ -296,7 +332,8 @@ impl Server {
         let mut worker_events_tx: Option<mpsc::UnboundedSender<WorkerEventWithMetadata>> = None;
         let maybe_events_entrypoint = entrypoints.events;
         let maybe_main_entrypoint = entrypoints.main;
-        let termination_token = termination_token.unwrap_or_default();
+        let termination_tokens =
+            TerminationTokens::new(termination_token, maybe_events_service_path.is_some());
 
         // Create Event Worker
         let event_worker_metric_src = if let Some(events_service_path) = maybe_events_service_path {
@@ -308,7 +345,7 @@ impl Server {
                 import_map_path.clone(),
                 flags.no_module_cache,
                 maybe_events_entrypoint,
-                Some(termination_token.child_token()),
+                Some(termination_tokens.event.clone().unwrap()),
             )
             .await?;
 
@@ -322,7 +359,7 @@ impl Server {
         let (shared_metric_src, worker_pool_tx) = create_user_worker_pool(
             maybe_user_worker_policy.unwrap_or_default(),
             worker_events_tx,
-            None,
+            Some(termination_tokens.pool.clone()),
             static_patterns,
             inspector.clone(),
         )
@@ -340,7 +377,7 @@ impl Server {
                 event_worker_metric_src,
             },
             maybe_main_entrypoint,
-            Some(termination_token.child_token()),
+            Some(termination_tokens.main.clone()),
             if flags.allow_main_inspector {
                 inspector.map(|it| Inspector {
                     option: InspectorOption::Inspect(it.option.socket_addr()),
@@ -360,14 +397,14 @@ impl Server {
             tls,
             main_worker_req_tx,
             callback_tx,
-            termination_token,
+            termination_tokens,
             flags,
             metric_src: shared_metric_src,
         })
     }
 
     pub async fn terminate(&self) {
-        self.termination_token.cancel_and_wait().await;
+        self.termination_tokens.terminate().await;
     }
 
     pub async fn listen(&mut self) -> Result<(), Error> {
@@ -383,7 +420,8 @@ impl Server {
             None
         };
 
-        let termination_token = self.termination_token.clone();
+        let termination_tokens = &self.termination_tokens;
+        let input_termination_token = termination_tokens.input.as_ref();
         let flags = self.flags;
 
         let mut can_receive_event = false;
@@ -404,6 +442,7 @@ impl Server {
         }
 
         let event_tx = can_receive_event.then_some(event_tx.clone());
+        let mut graceful_exit_deadline = flags.graceful_exit_deadline_sec;
 
         loop {
             let main_worker_req_tx = self.main_worker_req_tx.clone();
@@ -436,12 +475,26 @@ impl Server {
                     }
                 }
 
-                _ = termination_token.outbound.cancelled() => {
+                _ = async move {
+                    if let Some(token) = input_termination_token {
+                        token.inbound.cancelled()
+                    } else {
+                        pending::<()>().await;
+                        unreachable!();
+                    }.await
+                } => {
                     info!("termination token resolved");
+
+                    if graceful_exit_deadline == 0 {
+                        graceful_exit_deadline = u64::MAX;
+                    }
+
                     break;
                 }
 
                 // wait for shutdown signal...
+                // TODO(Nyannyacha): Handle more signals for connection
+                // draining.
                 _ = tokio::signal::ctrl_c() => {
                     info!("shutdown signal received");
                     break;
@@ -449,12 +502,10 @@ impl Server {
             }
         }
 
-        let graceful_exit_deadline = flags.graceful_exit_deadline_sec;
-
         if graceful_exit_deadline > 0 {
             let timeout_fut = timeout(
                 Duration::from_secs(graceful_exit_deadline),
-                termination_token.cancel_and_wait(),
+                termination_tokens.terminate(),
             );
 
             tokio::select! {
@@ -467,6 +518,8 @@ impl Server {
                     }
                 }
 
+                // TODO(Nyannyacha): Handle more signals for connection
+                // draining.
                 _ = tokio::signal::ctrl_c() => {
                     error!("received interrupt signal while waiting workers");
                 }

@@ -458,15 +458,13 @@ globalThis.bootstrapSBEdge = opts => {
 
 		return mem;
 	}
+
+	wasmMemoryCtor.prototype.grow = patchedWasmMemoryPrototypeGrow;
 	
 	function patchedWasmMemoryCtor(maybeOpts) {
 		if (typeof maybeOpts === "object" && maybeOpts["shared"] === true) {
 			throw new TypeError("Creating a shared memory is not supported");
 		}
-
-		const inst = new wasmMemoryCtor(maybeOpts);
-
-		inst.grow = patchedWasmMemoryPrototypeGrow;
 
 		return new wasmMemoryCtor(maybeOpts);
 	}

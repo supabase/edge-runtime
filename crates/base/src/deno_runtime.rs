@@ -1403,6 +1403,7 @@ mod test {
         path: &str,
         memory_limit_mb: u64,
         worker_timeout_ms: u64,
+        static_patterns: &[&str],
     ) -> DenoRuntime {
         create_runtime(
             Some(path),
@@ -1415,7 +1416,7 @@ mod test {
                 force_create: true,
                 ..Default::default()
             })),
-            vec![],
+            static_patterns.iter().map(|it| String::from(*it)).collect(),
         )
         .await
     }
@@ -1423,7 +1424,8 @@ mod test {
     #[tokio::test]
     #[serial]
     async fn test_array_buffer_allocation_below_limit() {
-        let mut user_rt = create_basic_user_runtime("./test_cases/array_buffers", 20, 1000).await;
+        let mut user_rt =
+            create_basic_user_runtime("./test_cases/array_buffers", 20, 1000, &[]).await;
         let (_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStreamEntry>();
         let (result, _) = user_rt.run(unix_stream_rx, None, None).await;
         assert!(result.is_ok(), "expected no errors");
@@ -1432,7 +1434,8 @@ mod test {
     #[tokio::test]
     #[serial]
     async fn test_array_buffer_allocation_above_limit() {
-        let mut user_rt = create_basic_user_runtime("./test_cases/array_buffers", 15, 1000).await;
+        let mut user_rt =
+            create_basic_user_runtime("./test_cases/array_buffers", 15, 1000, &[]).await;
         let (_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStreamEntry>();
         let (result, _) = user_rt.run(unix_stream_rx, None, None).await;
         match result {
@@ -1445,24 +1448,17 @@ mod test {
         };
     }
 
-    #[tokio::test]
-    #[serial]
-    async fn test_mem_checker_above_limit() {
-        let (_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStreamEntry>();
-        let mut user_rt = create_runtime(
-            Some("./test_cases/read_file_sync_20mib"),
-            None,
-            Some(WorkerRuntimeOpts::UserWorker(UserWorkerRuntimeOpts {
-                memory_limit_mb: 15,
-                cpu_time_soft_limit_ms: 100,
-                cpu_time_hard_limit_ms: 200,
-                ..Default::default()
-            })),
-            vec![String::from("./test_cases/**/*.bin")],
-        )
-        .await;
-
-        let (tx, mut rx) = mpsc::unbounded_channel::<()>();
+    async fn test_mem_check_above_limit(
+        path: &str,
+        static_patterns: &[&str],
+        memory_limit_mb: u64,
+        worker_timeout_ms: u64,
+    ) {
+        let (_unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStreamEntry>();
+        let (callback_tx, mut callback_rx) = mpsc::unbounded_channel::<()>();
+        let mut user_rt =
+            create_basic_user_runtime(path, memory_limit_mb, worker_timeout_ms, static_patterns)
+                .await;
 
         let waker = user_rt.js_runtime.op_state().borrow().waker.clone();
         let handle = user_rt.js_runtime.v8_isolate().thread_safe_handle();
@@ -1470,19 +1466,83 @@ mod test {
         user_rt.add_memory_limit_callback(move || {
             handle.terminate_execution();
             waker.wake();
-            tx.send(()).unwrap();
+            callback_tx.send(()).unwrap();
             true
         });
 
-        let (result, _) = user_rt.run(unix_stream_rx, None, None).await;
+        let wait_fut = async move {
+            let (result, _) = user_rt.run(unix_stream_rx, None, None).await;
 
-        assert_eq!(
-            result.unwrap_err().to_string(),
-            "event loop error: Uncaught Error: execution terminated"
-        );
+            assert_eq!(
+                result.unwrap_err().to_string(),
+                "event loop error: Uncaught Error: execution terminated"
+            );
 
-        if timeout(Duration::from_secs(10), rx.recv()).await.is_err() {
+            callback_rx.recv().await.unwrap();
+        };
+
+        if timeout(Duration::from_secs(10), wait_fut).await.is_err() {
             panic!("failed to detect a memory limit callback invocation within the given time");
         }
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_mem_checker_above_limit_read_file_sync_api() {
+        test_mem_check_above_limit(
+            "./test_cases/read_file_sync_20mib",
+            &["./test_cases/**/*.bin"],
+            15, // 15728640 bytes
+            1000,
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_mem_checker_above_limit_wasm() {
+        test_mem_check_above_limit(
+            "./test_cases/wasm/grow_20mib",
+            &["./test_cases/**/*.wasm"],
+            60, // 62914560 bytes
+            1000,
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_mem_checker_above_limit_wasm_heap() {
+        test_mem_check_above_limit(
+            "./test_cases/wasm/heap",
+            &["./test_cases/**/*.wasm"],
+            60, // 62914560 bytes
+            1000,
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_mem_checker_above_limit_wasm_grow_jsapi() {
+        test_mem_check_above_limit(
+            "./test_cases/wasm/grow_jsapi",
+            &[],
+            62, // 65011712 bytes < 65536000 bytes (1000 pages)
+            1000,
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_mem_checker_above_limit_wasm_grow_standalone() {
+        test_mem_check_above_limit(
+            "./test_cases/wasm/grow_standalone",
+            &["./test_cases/**/*.wasm"],
+            22, // 23068672 bytes
+            1000,
+        )
+        .await;
     }
 }

@@ -1,0 +1,23 @@
+{
+  "name": "Rust",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "features": {
+    "ghcr.io/jungaretti/features/make:1": {},
+    "ghcr.io/lee-orr/rusty-dev-containers/cargo-make:0": {}
+  },
+  "runArgs": [
+    "--rm",
+    "--privileged"
+  ],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "eamodio.gitlens",
+        "ms-azuretools.vscode-docker"
+      ]
+    }
+  }
+}

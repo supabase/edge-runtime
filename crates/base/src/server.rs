@@ -6,9 +6,10 @@ use crate::rt_worker::worker_pool::WorkerPoolPolicy;
 use crate::InspectorOption;
 use anyhow::{anyhow, bail, Context, Error};
 use event_worker::events::WorkerEventWithMetadata;
+use futures_util::future::poll_fn;
 use futures_util::Stream;
 use hyper::{server::conn::Http, service::Service, Body, Request, Response};
-use log::{debug, error, info};
+use log::{debug, error, info, trace, warn};
 use rustls_pemfile::read_one_from_slice;
 use rustls_pemfile::Item;
 use sb_core::conn_sync::ConnSync;
@@ -413,6 +414,13 @@ impl Server {
     }
 
     pub async fn listen(&mut self) -> Result<(), Error> {
+        mod signal {
+            pub use tokio::signal::ctrl_c;
+
+            #[cfg(unix)]
+            pub use tokio::signal::unix;
+        }
+
         let addr = SocketAddr::new(IpAddr::V4(self.ip), self.port);
         let non_secure_listener = TcpListener::bind(&addr).await?;
         let mut secure_listener = if let Some(tls) = self.tls.take() {
@@ -454,6 +462,21 @@ impl Server {
         } = flags;
 
         let mut graceful_exit_deadline = graceful_exit_deadline_sec;
+        let mut terminate_signal_fut = poll_fn({
+            let mut sig = if cfg!(unix) {
+                Some(signal::unix::signal(signal::unix::SignalKind::terminate()).unwrap())
+            } else {
+                None
+            };
+
+            move |cx| {
+                let Some(sig) = sig.as_mut() else {
+                    return Poll::Pending;
+                };
+
+                sig.poll_recv(cx)
+            }
+        });
 
         loop {
             let main_worker_req_tx = self.main_worker_req_tx.clone();
@@ -511,21 +534,39 @@ impl Server {
                     break;
                 }
 
-                // wait for shutdown signal...
-                // TODO(Nyannyacha): Handle more signals for connection
-                // draining.
-                _ = tokio::signal::ctrl_c() => {
+                _ = &mut terminate_signal_fut => {
                     info!("shutdown signal received");
+                    break;
+                }
+
+                _ = signal::ctrl_c() => {
+                    info!("interrupt signal received");
                     break;
                 }
             }
         }
 
+        let metric_src = self.metric_src.clone();
+
         if graceful_exit_deadline > 0 {
-            let timeout_fut = timeout(
-                Duration::from_secs(graceful_exit_deadline),
-                termination_tokens.terminate(),
-            );
+            let wait_fut = async move {
+                loop {
+                    let received = metric_src.received_requests();
+                    let handled = metric_src.handled_requests();
+
+                    trace!("received: {}, handled: {}", received, handled);
+
+                    if received == handled {
+                        break;
+                    }
+
+                    tokio::task::yield_now().await;
+                }
+
+                termination_tokens.terminate().await;
+            };
+
+            let timeout_fut = timeout(Duration::from_secs(graceful_exit_deadline), wait_fut);
 
             tokio::select! {
                 res = timeout_fut => {
@@ -537,11 +578,15 @@ impl Server {
                     }
                 }
 
-                // TODO(Nyannyacha): Handle more signals for connection
-                // draining.
-                _ = tokio::signal::ctrl_c() => {
+                _ = signal::ctrl_c() => {
                     error!("received interrupt signal while waiting workers");
                 }
+            }
+        } else {
+            if metric_src.received_requests() != metric_src.handled_requests() {
+                warn!(
+                    "runtime exits immediately because the `--graceful-exit-timeout` is not specified"
+                );
             }
         }
 

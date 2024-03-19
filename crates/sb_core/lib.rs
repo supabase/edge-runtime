@@ -49,6 +49,22 @@ pub struct SharedMetricSource {
 }
 
 impl SharedMetricSource {
+    pub fn active_user_workers(&self) -> usize {
+        self.active_user_workers.load(Ordering::Relaxed)
+    }
+
+    pub fn retired_user_workers(&self) -> usize {
+        self.retired_user_workers.load(Ordering::Relaxed)
+    }
+
+    pub fn received_requests(&self) -> usize {
+        self.received_requests.load(Ordering::Relaxed)
+    }
+
+    pub fn handled_requests(&self) -> usize {
+        self.handled_requests.load(Ordering::Relaxed)
+    }
+
     pub fn incl_active_user_workers(&self) {
         self.active_user_workers.fetch_add(1, Ordering::Relaxed);
     }

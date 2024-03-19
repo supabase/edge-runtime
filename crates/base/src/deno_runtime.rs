@@ -533,6 +533,8 @@ impl DenoRuntime {
                 let waker = mem_check_state.waker.clone();
 
                 async move {
+                    // TODO(Nyannyacha): Should we introduce exponential
+                    // backoff?
                     let mut int = interval(*ALLOC_CHECK_DUR);
                     loop {
                         tokio::select! {

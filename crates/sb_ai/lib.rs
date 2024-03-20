@@ -2,13 +2,13 @@ use anyhow::{bail, Error};
 use deno_core::error::AnyError;
 use deno_core::op2;
 use deno_core::OpState;
-use ndarray::{Array1, Array2, Axis, Ix2};
+use log::error;
+use ndarray::{Array1, Array2, ArrayView3, ArrayViewD, Axis, Ix3};
 use ndarray_linalg::norm::{normalize, NormalizeAxis};
-use ort::{inputs, GraphOptimizationLevel, Session, Tensor};
+use ort::{inputs, GraphOptimizationLevel, Session};
 use std::cell::RefCell;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use tokenizers::normalizers::bert::BertNormalizer;
 use tokenizers::Tokenizer;
 use tokio::sync::mpsc;
 use tokio::task;
@@ -22,7 +22,24 @@ deno_core::extension!(
 
 struct GteModelRequest {
     prompt: String,
-    result_tx: mpsc::UnboundedSender<Vec<f32>>,
+    result_tx: mpsc::UnboundedSender<Result<Vec<f32>, Error>>,
+}
+
+fn create_session(model_file_path: PathBuf) -> Result<Session, Error> {
+    let session = Session::builder()?
+        .with_optimization_level(GraphOptimizationLevel::Level3)?
+        .with_intra_threads(1)?
+        .commit_from_file(model_file_path)?;
+
+    Ok(session)
+}
+
+fn mean_pool(last_hidden_states: ArrayView3<f32>, attention_mask: ArrayView3<i64>) -> Array2<f32> {
+    let masked_hidden_states = last_hidden_states.into_owned() * &attention_mask.mapv(|x| x as f32);
+    let sum_hidden_states = masked_hidden_states.sum_axis(Axis(1));
+    let sum_attention_mask = attention_mask.mapv(|x| x as f32).sum_axis(Axis(1));
+
+    sum_hidden_states / sum_attention_mask
 }
 
 fn init_gte(state: &mut OpState) -> Result<(), Error> {
@@ -35,28 +52,74 @@ fn init_gte(state: &mut OpState) -> Result<(), Error> {
     state.put::<mpsc::UnboundedSender<GteModelRequest>>(req_tx);
 
     #[allow(clippy::let_underscore_future)]
-    let _: task::JoinHandle<Result<(), Error>> = task::spawn(async move {
-        let session = Session::builder()?
-            .with_optimization_level(GraphOptimizationLevel::Disable)?
-            .with_intra_threads(1)?
-            .with_model_from_file(
-                Path::new(&models_dir)
-                    .join("gte")
-                    .join("gte_small_quantized.onnx"),
-            )?;
+    let _handle: task::JoinHandle<()> = task::spawn(async move {
+        let session = create_session(Path::new(&models_dir).join("gte-small").join("model.onnx"));
+        if session.is_err() {
+            let err = session.as_ref().unwrap_err();
+            error!("sb_ai: failed to create session - {}", err);
+            return;
+        }
+        let session = session.unwrap();
 
-        let mut tokenizer = Tokenizer::from_file(
+        let tokenizer = Tokenizer::from_file(
             Path::new(&models_dir)
-                .join("gte")
-                .join("gte_small_tokenizer.json"),
+                .join("gte-small")
+                .join("tokenizer.json"),
         )
-        .map_err(anyhow::Error::msg)?;
+        .map_err(anyhow::Error::msg);
+        if tokenizer.is_err() {
+            let err = tokenizer.as_ref().unwrap_err();
+            error!("sb_ai: failed to create tokenizer - {}", err);
+            return;
+        }
+        let mut tokenizer = tokenizer.unwrap();
 
-        let tokenizer_impl = tokenizer
-            .with_normalizer(BertNormalizer::default())
-            .with_padding(None)
-            .with_truncation(None)
-            .map_err(anyhow::Error::msg)?;
+        // model's default max length is 128. Increase it to 512.
+        let truncation = tokenizer.get_truncation_mut().unwrap();
+        truncation.max_length = 512;
+
+        let run_inference = move |prompt: String| -> Result<Vec<f32>, Error> {
+            let encoded_prompt = tokenizer.encode(prompt, true).map_err(anyhow::Error::msg)?;
+            let input_ids = encoded_prompt
+                .get_ids()
+                .iter()
+                .map(|i| *i as i64)
+                .collect::<Vec<_>>();
+            let attention_mask = encoded_prompt
+                .get_attention_mask()
+                .iter()
+                .map(|i| *i as i64)
+                .collect::<Vec<_>>();
+            let token_type_ids = encoded_prompt
+                .get_type_ids()
+                .iter()
+                .map(|i| *i as i64)
+                .collect::<Vec<_>>();
+
+            let input_ids_array = Array1::from_iter(input_ids.iter().cloned());
+            let input_ids_array = input_ids_array.view().insert_axis(Axis(0));
+
+            let attention_mask_array = Array1::from_iter(attention_mask.iter().cloned());
+            let attention_mask_array = attention_mask_array.view().insert_axis(Axis(0));
+
+            let token_type_ids_array = Array1::from_iter(token_type_ids.iter().cloned());
+            let token_type_ids_array = token_type_ids_array.view().insert_axis(Axis(0));
+
+            let outputs = session.run(inputs! {
+                "input_ids" => input_ids_array,
+                "token_type_ids" => token_type_ids_array,
+                "attention_mask" => attention_mask_array,
+            }?)?;
+
+            let embeddings: ArrayViewD<f32> = outputs["last_hidden_state"].extract_tensor()?;
+
+            let mean_pool = mean_pool(
+                embeddings.into_dimensionality::<Ix3>().unwrap(),
+                attention_mask_array.insert_axis(Axis(2)),
+            );
+            let (normalized, _) = normalize(mean_pool, NormalizeAxis::Row);
+            Ok(normalized.view().to_slice().unwrap().to_vec())
+        };
 
         loop {
             let req = req_rx.recv().await;
@@ -65,39 +128,11 @@ fn init_gte(state: &mut OpState) -> Result<(), Error> {
             }
             let req = req.unwrap();
 
-            let tokens = tokenizer_impl
-                .encode(req.prompt, true)
-                .map_err(anyhow::Error::msg)?
-                .get_ids()
-                .iter()
-                .map(|i| *i as i64)
-                .collect::<Vec<_>>();
-
-            let tokens = Array1::from_iter(tokens.iter().cloned());
-            let array = tokens.view().insert_axis(Axis(0));
-
-            let dims = array.raw_dim();
-            let token_type_ids = Array2::<i64>::zeros(dims);
-            let attention_mask = Array2::<i64>::ones(dims);
-            let outputs = session.run(inputs! {
-                "input_ids" => array,
-                "token_type_ids" => token_type_ids,
-                "attention_mask" => attention_mask,
-            }?)?;
-
-            let embeddings: Tensor<f32> = outputs["last_hidden_state"].extract_tensor()?;
-
-            let embeddings_view = embeddings.view();
-            let mean_pool = embeddings_view.mean_axis(Axis(1)).unwrap();
-            let (normalized, _) = normalize(
-                mean_pool.into_dimensionality::<Ix2>().unwrap(),
-                NormalizeAxis::Row,
-            );
-
-            let result = normalized.view().to_slice().unwrap().to_vec();
-            req.result_tx.send(result)?;
+            let result = run_inference(req.prompt);
+            if req.result_tx.send(result).is_err() {
+                error!("sb_ai: failed to send inference results (channel error)");
+            };
         }
-        Ok(())
     });
 
     Ok(())
@@ -114,7 +149,7 @@ async fn run_gte(state: Rc<RefCell<OpState>>, prompt: String) -> Result<Vec<f32>
         req_tx = maybe_req_tx.unwrap().clone();
     }
 
-    let (result_tx, mut result_rx) = mpsc::unbounded_channel::<Vec<f32>>();
+    let (result_tx, mut result_rx) = mpsc::unbounded_channel::<Result<Vec<f32>, Error>>();
 
     req_tx.send(GteModelRequest {
         prompt,
@@ -122,7 +157,7 @@ async fn run_gte(state: Rc<RefCell<OpState>>, prompt: String) -> Result<Vec<f32>
     })?;
 
     let result = result_rx.recv().await;
-    Ok(result.unwrap())
+    result.unwrap()
 }
 
 #[op2]

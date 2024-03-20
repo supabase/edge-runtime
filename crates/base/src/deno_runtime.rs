@@ -146,6 +146,8 @@ impl MemCheckState {
 
         isolate.get_heap_statistics(&mut stats);
 
+        // XXX(Nyannyacha): Should we instead apply a size that reflects the
+        // committed heap? (but it can be bloated)
         let used_heap_bytes = stats.used_heap_size();
         let malloced_external_bytes = stats.external_memory();
         let total_malloced_bytes = used_heap_bytes.saturating_add(malloced_external_bytes);

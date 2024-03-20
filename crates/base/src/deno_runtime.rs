@@ -1442,9 +1442,14 @@ mod test {
     async fn test_array_buffer_allocation_below_limit() {
         let mut user_rt =
             create_basic_user_runtime("./test_cases/array_buffers", 20, 1000, &[]).await;
+
         let (_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStreamEntry>();
         let (result, _) = user_rt.run(unix_stream_rx, None, None).await;
+
         assert!(result.is_ok(), "expected no errors");
+
+        // however, mem checker must be raised because it aggregates heap usage
+        assert!(user_rt.mem_check_state.is_exceeded());
     }
 
     #[tokio::test]
@@ -1452,8 +1457,10 @@ mod test {
     async fn test_array_buffer_allocation_above_limit() {
         let mut user_rt =
             create_basic_user_runtime("./test_cases/array_buffers", 15, 1000, &[]).await;
+
         let (_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStreamEntry>();
         let (result, _) = user_rt.run(unix_stream_rx, None, None).await;
+
         match result {
             Err(err) => {
                 assert!(err
@@ -1495,6 +1502,8 @@ mod test {
             );
 
             callback_rx.recv().await.unwrap();
+
+            assert!(user_rt.mem_check_state.is_exceeded());
         };
 
         if timeout(Duration::from_secs(10), wait_fut).await.is_err() {

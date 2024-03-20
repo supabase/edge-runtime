@@ -125,6 +125,9 @@ struct MemCheckState {
     limit: Option<usize>,
     waker: Arc<AtomicWaker>,
     notify: Arc<Notify>,
+
+    #[cfg(debug_assertions)]
+    exceeded: Arc<AtomicFlag>,
 }
 
 impl Drop for MemCheckState {
@@ -143,15 +146,26 @@ impl MemCheckState {
 
         isolate.get_heap_statistics(&mut stats);
 
-        let malloced_bytes = stats.malloced_memory();
+        let used_heap_bytes = stats.used_heap_size();
         let malloced_external_bytes = stats.external_memory();
-        let total_malloced_bytes = malloced_bytes.saturating_add(malloced_external_bytes);
+        let total_malloced_bytes = used_heap_bytes.saturating_add(malloced_external_bytes);
 
         if total_malloced_bytes >= limit {
             self.notify.notify_waiters();
+
+            #[cfg(debug_assertions)]
+            if !self.exceeded.is_raised() {
+                self.exceeded.raise();
+            }
         }
 
         total_malloced_bytes
+    }
+
+    #[allow(dead_code)]
+    #[cfg(debug_assertions)]
+    fn is_exceeded(&self) -> bool {
+        self.exceeded.is_raised()
     }
 }
 

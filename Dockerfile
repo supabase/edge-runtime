@@ -13,6 +13,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,id=${TARGETPLATFORM} --m
     cargo strip && \
     mv /usr/src/edge-runtime/target/release/edge-runtime /root
 RUN ./scripts/install_onnx.sh $ONNXRUNTIME_VERSION $TARGETPLATFORM /root/libonnxruntime.so
+RUN ./scripts/download_models.sh
 
 
 FROM debian:bookworm-slim

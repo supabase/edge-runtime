@@ -53,7 +53,7 @@ fn init_gte(state: &mut OpState) -> Result<(), Error> {
 
     #[allow(clippy::let_underscore_future)]
     let _handle: task::JoinHandle<()> = task::spawn(async move {
-        let session = create_session(Path::new(&models_dir).join("gte").join("gte_small.onnx"));
+        let session = create_session(Path::new(&models_dir).join("gte-small").join("model.onnx"));
         if session.is_err() {
             let err = session.as_ref().unwrap_err();
             error!("sb_ai: failed to create session - {}", err);
@@ -63,8 +63,8 @@ fn init_gte(state: &mut OpState) -> Result<(), Error> {
 
         let tokenizer = Tokenizer::from_file(
             Path::new(&models_dir)
-                .join("gte")
-                .join("gte_small_tokenizer.json"),
+                .join("gte-small")
+                .join("tokenizer.json"),
         )
         .map_err(anyhow::Error::msg);
         if tokenizer.is_err() {

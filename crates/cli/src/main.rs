@@ -94,8 +94,12 @@ fn cli() -> Command {
                         .value_parser(["tc39", "typescript", "typescript_with_metadata"])
                 )
                 .arg(
-                    arg!(--"graceful-exit-timeout" <SECONDS> "Maximum time in seconds that can wait for workers before terminating forcibly")
-                        .default_value("0")
+                    arg!(--"graceful-exit-timeout" [SECONDS] "Maximum time in seconds that can wait for workers before terminating forcibly. If providing zero value, the runtime will not try a graceful exit.")
+                        // NOTE(Nyannyacha): Default timeout value follows the
+                        // value[1] defined in moby.
+                        //
+                        // [1]: https://github.com/moby/moby/blob/master/daemon/config/config.go#L45-L47
+                        .default_value("15")
                         .value_parser(
                             value_parser!(u64)
                                 .range(0..u64::MAX)

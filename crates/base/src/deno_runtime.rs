@@ -146,13 +146,19 @@ impl MemCheckState {
 
         isolate.get_heap_statistics(&mut stats);
 
+        // NOTE: https://stackoverflow.com/questions/41541843/nodejs-v8-getheapstatistics-method
+        let malloced_bytes = stats.malloced_memory();
+
         // XXX(Nyannyacha): Should we instead apply a size that reflects the
         // committed heap? (but it can be bloated)
         let used_heap_bytes = stats.used_heap_size();
-        let malloced_external_bytes = stats.external_memory();
-        let total_malloced_bytes = used_heap_bytes.saturating_add(malloced_external_bytes);
+        let external_bytes = stats.external_memory();
 
-        if total_malloced_bytes >= limit {
+        let total_bytes = malloced_bytes
+            .saturating_add(used_heap_bytes)
+            .saturating_add(external_bytes);
+
+        if total_bytes >= limit {
             self.notify.notify_waiters();
 
             #[cfg(debug_assertions)]
@@ -161,7 +167,7 @@ impl MemCheckState {
             }
         }
 
-        total_malloced_bytes
+        total_bytes
     }
 
     #[allow(dead_code)]

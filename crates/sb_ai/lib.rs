@@ -3,15 +3,12 @@ use deno_core::error::AnyError;
 use deno_core::op2;
 use deno_core::OpState;
 use log::error;
-use ndarray::{Array1, Array2, Axis, Ix2};
+use ndarray::{Array1, Array2, ArrayView3, ArrayViewD, Axis, Ix3};
 use ndarray_linalg::norm::{normalize, NormalizeAxis};
-use ort::{inputs, GraphOptimizationLevel, Session, Tensor};
+use ort::{inputs, GraphOptimizationLevel, Session};
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use tokenizers::normalizers::bert::BertNormalizer;
-use tokenizers::utils::padding::{PaddingDirection, PaddingParams, PaddingStrategy};
-use tokenizers::utils::truncation::{TruncationDirection, TruncationParams, TruncationStrategy};
 use tokenizers::Tokenizer;
 use tokio::sync::mpsc;
 use tokio::task;
@@ -32,9 +29,17 @@ fn create_session(model_file_path: PathBuf) -> Result<Session, Error> {
     let session = Session::builder()?
         .with_optimization_level(GraphOptimizationLevel::Level3)?
         .with_intra_threads(1)?
-        .with_model_from_file(model_file_path)?;
+        .commit_from_file(model_file_path)?;
 
     Ok(session)
+}
+
+fn mean_pool(last_hidden_states: ArrayView3<f32>, attention_mask: ArrayView3<i64>) -> Array2<f32> {
+    let masked_hidden_states = last_hidden_states.into_owned() * &attention_mask.mapv(|x| x as f32);
+    let sum_hidden_states = masked_hidden_states.sum_axis(Axis(1));
+    let sum_attention_mask = attention_mask.mapv(|x| x as f32).sum_axis(Axis(1));
+
+    sum_hidden_states / sum_attention_mask
 }
 
 fn init_gte(state: &mut OpState) -> Result<(), Error> {
@@ -48,11 +53,7 @@ fn init_gte(state: &mut OpState) -> Result<(), Error> {
 
     #[allow(clippy::let_underscore_future)]
     let _handle: task::JoinHandle<()> = task::spawn(async move {
-        let session = create_session(
-            Path::new(&models_dir)
-                .join("gte")
-                .join("gte_small_quantized.onnx"),
-        );
+        let session = create_session(Path::new(&models_dir).join("gte").join("gte_small.onnx"));
         if session.is_err() {
             let err = session.as_ref().unwrap_err();
             error!("sb_ai: failed to create session - {}", err);
@@ -73,67 +74,50 @@ fn init_gte(state: &mut OpState) -> Result<(), Error> {
         }
         let mut tokenizer = tokenizer.unwrap();
 
-        //let mut bert_normalizer = BertNormalizer::default();
-        //bert_normalizer.clean_text = true;
-        //bert_normalizer.handle_chinese_chars = true;
-        //bert_normalizer.strip_accents = None;
-        //bert_normalizer.lowercase = true;
-
-        //let mut padding_params = PaddingParams::default();
-        ////padding_params.strategy = PaddingStrategy::Fixed(128);
-        //padding_params.direction = PaddingDirection::Right;
-        //padding_params.pad_to_multiple_of = None;
-        //padding_params.pad_id = 0;
-        //padding_params.pad_type_id = 0;
-        //padding_params.pad_token = "[PAD]".to_string();
-
-        //let tokenizer_impl = tokenizer
-        //    .with_normalizer(bert_normalizer)
-        //    .with_padding(Some(padding_params))
-        //    .with_truncation(Some(TruncationParams {
-        //        direction: TruncationDirection::Right,
-        //        stride: 0,
-        //        max_length: 128,
-        //        strategy: TruncationStrategy::LongestFirst,
-        //    }))
-        //    .map_err(anyhow::Error::msg);
-        //if tokenizer_impl.is_err() {
-        //    let err = tokenizer_impl.as_ref().unwrap_err();
-        //    error!("sb_ai: failed to initialize tokenizer - {}", err);
-        //    return ();
-        //}
-        //let tokenizer_impl = tokenizer_impl.unwrap();
+        // model's default max length is 128. Increase it to 512.
+        let truncation = tokenizer.get_truncation_mut().unwrap();
+        truncation.max_length = 512;
 
         let run_inference = move |prompt: String| -> Result<Vec<f32>, Error> {
-            let tokens = tokenizer
-                .encode(prompt, true)
-                .map_err(anyhow::Error::msg)?
+            let encoded_prompt = tokenizer.encode(prompt, true).map_err(anyhow::Error::msg)?;
+            let input_ids = encoded_prompt
                 .get_ids()
                 .iter()
                 .map(|i| *i as i64)
                 .collect::<Vec<_>>();
+            let attention_mask = encoded_prompt
+                .get_attention_mask()
+                .iter()
+                .map(|i| *i as i64)
+                .collect::<Vec<_>>();
+            let token_type_ids = encoded_prompt
+                .get_type_ids()
+                .iter()
+                .map(|i| *i as i64)
+                .collect::<Vec<_>>();
 
-            let tokens = Array1::from_iter(tokens.iter().cloned());
-            let array = tokens.view().insert_axis(Axis(0));
+            let input_ids_array = Array1::from_iter(input_ids.iter().cloned());
+            let input_ids_array = input_ids_array.view().insert_axis(Axis(0));
 
-            let dims = array.raw_dim();
-            let token_type_ids = Array2::<i64>::zeros(dims);
-            let attention_mask = Array2::<i64>::ones(dims);
+            let attention_mask_array = Array1::from_iter(attention_mask.iter().cloned());
+            let attention_mask_array = attention_mask_array.view().insert_axis(Axis(0));
+
+            let token_type_ids_array = Array1::from_iter(token_type_ids.iter().cloned());
+            let token_type_ids_array = token_type_ids_array.view().insert_axis(Axis(0));
+
             let outputs = session.run(inputs! {
-                "input_ids" => array,
-                "token_type_ids" => token_type_ids,
-                "attention_mask" => attention_mask,
+                "input_ids" => input_ids_array,
+                "token_type_ids" => token_type_ids_array,
+                "attention_mask" => attention_mask_array,
             }?)?;
 
-            let embeddings: Tensor<f32> = outputs["last_hidden_state"].extract_tensor()?;
+            let embeddings: ArrayViewD<f32> = outputs["last_hidden_state"].extract_tensor()?;
 
-            let embeddings_view = embeddings.view();
-            let mean_pool = embeddings_view.mean_axis(Axis(1)).unwrap();
-            let (normalized, _) = normalize(
-                mean_pool.into_dimensionality::<Ix2>().unwrap(),
-                NormalizeAxis::Row,
+            let mean_pool = mean_pool(
+                embeddings.into_dimensionality::<Ix3>().unwrap(),
+                attention_mask_array.insert_axis(Axis(2)),
             );
-
+            let (normalized, _) = normalize(mean_pool, NormalizeAxis::Row);
             Ok(normalized.view().to_slice().unwrap().to_vec())
         };
 

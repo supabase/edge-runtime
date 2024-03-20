@@ -57,7 +57,7 @@ fn init_gte(state: &mut OpState) -> Result<(), Error> {
         if session.is_err() {
             let err = session.as_ref().unwrap_err();
             error!("sb_ai: failed to create session - {}", err);
-            return ();
+            return;
         }
         let session = session.unwrap();
 
@@ -70,7 +70,7 @@ fn init_gte(state: &mut OpState) -> Result<(), Error> {
         if tokenizer.is_err() {
             let err = tokenizer.as_ref().unwrap_err();
             error!("sb_ai: failed to create tokenizer - {}", err);
-            return ();
+            return;
         }
         let mut tokenizer = tokenizer.unwrap();
 
@@ -133,7 +133,6 @@ fn init_gte(state: &mut OpState) -> Result<(), Error> {
                 error!("sb_ai: failed to send inference results (channel error)");
             };
         }
-        return ();
     });
 
     Ok(())

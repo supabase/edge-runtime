@@ -352,9 +352,11 @@ impl Drop for LaxSingleProcessFsFlagInner {
 /// This should only be used in places where it's ideal for multiple
 /// processes to not update something on the file system at the same time,
 /// but it's not that big of a deal.
+#[allow(dead_code)]
 pub struct LaxSingleProcessFsFlag(Option<LaxSingleProcessFsFlagInner>);
 
 impl LaxSingleProcessFsFlag {
+    #[allow(clippy::suspicious_open_options)]
     pub async fn lock(file_path: PathBuf, _long_wait_message: &str) -> Self {
         debug!("Acquiring file lock at {}", file_path.display());
         use fs3::FileExt;

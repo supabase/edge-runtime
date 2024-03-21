@@ -603,6 +603,7 @@ impl WorkerPool {
         }
     }
 
+    #[allow(clippy::question_mark)]
     fn maybe_active_worker(&mut self, service_path: &String, force_create: bool) -> Option<Uuid> {
         if force_create {
             return None;

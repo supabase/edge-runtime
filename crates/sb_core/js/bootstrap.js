@@ -427,7 +427,7 @@ globalThis.bootstrapSBEdge = opts => {
 	);
 	setLanguage('en');
 
-	Object.defineProperty(globalThis, 'Supabase_UNSTABLE', {
+	Object.defineProperty(globalThis, 'Supabase', {
 		get() {
 			return {
 				ai,

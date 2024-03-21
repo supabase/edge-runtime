@@ -3,7 +3,7 @@ use deno_core::error::AnyError;
 use deno_core::op2;
 use deno_core::OpState;
 use log::error;
-use ndarray::{Array1, Array2, ArrayView3, ArrayViewD, Axis, Ix3};
+use ndarray::{Array1, Array2, ArrayView3, Axis, Ix3};
 use ndarray_linalg::norm::{normalize, NormalizeAxis};
 use ort::{inputs, GraphOptimizationLevel, Session};
 use std::cell::RefCell;
@@ -22,6 +22,8 @@ deno_core::extension!(
 
 struct GteModelRequest {
     prompt: String,
+    mean_pool: bool,
+    normalize: bool,
     result_tx: mpsc::UnboundedSender<Result<Vec<f32>, Error>>,
 }
 
@@ -78,7 +80,10 @@ fn init_gte(state: &mut OpState) -> Result<(), Error> {
         let truncation = tokenizer.get_truncation_mut().unwrap();
         truncation.max_length = 512;
 
-        let run_inference = move |prompt: String| -> Result<Vec<f32>, Error> {
+        let run_inference = move |prompt: String,
+                                  do_mean_pooling: bool,
+                                  do_normalize: bool|
+              -> Result<Vec<f32>, Error> {
             let encoded_prompt = tokenizer.encode(prompt, true).map_err(anyhow::Error::msg)?;
             let input_ids = encoded_prompt
                 .get_ids()
@@ -111,14 +116,23 @@ fn init_gte(state: &mut OpState) -> Result<(), Error> {
                 "attention_mask" => attention_mask_array,
             }?)?;
 
-            let embeddings: ArrayViewD<f32> = outputs["last_hidden_state"].extract_tensor()?;
+            let embeddings = outputs["last_hidden_state"].extract_tensor()?;
+            let embeddings = embeddings.into_dimensionality::<Ix3>()?;
 
-            let mean_pool = mean_pool(
-                embeddings.into_dimensionality::<Ix3>().unwrap(),
-                attention_mask_array.insert_axis(Axis(2)),
-            );
-            let (normalized, _) = normalize(mean_pool, NormalizeAxis::Row);
-            Ok(normalized.view().to_slice().unwrap().to_vec())
+            let result = if do_mean_pooling {
+                mean_pool(embeddings, attention_mask_array.insert_axis(Axis(2)))
+            } else {
+                //let embeddings_len = embeddings.len();
+                embeddings.into_owned().remove_axis(Axis(0))
+            };
+
+            let result = if do_normalize {
+                let (normalized, _) = normalize(result, NormalizeAxis::Row);
+                normalized
+            } else {
+                result
+            };
+            Ok(result.view().to_slice().unwrap().to_vec())
         };
 
         loop {
@@ -128,7 +142,7 @@ fn init_gte(state: &mut OpState) -> Result<(), Error> {
             }
             let req = req.unwrap();
 
-            let result = run_inference(req.prompt);
+            let result = run_inference(req.prompt, req.mean_pool, req.normalize);
             if req.result_tx.send(result).is_err() {
                 error!("sb_ai: failed to send inference results (channel error)");
             };
@@ -138,7 +152,12 @@ fn init_gte(state: &mut OpState) -> Result<(), Error> {
     Ok(())
 }
 
-async fn run_gte(state: Rc<RefCell<OpState>>, prompt: String) -> Result<Vec<f32>, Error> {
+async fn run_gte(
+    state: Rc<RefCell<OpState>>,
+    prompt: String,
+    mean_pool: bool,
+    normalize: bool,
+) -> Result<Vec<f32>, Error> {
     let req_tx;
     {
         let op_state = state.borrow();
@@ -153,6 +172,8 @@ async fn run_gte(state: Rc<RefCell<OpState>>, prompt: String) -> Result<Vec<f32>
 
     req_tx.send(GteModelRequest {
         prompt,
+        mean_pool,
+        normalize,
         result_tx: result_tx.clone(),
     })?;
 
@@ -176,9 +197,11 @@ pub async fn op_sb_ai_run_model(
     state: Rc<RefCell<OpState>>,
     #[string] name: String,
     #[string] prompt: String,
+    mean_pool: bool,
+    normalize: bool,
 ) -> Result<Vec<f32>, AnyError> {
     if name == "gte-small" {
-        run_gte(state, prompt).await
+        run_gte(state, prompt, mean_pool, normalize).await
     } else {
         bail!("model not supported")
     }

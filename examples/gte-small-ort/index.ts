@@ -1,4 +1,4 @@
-const model = new Supabase_UNSTABLE.ai.Session('gte-small');
+const model = new Supabase.ai.Session('gte-small');
 
 Deno.serve(async (req: Request) => {
 	const params = new URL(req.url).searchParams;

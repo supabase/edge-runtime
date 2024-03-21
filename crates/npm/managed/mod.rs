@@ -102,9 +102,12 @@ async fn snapshot_from_lockfile(
     lockfile: Arc<Mutex<Lockfile>>,
     api: &dyn NpmRegistryApi,
 ) -> Result<ValidSerializedNpmResolutionSnapshot, AnyError> {
-    let incomplete_snapshot = {
+    let (incomplete_snapshot, _skip_integrity_check) = {
         let lock = lockfile.lock();
-        deno_npm::resolution::incomplete_snapshot_from_lockfile(&lock)?
+        (
+            deno_npm::resolution::incomplete_snapshot_from_lockfile(&lock)?,
+            lock.overwrite,
+        )
     };
     let snapshot = deno_npm::resolution::snapshot_from_lockfile(SnapshotFromLockfileParams {
         incomplete_snapshot,

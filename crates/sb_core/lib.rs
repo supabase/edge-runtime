@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use deno_core::error::AnyError;
 use deno_core::v8::IsolateHandle;
+use deno_core::Op;
 use deno_core::OpState;
 use deno_core::{op2, JsRuntime};
 use enum_as_inner::EnumAsInner;
@@ -246,24 +247,24 @@ struct RuntimeMetrics {
 }
 
 #[op2(fast)]
-fn op_is_terminal(state: &mut OpState, rid: u32) -> Result<bool, AnyError> {
+fn op_is_terminal_sb(state: &mut OpState, rid: u32) -> Result<bool, AnyError> {
     let handle = state.resource_table.get_handle(rid)?;
     Ok(handle.is_terminal())
 }
 
 #[op2(fast)]
-fn op_stdin_set_raw(_state: &mut OpState, _is_raw: bool, _cbreak: bool) -> Result<(), AnyError> {
+fn op_stdin_set_raw_sb(_state: &mut OpState, _is_raw: bool, _cbreak: bool) -> Result<(), AnyError> {
     Ok(())
 }
 
 #[op2(fast)]
-fn op_console_size(_state: &mut OpState, #[buffer] _result: &mut [u32]) -> Result<(), AnyError> {
+fn op_console_size_sb(_state: &mut OpState, #[buffer] _result: &mut [u32]) -> Result<(), AnyError> {
     Ok(())
 }
 
 #[op2(async)]
 #[serde]
-async fn op_runtime_metrics(state: Rc<RefCell<OpState>>) -> Result<RuntimeMetrics, AnyError> {
+async fn op_runtime_metrics_sb(state: Rc<RefCell<OpState>>) -> Result<RuntimeMetrics, AnyError> {
     let mut runtime_metrics = RuntimeMetrics::default();
     let mut runtime_metric_src = {
         let state = state.borrow();
@@ -288,7 +289,7 @@ fn op_schedule_mem_check(state: &mut OpState) -> Result<(), AnyError> {
 
 #[op2]
 #[string]
-pub fn op_read_line_prompt(
+pub fn op_read_line_prompt_sb(
     #[string] _prompt_text: &str,
     #[string] _default_value: &str,
 ) -> Result<Option<String>, AnyError> {
@@ -296,21 +297,12 @@ pub fn op_read_line_prompt(
 }
 
 #[op2(fast)]
-fn op_set_exit_code(_state: &mut OpState, #[smi] _code: i32) -> Result<(), AnyError> {
+fn op_set_exit_code_sb(_state: &mut OpState, #[smi] _code: i32) -> Result<(), AnyError> {
     Ok(())
 }
 
 deno_core::extension!(
     sb_core_main_js,
-    ops = [
-        op_is_terminal,
-        op_stdin_set_raw,
-        op_console_size,
-        op_read_line_prompt,
-        op_set_exit_code,
-        op_runtime_metrics,
-        op_schedule_mem_check,
-    ],
     esm_entry_point = "ext:sb_core_main_js/js/bootstrap.js",
     esm = [
         "js/permissions.js",
@@ -323,5 +315,14 @@ deno_core::extension!(
         "js/bootstrap.js",
         "js/main_worker.js",
         "js/01_http.js"
-    ]
+    ],
+    middleware = |op| match op.name {
+        "op_is_terminal" => op_is_terminal_sb::DECL,
+        "op_stdin_set_raw" => op_stdin_set_raw_sb::DECL,
+        "op_console_size" => op_console_size_sb::DECL,
+        "op_read_line_prompt" => op_read_line_prompt_sb::DECL,
+        "op_set_exit_code" => op_set_exit_code_sb::DECL,
+        "op_runtime_metrics" => op_runtime_metrics_sb::DECL,
+        _ => op,
+    },
 );

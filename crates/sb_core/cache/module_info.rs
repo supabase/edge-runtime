@@ -1,5 +1,6 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
+use deno_ast::diagnostics::Diagnostic;
 use std::sync::Arc;
 
 use crate::cache::common::FastInsecureHasher;
@@ -141,7 +142,7 @@ impl<'a> deno_graph::ModuleAnalyzer for ModuleInfoCacheModuleAnalyzer<'a> {
         specifier: &ModuleSpecifier,
         source: Arc<str>,
         media_type: MediaType,
-    ) -> Result<ModuleInfo, deno_ast::Diagnostic> {
+    ) -> Result<ModuleInfo, deno_ast::ParseDiagnostic> {
         // attempt to load from the cache
         let source_hash = ModuleInfoCacheSourceHash::from_source(source.as_bytes());
         match self

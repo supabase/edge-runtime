@@ -5,8 +5,8 @@ use std::path::PathBuf;
 mod supabase_startup_snapshot {
     use super::*;
     use deno_core::error::AnyError;
-    use deno_core::snapshot_util::*;
-    use deno_core::Extension;
+    use deno_core::snapshot::{create_snapshot, CreateSnapshotOptions};
+    use deno_core::{v8, Extension};
     use deno_fs::OpenOptions;
     use deno_http::DefaultHttpPropertyExtractor;
     use event_worker::js_interceptors::sb_events_js_interceptors;
@@ -22,7 +22,9 @@ mod supabase_startup_snapshot {
     use sb_env::sb_env;
     use sb_node::deno_node;
     use sb_workers::sb_user_workers;
+    use std::io::Write;
     use std::path::Path;
+    use std::rc::Rc;
     use std::sync::Arc;
     use url::Url;
 
@@ -212,24 +214,33 @@ mod supabase_startup_snapshot {
             sb_core_runtime::init_ops_and_esm(None),
         ];
 
-        for extension in &mut extensions {
-            for source in extension.esm_files.to_mut() {
-                let _ = maybe_transpile_source(source).unwrap();
-            }
-            for source in extension.js_files.to_mut() {
-                let _ = maybe_transpile_source(source).unwrap();
-            }
-        }
+        let output = create_snapshot(
+            CreateSnapshotOptions {
+                cargo_manifest_dir: env!("CARGO_MANIFEST_DIR"),
+                startup_snapshot: None,
+                skip_op_registration: false,
+                extensions,
+                with_runtime_cb: Some(Box::new(|rt| {
+                    let isolate = rt.v8_isolate();
+                    let scope = &mut v8::HandleScope::new(isolate);
 
-        let _ = create_snapshot(CreateSnapshotOptions {
-            cargo_manifest_dir: env!("CARGO_MANIFEST_DIR"),
-            snapshot_path,
-            startup_snapshot: None,
-            skip_op_registration: false,
-            extensions,
-            compression_cb: None,
-            with_runtime_cb: None,
-        });
+                    let ctx = v8::Context::new(scope);
+                    assert_eq!(scope.add_context(ctx), sb_node::VM_CONTEXT_INDEX);
+                })),
+                extension_transpiler: Some(Rc::new(|specifier, source| {
+                    maybe_transpile_source(specifier, source)
+                })),
+            },
+            None,
+        )
+        .unwrap();
+
+        let mut snapshot = std::fs::File::create(snapshot_path).unwrap();
+        snapshot.write_all(&output.output).unwrap();
+
+        for path in output.files_loaded_during_snapshot {
+            println!("cargo:rerun-if-changed={}", path.display());
+        }
     }
 }
 

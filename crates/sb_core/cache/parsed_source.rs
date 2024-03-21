@@ -1,5 +1,6 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
+use deno_ast::diagnostics::Diagnostic;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -20,7 +21,7 @@ impl ParsedSourceCache {
     pub fn get_parsed_source_from_js_module(
         &self,
         module: &deno_graph::JsModule,
-    ) -> Result<ParsedSource, deno_ast::Diagnostic> {
+    ) -> Result<ParsedSource, deno_ast::ParseDiagnostic> {
         self.get_or_parse_module(&module.specifier, module.source.clone(), module.media_type)
     }
 
@@ -31,7 +32,7 @@ impl ParsedSourceCache {
         specifier: &deno_graph::ModuleSpecifier,
         source: Arc<str>,
         media_type: MediaType,
-    ) -> deno_core::anyhow::Result<ParsedSource, deno_ast::Diagnostic> {
+    ) -> deno_core::anyhow::Result<ParsedSource, deno_ast::ParseDiagnostic> {
         let parser = self.as_capturing_parser();
         // this will conditionally parse because it's using a CapturingModuleParser
         parser.parse_module(ParseOptions {

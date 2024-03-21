@@ -98,14 +98,15 @@ impl ModuleGraphBuilder {
                 is_dynamic: false,
                 imports: vec![],
                 file_system: None,
+                jsr_url_provider: None,
                 resolver: Some(graph_resolver),
                 npm_resolver: Some(graph_npm_resolver),
                 module_analyzer: Some(&analyzer),
                 module_parser: Some(&parser),
                 reporter: None,
                 // todo(dsherret): workspace support
-                workspace_fast_check: false,
-                workspace_members: vec![],
+                workspace_members: &[],
+                executor: Default::default(),
             },
         )
         .await?;
@@ -238,13 +239,14 @@ impl ModuleGraphBuilder {
                 is_dynamic: false,
                 imports: vec![],
                 file_system: None,
+                jsr_url_provider: None,
                 resolver: Some(&*graph_resolver),
                 npm_resolver: Some(&*graph_npm_resolver),
                 module_analyzer: Some(&analyzer),
                 module_parser: Some(&parser),
                 reporter: None,
-                workspace_fast_check: false,
-                workspace_members: vec![],
+                workspace_members: &[],
+                executor: Default::default(),
             },
         )
         .await?;

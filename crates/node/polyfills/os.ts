@@ -38,7 +38,6 @@ import { os } from "ext:deno_node/internal_binding/constants.ts";
 import { osCalls } from "ext:sb_os/os.js"
 import { Buffer } from "ext:deno_node/internal/buffer.mjs";
 
-const osUptime = osCalls.osUptime;
 export const constants = os;
 
 interface CPUTimes {

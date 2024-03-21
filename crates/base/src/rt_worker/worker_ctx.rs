@@ -35,7 +35,7 @@ use std::time::Duration;
 use tokio::io::copy_bidirectional;
 use tokio::net::{TcpStream, UnixStream};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
-use tokio::sync::{mpsc, oneshot, watch, Mutex, Notify};
+use tokio::sync::{mpsc, oneshot, watch, Mutex};
 use tokio_rustls::server::TlsStream;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -83,6 +83,10 @@ impl TerminationToken {
     }
 
     pub async fn cancel_and_wait(&self) {
+        if self.outbound.is_cancelled() {
+            return;
+        }
+
         self.cancel();
         self.outbound.cancelled().await;
     }
@@ -208,7 +212,7 @@ pub fn create_supervisor(
     termination_event_tx: oneshot::Sender<WorkerEvents>,
     pool_msg_tx: Option<UnboundedSender<UserWorkerMsgs>>,
     cpu_usage_metrics_rx: Option<UnboundedReceiver<CPUUsageMetrics>>,
-    cancel: Option<Arc<Notify>>,
+    cancel: Option<CancellationToken>,
     timing: Option<Timing>,
     termination_token: Option<TerminationToken>,
 ) -> Result<(Option<CPUTimer>, CancellationToken), Error> {
@@ -244,19 +248,36 @@ pub fn create_supervisor(
         )
     });
 
-    worker_runtime.js_runtime.add_near_heap_limit_callback(move |cur, _| {
-        debug!(
-            "Low memory alert triggered: {}",
-            bytes_to_display(cur as u64),
-        );
+    worker_runtime.add_memory_limit_callback({
+        let memory_limit_tx = memory_limit_tx.clone();
+        move || {
+            debug!("Hard memory limit triggered");
 
-        if memory_limit_tx.send(()).is_err() {
-            error!("failed to send memory limit reached notification - isolate may already be terminating");
-        };
+            if memory_limit_tx.send(()).is_err() {
+                error!("failed to send memory limit reached notification - isolate may already be terminating"); 
+            }
 
-        // give an allowance on current limit (until the isolate is terminated)
-        // we do this so that oom won't end up killing the edge-runtime process
-        cur * (conf.low_memory_multiplier as usize)
+            true
+        }
+    });
+
+    worker_runtime.js_runtime.add_near_heap_limit_callback({
+        let memory_limit_tx = memory_limit_tx.clone();
+        move |cur, _| {
+            debug!(
+                "Low memory alert triggered: {}",
+                bytes_to_display(cur as u64),
+            );
+
+            if memory_limit_tx.send(()).is_err() {
+                error!("failed to send memory limit reached notification - isolate may already be terminating");
+            }
+
+            // give an allowance on current limit (until the isolate is
+            // terminated) we do this so that oom won't end up killing the
+            // edge-runtime process
+            cur * (conf.low_memory_multiplier as usize)
+        }
     });
 
     // Note: CPU timer must be started in the same thread as the worker runtime
@@ -306,7 +327,7 @@ pub fn create_supervisor(
             // disposed down and will not accept awaiting subsequent requests, so
             // they must be re-polled again.
             if let Some(cancel) = giveup_process_requests_token.as_ref() {
-                cancel.notify_waiters();
+                cancel.cancel();
             }
 
             if let Some((session_tx, is_terminated, is_found)) = maybe_inspector_params {
@@ -582,7 +603,7 @@ pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
 
 pub async fn send_user_worker_request(
     worker_request_msg_tx: mpsc::UnboundedSender<WorkerRequestMsg>,
-    cancel: Arc<Notify>,
+    cancel: CancellationToken,
     req: Request<Body>,
     conn_watch: Option<watch::Receiver<ConnSync>>,
 ) -> Result<Response<Body>, Error> {
@@ -598,7 +619,7 @@ pub async fn send_user_worker_request(
 
     // wait for the response back from the worker
     let res = tokio::select! {
-        () = cancel.notified() => bail!(WorkerError::RequestCancelledBySupervisor),
+        () = cancel.cancelled() => bail!(WorkerError::RequestCancelledBySupervisor),
         res = res_rx => res,
     }??;
 
@@ -751,22 +772,28 @@ pub async fn create_user_worker_pool(
                                     ..worker_options
                                 }, tx, termination_token.as_ref().map(|it| it.child_token()));
                             }
+
                             Some(UserWorkerMsgs::Created(key, profile)) => {
                                 worker_pool.add_user_worker(key, profile);
                             }
+
                             Some(UserWorkerMsgs::SendRequest(key, req, res_tx, conn_watch)) => {
                                 worker_pool.send_request(&key, req, res_tx, conn_watch);
                             }
+
                             Some(UserWorkerMsgs::Idle(key)) => {
                                 worker_pool.idle(&key);
                             }
+
                             Some(UserWorkerMsgs::Shutdown(key)) => {
                                 worker_pool.shutdown(&key);
 
-                                if let Some(token) = token {
-                                    if token.inbound.is_cancelled() && worker_pool.user_workers.is_empty() {
+                                if termination_requested && worker_pool.user_workers.is_empty() {
+                                    if let Some(token) = token {
                                         token.outbound.cancel();
                                     }
+
+                                    break;
                                 }
                             }
                         }

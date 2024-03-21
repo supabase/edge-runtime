@@ -1,13 +1,16 @@
 use crate::inspector_server::Inspector;
+use crate::rt_worker::rt;
 use crate::rt_worker::supervisor::{CPUUsage, CPUUsageMetrics};
 use crate::rt_worker::worker::UnixStreamEntry;
-use crate::utils::units::mib_to_bytes;
+use crate::utils::units::{bytes_to_display, mib_to_bytes};
 
 use anyhow::{anyhow, bail, Context, Error};
+use cooked_waker::{IntoWaker, WakeRef};
 use cpu_timer::get_thread_time;
 use ctor::ctor;
 use deno_core::error::AnyError;
 use deno_core::url::Url;
+use deno_core::v8::{GCCallbackFlags, GCType, HeapStatistics, Isolate};
 use deno_core::{
     located_script_name, serde_json, serde_v8, JsRuntime, ModuleCodeString, ModuleId,
     PollEventLoopOptions, RuntimeOptions,
@@ -18,6 +21,7 @@ use deno_tls::rustls;
 use deno_tls::rustls::RootCertStore;
 use deno_tls::RootCertStoreProvider;
 use futures_util::future::poll_fn;
+use futures_util::task::AtomicWaker;
 use log::{error, trace};
 use once_cell::sync::{Lazy, OnceCell};
 use sb_core::conn_sync::ConnSync;
@@ -25,12 +29,17 @@ use sb_core::http::sb_core_http;
 use sb_core::http_start::sb_core_http_start;
 use sb_core::util::sync::AtomicFlag;
 use serde::de::DeserializeOwned;
+use std::borrow::Cow;
 use std::collections::HashMap;
+use std::ffi::c_void;
 use std::fmt;
 use std::os::fd::RawFd;
 use std::sync::Arc;
 use std::task::Poll;
-use tokio::sync::{mpsc, watch};
+use std::time::Duration;
+use tokio::sync::{mpsc, watch, Notify};
+use tokio::time::interval;
+use tokio_util::sync::CancellationToken;
 
 use crate::snapshot;
 use event_worker::events::{EventMetadata, WorkerEventWithMetadata};
@@ -39,11 +48,11 @@ use event_worker::sb_user_event_worker;
 use sb_ai::sb_ai;
 use sb_core::cache::CacheSetting;
 use sb_core::cert::ValueRootCertStoreProvider;
-use sb_core::external_memory::custom_allocator;
+use sb_core::external_memory::CustomAllocator;
 use sb_core::net::sb_core_net;
 use sb_core::permissions::{sb_core_permissions, Permissions};
 use sb_core::runtime::sb_core_runtime;
-use sb_core::sb_core_main_js;
+use sb_core::{sb_core_main_js, MemCheckWaker};
 use sb_env::sb_env as sb_env_op;
 use sb_fs::file_system::DenoCompileFileSystem;
 use sb_graph::emitter::EmitterFactory;
@@ -56,6 +65,8 @@ use sb_module_loader::RuntimeProviders;
 use sb_node::deno_node;
 use sb_workers::context::{UserWorkerMsgs, WorkerContextInitOpts, WorkerRuntimeOpts};
 use sb_workers::sb_user_workers;
+
+const DEFAULT_ALLOC_CHECK_INT_MSEC: u64 = 1000;
 
 static SUPABASE_UA: Lazy<String> = Lazy::new(|| {
     let deno_version = MAYBE_DENO_VERSION.get().map(|it| &**it).unwrap_or("1.0.0");
@@ -72,6 +83,13 @@ static SHOULD_DISABLE_DEPRECATED_API_WARNING: Lazy<bool> =
 static SHOULD_USE_VERBOSE_DEPRECATED_API_WARNING: Lazy<bool> =
     Lazy::new(|| std::env::var("DENO_VERBOSE_WARNINGS").ok().is_some());
 
+static ALLOC_CHECK_DUR: Lazy<Duration> = Lazy::new(|| {
+    std::env::var("EDGE_RUNTIME_ALLOC_CHECK_INT")
+        .ok()
+        .and_then(|it| it.parse::<u64>().ok().map(Duration::from_millis))
+        .unwrap_or_else(|| Duration::from_millis(DEFAULT_ALLOC_CHECK_INT_MSEC))
+});
+
 pub static MAYBE_DENO_VERSION: OnceCell<String> = OnceCell::new();
 
 #[ctor]
@@ -83,7 +101,6 @@ fn init_v8_platform() {
     // the main thread that spawns V8 isolates.
     JsRuntime::init_platform(None);
 }
-
 pub struct DenoRuntimeError(Error);
 
 impl PartialEq for DenoRuntimeError {
@@ -102,17 +119,89 @@ fn get_error_class_name(e: &AnyError) -> &'static str {
     sb_core::errors_rt::get_error_class_name(e).unwrap_or("Error")
 }
 
+#[derive(Default, Clone)]
+struct MemCheckState {
+    drop_token: CancellationToken,
+    limit: Option<usize>,
+    waker: Arc<AtomicWaker>,
+    notify: Arc<Notify>,
+
+    #[cfg(debug_assertions)]
+    exceeded: Arc<AtomicFlag>,
+}
+
+impl Drop for MemCheckState {
+    fn drop(&mut self) {
+        self.drop_token.cancel();
+    }
+}
+
+impl MemCheckState {
+    fn check(&self, isolate: &mut Isolate) -> usize {
+        let Some(limit) = self.limit else {
+            return 0;
+        };
+
+        let mut stats = HeapStatistics::default();
+
+        isolate.get_heap_statistics(&mut stats);
+
+        // NOTE: https://stackoverflow.com/questions/41541843/nodejs-v8-getheapstatistics-method
+        let malloced_bytes = stats.malloced_memory();
+
+        // XXX(Nyannyacha): Should we instead apply a size that reflects the
+        // committed heap? (but it can be bloated)
+        let used_heap_bytes = stats.used_heap_size();
+        let external_bytes = stats.external_memory();
+
+        let total_bytes = malloced_bytes
+            .saturating_add(used_heap_bytes)
+            .saturating_add(external_bytes);
+
+        if total_bytes >= limit {
+            self.notify.notify_waiters();
+
+            #[cfg(debug_assertions)]
+            if !self.exceeded.is_raised() {
+                self.exceeded.raise();
+            }
+        }
+
+        total_bytes
+    }
+
+    #[allow(dead_code)]
+    #[cfg(debug_assertions)]
+    fn is_exceeded(&self) -> bool {
+        self.exceeded.is_raised()
+    }
+}
+
 pub struct DenoRuntime {
     pub js_runtime: JsRuntime,
     pub env_vars: HashMap<String, String>, // TODO: does this need to be pub?
     pub conf: WorkerRuntimeOpts,
 
-    pub is_termination_requested: Arc<AtomicFlag>,
-    pub is_terminated: Arc<AtomicFlag>,
-    pub is_found_inspector_session: Arc<AtomicFlag>,
+    pub(crate) is_termination_requested: Arc<AtomicFlag>,
+    pub(crate) is_terminated: Arc<AtomicFlag>,
+    pub(crate) is_found_inspector_session: Arc<AtomicFlag>,
 
     main_module_id: ModuleId,
     maybe_inspector: Option<Inspector>,
+
+    mem_check_state: Arc<MemCheckState>,
+    waker: Arc<AtomicWaker>,
+}
+
+impl Drop for DenoRuntime {
+    fn drop(&mut self) {
+        if self.conf.is_user_worker() {
+            self.js_runtime.v8_isolate().remove_gc_prologue_callback(
+                mem_check_gc_prologue_callback_fn,
+                Arc::as_ptr(&self.mem_check_state) as *mut _,
+            );
+        }
+    }
 }
 
 impl DenoRuntime {
@@ -327,20 +416,32 @@ impl DenoRuntime {
             sb_core_net::init_ops(),
             sb_core_http::init_ops(),
             sb_core_http_start::init_ops(),
+            // NOTE(AndresP): Order is matters. Otherwise, it will lead to hard
+            // errors such as SIGBUS depending on the platform.
             deno_node::init_ops::<Permissions>(Some(npm_resolver), op_fs),
             sb_core_runtime::init_ops(Some(main_module_url.clone())),
         ];
 
         let mut create_params = None;
+        let mut mem_check_state = MemCheckState::default();
+
         if conf.is_user_worker() {
             let memory_limit =
                 mib_to_bytes(conf.as_user_worker().unwrap().memory_limit_mb) as usize;
+
+            let allocator = CustomAllocator::new(memory_limit);
+
+            allocator.set_waker(mem_check_state.waker.clone());
+
+            mem_check_state.limit = Some(memory_limit);
             create_params = Some(
                 deno_core::v8::CreateParams::default()
                     .heap_limits(mib_to_bytes(0) as usize, memory_limit)
-                    .array_buffer_allocator(custom_allocator(memory_limit)),
+                    .array_buffer_allocator(allocator.into_v8_allocator()),
             )
         };
+
+        let mem_check_state = Arc::new(mem_check_state);
         let runtime_options = RuntimeOptions {
             extensions,
             is_main: true,
@@ -348,7 +449,7 @@ impl DenoRuntime {
             create_params,
             get_error_class_fn: Some(&get_error_class_name),
             shared_array_buffer_store: None,
-            compiled_wasm_module_store: Default::default(),
+            compiled_wasm_module_store: None,
             startup_snapshot: Some(snapshot::snapshot()),
             module_loader: Some(module_loader),
             ..Default::default()
@@ -389,12 +490,25 @@ impl DenoRuntime {
             );
         }
 
+        if is_user_worker {
+            js_runtime.v8_isolate().add_gc_prologue_callback(
+                mem_check_gc_prologue_callback_fn,
+                Arc::as_ptr(&mem_check_state) as *mut _,
+                GCType::ALL,
+            );
+
+            js_runtime
+                .op_state()
+                .borrow_mut()
+                .put(MemCheckWaker::from(mem_check_state.waker.clone()));
+        }
+
         js_runtime
             .execute_script(located_script_name!(), ModuleCodeString::from(script))
             .expect("Failed to execute bootstrap script");
 
         {
-            //run inside a closure, so op_state_rc is released
+            // run inside a closure, so op_state_rc is released
             let op_state_rc = js_runtime.op_state();
             let mut op_state = op_state_rc.borrow_mut();
 
@@ -435,15 +549,44 @@ impl DenoRuntime {
             .load_main_module(&main_module_url, mod_code)
             .await?;
 
+        if is_user_worker {
+            drop(rt::SUPERVISOR_RT.spawn({
+                let drop_token = mem_check_state.drop_token.clone();
+                let waker = mem_check_state.waker.clone();
+
+                async move {
+                    // TODO(Nyannyacha): Should we introduce exponential
+                    // backoff?
+                    let mut int = interval(*ALLOC_CHECK_DUR);
+                    loop {
+                        tokio::select! {
+                            _ = int.tick() => {
+                                waker.wake();
+                            }
+
+                            _ = drop_token.cancelled() => {
+                                break;
+                            }
+                        }
+                    }
+                }
+            }));
+        }
+
         Ok(Self {
             js_runtime,
             env_vars,
             conf,
-            main_module_id,
-            maybe_inspector,
+
             is_termination_requested: Arc::default(),
             is_terminated: Arc::default(),
             is_found_inspector_session: Arc::default(),
+
+            main_module_id,
+            maybe_inspector,
+
+            mem_check_state,
+            waker: Arc::default(),
         })
     }
 
@@ -499,6 +642,8 @@ impl DenoRuntime {
 
         let is_termination_requested = self.is_termination_requested.clone();
         let is_user_worker = self.conf.is_user_worker();
+        let global_waker = self.waker.clone();
+        let mem_check_state = is_user_worker.then(|| self.mem_check_state.clone());
 
         // NOTE: This is unnecessary on the LIFO task scheduler that can't steal
         // the task from the other threads.
@@ -515,12 +660,16 @@ impl DenoRuntime {
             #[cfg(debug_assertions)]
             assert_eq!(current_thread_id, std::thread::current().id());
 
+            let waker = cx.waker();
+            let woked = global_waker.take().is_none();
             let thread_id = std::thread::current().id();
             let send_cpu_metrics_fn = |metric: CPUUsageMetrics| {
                 if let Some(cpu_metric_tx) = maybe_cpu_usage_metrics_tx.as_ref() {
                     let _ = cpu_metric_tx.send(metric);
                 }
             };
+
+            global_waker.register(waker);
 
             let get_current_cpu_time_ns_fn =
                 || get_thread_time().context("can't get current thread time");
@@ -545,20 +694,43 @@ impl DenoRuntime {
                 false
             };
 
-            let poll_result = js_runtime.poll_event_loop(
-                cx,
-                PollEventLoopOptions {
-                    wait_for_inspector,
-                    pump_v8_message_loop: true,
-                },
-            );
+            let need_pool_event_loop = !is_user_worker || woked;
+            let poll_result = if need_pool_event_loop {
+                struct JsRuntimeWaker(Arc<AtomicWaker>);
+
+                impl WakeRef for JsRuntimeWaker {
+                    fn wake_by_ref(&self) {
+                        self.0.wake();
+                    }
+                }
+
+                let waker = if is_user_worker {
+                    Cow::Owned(Arc::new(JsRuntimeWaker(global_waker.clone())).into_waker())
+                } else {
+                    Cow::Borrowed(waker)
+                };
+
+                js_runtime.poll_event_loop(
+                    &mut std::task::Context::from_waker(waker.as_ref()),
+                    PollEventLoopOptions {
+                        wait_for_inspector,
+                        pump_v8_message_loop: true,
+                    },
+                )
+            } else {
+                Poll::Pending
+            };
 
             let cpu_time_after_poll_ns = match get_current_cpu_time_ns_fn() {
                 Ok(value) => value,
                 Err(err) => return Poll::Ready(Err(err)),
             };
 
-            let diff_cpu_time_ns = cpu_time_after_poll_ns - current_cpu_time_ns;
+            let diff_cpu_time_ns = if need_pool_event_loop {
+                cpu_time_after_poll_ns - current_cpu_time_ns
+            } else {
+                0
+            };
 
             accumulated_cpu_time_ns += diff_cpu_time_ns;
 
@@ -568,11 +740,17 @@ impl DenoRuntime {
             }));
 
             if is_user_worker {
+                let mem_state = mem_check_state.as_ref().unwrap();
+                let total_malloced_bytes = mem_state.check(js_runtime.v8_isolate().as_mut());
+
+                mem_state.waker.register(waker);
+
                 trace!(
-                    "name: {:?}, thread_id: {:?}, accumulated_cpu_time: {}ms",
+                    "name: {:?}, thread_id: {:?}, accumulated_cpu_time: {}ms, malloced: {}",
                     name.as_ref(),
                     thread_id,
-                    accumulated_cpu_time_ns / 1_000_000
+                    accumulated_cpu_time_ns / 1_000_000,
+                    bytes_to_display(total_malloced_bytes as u64)
                 );
             }
 
@@ -581,7 +759,10 @@ impl DenoRuntime {
             // that requesting termination does not work; thus, we need another
             // way to escape from the polling loop so the supervisor can
             // terminate the runtime.
-            if poll_result.is_pending() && is_termination_requested.is_raised() {
+            if need_pool_event_loop
+                && poll_result.is_pending()
+                && is_termination_requested.is_raised()
+            {
                 return Poll::Ready(Ok(()));
             }
 
@@ -602,11 +783,36 @@ impl DenoRuntime {
 
         self.is_terminated.raise();
 
-        (result, accumulated_cpu_time_ns)
+        (result, accumulated_cpu_time_ns / 1_000_000)
     }
 
     pub fn inspector(&self) -> Option<Inspector> {
         self.maybe_inspector.clone()
+    }
+
+    pub fn add_memory_limit_callback<C>(&self, mut cb: C)
+    where
+        // XXX(Nyannyacha): Should we relax bounds a bit more?
+        C: FnMut() -> bool + Send + 'static,
+    {
+        let notify = self.mem_check_state.notify.clone();
+        let drop_token = self.mem_check_state.drop_token.clone();
+
+        drop(rt::SUPERVISOR_RT.spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = notify.notified() => {
+                        if cb() {
+                            break;
+                        }
+                    }
+
+                    _ = drop_token.cancelled() => {
+                        break;
+                    }
+                }
+            }
+        }));
     }
 
     fn wait_for_inspector_session(&mut self) {
@@ -655,6 +861,17 @@ fn set_v8_flags() {
     }
 }
 
+extern "C" fn mem_check_gc_prologue_callback_fn(
+    isolate: *mut Isolate,
+    _ty: GCType,
+    _flags: GCCallbackFlags,
+    data: *mut c_void,
+) {
+    unsafe {
+        (*(data as *mut MemCheckState)).check(&mut *isolate);
+    }
+}
+
 #[cfg(test)]
 mod test {
     use crate::deno_runtime::DenoRuntime;
@@ -673,7 +890,9 @@ mod test {
     use std::io::Write;
     use std::path::PathBuf;
     use std::sync::Arc;
+    use std::time::Duration;
     use tokio::sync::mpsc;
+    use tokio::time::timeout;
 
     #[tokio::test]
     #[serial]
@@ -842,7 +1061,7 @@ mod test {
     }
 
     async fn create_runtime(
-        path: Option<PathBuf>,
+        path: Option<&str>,
         env_vars: Option<HashMap<String, String>>,
         user_conf: Option<WorkerRuntimeOpts>,
         static_patterns: Vec<String>,
@@ -851,7 +1070,10 @@ mod test {
 
         DenoRuntime::new(
             WorkerContextInitOpts {
-                service_path: path.unwrap_or(PathBuf::from("./test_cases/main")),
+                service_path: path
+                    .map(PathBuf::from)
+                    .unwrap_or(PathBuf::from("./test_cases/main")),
+
                 no_module_cache: false,
                 import_map_path: None,
                 env_vars: env_vars.unwrap_or_default(),
@@ -1203,29 +1425,22 @@ mod test {
 
     async fn create_basic_user_runtime(
         path: &str,
-        memory_limit: u64,
+        memory_limit_mb: u64,
         worker_timeout_ms: u64,
+        static_patterns: &[&str],
     ) -> DenoRuntime {
         create_runtime(
-            Some(PathBuf::from(path)),
+            Some(path),
             None,
             Some(WorkerRuntimeOpts::UserWorker(UserWorkerRuntimeOpts {
-                memory_limit_mb: memory_limit,
+                memory_limit_mb,
                 worker_timeout_ms,
                 cpu_time_soft_limit_ms: 100,
                 cpu_time_hard_limit_ms: 200,
-                low_memory_multiplier: 5,
                 force_create: true,
-                net_access_disabled: false,
-                allow_remote_modules: true,
-                custom_module_root: None,
-                key: None,
-                pool_msg_tx: None,
-                events_msg_tx: None,
-                cancel: None,
-                service_path: None,
+                ..Default::default()
             })),
-            vec![],
+            static_patterns.iter().map(|it| String::from(*it)).collect(),
         )
         .await
     }
@@ -1233,18 +1448,27 @@ mod test {
     #[tokio::test]
     #[serial]
     async fn test_array_buffer_allocation_below_limit() {
-        let mut user_rt = create_basic_user_runtime("./test_cases/array_buffers", 20, 1000).await;
+        let mut user_rt =
+            create_basic_user_runtime("./test_cases/array_buffers", 20, 1000, &[]).await;
+
         let (_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStreamEntry>();
         let (result, _) = user_rt.run(unix_stream_rx, None, None).await;
+
         assert!(result.is_ok(), "expected no errors");
+
+        // however, mem checker must be raised because it aggregates heap usage
+        assert!(user_rt.mem_check_state.is_exceeded());
     }
 
     #[tokio::test]
     #[serial]
     async fn test_array_buffer_allocation_above_limit() {
-        let mut user_rt = create_basic_user_runtime("./test_cases/array_buffers", 15, 1000).await;
+        let mut user_rt =
+            create_basic_user_runtime("./test_cases/array_buffers", 15, 1000, &[]).await;
+
         let (_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStreamEntry>();
         let (result, _) = user_rt.run(unix_stream_rx, None, None).await;
+
         match result {
             Err(err) => {
                 assert!(err
@@ -1253,5 +1477,105 @@ mod test {
             }
             _ => panic!("Invalid Result"),
         };
+    }
+
+    async fn test_mem_check_above_limit(
+        path: &str,
+        static_patterns: &[&str],
+        memory_limit_mb: u64,
+        worker_timeout_ms: u64,
+    ) {
+        let (_unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStreamEntry>();
+        let (callback_tx, mut callback_rx) = mpsc::unbounded_channel::<()>();
+        let mut user_rt =
+            create_basic_user_runtime(path, memory_limit_mb, worker_timeout_ms, static_patterns)
+                .await;
+
+        let waker = user_rt.js_runtime.op_state().borrow().waker.clone();
+        let handle = user_rt.js_runtime.v8_isolate().thread_safe_handle();
+
+        user_rt.add_memory_limit_callback(move || {
+            handle.terminate_execution();
+            waker.wake();
+            callback_tx.send(()).unwrap();
+            true
+        });
+
+        let wait_fut = async move {
+            let (result, _) = user_rt.run(unix_stream_rx, None, None).await;
+
+            assert_eq!(
+                result.unwrap_err().to_string(),
+                "event loop error: Uncaught Error: execution terminated"
+            );
+
+            callback_rx.recv().await.unwrap();
+
+            assert!(user_rt.mem_check_state.is_exceeded());
+        };
+
+        if timeout(Duration::from_secs(10), wait_fut).await.is_err() {
+            panic!("failed to detect a memory limit callback invocation within the given time");
+        }
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_mem_checker_above_limit_read_file_sync_api() {
+        test_mem_check_above_limit(
+            "./test_cases/read_file_sync_20mib",
+            &["./test_cases/**/*.bin"],
+            15, // 15728640 bytes
+            1000,
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_mem_checker_above_limit_wasm() {
+        test_mem_check_above_limit(
+            "./test_cases/wasm/grow_20mib",
+            &["./test_cases/**/*.wasm"],
+            60, // 62914560 bytes
+            1000,
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_mem_checker_above_limit_wasm_heap() {
+        test_mem_check_above_limit(
+            "./test_cases/wasm/heap",
+            &["./test_cases/**/*.wasm"],
+            60, // 62914560 bytes
+            1000,
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_mem_checker_above_limit_wasm_grow_jsapi() {
+        test_mem_check_above_limit(
+            "./test_cases/wasm/grow_jsapi",
+            &[],
+            62, // 65011712 bytes < 65536000 bytes (1000 pages)
+            1000,
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_mem_checker_above_limit_wasm_grow_standalone() {
+        test_mem_check_above_limit(
+            "./test_cases/wasm/grow_standalone",
+            &["./test_cases/**/*.wasm"],
+            22, // 23068672 bytes
+            1000,
+        )
+        .await;
     }
 }

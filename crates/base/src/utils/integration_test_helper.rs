@@ -6,6 +6,7 @@ use std::{
     path::PathBuf,
     sync::Arc,
     task::{ready, Poll},
+    time::Duration,
 };
 
 use anyhow::{bail, Context, Error};
@@ -23,7 +24,10 @@ use sb_workers::context::{
     WorkerRuntimeOpts,
 };
 use scopeguard::ScopeGuard;
-use tokio::sync::{mpsc, oneshot, watch, Notify};
+use tokio::{
+    sync::{mpsc, oneshot, watch, Notify},
+    time::timeout,
+};
 
 pub struct CreateTestUserWorkerArgs(WorkerContextInitOpts, Option<SupervisorPolicy>);
 
@@ -278,9 +282,15 @@ impl TestBed {
         ))
     }
 
-    pub async fn exit(self) {
-        self.pool_termination_token.cancel_and_wait().await;
-        self.main_termination_token.cancel_and_wait().await;
+    pub async fn exit(self, wait_dur: Duration) {
+        let wait_fut = async move {
+            self.pool_termination_token.cancel_and_wait().await;
+            self.main_termination_token.cancel_and_wait().await;
+        };
+
+        if timeout(wait_dur, wait_fut).await.is_err() {
+            panic!("failed to exit `TestBed` in the given time");
+        }
     }
 }
 

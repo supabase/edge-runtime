@@ -69,6 +69,7 @@ fastwebsockets = { workspace = true }
 sb_ai = { version = "0.1.0", path = "../sb_ai" }
 sb_fs = { version = "0.1.0", path = "../sb_fs" }
 tls-listener = { version = "0.10", features = ["rustls"] }
+cooked-waker = { version = "5" }
 
 [dev-dependencies]
 tokio-util = { workspace = true, features = ["rt", "compat"] }

@@ -11,6 +11,7 @@ use std::sync::atomic::AtomicUsize;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::mpsc::unbounded_channel;
 use tokio::sync::{mpsc, oneshot, watch, Notify, OwnedSemaphorePermit};
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use sb_graph::EszipPayloadKind;
@@ -22,7 +23,7 @@ pub struct UserWorkerRuntimeOpts {
 
     pub pool_msg_tx: Option<mpsc::UnboundedSender<UserWorkerMsgs>>,
     pub events_msg_tx: Option<mpsc::UnboundedSender<WorkerEventWithMetadata>>,
-    pub cancel: Option<Arc<Notify>>,
+    pub cancel: Option<CancellationToken>,
 
     pub memory_limit_mb: u64,
     pub low_memory_multiplier: u64,
@@ -69,7 +70,7 @@ pub struct UserWorkerProfile {
     ),
     pub service_path: String,
     pub permit: Option<Arc<OwnedSemaphorePermit>>,
-    pub cancel: Arc<Notify>,
+    pub cancel: CancellationToken,
     pub status: TimingStatus,
 }
 

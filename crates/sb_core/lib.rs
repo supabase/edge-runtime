@@ -30,6 +30,14 @@ pub mod runtime;
 pub mod transpiler;
 pub mod util;
 
+pub struct MemCheckWaker(Arc<AtomicWaker>);
+
+impl From<Arc<AtomicWaker>> for MemCheckWaker {
+    fn from(value: Arc<AtomicWaker>) -> Self {
+        Self(value)
+    }
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct SharedMetricSource {
     active_user_workers: Arc<AtomicUsize>,
@@ -269,6 +277,15 @@ async fn op_runtime_metrics(state: Rc<RefCell<OpState>>) -> Result<RuntimeMetric
     Ok(runtime_metrics)
 }
 
+#[op2(fast)]
+fn op_schedule_mem_check(state: &mut OpState) -> Result<(), AnyError> {
+    if let Some(waker) = state.try_borrow::<MemCheckWaker>() {
+        waker.0.wake();
+    }
+
+    Ok(())
+}
+
 #[op2]
 #[string]
 pub fn op_read_line_prompt(
@@ -291,7 +308,8 @@ deno_core::extension!(
         op_console_size,
         op_read_line_prompt,
         op_set_exit_code,
-        op_runtime_metrics
+        op_runtime_metrics,
+        op_schedule_mem_check,
     ],
     esm_entry_point = "ext:sb_core_main_js/js/bootstrap.js",
     esm = [

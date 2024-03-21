@@ -1,6 +1,6 @@
 use crate::inspector_server::Inspector;
 use crate::rt_worker::worker_ctx::{create_worker, send_user_worker_request};
-use anyhow::{anyhow, Context, Error};
+use anyhow::{anyhow, bail, Context, Error};
 use enum_as_inner::EnumAsInner;
 use event_worker::events::WorkerEventWithMetadata;
 use http::Request;
@@ -13,6 +13,7 @@ use sb_workers::context::{
     CreateUserWorkerResult, SendRequestResult, Timing, TimingStatus, UserWorkerMsgs,
     UserWorkerProfile, WorkerContextInitOpts, WorkerRuntimeOpts,
 };
+use sb_workers::errors::WorkerError;
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use std::str::FromStr;
@@ -22,6 +23,7 @@ use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::oneshot::Sender;
 use tokio::sync::{mpsc, watch, Notify, OwnedSemaphorePermit, Semaphore, TryAcquireError};
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use super::worker_ctx::TerminationToken;
@@ -387,7 +389,7 @@ impl WorkerPool {
             };
 
             let uuid = uuid::Uuid::new_v4();
-            let cancel = Arc::<Notify>::default();
+            let cancel = CancellationToken::new();
             let (req_start_timing_tx, req_start_timing_rx) =
                 mpsc::unbounded_channel::<Arc<Notify>>();
 
@@ -481,6 +483,10 @@ impl WorkerPool {
                 // Create a closure to handle the request and send the response
                 let request_handler = async move {
                     if !policy.is_per_worker() {
+                        if cancel.is_cancelled() {
+                            bail!(WorkerError::RequestCancelledBySupervisor);
+                        }
+
                         let fence = Arc::new(Notify::const_new());
 
                         if let Err(ex) = req_start_tx.send(fence.clone()) {
@@ -500,7 +506,12 @@ impl WorkerPool {
                                 .with_context(|| "failed to notify the fence to the supervisor");
                         }
 
-                        fence.notified().await;
+                        tokio::select! {
+                            _ = fence.notified() => {}
+                            _ = cancel.cancelled() => {
+                                bail!(WorkerError::RequestCancelledBySupervisor);
+                            }
+                        }
                     }
 
                     let result = send_user_worker_request(

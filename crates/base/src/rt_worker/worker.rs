@@ -17,12 +17,12 @@ use sb_workers::context::{UserWorkerMsgs, WorkerContextInitOpts};
 use std::any::Any;
 use std::future::{pending, Future};
 use std::pin::Pin;
-use std::sync::Arc;
 use tokio::net::UnixStream;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot::{Receiver, Sender};
-use tokio::sync::{oneshot, watch, Notify};
+use tokio::sync::{oneshot, watch};
 use tokio::time::Instant;
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use super::rt;
@@ -35,7 +35,7 @@ pub struct Worker {
     pub worker_boot_start_time: Instant,
     pub events_msg_tx: Option<UnboundedSender<WorkerEventWithMetadata>>,
     pub pool_msg_tx: Option<UnboundedSender<UserWorkerMsgs>>,
-    pub cancel: Option<Arc<Notify>>,
+    pub cancel: Option<CancellationToken>,
     pub event_metadata: EventMetadata,
     pub worker_key: Option<Uuid>,
     pub inspector: Option<Inspector>,
@@ -293,7 +293,7 @@ impl Worker {
                                 cpu_time_used,
                                 ..
                             }) => {
-                                debug!("CPU time used: {:?}ms", cpu_time_used / 1_000_000);
+                                debug!("CPU time used: {:?}ms", cpu_time_used);
                             }
 
                             _ => {}

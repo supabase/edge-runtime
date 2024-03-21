@@ -30,7 +30,7 @@ impl WorkerHandler for Worker {
                 .await
             {
                 // if the error is execution terminated, check termination event reason
-                (Err(err), cpu_usage_ns) => {
+                (Err(err), cpu_usage_ms) => {
                     let err_string = err.to_string();
 
                     if err_string.ends_with("execution terminated") {
@@ -43,7 +43,7 @@ impl WorkerHandler for Worker {
 
                         Ok(WorkerEvents::UncaughtException(UncaughtExceptionEvent {
                             exception: err_string,
-                            cpu_time_used: cpu_usage_ns as usize,
+                            cpu_time_used: cpu_usage_ms as usize,
                         }))
                     }
                 }

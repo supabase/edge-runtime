@@ -95,16 +95,29 @@ pub async fn create_module_loader_for_eszip(
     let vfs_root_dir_path = npm_cache_dir.registry_folder(&npm_registry_url);
 
     let (fs, vfs) = {
-        let vfs_data: Vec<u8> = eszip
-            .get_module(VFS_ESZIP_KEY)
-            .unwrap()
-            .take_source()
-            .await
-            .unwrap()
-            .to_vec();
+        let key = String::from(VFS_ESZIP_KEY);
+        let vfs_data: Option<Vec<u8>> = if eszip.specifiers().contains(&key) {
+            Some(
+                eszip
+                    .get_module(VFS_ESZIP_KEY)
+                    .unwrap()
+                    .take_source()
+                    .await
+                    .unwrap()
+                    .to_vec(),
+            )
+        } else {
+            None
+        };
 
-        let vfs = load_npm_vfs(vfs_root_dir_path.clone(), &vfs_data)
-            .context("Failed to load npm vfs.")?;
+        let vfs_data: Option<&[u8]> = if let Some(data) = &vfs_data {
+            Some(data)
+        } else {
+            None
+        };
+
+        let vfs =
+            load_npm_vfs(vfs_root_dir_path.clone(), vfs_data).context("Failed to load npm vfs.")?;
 
         let fs = DenoCompileFileSystem::new(vfs);
         let fs_backed_vfs = fs.file_backed_vfs().clone();

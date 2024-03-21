@@ -200,6 +200,7 @@ pub fn with_folder_sync_lock(
     output_folder: &Path,
     action: impl FnOnce() -> Result<(), AnyError>,
 ) -> Result<(), AnyError> {
+    #[allow(clippy::suspicious_open_options)]
     fn inner(
         output_folder: &Path,
         action: impl FnOnce() -> Result<(), AnyError>,

@@ -21,7 +21,7 @@ RUN apt-get update && apt-get install -y libssl-dev && rm -rf /var/lib/apt/lists
 RUN apt-get remove -y perl && apt-get autoremove -y
 COPY --from=builder /root/edge-runtime /usr/local/bin/edge-runtime
 COPY --from=builder /root/libonnxruntime.so /usr/local/bin/libonnxruntime.so
-COPY ./models /etc/sb_ai/models
+COPY --from=builder /usr/src/edge-runtime/models /etc/sb_ai/models
 ENV ORT_DYLIB_PATH=/usr/local/bin/libonnxruntime.so
 ENV SB_AI_MODELS_DIR=/etc/sb_ai/models
 ENTRYPOINT ["edge-runtime"]

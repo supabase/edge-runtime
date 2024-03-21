@@ -187,6 +187,7 @@ pub fn get_thread_time() -> Result<i64, Error> {
 
 #[cfg_attr(target_os = "linux", linux::ctor)]
 #[cfg(target_os = "linux")]
+#[allow(static_mut_refs)]
 fn register_sigalrm() {
     use std::collections::HashMap;
 

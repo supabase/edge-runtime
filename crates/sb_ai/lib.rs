@@ -122,7 +122,6 @@ fn init_gte(state: &mut OpState) -> Result<(), Error> {
             let result = if do_mean_pooling {
                 mean_pool(embeddings, attention_mask_array.insert_axis(Axis(2)))
             } else {
-                //let embeddings_len = embeddings.len();
                 embeddings.into_owned().remove_axis(Axis(0))
             };
 

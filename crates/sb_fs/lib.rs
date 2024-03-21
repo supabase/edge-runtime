@@ -48,8 +48,12 @@ pub async fn extract_static_files_from_eszip(eszip: &EszipV2) -> EszipStaticFile
     files
 }
 
-pub fn load_npm_vfs(root_dir_path: PathBuf, vfs_data: &[u8]) -> Result<FileBackedVfs, AnyError> {
-    let dir: Option<VirtualDirectory> = serde_json::from_slice(vfs_data)?;
+pub fn load_npm_vfs(root_dir_path: PathBuf, vfs_data: Option<&[u8]>) -> Result<FileBackedVfs, AnyError> {
+    let dir: Option<VirtualDirectory> = if let Some(vfs_data) = vfs_data {
+        serde_json::from_slice(vfs_data)?
+    } else {
+        None
+    };
 
     let fs_root: VfsRoot = if let Some(mut dir) = dir {
         // align the name of the directory with the root dir

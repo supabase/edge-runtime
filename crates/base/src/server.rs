@@ -585,12 +585,8 @@ impl Server {
                     error!("received interrupt signal while waiting workers");
                 }
             }
-        } else {
-            if metric_src.received_requests() != metric_src.handled_requests() {
-                warn!(
-                    "runtime exits immediately because the `--graceful-exit-timeout` is not specified"
-                );
-            }
+        } else if metric_src.received_requests() != metric_src.handled_requests() {
+            warn!("runtime exits immediately since the graceful exit feature has been disabled");
         }
 
         Ok(())

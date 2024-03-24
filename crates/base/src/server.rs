@@ -29,6 +29,7 @@ use std::time::Duration;
 use tls_listener::TlsListener;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
+use tokio::pin;
 use tokio::sync::mpsc::{Sender, UnboundedSender};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::timeout;
@@ -450,6 +451,8 @@ impl Server {
         }
 
         let event_tx = can_receive_event.then_some(event_tx.clone());
+
+        let graceful_exit_token = CancellationToken::new();
         let mut graceful_exit_deadline = flags.graceful_exit_deadline_sec;
         let mut terminate_signal_fut = poll_fn({
             let mut sig = if cfg!(unix) {
@@ -476,7 +479,7 @@ impl Server {
                 msg = non_secure_listener.accept() => {
                     match msg {
                         Ok((stream, _)) => {
-                            accept_stream(stream, main_worker_req_tx, event_tx, metric_src)
+                            accept_stream(stream, main_worker_req_tx, event_tx, metric_src, graceful_exit_token.clone())
                         }
                         Err(e) => error!("socket error: {}", e)
                     }
@@ -492,7 +495,7 @@ impl Server {
                 } => {
                     match msg {
                         Ok((stream, _)) => {
-                            accept_stream(stream, main_worker_req_tx, event_tx, metric_src);
+                            accept_stream(stream, main_worker_req_tx, event_tx, metric_src, graceful_exit_token.clone());
                         }
                         Err(e) => error!("socket error: {}", e)
                     }
@@ -580,6 +583,7 @@ fn accept_stream<I>(
     req_tx: UnboundedSender<WorkerRequestMsg>,
     event_tx: Option<UnboundedSender<ServerEvent>>,
     metric_src: SharedMetricSource,
+    graceful_exit_token: CancellationToken,
 ) where
     I: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
@@ -589,8 +593,21 @@ fn accept_stream<I>(
             let _guard = cancel.drop_guard();
 
             let conn_fut = Http::new().serve_connection(io, service).with_upgrades();
+            pin!(conn_fut);
 
-            if let Err(e) = conn_fut.await {
+            let conn_result = loop {
+                tokio::select! {
+                    res = conn_fut.as_mut() => {
+                        break res;
+                    }
+
+                    _ = graceful_exit_token.cancelled() => {
+                        conn_fut.as_mut().graceful_shutdown();
+                    }
+                }
+            };
+
+            if let Err(e) = conn_result {
                 // Most common cause for these errors are when the client closes
                 // the connection before we could send a response
                 if e.is_incomplete_message() {

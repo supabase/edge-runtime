@@ -1,4 +1,5 @@
 use anyhow::Error;
+use deno_config::JsxImportSourceConfig;
 use deno_core::FastString;
 use enum_as_inner::EnumAsInner;
 use event_worker::events::WorkerEventWithMetadata;
@@ -164,6 +165,7 @@ pub struct WorkerContextInitOpts {
     pub maybe_entrypoint: Option<String>,
     pub maybe_decorator: Option<DecoratorType>,
     pub static_patterns: Vec<String>,
+    pub maybe_jsx_import_source_config: Option<JsxImportSourceConfig>,
 }
 
 #[derive(Debug)]

@@ -1,6 +1,7 @@
 use crate::emitter::EmitterFactory;
 use crate::graph_resolver::CliGraphResolver;
 use deno_ast::MediaType;
+use deno_config::JsxImportSourceConfig;
 use deno_core::error::{custom_error, AnyError};
 use deno_core::parking_lot::Mutex;
 use deno_core::{FastString, ModuleSpecifier};
@@ -15,6 +16,7 @@ use sb_core::cache::parsed_source::ParsedSourceCache;
 use sb_core::errors_rt::get_error_class_name;
 use sb_core::file_fetcher::File;
 use sb_npm::CliNpmResolver;
+use std::borrow::BorrowMut;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -365,14 +367,4 @@ pub async fn create_graph(
 
     let create_module_graph_task = builder.create_graph_and_maybe_check(vec![module_specifier]);
     create_module_graph_task.await.unwrap()
-}
-
-pub async fn create_graph_from_specifiers(
-    specifiers: Vec<ModuleSpecifier>,
-    _is_dynamic: bool,
-    maybe_emitter_factory: Arc<EmitterFactory>,
-) -> Result<ModuleGraph, AnyError> {
-    let builder = ModuleGraphBuilder::new(maybe_emitter_factory, false);
-    let create_module_graph_task = builder.create_graph_and_maybe_check(specifiers);
-    create_module_graph_task.await
 }

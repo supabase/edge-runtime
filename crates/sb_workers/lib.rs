@@ -7,10 +7,12 @@ use crate::context::{
 };
 use anyhow::Error;
 use context::SendRequestResult;
+use deno_config::JsxImportSourceConfig;
 use deno_core::error::{custom_error, type_error, AnyError};
 use deno_core::futures::stream::Peekable;
 use deno_core::futures::{FutureExt, Stream, StreamExt};
 use deno_core::op2;
+use deno_core::url::Url;
 use deno_core::{
     AsyncRefCell, AsyncResult, BufView, ByteString, CancelFuture, CancelHandle, CancelTryFuture,
     JsBuffer, OpState, RcRef, Resource, ResourceId, WriteOutcome,
@@ -50,6 +52,13 @@ deno_core::extension!(
 
 #[derive(Deserialize, Default, Debug)]
 #[serde(rename_all = "camelCase")]
+pub struct JsxImportBaseConfig {
+    pub default_specifier: Option<String>,
+    pub module: String,
+}
+
+#[derive(Deserialize, Default, Debug)]
+#[serde(rename_all = "camelCase")]
 pub struct UserWorkerCreateOptions {
     service_path: String,
     no_module_cache: bool,
@@ -70,6 +79,7 @@ pub struct UserWorkerCreateOptions {
     cpu_time_hard_limit_ms: u64,
 
     decorator_type: Option<DecoratorType>,
+    maybe_jsx_import_source_config: Option<JsxImportBaseConfig>,
 }
 
 #[op2(async)]
@@ -101,7 +111,7 @@ pub async fn op_user_worker_create(
             worker_timeout_ms,
             cpu_time_soft_limit_ms,
             cpu_time_hard_limit_ms,
-
+            maybe_jsx_import_source_config,
             decorator_type: maybe_decorator,
         } = opts;
 
@@ -109,6 +119,23 @@ pub async fn op_user_worker_create(
         for (key, value) in env_vars {
             env_vars_map.insert(key, value);
         }
+
+        let jsx_import_conf = {
+            if let Some(jsx_import_source_config) = maybe_jsx_import_source_config {
+                Some(JsxImportSourceConfig {
+                    default_specifier: jsx_import_source_config.default_specifier,
+                    module: jsx_import_source_config.module,
+                    base_url: Url::from_file_path(
+                        Url::from_file_path(service_path.clone().as_str())
+                            .unwrap()
+                            .as_str(),
+                    )
+                    .unwrap(),
+                })
+            } else {
+                None
+            }
+        };
 
         let user_worker_options = WorkerContextInitOpts {
             service_path: PathBuf::from(service_path),
@@ -138,6 +165,7 @@ pub async fn op_user_worker_create(
                 service_path: None,
             }),
             static_patterns: vec![],
+            maybe_jsx_import_source_config: jsx_import_conf,
         };
 
         tx.send(UserWorkerMsgs::Create(user_worker_options, result_tx))?;

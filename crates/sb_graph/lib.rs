@@ -1,6 +1,7 @@
 use crate::emitter::EmitterFactory;
 use crate::graph_util::{create_eszip_from_graph_raw, create_graph};
 use deno_ast::MediaType;
+use deno_config::JsxImportSourceConfig;
 use deno_core::error::AnyError;
 use deno_core::futures::io::{AllowStdIo, BufReader};
 use deno_core::url::Url;

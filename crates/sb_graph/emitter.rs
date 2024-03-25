@@ -1,5 +1,6 @@
 use crate::graph_resolver::{CliGraphResolver, CliGraphResolverOptions};
 use deno_ast::EmitOptions;
+use deno_config::JsxImportSourceConfig;
 use deno_core::error::AnyError;
 use deno_core::parking_lot::Mutex;
 use deno_lockfile::Lockfile;
@@ -88,6 +89,7 @@ pub struct EmitterFactory {
     npm_resolver: Deferred<Arc<dyn CliNpmResolver>>,
     resolver: Deferred<Arc<CliGraphResolver>>,
     file_fetcher_cache_strategy: Option<CacheSetting>,
+    jsx_import_source_config: Option<JsxImportSourceConfig>,
     file_fetcher_allow_remote: bool,
     pub maybe_import_map: Option<Arc<ImportMap>>,
     file_cache: Deferred<Arc<FileCache>>,
@@ -119,6 +121,7 @@ impl EmitterFactory {
             file_fetcher_allow_remote: true,
             maybe_import_map: None,
             file_cache: Default::default(),
+            jsx_import_source_config: None,
         }
     }
 
@@ -304,8 +307,13 @@ impl EmitterFactory {
     pub fn cli_graph_resolver_options(&self) -> CliGraphResolverOptions {
         CliGraphResolverOptions {
             maybe_import_map: self.maybe_import_map.clone(),
+            maybe_jsx_import_source_config: self.jsx_import_source_config.clone(),
             ..Default::default()
         }
+    }
+
+    pub async fn set_jsx_import_source(&mut self, config: JsxImportSourceConfig) {
+        self.jsx_import_source_config = Some(config);
     }
 
     pub async fn cli_graph_resolver(&self) -> &Arc<CliGraphResolver> {

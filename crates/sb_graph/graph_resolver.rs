@@ -165,6 +165,11 @@ impl CliGraphResolver {
         }
     }
 
+    pub fn set_jsx_import_source(&mut self, config: JsxImportSourceConfig) {
+        self.maybe_jsx_import_source_module = Some(config.module);
+        self.maybe_default_jsx_import_source = config.default_specifier;
+    }
+
     pub fn as_graph_resolver(&self) -> &dyn Resolver {
         self
     }

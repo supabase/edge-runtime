@@ -369,6 +369,7 @@ async fn test_main_worker_boot_error() {
             event_worker_metric_src: None,
         }),
         static_patterns: vec![],
+        maybe_jsx_import_source_config: None,
     };
 
     let result = create_worker((opts, main_termination_token.clone()), None, None).await;
@@ -808,6 +809,7 @@ async fn test_worker_boot_invalid_imports() {
         maybe_module_code: None,
         conf: WorkerRuntimeOpts::UserWorker(test_user_runtime_opts()),
         static_patterns: vec![],
+        maybe_jsx_import_source_config: None,
     };
 
     let result = create_test_user_worker(opts).await;

@@ -1,7 +1,6 @@
 use crate::emitter::EmitterFactory;
 use crate::graph_util::{create_eszip_from_graph_raw, create_graph};
 use deno_ast::MediaType;
-use deno_config::JsxImportSourceConfig;
 use deno_core::error::AnyError;
 use deno_core::futures::io::{AllowStdIo, BufReader};
 use deno_core::url::Url;
@@ -25,6 +24,7 @@ pub mod emitter;
 pub mod graph_resolver;
 pub mod graph_util;
 pub mod import_map;
+pub mod jsx_util;
 
 pub const VFS_ESZIP_KEY: &str = "---SUPABASE-VFS-DATA-ESZIP---";
 pub const SOURCE_CODE_ESZIP_KEY: &str = "---SUPABASE-SOURCE-CODE-ESZIP---";

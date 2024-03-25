@@ -1,7 +1,6 @@
 use crate::emitter::EmitterFactory;
 use crate::graph_resolver::CliGraphResolver;
 use deno_ast::MediaType;
-use deno_config::JsxImportSourceConfig;
 use deno_core::error::{custom_error, AnyError};
 use deno_core::parking_lot::Mutex;
 use deno_core::{FastString, ModuleSpecifier};
@@ -16,7 +15,6 @@ use sb_core::cache::parsed_source::ParsedSourceCache;
 use sb_core::errors_rt::get_error_class_name;
 use sb_core::file_fetcher::File;
 use sb_npm::CliNpmResolver;
-use std::borrow::BorrowMut;
 use std::path::PathBuf;
 use std::sync::Arc;
 

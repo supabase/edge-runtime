@@ -1,4 +1,5 @@
 use crate::graph_resolver::{CliGraphResolver, CliGraphResolverOptions};
+use crate::jsx_util::{get_jsx_emit_opts, get_rt_from_jsx};
 use crate::DecoratorType;
 use deno_ast::EmitOptions;
 use deno_config::JsxImportSourceConfig;
@@ -179,6 +180,17 @@ impl EmitterFactory {
     }
 
     pub fn emit_options(&self) -> EmitOptions {
+        let (specifier, module) = if let Some(jsx_config) = self.jsx_import_source_config.clone() {
+            (jsx_config.default_specifier, jsx_config.module)
+        } else {
+            (None, "react".to_string())
+        };
+
+        let jsx_module = get_rt_from_jsx(Some(module));
+
+        let (transform_jsx, jsx_automatic, jsx_development, precompile_jsx) =
+            get_jsx_emit_opts(jsx_module.as_str());
+
         EmitOptions {
             use_decorators_proposal: self
                 .maybe_decorator
@@ -198,7 +210,11 @@ impl EmitterFactory {
             inline_source_map: true,
             inline_sources: true,
             source_map: true,
-
+            jsx_import_source: specifier,
+            transform_jsx,
+            jsx_automatic,
+            jsx_development,
+            precompile_jsx,
             ..Default::default()
         }
     }

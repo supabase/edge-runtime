@@ -182,6 +182,7 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
             event_worker_metric_src: None,
         }),
         static_patterns: vec![],
+        maybe_jsx_import_source_config: None
     };
 
     let (_, worker_req_tx) = create_worker((opts, main_termination_token.clone()), None)

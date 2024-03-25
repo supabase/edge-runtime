@@ -603,22 +603,16 @@ impl WorkerPool {
         }
     }
 
-    #[allow(clippy::question_mark)]
     fn maybe_active_worker(&mut self, service_path: &String, force_create: bool) -> Option<Uuid> {
         if force_create {
             return None;
         }
 
-        let Some(registry) = self.active_workers.get_mut(service_path) else {
-            return None;
-        };
-
+        let registry = self.active_workers.get_mut(service_path)?;
         let policy = self.policy.supervisor_policy;
-        let mut advance_fn = move || registry.mark_used_and_try_advance(policy).copied();
 
-        let Some(worker_uuid) = advance_fn() else {
-            return None;
-        };
+        let mut advance_fn = move || registry.mark_used_and_try_advance(policy).copied();
+        let worker_uuid = advance_fn()?;
 
         match self
             .user_workers

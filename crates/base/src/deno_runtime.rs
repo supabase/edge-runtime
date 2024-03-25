@@ -1212,7 +1212,7 @@ mod test {
         )
         .await;
 
-        let main_mod_ev = main_rt.js_runtime.mod_evaluate(main_rt.main_module_id);
+        let _main_mod_ev = main_rt.js_runtime.mod_evaluate(main_rt.main_module_id);
         let _ = main_rt
             .js_runtime
             .run_event_loop(PollEventLoopOptions {
@@ -1234,9 +1234,12 @@ mod test {
             )
             .unwrap();
 
-        let fs_read_result =
+        let jsx_read_result =
             main_rt.to_value::<deno_core::serde_json::Value>(&global_value_deno_read_file_script);
-        println!("{}", fs_read_result.unwrap().to_string());
+        assert_eq!(
+            jsx_read_result.unwrap().to_string(),
+            r#"{"type":"div","props":{"children":"Hello"},"__k":null,"__":null,"__b":0,"__e":null,"__c":null,"__v":-1,"__i":-1,"__u":0}"#
+        );
     }
 
     // #[tokio::test]

@@ -51,7 +51,6 @@ import * as WebGPU from 'ext:deno_webgpu/00_init.js';
 import * as WebGPUSurface from 'ext:deno_webgpu/02_surface.js';
 
 import { core, internals, primordials } from 'ext:core/mod.js';
-import { op_lazy_load_esm } from 'ext:core/ops';
 
 const ops = core.ops;
 const {
@@ -59,6 +58,7 @@ const {
 	ArrayPrototypePop,
 	ArrayPrototypeShift,
 	ObjectAssign,
+	ObjectKeys,
 	ObjectDefineProperty,
 	ObjectDefineProperties,
 	ObjectSetPrototypeOf,
@@ -119,7 +119,7 @@ function ImageWritable(getter) {
 }
 function loadImage() {
 	if (!image) {
-		image = op_lazy_load_esm('ext:deno_canvas/01_image.js');
+		image = ops.op_lazy_load_esm('ext:deno_canvas/01_image.js');
 	}
 }
 
@@ -370,10 +370,33 @@ const globalProperties = {
 };
 ObjectDefineProperties(globalThis, globalProperties);
 
-const deleteDenoApis = apis => {
-	apis.forEach((key) => {
-		delete Deno[key];
-	});
+
+const MOCK_FN = () => {/* do nothing */};
+const DENIED_DENO_FS_API_LIST = ObjectKeys(fsVars)
+	.reduce(
+		(acc, it) => {
+			acc[it] = false;
+			return acc;
+		},
+		{}
+	);
+
+const PATCH_DENO_API_LIST = {
+	...DENIED_DENO_FS_API_LIST,
+
+	'cwd': true,
+	'readFile': true,
+	'readFileSync': true,
+	'readTextFile': true,
+	'readTextFileSync': true,
+
+	'kill': MOCK_FN,
+	'exit': MOCK_FN,
+	'addSignalListener': MOCK_FN,
+	'removeSignalListener': MOCK_FN,
+
+	'execPath': () => '/bin/edge-runtime',
+	'memoryUsage': () => ops.op_runtime_memory_usage(),
 };
 
 globalThis.bootstrapSBEdge = opts => {
@@ -485,11 +508,18 @@ globalThis.bootstrapSBEdge = opts => {
 				}),
 			),
 		});
+	
+		const apiNames = ObjectKeys(PATCH_DENO_API_LIST);
 
-		const allowedFs = ['cwd', 'readFile', 'readFileSync', 'readTextFile', 'readTextFileSync'];
+		for (const name of apiNames) {
+			const value = PATCH_DENO_API_LIST[name];
 
-		// remove all fs APIs except Deno.cwd
-		deleteDenoApis(Object.keys(fsVars).filter((k) => !allowedFs.includes(k)));
+			if (value === false) {
+				delete Deno[name]; 
+			} else if (typeof value === 'function') {
+				Deno[name] = value;
+			}
+		}
 	}
 
 	if (isEventsWorker) {

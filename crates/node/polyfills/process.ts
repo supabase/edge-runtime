@@ -99,7 +99,10 @@ export const exit = (code?: number | string) => {
 };
 
 export const abort = () => {
-  op_process_abort();
+  // NOTE(Nyannyacha): Disable it until we find a better way to handle
+  // permissions.
+
+  // op_process_abort();
 };
 
 function addReadOnlyProcessAlias(
@@ -393,7 +396,7 @@ class Process extends EventEmitter {
     return argv0;
   }
 
-  set argv0(_val) {}
+  set argv0(_val) { }
 
   /** https://nodejs.org/api/process.html#process_process_chdir_directory */
   chdir = chdir;

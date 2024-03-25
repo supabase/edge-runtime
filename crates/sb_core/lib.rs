@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use deno_core::error::AnyError;
-use deno_core::v8::IsolateHandle;
+use deno_core::v8;
 use deno_core::OpState;
 use deno_core::{op2, JsRuntime};
 use enum_as_inner::EnumAsInner;
@@ -83,7 +83,7 @@ pub enum MetricSource {
 
 #[derive(Debug, Clone)]
 pub struct WorkerMetricSource {
-    handle: IsolateHandle,
+    handle: v8::IsolateHandle,
     waker: Arc<AtomicWaker>,
 }
 
@@ -133,12 +133,9 @@ impl RuntimeMetricSource {
             heap_tx: oneshot::Sender<WorkerHeapStatistics>,
         }
 
-        extern "C" fn interrupt_fn(
-            isolate: &mut deno_core::v8::Isolate,
-            data: *mut std::ffi::c_void,
-        ) {
+        extern "C" fn interrupt_fn(isolate: &mut v8::Isolate, data: *mut std::ffi::c_void) {
             let arg = unsafe { Box::<InterruptData>::from_raw(data as *mut _) };
-            let mut v8_heap_stats = deno_core::v8::HeapStatistics::default();
+            let mut v8_heap_stats = v8::HeapStatistics::default();
             let mut worker_heap_stats = WorkerHeapStatistics::default();
 
             isolate.get_heap_statistics(&mut v8_heap_stats);
@@ -286,6 +283,30 @@ fn op_schedule_mem_check(state: &mut OpState) -> Result<(), AnyError> {
     Ok(())
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MemoryUsage {
+    rss: usize,
+    heap_total: usize,
+    heap_used: usize,
+    external: usize,
+}
+
+#[op2]
+#[serde]
+fn op_runtime_memory_usage(scope: &mut v8::HandleScope) -> MemoryUsage {
+    let mut s = v8::HeapStatistics::default();
+
+    scope.get_heap_statistics(&mut s);
+
+    MemoryUsage {
+        rss: 0,
+        heap_total: s.total_heap_size(),
+        heap_used: s.used_heap_size(),
+        external: s.external_memory(),
+    }
+}
+
 #[op2]
 #[string]
 pub fn op_read_line_prompt(
@@ -310,6 +331,7 @@ deno_core::extension!(
         op_set_exit_code,
         op_runtime_metrics,
         op_schedule_mem_check,
+        op_runtime_memory_usage
     ],
     esm_entry_point = "ext:sb_core_main_js/js/bootstrap.js",
     esm = [

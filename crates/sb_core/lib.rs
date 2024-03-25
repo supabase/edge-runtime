@@ -300,6 +300,7 @@ fn op_runtime_memory_usage(scope: &mut v8::HandleScope) -> MemoryUsage {
     scope.get_heap_statistics(&mut s);
 
     MemoryUsage {
+        // NOTE: Hardcoded for security.
         rss: 0,
         heap_total: s.total_heap_size(),
         heap_used: s.used_heap_size(),

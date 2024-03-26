@@ -26,18 +26,18 @@ serve(async (req: Request) => {
 	// 	if (upgrade.toLowerCase() != "websocket") {
 	// 		return new Response("request isn't trying to upgrade to websocket.");
 	// 	}
-	
+
 	// 	const { socket, response } = Deno.upgradeWebSocket(req);
-	
+
 	// 	socket.onopen = () => console.log("socket opened");
 	// 	socket.onmessage = (e) => {
 	// 		console.log("socket message:", e.data);
 	// 		socket.send(new Date().toString());
 	// 	};
-	
+
 	// 	socket.onerror = e => console.log("socket errored:", e.message);
 	// 	socket.onclose = () => console.log("socket closed");
-	
+
 	// 	return response; // 101 (Switching Protocols)
 	// }
 
@@ -53,7 +53,7 @@ serve(async (req: Request) => {
 	}
 
 	const servicePath = `./examples/${service_name}`;
-	console.error(`serving the request with ${servicePath}`);
+	// console.error(`serving the request with ${servicePath}`);
 
 	const createWorker = async () => {
 		const memoryLimitMb = 150;

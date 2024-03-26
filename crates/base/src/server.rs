@@ -33,7 +33,7 @@ use tokio::net::TcpListener;
 use tokio::pin;
 use tokio::sync::mpsc::{Sender, UnboundedSender};
 use tokio::sync::{mpsc, oneshot, watch};
-use tokio::time::timeout;
+use tokio::time::{sleep, timeout};
 use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::TlsAcceptor;
@@ -41,10 +41,12 @@ use tokio_util::sync::CancellationToken;
 
 pub enum ServerEvent {
     ConnectionError(hyper::Error),
+    #[cfg(debug_assertions)]
+    Draining,
 }
 
 pub enum ServerHealth {
-    Listening(mpsc::UnboundedReceiver<ServerEvent>),
+    Listening(mpsc::UnboundedReceiver<ServerEvent>, SharedMetricSource),
     Failure,
 }
 
@@ -434,6 +436,7 @@ impl Server {
             None
         };
 
+        let metric_src = self.metric_src.clone();
         let termination_tokens = &self.termination_tokens;
         let input_termination_token = termination_tokens.input.as_ref();
         let flags = self.flags;
@@ -452,7 +455,9 @@ impl Server {
 
         if let Some(callback) = self.callback_tx.clone() {
             can_receive_event = true;
-            let _ = callback.send(ServerHealth::Listening(event_rx)).await;
+            let _ = callback
+                .send(ServerHealth::Listening(event_rx, metric_src.clone()))
+                .await;
         }
 
         let event_tx = can_receive_event.then_some(event_tx.clone());
@@ -484,7 +489,7 @@ impl Server {
         loop {
             let main_worker_req_tx = self.main_worker_req_tx.clone();
             let event_tx = event_tx.clone();
-            let metric_src = self.metric_src.clone();
+            let metric_src = metric_src.clone();
 
             tokio::select! {
                 msg = non_secure_listener.accept() => {
@@ -549,10 +554,17 @@ impl Server {
             }
         }
 
-        let metric_src = self.metric_src.clone();
-
         if graceful_exit_deadline > 0 {
+            static REQ_METRIC_CHECK_SLEEP_DUR: Duration = Duration::from_millis(10);
+
             let wait_fut = async move {
+                #[cfg(debug_assertions)]
+                {
+                    if let Some(tx) = event_tx.as_ref() {
+                        let _ = tx.send(ServerEvent::Draining);
+                    }
+                }
+
                 loop {
                     let received = metric_src.received_requests();
                     let handled = metric_src.handled_requests();
@@ -563,7 +575,7 @@ impl Server {
                         break;
                     }
 
-                    tokio::task::yield_now().await;
+                    sleep(REQ_METRIC_CHECK_SLEEP_DUR).await;
                 }
 
                 termination_tokens.terminate().await;
@@ -631,7 +643,7 @@ fn accept_stream<I>(
                     error!("client connection error ({:?})", e);
                 }
 
-                if let Some(tx) = event_tx {
+                if let Some(tx) = event_tx.as_ref() {
                     let _ = tx.send(ServerEvent::ConnectionError(e));
                 }
             }

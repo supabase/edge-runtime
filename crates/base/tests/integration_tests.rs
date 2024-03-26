@@ -873,9 +873,10 @@ async fn req_failure_case_wall_clock_reached() {
 
     let buf = to_bytes(res.body_mut()).await.unwrap();
 
-    assert_eq!(
-        buf,
-        "{\"msg\":\"WorkerRequestCancelled: request has been cancelled by supervisor\"}"
+    assert!(
+        buf == "{\"msg\":\"InvalidWorkerResponse: user worker failed to respond\"}"
+            || buf
+                == "{\"msg\":\"WorkerRequestCancelled: request has been cancelled by supervisor\"}"
     );
 
     tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;

@@ -15,9 +15,14 @@ use http::{Method, Request, StatusCode};
 use http_utils::utils::get_upgrade_type;
 use hyper::{body::to_bytes, Body};
 use reqwest::Certificate;
+use sb_core::SharedMetricSource;
 use sb_workers::context::{MainWorkerRuntimeOpts, WorkerContextInitOpts, WorkerRuntimeOpts};
 use serial_test::serial;
-use tokio::{join, sync::mpsc};
+use tokio::{
+    join,
+    sync::{mpsc, oneshot},
+    time::timeout,
+};
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use tungstenite::Message;
 use urlencoding::encode;
@@ -45,7 +50,7 @@ async fn test_custom_readable_stream_response() {
         None,
         None,
         None,
-        (|resp: Result<reqwest::Response, reqwest::Error>| async {
+        (|resp| async {
             assert_eq!(
                 resp.unwrap().text().await.unwrap(),
                 "Hello world from streams"
@@ -66,7 +71,7 @@ async fn test_import_map_file_path() {
         Some("./test_cases/with_import_map/import_map.json".to_string()),
         None,
         None,
-        (|resp: Result<reqwest::Response, reqwest::Error>| async {
+        (|resp| async {
             let res = resp.unwrap();
             assert!(res.status().as_u16() == 200);
 
@@ -106,7 +111,7 @@ async fn test_import_map_inline() {
         Some(inline_import_map),
         None,
         None,
-        (|resp: Result<reqwest::Response, reqwest::Error>| async {
+        (|resp| async {
             let res = resp.unwrap();
             assert!(res.status().as_u16() == 200);
 
@@ -129,7 +134,7 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_cli() {
         None,
         None,
         None,
-        (|resp: Result<reqwest::Response, reqwest::Error>| async {
+        (|resp| async {
             assert!(resp.unwrap().text().await.unwrap().starts_with("meow: "));
         }),
         TerminationToken::new()
@@ -242,7 +247,7 @@ async fn test_main_worker_options_request() {
         None,
         request_builder,
         None,
-        (|resp: Result<reqwest::Response, reqwest::Error>| async {
+        (|resp| async {
             let res = resp.unwrap();
             assert!(res.status().as_u16() == 200);
 
@@ -293,7 +298,7 @@ async fn test_main_worker_post_request() {
         None,
         request_builder,
         None,
-        (|resp: Result<reqwest::Response, reqwest::Error>| async {
+        (|resp| async {
             let res = resp.unwrap();
             assert!(res.status().as_u16() == 200);
 
@@ -385,7 +390,7 @@ async fn test_main_worker_abort_request() {
         None,
         request_builder,
         None,
-        (|resp: Result<reqwest::Response, reqwest::Error>| async {
+        (|resp| async {
             let res = resp.unwrap();
             assert!(res.status().as_u16() == 500);
 
@@ -466,7 +471,7 @@ async fn test_main_worker_post_request_with_transfer_encoding(maybe_tls: Option<
         None,
         request_builder,
         maybe_tls,
-        (|resp: Result<reqwest::Response, reqwest::Error>| async {
+        (|resp| async {
             let res = resp.unwrap();
             assert!(res.status().as_u16() == 200);
 
@@ -500,7 +505,7 @@ async fn test_null_body_with_204_status() {
         None,
         None,
         None,
-        (|resp: Result<reqwest::Response, reqwest::Error>| async {
+        (|resp| async {
             let res = resp.unwrap();
             assert!(res.status().as_u16() == 204);
 
@@ -536,7 +541,7 @@ async fn test_null_body_with_204_status_post() {
         None,
         request_builder,
         None,
-        (|resp: Result<reqwest::Response, reqwest::Error>| async {
+        (|resp| async {
             let res = resp.unwrap();
             assert!(res.status().as_u16() == 204);
 
@@ -558,7 +563,7 @@ async fn test_oak_server() {
         None,
         None,
         None,
-        (|resp: Result<reqwest::Response, reqwest::Error>| async {
+        (|resp| async {
             let res = resp.unwrap();
             assert!(res.status().as_u16() == 200);
 
@@ -606,7 +611,7 @@ async fn test_file_upload() {
         None,
         request_builder,
         None,
-        (|resp: Result<reqwest::Response, reqwest::Error>| async {
+        (|resp| async {
             let res = resp.unwrap();
             assert!(res.status().as_u16() == 201);
 
@@ -628,7 +633,7 @@ async fn test_node_server() {
         None,
         None,
         None,
-        (|resp: Result<reqwest::Response, reqwest::Error>| async {
+        (|resp| async {
             let res = resp.unwrap();
             assert_eq!(res.status().as_u16(), 200);
             let body_bytes = res.bytes().await.unwrap();
@@ -660,7 +665,7 @@ async fn test_tls_throw_invalid_data() {
         None,
         None,
         None,
-        (|resp: Result<reqwest::Response, reqwest::Error>| async {
+        (|resp| async {
             let res = resp.unwrap();
             assert!(res.status().as_u16() == 200);
 
@@ -682,7 +687,7 @@ async fn test_user_worker_json_imports() {
         None,
         None,
         None,
-        (|resp: Result<reqwest::Response, reqwest::Error>| async {
+        (|resp| async {
             let res = resp.unwrap();
             assert!(res.status().as_u16() == 200);
 
@@ -704,7 +709,7 @@ async fn test_user_imports_npm() {
         None,
         None,
         None,
-        (|resp: Result<reqwest::Response, reqwest::Error>| async {
+        (|resp| async {
             let res = resp.unwrap();
             assert!(res.status().as_u16() == 200);
 
@@ -885,10 +890,7 @@ async fn req_failure_case_intentional_peer_reset(maybe_tls: Option<Tls>) {
         None,
         maybe_tls.clone(),
         (
-            |_port: u16,
-             url: &'static str,
-             _req_builder: Option<reqwest::RequestBuilder>,
-             mut ev: mpsc::UnboundedReceiver<ServerEvent>| async move {
+            |_, url, _req_builder, mut ev, _| async move {
                 tokio::spawn(async move {
                     loop {
                         tokio::select! {
@@ -916,7 +918,7 @@ async fn req_failure_case_intentional_peer_reset(maybe_tls: Option<Tls>) {
                         .await,
                 )
             },
-            |_resp: Result<reqwest::Response, reqwest::Error>| async {}
+            |_| async {}
         ),
         TerminationToken::new()
     );
@@ -973,7 +975,7 @@ async fn test_websocket_upgrade(maybe_tls: Option<Tls>) {
         None,
         request_builder,
         maybe_tls,
-        (|resp: Result<reqwest::Response, reqwest::Error>| async {
+        (|resp| async {
             let res = resp.unwrap();
             let accepted = get_upgrade_type(res.headers());
 
@@ -1002,6 +1004,91 @@ async fn test_websocket_upgrade(maybe_tls: Option<Tls>) {
         }),
         TerminationToken::new()
     );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_graceful_shutdown() {
+    let token = TerminationToken::new();
+
+    let (server_ev_tx, mut server_ev_rx) = mpsc::unbounded_channel();
+    let (metric_tx, metric_rx) = oneshot::channel::<SharedMetricSource>();
+    let (tx, rx) = oneshot::channel::<()>();
+
+    tokio::spawn({
+        let token = token.clone();
+        async move {
+            let metric_src = metric_rx.await.unwrap();
+
+            while metric_src.received_requests() == 0 {
+                tokio::task::yield_now().await;
+            }
+
+            assert_eq!(metric_src.received_requests(), 1);
+            assert_eq!(metric_src.handled_requests(), 0);
+            token.cancel();
+
+            tokio::select! {
+                Some(ServerEvent::Draining) = server_ev_rx.recv() => {
+                    assert_eq!(metric_src.handled_requests(), 0);
+                }
+
+                else => {
+                    panic!("event sequence does not match != ServerEvent::Draining");
+                }
+            }
+
+            while metric_src.handled_requests() == 0 {
+                tokio::task::yield_now().await;
+            }
+
+            if timeout(Duration::from_secs(10), token.cancel_and_wait())
+                .await
+                .is_err()
+            {
+                panic!("failed to terminate server within 10 seconds");
+            }
+
+            assert_eq!(metric_src.handled_requests(), 1);
+            assert_eq!(
+                metric_src.received_requests(),
+                metric_src.handled_requests()
+            );
+
+            tx.send(()).unwrap();
+        }
+    });
+
+    integration_test!(
+        "./test_cases/main",
+        NON_SECURE_PORT,
+        "slow_resp",
+        None,
+        None,
+        None,
+        None,
+        (
+            |_port, _url, _req_builder, mut ev, metric_src| async move {
+                metric_tx.send(metric_src).unwrap();
+                tokio::spawn(async move {
+                    while let Some(ev) = ev.recv().await {
+                        let _ = server_ev_tx.send(ev);
+                    }
+                });
+
+                None
+            },
+            |resp| async {
+                assert_eq!(resp.unwrap().status().as_u16(), 200);
+            }
+        ),
+        #[manual]
+        token
+    );
+
+    if timeout(Duration::from_secs(10), rx).await.is_err() {
+        panic!("failed to check within 10 seconds");
+    }
 }
 
 #[tokio::test]

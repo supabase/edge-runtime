@@ -90,7 +90,9 @@ You can run this script from a shell to automatically get your setup ready for l
 vscode ➜ /workspaces/edge-runtime $ cd ./k6/scripts/
 vscode ➜ /workspaces/edge-runtime/k6/scripts $ ls
 setup.sh
-vscode ➜ /workspaces/edge-runtime/k6/scripts $ ./setup.sh 
+
+# Note that the commands below are prefixed with `sudo`.
+vscode ➜ /workspaces/edge-runtime/k6/scripts $ sudo ./setup.sh 
 ```
 
 Once you run the script, you no longer need to run it again unless you delete the dev container or reinitialize the volume.

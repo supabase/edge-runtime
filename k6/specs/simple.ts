@@ -16,7 +16,7 @@ export const options: Options = {
 };
 
 export default function simple() {
-    const res = http.get(`${target}/hello-world`);
+    const res = http.get(`${target}/serve`);
 
     check(res, {
         "status is 200": r => r.status === 200

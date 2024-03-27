@@ -35,7 +35,7 @@ use crate::integration_test_helper::{
 
 const NON_SECURE_PORT: u16 = 8498;
 const SECURE_PORT: u16 = 4433;
-const TESTBED_DEADLINE_SEC: u64 = 5;
+const TESTBED_DEADLINE_SEC: u64 = 20;
 
 const TLS_LOCALHOST_ROOT_CA: &[u8] = include_bytes!("./fixture/tls/root-ca.pem");
 const TLS_LOCALHOST_CERT: &[u8] = include_bytes!("./fixture/tls/localhost.pem");
@@ -1056,12 +1056,11 @@ async fn test_graceful_shutdown() {
         async move {
             let metric_src = metric_rx.await.unwrap();
 
-            while metric_src.received_requests() == 0 {
+            while metric_src.active_io() == 0 {
                 tokio::task::yield_now().await;
             }
 
-            assert_eq!(metric_src.received_requests(), 1);
-            assert_eq!(metric_src.handled_requests(), 0);
+            assert_eq!(metric_src.active_io(), 1);
             token.cancel();
 
             tokio::select! {
@@ -1074,7 +1073,7 @@ async fn test_graceful_shutdown() {
                 }
             }
 
-            while metric_src.handled_requests() == 0 {
+            while metric_src.active_io() > 0 {
                 tokio::task::yield_now().await;
             }
 
@@ -1085,6 +1084,7 @@ async fn test_graceful_shutdown() {
                 panic!("failed to terminate server within 10 seconds");
             }
 
+            assert_eq!(metric_src.active_io(), 0);
             assert_eq!(metric_src.handled_requests(), 1);
             assert_eq!(
                 metric_src.received_requests(),

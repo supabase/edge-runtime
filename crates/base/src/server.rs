@@ -565,13 +565,30 @@ impl Server {
                     }
                 }
 
+                graceful_exit_token.cancel();
+
                 loop {
-                    let received = metric_src.received_requests();
-                    let handled = metric_src.handled_requests();
+                    let active_io = metric_src.active_io();
+                    let received_request_count = if cfg!(debug_assertions) {
+                        metric_src.received_requests()
+                    } else {
+                        0
+                    };
 
-                    trace!("received: {}, handled: {}", received, handled);
+                    let handled_request_count = if cfg!(debug_assertions) {
+                        metric_src.handled_requests()
+                    } else {
+                        0
+                    };
 
-                    if received == handled {
+                    trace!(
+                        "io: {}, received: {}, handled: {}",
+                        active_io,
+                        received_request_count,
+                        handled_request_count
+                    );
+
+                    if active_io == 0 && received_request_count == handled_request_count {
                         break;
                     }
 
@@ -614,21 +631,26 @@ fn accept_stream<I>(
 ) where
     I: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
+    metric_src.incl_active_io();
     tokio::task::spawn({
         async move {
-            let (service, cancel) = WorkerService::new(metric_src, req_tx);
+            let (service, cancel) = WorkerService::new(metric_src.clone(), req_tx);
+
             let _guard = cancel.drop_guard();
+            let _active_io_count_guard = scopeguard::guard(metric_src, |it| {
+                it.decl_active_io();
+            });
 
             let conn_fut = Http::new().serve_connection(io, service).with_upgrades();
+            let mut shutting_down = false;
+
             pin!(conn_fut);
 
             let conn_result = loop {
                 tokio::select! {
-                    res = conn_fut.as_mut() => {
-                        break res;
-                    }
-
-                    _ = graceful_exit_token.cancelled() => {
+                    res = conn_fut.as_mut() => break res,
+                    _ = graceful_exit_token.cancelled(), if !shutting_down => {
+                        shutting_down = true;
                         conn_fut.as_mut().graceful_shutdown();
                     }
                 }

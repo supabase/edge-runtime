@@ -891,7 +891,7 @@ async fn req_failure_case_intentional_peer_reset(maybe_tls: Option<Tls>) {
         None,
         maybe_tls.clone(),
         (
-            |_, url, _req_builder, mut ev, _| async move {
+            |(_, url, _, mut ev, ..)| async move {
                 tokio::spawn(async move {
                     loop {
                         tokio::select! {
@@ -1069,7 +1069,7 @@ async fn test_graceful_shutdown() {
         None,
         None,
         (
-            |_port, _url, _req_builder, mut ev, metric_src| async move {
+            |(.., mut ev, metric_src)| async move {
                 metric_tx.send(metric_src).unwrap();
                 tokio::spawn(async move {
                     while let Some(ev) = ev.recv().await {

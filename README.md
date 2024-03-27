@@ -25,6 +25,8 @@ The edge runtime can be divided into two runtimes with different purposes.
   - Limits are required to be set such as: Memory and Timeouts.
   - Has access to environment variables explictly allowed by the main runtime.
 
+## Developers
+To learn how to build / test Edge Runtime, visit [DEVELOPERS.md](DEVELOPERS.md)
 
 ## Contributions
 

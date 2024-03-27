@@ -433,6 +433,31 @@ async fn test_main_worker_abort_request() {
     );
 }
 
+#[tokio::test]
+#[serial]
+async fn test_main_worker_with_jsx_function() {
+    integration_test!(
+        "./test_cases/jsx",
+        NON_SECURE_PORT,
+        "jsx-server",
+        None,
+        None,
+        None,
+        None,
+        (|resp: Result<reqwest::Response, reqwest::Error>| async {
+            let res = resp.unwrap();
+            assert!(res.status().as_u16() == 200);
+
+            let body_bytes = res.bytes().await.unwrap();
+            assert_eq!(
+                body_bytes,
+                r#"{"type":"div","props":{"children":"Hello"},"__k":null,"__":null,"__b":0,"__e":null,"__c":null,"__v":-1,"__i":-1,"__u":0}"#
+            );
+        }),
+        TerminationToken::new()
+    );
+}
+
 //#[tokio::test]
 //async fn test_main_worker_user_worker_mod_evaluate_exception() {
 //    // create a user worker pool

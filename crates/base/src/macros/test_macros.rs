@@ -2,6 +2,7 @@
 macro_rules! integration_test {
     ($main_file:expr, $port:expr, $url:expr, $policy:expr, $import_map:expr, $req_builder:expr, $tls:expr, ($($function:tt)+) $(, $($token:tt)+)?) => {
         use futures_util::FutureExt;
+        use $crate::macros::test_macros::__private;
 
         let (tx, mut rx) = tokio::sync::mpsc::channel::<base::server::ServerHealth>(1);
 
@@ -36,47 +37,6 @@ macro_rules! integration_test {
             None
         )
         .boxed();
-
-        async fn __req_fn<F, R>(
-            input_fn: F,
-            port: u16,
-            url: &'static str,
-            req_builder: Option<reqwest::RequestBuilder>,
-            event_rx: mpsc::UnboundedReceiver<base::server::ServerEvent>,
-            metric_src: sb_core::SharedMetricSource
-        ) -> Option<Result<reqwest::Response, reqwest::Error>>
-        where
-            F: FnOnce(
-                u16,
-                &'static str,
-                Option<reqwest::RequestBuilder>,
-                mpsc::UnboundedReceiver<base::server::ServerEvent>,
-                sb_core::SharedMetricSource
-            ) -> R,
-            R: std::future::Future<Output = Option<Result<reqwest::Response, reqwest::Error>>>,
-        {
-            input_fn(
-                port,
-                url,
-                req_builder,
-                event_rx,
-                metric_src
-            )
-            .await
-        }
-
-        async fn __resp_fn <F, R>(
-            input_fn: F,
-            resp: Result<reqwest::Response, reqwest::Error>
-        )
-        where
-            F: FnOnce(
-                Result<reqwest::Response, reqwest::Error>
-            ) -> R,
-            R: std::future::Future<Output = ()>,
-        {
-            input_fn(resp).await;
-        }
 
         tokio::select! {
             resp = signal => {
@@ -139,7 +99,18 @@ macro_rules! integration_test {
     };
 
     (@req $event_rx:ident, $metric_src:ident, $schema:expr, $port:expr, $url:expr, $req_builder:expr, ($req:expr, $_:expr)) => {
-        if let Some(resp) = __req_fn($req, $port, $url, $req_builder, $event_rx, $metric_src).await {
+        if let Some(resp) = __private::infer_req_closure_signature(
+            $req,
+            (
+                $port,
+                $url,
+                $req_builder,
+                $event_rx,
+                $metric_src,
+            )
+        )
+        .await
+        {
             return Some(resp);
         } else {
             let resp = reqwest::get(format!("{}://localhost:{}/{}", $schema, $port, $url)).await;
@@ -157,10 +128,50 @@ macro_rules! integration_test {
     };
 
     (@resp $var:ident, ($_:expr, $resp:expr)) => {
-        __resp_fn($resp, $var)
+        __private::infer_resp_closure_signature($resp, $var)
     };
 
     (@resp $var:ident, $resp:expr) => {
-        __resp_fn($resp, $var)
+        __private::infer_resp_closure_signature($resp, $var)
     };
+}
+
+#[doc(hidden)]
+pub mod __private {
+    use std::future::Future;
+
+    use reqwest::{Error, RequestBuilder, Response};
+    use sb_core::SharedMetricSource;
+    use tokio::sync::mpsc;
+
+    use crate::server::ServerEvent;
+
+    /// NOTE(Nyannyacha): This was defined to enable pattern matching in closure
+    /// argument positions.
+    type ReqTuple = (
+        u16,
+        &'static str,
+        Option<RequestBuilder>,
+        mpsc::UnboundedReceiver<ServerEvent>,
+        SharedMetricSource,
+    );
+
+    pub async fn infer_req_closure_signature<F, R>(
+        closure: F,
+        args: ReqTuple,
+    ) -> Option<Result<Response, Error>>
+    where
+        F: FnOnce(ReqTuple) -> R,
+        R: Future<Output = Option<Result<Response, Error>>>,
+    {
+        closure(args).await
+    }
+
+    pub async fn infer_resp_closure_signature<F, R>(closure: F, arg0: Result<Response, Error>)
+    where
+        F: FnOnce(Result<Response, Error>) -> R,
+        R: Future<Output = ()>,
+    {
+        closure(arg0).await;
+    }
 }

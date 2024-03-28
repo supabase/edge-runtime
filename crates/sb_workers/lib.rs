@@ -7,10 +7,11 @@ use crate::context::{
 };
 use anyhow::Error;
 use context::SendRequestResult;
+use deno_config::JsxImportSourceConfig;
 use deno_core::error::{custom_error, type_error, AnyError};
 use deno_core::futures::stream::Peekable;
 use deno_core::futures::{FutureExt, Stream, StreamExt};
-use deno_core::op2;
+use deno_core::{op2, ModuleSpecifier};
 use deno_core::{
     AsyncRefCell, AsyncResult, BufView, ByteString, CancelFuture, CancelHandle, CancelTryFuture,
     JsBuffer, OpState, RcRef, Resource, ResourceId, WriteOutcome,
@@ -47,7 +48,15 @@ deno_core::extension!(
     esm = ["user_workers.js",]
 );
 
-#[derive(Deserialize, Default, Debug)]
+#[derive(Deserialize, Serialize, Default, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct JsxImportBaseConfig {
+    default_specifier: Option<String>,
+    module: String,
+    base_url: String,
+}
+
+#[derive(Deserialize, Serialize, Default, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct UserWorkerCreateOptions {
     service_path: String,
@@ -67,6 +76,7 @@ pub struct UserWorkerCreateOptions {
     worker_timeout_ms: u64,
     cpu_time_soft_limit_ms: u64,
     cpu_time_hard_limit_ms: u64,
+    jsx_import_source_config: Option<JsxImportBaseConfig>,
 }
 
 #[op2(async)]
@@ -98,12 +108,28 @@ pub async fn op_user_worker_create(
             worker_timeout_ms,
             cpu_time_soft_limit_ms,
             cpu_time_hard_limit_ms,
+            jsx_import_source_config,
         } = opts;
 
         let mut env_vars_map = HashMap::new();
         for (key, value) in env_vars {
             env_vars_map.insert(key, value);
         }
+
+        let jsx_import_conf = {
+            if let Some(jsx_import_source_config) = jsx_import_source_config {
+                Some(JsxImportSourceConfig {
+                    default_specifier: jsx_import_source_config.default_specifier,
+                    module: jsx_import_source_config.module,
+                    base_url: {
+                        let main = op_state.borrow::<ModuleSpecifier>().to_string();
+                        deno_core::resolve_url_or_path(&main, std::env::current_dir()?.as_path())?
+                    },
+                })
+            } else {
+                None
+            }
+        };
 
         let user_worker_options = WorkerContextInitOpts {
             service_path: PathBuf::from(service_path),
@@ -132,6 +158,7 @@ pub async fn op_user_worker_create(
                 service_path: None,
             }),
             static_patterns: vec![],
+            maybe_jsx_import_source_config: jsx_import_conf,
         };
 
         tx.send(UserWorkerMsgs::Create(user_worker_options, result_tx))?;

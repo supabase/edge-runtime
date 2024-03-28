@@ -366,13 +366,3 @@ pub async fn create_graph(
     let create_module_graph_task = builder.create_graph_and_maybe_check(vec![module_specifier]);
     create_module_graph_task.await.unwrap()
 }
-
-pub async fn create_graph_from_specifiers(
-    specifiers: Vec<ModuleSpecifier>,
-    _is_dynamic: bool,
-    maybe_emitter_factory: Arc<EmitterFactory>,
-) -> Result<ModuleGraph, AnyError> {
-    let builder = ModuleGraphBuilder::new(maybe_emitter_factory, false);
-    let create_module_graph_task = builder.create_graph_and_maybe_check(specifiers);
-    create_module_graph_task.await
-}

@@ -1,5 +1,7 @@
 use crate::graph_resolver::{CliGraphResolver, CliGraphResolverOptions};
+use crate::jsx_util::{get_jsx_emit_opts, get_rt_from_jsx};
 use deno_ast::EmitOptions;
+use deno_config::JsxImportSourceConfig;
 use deno_core::error::AnyError;
 use deno_core::parking_lot::Mutex;
 use deno_lockfile::Lockfile;
@@ -88,6 +90,7 @@ pub struct EmitterFactory {
     npm_resolver: Deferred<Arc<dyn CliNpmResolver>>,
     resolver: Deferred<Arc<CliGraphResolver>>,
     file_fetcher_cache_strategy: Option<CacheSetting>,
+    jsx_import_source_config: Option<JsxImportSourceConfig>,
     file_fetcher_allow_remote: bool,
     pub maybe_import_map: Option<Arc<ImportMap>>,
     file_cache: Deferred<Arc<FileCache>>,
@@ -119,6 +122,7 @@ impl EmitterFactory {
             file_fetcher_allow_remote: true,
             maybe_import_map: None,
             file_cache: Default::default(),
+            jsx_import_source_config: None,
         }
     }
 
@@ -169,10 +173,26 @@ impl EmitterFactory {
     }
 
     pub fn emit_options(&self) -> EmitOptions {
+        let (specifier, module) = if let Some(jsx_config) = self.jsx_import_source_config.clone() {
+            (jsx_config.default_specifier, jsx_config.module)
+        } else {
+            (None, "react".to_string())
+        };
+
+        let jsx_module = get_rt_from_jsx(Some(module));
+
+        let (transform_jsx, jsx_automatic, jsx_development, precompile_jsx) =
+            get_jsx_emit_opts(jsx_module.as_str());
+
         EmitOptions {
             inline_source_map: true,
             inline_sources: true,
             source_map: true,
+            jsx_import_source: specifier,
+            transform_jsx,
+            jsx_automatic,
+            jsx_development,
+            precompile_jsx,
             ..Default::default()
         }
     }
@@ -304,8 +324,13 @@ impl EmitterFactory {
     pub fn cli_graph_resolver_options(&self) -> CliGraphResolverOptions {
         CliGraphResolverOptions {
             maybe_import_map: self.maybe_import_map.clone(),
+            maybe_jsx_import_source_config: self.jsx_import_source_config.clone(),
             ..Default::default()
         }
+    }
+
+    pub async fn set_jsx_import_source(&mut self, config: JsxImportSourceConfig) {
+        self.jsx_import_source_config = Some(config);
     }
 
     pub async fn cli_graph_resolver(&self) -> &Arc<CliGraphResolver> {

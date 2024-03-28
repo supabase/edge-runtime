@@ -182,6 +182,7 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
             event_worker_metric_src: None,
         }),
         static_patterns: vec![],
+        maybe_jsx_import_source_config: None,
     };
 
     let (_, worker_req_tx) = create_worker((opts, main_termination_token.clone()), None)
@@ -337,6 +338,7 @@ async fn test_main_worker_boot_error() {
             event_worker_metric_src: None,
         }),
         static_patterns: vec![],
+        maybe_jsx_import_source_config: None,
     };
 
     let result = create_worker((opts, main_termination_token.clone()), None).await;
@@ -393,6 +395,31 @@ async fn test_main_worker_abort_request() {
             assert_eq!(
                 body_bytes,
                 "{\"msg\":\"AbortError: The signal has been aborted\"}"
+            );
+        }),
+        TerminationToken::new()
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_main_worker_with_jsx_function() {
+    integration_test!(
+        "./test_cases/jsx",
+        NON_SECURE_PORT,
+        "jsx-server",
+        None,
+        None,
+        None,
+        None,
+        (|resp: Result<reqwest::Response, reqwest::Error>| async {
+            let res = resp.unwrap();
+            assert!(res.status().as_u16() == 200);
+
+            let body_bytes = res.bytes().await.unwrap();
+            assert_eq!(
+                body_bytes,
+                r#"{"type":"div","props":{"children":"Hello"},"__k":null,"__":null,"__b":0,"__e":null,"__c":null,"__v":-1,"__i":-1,"__u":0}"#
             );
         }),
         TerminationToken::new()
@@ -733,6 +760,7 @@ async fn test_worker_boot_invalid_imports() {
         maybe_module_code: None,
         conf: WorkerRuntimeOpts::UserWorker(test_user_runtime_opts()),
         static_patterns: vec![],
+        maybe_jsx_import_source_config: None,
     };
 
     let result = create_test_user_worker(opts).await;

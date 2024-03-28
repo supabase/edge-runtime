@@ -373,6 +373,7 @@ dependencies = [
  "deno_ast",
  "deno_broadcast_channel",
  "deno_canvas",
+ "deno_config",
  "deno_console",
  "deno_core",
  "deno_crypto",
@@ -4860,6 +4861,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bytes",
+ "deno_config",
  "deno_core",
  "deno_http",
  "enum-as-inner 0.6.0",

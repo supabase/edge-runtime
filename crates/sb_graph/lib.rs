@@ -23,6 +23,7 @@ pub mod emitter;
 pub mod graph_resolver;
 pub mod graph_util;
 pub mod import_map;
+pub mod jsx_util;
 
 pub const VFS_ESZIP_KEY: &str = "---SUPABASE-VFS-DATA-ESZIP---";
 pub const SOURCE_CODE_ESZIP_KEY: &str = "---SUPABASE-SOURCE-CODE-ESZIP---";

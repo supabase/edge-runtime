@@ -36,3 +36,4 @@ Deno.serve(() => { /* do nothing */ });
 grow(
     350 // 350 pages ~= 22.9376 Mib
 );
+console.log(wasm.memory.buffer.byteLength); // to prevent optimization

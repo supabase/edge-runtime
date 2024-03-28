@@ -230,7 +230,6 @@ impl DenoRuntime {
 
         let is_user_worker = conf.is_user_worker();
 
-        // TODO: check for other potential main paths (eg: index.js, index.tsx)
         let potential_exts = vec!["ts", "tsx", "js", "jsx"];
         let mut main_module_url = base_url.join("index.ts")?;
         for potential_ext in potential_exts {

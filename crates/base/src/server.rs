@@ -236,6 +236,7 @@ pub struct ServerFlags {
     pub allow_main_inspector: bool,
     pub tcp_nodelay: bool,
     pub graceful_exit_deadline_sec: u64,
+    pub graceful_exit_keepalive_deadline_ms: Option<u64>,
 }
 
 #[derive(Debug)]
@@ -461,14 +462,15 @@ impl Server {
         }
 
         let event_tx = can_receive_event.then_some(event_tx.clone());
+        let graceful_exit_token = CancellationToken::new();
+
         let ServerFlags {
             tcp_nodelay,
-            graceful_exit_deadline_sec,
+            mut graceful_exit_deadline_sec,
+            mut graceful_exit_keepalive_deadline_ms,
             ..
         } = flags;
 
-        let mut graceful_exit_deadline = graceful_exit_deadline_sec;
-        let graceful_exit_token = CancellationToken::new();
 
         let mut terminate_signal_fut = poll_fn({
             let mut sig = if cfg!(unix) {
@@ -535,8 +537,9 @@ impl Server {
                 } => {
                     info!("termination token resolved");
 
-                    if graceful_exit_deadline == 0 {
-                        graceful_exit_deadline = u64::MAX;
+                    if graceful_exit_deadline_sec == 0 {
+                        graceful_exit_deadline_sec = u64::MAX;
+                        graceful_exit_keepalive_deadline_ms = graceful_exit_keepalive_deadline_ms.map(|_| u64::MAX);
                     }
 
                     break;
@@ -554,7 +557,7 @@ impl Server {
             }
         }
 
-        if graceful_exit_deadline > 0 {
+        if graceful_exit_deadline_sec > 0 {
             static REQ_METRIC_CHECK_SLEEP_DUR: Duration = Duration::from_millis(10);
 
             let wait_fut = async move {
@@ -565,7 +568,39 @@ impl Server {
                     }
                 }
 
-                graceful_exit_token.cancel();
+                if let Some(keepalive_deadline_ms) = graceful_exit_keepalive_deadline_ms {
+                    // NOTE(Nyannyacha): What this branch does is not an
+                    // implementation in the strict sense of the graceful close
+                    // on the transport connection mentioned in RFC 2616 section
+                    // 8.1.4.
+                    //
+                    // It pushes back the cancellation of the
+                    // `graceful_exit_token` so that it can accept additional
+                    // requests coming in over an already established keep-alive
+                    // HTTP connection.
+                    //
+                    // However, this is non-standard behavior and therefore
+                    // flagged as experimental.
+                    //
+                    // Backgrounds:
+                    // [1]: https://datatracker.ietf.org/doc/html/rfc2616#autoid-59
+                    // [2]: https://trac.nginx.org/nginx/ticket/1022
+                    // [3]: https://mailman.nginx.org/pipermail/nginx-devel/2019-January/011810.html
+                    // [4]: https://github.com/kubernetes-retired/contrib/issues/1123
+                    // [5]: https://github.com/golang/go/issues/23829
+                    // [6]: https://github.com/reactor/reactor-netty/issues/1247
+                    // [7]: https://theantway.com/2017/11/analyze-connection-reset-error-in-nginx-upstream-with-keep-alive-enabled
+                    // [8]: https://github.com/hyperium/hyper/issues/3553#issuecomment-1917170510
+
+                    if keepalive_deadline_ms < u64::MAX {
+                        tokio::spawn(async move {
+                            sleep(Duration::from_millis(keepalive_deadline_ms)).await;
+                            graceful_exit_token.cancel();
+                        });
+                    }
+                } else {
+                    graceful_exit_token.cancel();
+                }
 
                 loop {
                     let active_io = metric_src.active_io();
@@ -598,14 +633,14 @@ impl Server {
                 termination_tokens.terminate().await;
             };
 
-            let timeout_fut = timeout(Duration::from_secs(graceful_exit_deadline), wait_fut);
+            let timeout_fut = timeout(Duration::from_secs(graceful_exit_deadline_sec), wait_fut);
 
             tokio::select! {
                 res = timeout_fut => {
                     if res.is_err() {
                         error!(
                             "did not able to terminate the workers within {} seconds",
-                            graceful_exit_deadline,
+                            graceful_exit_deadline_sec,
                         );
                     }
                 }

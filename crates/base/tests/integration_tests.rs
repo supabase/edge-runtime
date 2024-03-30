@@ -885,6 +885,9 @@ async fn req_failure_case_wall_clock_reached() {
 #[tokio::test]
 #[serial]
 async fn req_failure_case_wall_clock_reached_less_than_100ms() {
+    // TODO(Nyannyacha): This test seems a little flaky. If running the entire test
+    // dozens of times on the local machine, it will fail with a timeout.
+
     let tb = TestBedBuilder::new("./test_cases/main_small_wall_clock_less_than_100ms")
         .with_oneshot_policy(100000)
         .build()

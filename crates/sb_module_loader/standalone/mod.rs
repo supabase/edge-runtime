@@ -90,40 +90,61 @@ pub async fn create_module_loader_for_eszip(
         None
     };
 
-    let snapshot = eszip.take_npm_snapshot();
     let static_files = extract_static_files_from_eszip(&eszip).await;
     let vfs_root_dir_path = npm_cache_dir.registry_folder(&npm_registry_url);
 
-    let (fs, vfs) = {
-        let key = String::from(VFS_ESZIP_KEY);
-        let vfs_data: Option<Vec<u8>> = if eszip.specifiers().contains(&key) {
-            Some(
-                eszip
-                    .get_module(VFS_ESZIP_KEY)
-                    .unwrap()
-                    .take_source()
-                    .await
-                    .unwrap()
-                    .to_vec(),
-            )
-        } else {
-            None
-        };
+    let (fs, snapshot) = if let Some(snapshot) = eszip.take_npm_snapshot() {
+        // TODO: Support node_modules
+        let vfs_root_dir_path = npm_cache_dir.registry_folder(&npm_registry_url);
 
-        let vfs_data: Option<&[u8]> = if let Some(data) = &vfs_data {
+        let vfs_data: Vec<u8> = eszip
+            .get_module(VFS_ESZIP_KEY)
+            .unwrap()
+            .take_source()
+            .await
+            .unwrap()
+            .to_vec();
+
+        let vfs = load_npm_vfs(vfs_root_dir_path, &vfs_data).context("Failed to load npm vfs.")?;
+        let fs = DenoCompileFileSystem::new(vfs);
+        let file_backed_fs = fs.file_backed_vfs().clone();
+
+
+        (
+            Arc::new(fs) as Arc<dyn deno_fs::FileSystem>,
+            Some(snapshot),
+        )
+    } else {
+        (
+            Arc::new(deno_fs::RealFs) as Arc<dyn deno_fs::FileSystem>,
+            None
+        )
+    };
+
+/*    let (fs, vfs) = {
+        let key = String::from(VFS_ESZIP_KEY);
+        let vfs_data: Vec<u8> = eszip
+            .get_module(VFS_ESZIP_KEY)
+            .unwrap()
+            .take_source()
+            .await
+            .unwrap()
+            .to_vec();
+
+/*        let vfs_data: Option<&[u8]> = if let Some(data) = &vfs_data {
             Some(data)
         } else {
             None
         };
-
+*/
         let vfs =
-            load_npm_vfs(vfs_root_dir_path.clone(), vfs_data).context("Failed to load npm vfs.")?;
+            load_npm_vfs(vfs_root_dir_path.clone(), &vfs_data).context("Failed to load npm vfs.")?;
 
         let fs = DenoCompileFileSystem::new(vfs);
         let fs_backed_vfs = fs.file_backed_vfs().clone();
 
         (Arc::new(fs) as Arc<dyn deno_fs::FileSystem>, fs_backed_vfs)
-    };
+    };*/
 
     let package_json_deps_provider = Arc::new(PackageJsonDepsProvider::new(
         metadata
@@ -193,7 +214,8 @@ pub async fn create_module_loader_for_eszip(
             shared: module_loader_factory.shared.clone(),
         }),
         npm_resolver: npm_resolver.into_npm_resolver(),
-        vfs,
+       fs,
+       /* vfs,*/
         module_code: code_fs,
         static_files,
         npm_snapshot: snapshot,

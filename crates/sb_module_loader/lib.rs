@@ -15,7 +15,8 @@ pub mod util;
 pub struct RuntimeProviders {
     pub npm_resolver: Arc<dyn NpmResolver>,
     pub module_loader: Rc<dyn ModuleLoader>,
-    pub vfs: Arc<FileBackedVfs>,
+    pub fs: Arc<dyn deno_fs::FileSystem>,
+    /*pub vfs: Arc<FileBackedVfs>,*/
     pub module_code: Option<FastString>,
     pub static_files: EszipStaticFiles,
     pub npm_snapshot: Option<ValidSerializedNpmResolutionSnapshot>,

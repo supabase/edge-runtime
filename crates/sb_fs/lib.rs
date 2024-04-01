@@ -50,36 +50,21 @@ pub async fn extract_static_files_from_eszip(eszip: &EszipV2) -> EszipStaticFile
 
 pub fn load_npm_vfs(
     root_dir_path: PathBuf,
-    vfs_data: Option<&[u8]>,
+    vfs_data: &[u8],
 ) -> Result<FileBackedVfs, AnyError> {
-    let dir: Option<VirtualDirectory> = if let Some(vfs_data) = vfs_data {
-        serde_json::from_slice(vfs_data)?
-    } else {
-        None
+    let mut dir: VirtualDirectory = serde_json::from_slice(vfs_data)?;
+
+    // align the name of the directory with the root dir
+    dir.name = root_dir_path
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .to_string();
+
+    let fs_root = VfsRoot {
+        dir,
+        root_path: root_dir_path,
     };
-
-    let fs_root: VfsRoot = if let Some(mut dir) = dir {
-        // align the name of the directory with the root dir
-        dir.name = root_dir_path
-            .file_name()
-            .unwrap()
-            .to_string_lossy()
-            .to_string();
-
-        VfsRoot {
-            dir,
-            root_path: root_dir_path,
-        }
-    } else {
-        VfsRoot {
-            dir: VirtualDirectory {
-                name: "".to_string(),
-                entries: vec![],
-            },
-            root_path: root_dir_path, // < we should still use the temp, otherwise it might fail when doing `.start_with`
-        }
-    };
-
     Ok(FileBackedVfs::new(fs_root))
 }
 

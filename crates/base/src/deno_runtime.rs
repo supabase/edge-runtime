@@ -352,7 +352,8 @@ impl DenoRuntime {
 
         let RuntimeProviders {
             npm_resolver,
-            vfs,
+            fs: file_system,
+            /*vfs,*/
             module_loader,
             module_code,
             static_files,
@@ -361,7 +362,7 @@ impl DenoRuntime {
         } = rt_provider;
 
         let op_fs = {
-            if is_user_worker {
+           /* if is_user_worker {
                 Arc::new(sb_fs::static_fs::StaticFs::new(
                     static_files,
                     vfs_path,
@@ -370,7 +371,8 @@ impl DenoRuntime {
                 )) as Arc<dyn deno_fs::FileSystem>
             } else {
                 Arc::new(DenoCompileFileSystem::from_rc(vfs)) as Arc<dyn deno_fs::FileSystem>
-            }
+            }*/
+            Arc::new(deno_fs::RealFs)
         };
 
         let mod_code = module_code;
@@ -418,7 +420,7 @@ impl DenoRuntime {
             sb_core_http_start::init_ops(),
             // NOTE(AndresP): Order is matters. Otherwise, it will lead to hard
             // errors such as SIGBUS depending on the platform.
-            deno_node::init_ops::<Permissions>(Some(npm_resolver), op_fs),
+            deno_node::init_ops::<Permissions>(Some(npm_resolver), file_system),
             sb_core_runtime::init_ops(Some(main_module_url.clone())),
         ];
 

@@ -3,12 +3,13 @@
 // TODO(petamoriken): enable prefer-primordials for node polyfills
 // deno-lint-ignore-file prefer-primordials
 
-import { core } from "ext:core/mod.js";
+import { core, internals } from "ext:core/mod.js";
 import { createDeferredPromise } from "ext:deno_node/internal/util.mjs";
 import {
   op_fetch_response_upgrade,
   op_fetch_send,
   op_node_http_request,
+  op_http_upgrade_raw2,
 } from "ext:core/ops";
 
 import { TextEncoder } from "ext:deno_web/08_text_encoding.js";
@@ -58,13 +59,14 @@ import {
   ERR_UNESCAPED_CHARACTERS,
 } from "ext:deno_node/internal/errors.ts";
 import { getTimerDuration } from "ext:deno_node/internal/timers.mjs";
-import { serve, upgradeHttpRaw } from "ext:deno_http/00_serve.js";
 import { createHttpClient } from "ext:deno_fetch/22_http_client.js";
 import { headersEntries } from "ext:deno_fetch/20_headers.js";
 import { timerId } from "ext:deno_web/03_abort_signal.js";
 import { clearTimeout as webClearTimeout } from "ext:deno_web/02_timers.js";
 import { resourceForReadableStream } from "ext:deno_web/06_streams.js";
 import { TcpConn } from "ext:deno_net/01_net.js";
+
+/* import { serve, upgradeHttpRaw } from "ext:deno_http/00_serve.js"; */
 
 enum STATUS_CODES {
   /** RFC 7231, 6.2.1 */
@@ -296,11 +298,11 @@ class FakeSocket extends EventEmitter {
     this.readable = true;
   }
 
-  setKeepAlive() {}
+  setKeepAlive() { }
 
-  end() {}
+  end() { }
 
-  destroy() {}
+  destroy() { }
 
   setTimeout(callback, timeout = 0, ...args) {
     setTimeout(callback, timeout, args);
@@ -519,7 +521,7 @@ class ClientRequest extends OutgoingMessage {
         this.setHeader(
           "Authorization",
           "Basic " +
-            Buffer.from(options!.auth).toString("base64"),
+          Buffer.from(options!.auth).toString("base64"),
         );
       }
 
@@ -840,8 +842,7 @@ class ClientRequest extends OutgoingMessage {
       path = "/" + path;
     }
     const url = new URL(
-      `${protocol}//${auth ? `${auth}@` : ""}${host}${
-        port === 80 ? "" : `:${port}`
+      `${protocol}//${auth ? `${auth}@` : ""}${host}${port === 80 ? "" : `:${port}`
       }${path}`,
     );
     url.hash = hash;
@@ -1548,7 +1549,7 @@ export class IncomingMessageForServer extends NodeReadable {
   get upgrade(): boolean {
     return Boolean(
       this.#req.headers.get("connection")?.toLowerCase().includes("upgrade") &&
-        this.#req.headers.get("upgrade"),
+      this.#req.headers.get("upgrade"),
     );
   }
 
@@ -1639,12 +1640,28 @@ export class ServerImpl extends EventEmitter {
       });
       const req = new IncomingMessageForServer(request, socket);
       if (req.upgrade && this.listenerCount("upgrade") > 0) {
-        const { conn, response } = upgradeHttpRaw(request);
+        const tag = internals.getSupabaseTag(request);
+
+        if (tag === void 0) {
+          throw new TypeError("Unable to find supabase tag");
+        }
+
+        const { streamRid } = tag;
+        const [upgradeRid, fenceRid] = op_http_upgrade_raw2(streamRid);
+        const conn = new TcpConn(
+          upgradeRid,
+          info?.remoteAddr,
+          info?.localAddr
+        );
+
         const socket = new Socket({
           handle: new TCP(constants.SERVER, conn),
         });
+
+        tag.fenceRid = fenceRid;
         this.emit("upgrade", req, socket, Buffer.from([]));
-        return response;
+
+        return internals.RAW_UPGRADE_RESPONSE_SENTINEL;
       } else {
         return new Promise<Response>((resolve): void => {
           const res = new ServerResponse(resolve, socket);

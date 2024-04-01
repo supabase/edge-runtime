@@ -31,7 +31,7 @@ deno_tls = { workspace = true }
 deno_webidl = { workspace = true }
 deno_web = { workspace = true }
 deno_websocket = { workspace = true }
-httparse = { version = "1.8.0" }
+httparse = { workspace = true }
 hyper = { workspace = true, features = ["full", "backports"] }
 http = { version = "0.2" }
 import_map.workspace = true
@@ -100,9 +100,8 @@ deno_tls = { workspace = true }
 deno_webidl = { workspace = true }
 deno_web = { workspace = true }
 deno_websocket = { workspace = true }
-httparse = { version = "1.8.0" }
 hyper = { workspace = true, features = ["full"] }
-http = { version = "0.2" }
+http = { workspace = true }
 log = { workspace = true }
 reqwest.workspace = true
 serde = { workspace = true, features = ["derive"] }

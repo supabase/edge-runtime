@@ -132,13 +132,17 @@ async function serve(args1, args2) {
 							headers
 						} = await ops.op_http_upgrade_raw2_fence(fenceRid);
 
-						e.respondWith(new Response(null, {
-							headers,
-							status
-						}));
+						try {
+							await e.respondWith(new Response(null, {
+								headers,
+								status
+							}));
+						} catch(error) {
+							console.error(error);
+						}
 					});
 
-					continue;
+					return;
 				}
 
 				e.respondWith(res);

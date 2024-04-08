@@ -197,7 +197,8 @@ fn op_http_upgrade_raw2(
                 }
                 read_tx.write_all(&buf[..read]).await?;
             }
-            Ok::<_, AnyError>(())
+
+            read_tx.shutdown().await
         });
 
         tokio::spawn(async move {
@@ -209,7 +210,8 @@ fn op_http_upgrade_raw2(
                 }
                 upgraded_tx.write_all(&buf[..read]).await?;
             }
-            Ok::<_, AnyError>(())
+
+            upgraded_tx.shutdown().await
         });
 
         Ok::<_, AnyError>(())

@@ -7,7 +7,7 @@ use crate::InspectorOption;
 use anyhow::{anyhow, bail, Context, Error};
 use event_worker::events::WorkerEventWithMetadata;
 use futures_util::future::poll_fn;
-use futures_util::Stream;
+use futures_util::{FutureExt, Stream};
 use hyper::{server::conn::Http, service::Service, Body, Request, Response};
 use log::{debug, error, info, trace, warn};
 use rustls_pemfile::read_one_from_slice;
@@ -443,6 +443,7 @@ impl Server {
         let flags = self.flags;
 
         let mut can_receive_event = false;
+        let mut interrupted = false;
         let (event_tx, event_rx) = mpsc::unbounded_channel();
 
         debug!(
@@ -471,22 +472,30 @@ impl Server {
             ..
         } = flags;
 
+        let mut terminate_signal_fut = if cfg!(unix) {
+            use signal::unix::signal;
+            use signal::unix::SignalKind;
 
-        let mut terminate_signal_fut = poll_fn({
-            let mut sig = if cfg!(unix) {
-                Some(signal::unix::signal(signal::unix::SignalKind::terminate()).unwrap())
-            } else {
-                None
-            };
+            let mut signals = [SignalKind::terminate(), SignalKind::window_change()]
+                .into_iter()
+                .map(|it| (it.as_raw_value(), signal(it).unwrap()))
+                .collect::<Vec<_>>();
 
-            move |cx| {
-                let Some(sig) = sig.as_mut() else {
-                    return Poll::Pending;
-                };
+            poll_fn(move |cx| {
+                for (signum, signal) in &mut signals {
+                    let poll_result = signal.poll_recv(cx);
 
-                sig.poll_recv(cx)
-            }
-        });
+                    if poll_result.is_ready() {
+                        return Poll::Ready::<std::os::raw::c_int>(*signum);
+                    }
+                }
+
+                Poll::Pending
+            })
+            .boxed()
+        } else {
+            pending().boxed()
+        };
 
         loop {
             let main_worker_req_tx = self.main_worker_req_tx.clone();
@@ -545,19 +554,20 @@ impl Server {
                     break;
                 }
 
-                _ = &mut terminate_signal_fut => {
-                    info!("shutdown signal received");
+                signum = &mut terminate_signal_fut => {
+                    info!("shutdown signal received: {}", signum);
                     break;
                 }
 
                 _ = signal::ctrl_c() => {
                     info!("interrupt signal received");
+                    interrupted = true;
                     break;
                 }
             }
         }
 
-        if graceful_exit_deadline_sec > 0 {
+        if !interrupted && graceful_exit_deadline_sec > 0 {
             static REQ_METRIC_CHECK_SLEEP_DUR: Duration = Duration::from_millis(10);
 
             let wait_fut = async move {
@@ -649,7 +659,7 @@ impl Server {
                     error!("received interrupt signal while waiting workers");
                 }
             }
-        } else if metric_src.received_requests() != metric_src.handled_requests() {
+        } else if !interrupted && metric_src.received_requests() != metric_src.handled_requests() {
             warn!("runtime exits immediately since the graceful exit feature has been disabled");
         }
 

@@ -815,6 +815,35 @@ async fn req_failure_case_cpu_time_exhausted() {
 
 #[tokio::test]
 #[serial]
+async fn req_failure_case_cpu_time_exhausted_2() {
+    let tb = TestBedBuilder::new("./test_cases/main_small_cpu_time")
+        .with_oneshot_policy(100000)
+        .build()
+        .await;
+
+    let mut res = tb
+        .request(|| {
+            Request::builder()
+                .uri("/cpu-sync")
+                .method("GET")
+                .body(Body::empty())
+                .context("can't make request")
+        })
+        .await
+        .unwrap();
+
+    let buf = to_bytes(res.body_mut()).await.unwrap();
+
+    assert_eq!(
+        buf,
+        "{\"msg\":\"WorkerRequestCancelled: request has been cancelled by supervisor\"}"
+    );
+
+    tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
+}
+
+#[tokio::test]
+#[serial]
 async fn req_failure_case_wall_clock_reached() {
     let tb = TestBedBuilder::new("./test_cases/main_small_wall_clock")
         .with_oneshot_policy(100000)

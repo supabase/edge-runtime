@@ -96,6 +96,7 @@ impl InspectorServer {
 
         let thread_handle = thread::spawn(move || {
             let rt = tokio::runtime::Builder::new_current_thread()
+                .thread_name("sb-inspector")
                 .enable_io()
                 .enable_time()
                 .build()

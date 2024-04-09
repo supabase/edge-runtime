@@ -162,6 +162,7 @@ fn main() -> Result<(), anyhow::Error> {
 
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
+        .thread_name("sb-main")
         .build()
         .unwrap();
 

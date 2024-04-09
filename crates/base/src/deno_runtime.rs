@@ -608,6 +608,18 @@ impl DenoRuntime {
             }
         }
 
+        let send_cpu_metrics_fn = |metric: CPUUsageMetrics| {
+            if let Some(cpu_metric_tx) = maybe_cpu_usage_metrics_tx.as_ref() {
+                let _ = cpu_metric_tx.send(metric);
+            }
+        };
+
+        // NOTE: This is unnecessary on the LIFO task scheduler that can't steal
+        // the task from the other threads.
+        let current_thread_id = std::thread::current().id();
+        let mut current_cpu_time_ns;
+        let mut accumulated_cpu_time_ns = 0i64;
+
         let inspector = self.inspector();
         let mod_result_rx = unsafe {
             self.js_runtime.v8_isolate().enter();
@@ -637,21 +649,28 @@ impl DenoRuntime {
                 it.v8_isolate().exit();
             });
 
-            js_runtime.mod_evaluate(self.main_module_id)
+            send_cpu_metrics_fn(CPUUsageMetrics::Enter(current_thread_id));
+
+            current_cpu_time_ns = get_current_cpu_time_ns().unwrap();
+
+            let top_level_await_fut = js_runtime.mod_evaluate(self.main_module_id);
+            let cpu_time_after_eval_ns = get_current_cpu_time_ns().unwrap();
+            let diff_cpu_time_ns = cpu_time_after_eval_ns - current_cpu_time_ns;
+
+            accumulated_cpu_time_ns += diff_cpu_time_ns;
+
+            send_cpu_metrics_fn(CPUUsageMetrics::Leave(CPUUsage {
+                accumulated: accumulated_cpu_time_ns,
+                diff: diff_cpu_time_ns,
+            }));
+
+            top_level_await_fut
         };
 
         let is_termination_requested = self.is_termination_requested.clone();
         let is_user_worker = self.conf.is_user_worker();
         let global_waker = self.waker.clone();
         let mem_check_state = is_user_worker.then(|| self.mem_check_state.clone());
-
-        // NOTE: This is unnecessary on the LIFO task scheduler that can't steal
-        // the task from the other threads.
-        #[cfg(debug_assertions)]
-        let current_thread_id = std::thread::current().id();
-
-        let mut current_cpu_time_ns = 0i64;
-        let mut accumulated_cpu_time_ns = 0i64;
 
         let poll_result = poll_fn(|cx| unsafe {
             // INVARIANT: Only can steal current task by other threads when LIFO
@@ -663,16 +682,8 @@ impl DenoRuntime {
             let waker = cx.waker();
             let woked = global_waker.take().is_none();
             let thread_id = std::thread::current().id();
-            let send_cpu_metrics_fn = |metric: CPUUsageMetrics| {
-                if let Some(cpu_metric_tx) = maybe_cpu_usage_metrics_tx.as_ref() {
-                    let _ = cpu_metric_tx.send(metric);
-                }
-            };
 
             global_waker.register(waker);
-
-            let get_current_cpu_time_ns_fn =
-                || get_thread_time().context("can't get current thread time");
 
             let mut js_runtime = scopeguard::guard(&mut self.js_runtime, |it| {
                 it.v8_isolate().exit();
@@ -681,10 +692,7 @@ impl DenoRuntime {
             js_runtime.v8_isolate().enter();
             send_cpu_metrics_fn(CPUUsageMetrics::Enter(thread_id));
 
-            current_cpu_time_ns = match get_current_cpu_time_ns_fn() {
-                Ok(value) => value,
-                Err(err) => return Poll::Ready(Err(err)),
-            };
+            current_cpu_time_ns = get_current_cpu_time_ns().unwrap();
 
             let wait_for_inspector = if inspector.is_some() {
                 let inspector = js_runtime.inspector();
@@ -721,11 +729,7 @@ impl DenoRuntime {
                 Poll::Pending
             };
 
-            let cpu_time_after_poll_ns = match get_current_cpu_time_ns_fn() {
-                Ok(value) => value,
-                Err(err) => return Poll::Ready(Err(err)),
-            };
-
+            let cpu_time_after_poll_ns = get_current_cpu_time_ns().unwrap();
             let diff_cpu_time_ns = if need_pool_event_loop {
                 cpu_time_after_poll_ns - current_cpu_time_ns
             } else {
@@ -842,6 +846,10 @@ impl DenoRuntime {
         let value = deno_core::v8::Local::new(scope, global_value.clone());
         Ok(serde_v8::from_v8(scope, value)?)
     }
+}
+
+fn get_current_cpu_time_ns() -> Result<i64, Error> {
+    get_thread_time().context("can't get current thread time")
 }
 
 fn set_v8_flags() {

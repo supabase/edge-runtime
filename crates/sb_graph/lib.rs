@@ -4,12 +4,14 @@ use deno_ast::MediaType;
 use deno_core::error::AnyError;
 use deno_core::futures::io::{AllowStdIo, BufReader};
 use deno_core::url::Url;
-use deno_core::{serde_json, FastString, JsBuffer, ModuleSpecifier};
+use deno_core::{normalize_path, serde_json, FastString, JsBuffer, ModuleSpecifier};
 use deno_fs::{FileSystem, RealFs};
 use deno_npm::NpmSystemInfo;
 use eszip::{EszipV2, ModuleKind};
 use glob::glob;
 use log::error;
+use sb_core::util::fs::specifier_to_file_path;
+use sb_core::util::path::{closest_common_directory, find_lowest_path};
 use sb_fs::{build_vfs, VfsOpts};
 use sb_npm::InnerCliNpmResolverRef;
 use std::borrow::Cow;
@@ -199,46 +201,39 @@ pub struct ExtractEszipPayload {
     pub folder: PathBuf,
 }
 
-fn ensure_unix_relative_path(path: &Path) -> &Path {
-    assert!(path.is_relative());
-    assert!(!path.to_string_lossy().starts_with('\\'));
-    path
-}
-
-fn create_module_path(global_specifier: &str, entry_path: &Path, output_folder: &Path) -> PathBuf {
-    let cleaned_specifier = global_specifier.replace(entry_path.to_str().unwrap(), "");
-    let module_path = PathBuf::from(cleaned_specifier);
-
-    if let Some(parent) = module_path.parent() {
-        if parent.parent().is_some() {
-            let output_folder_and_mod_folder = output_folder.join(
-                parent
-                    .strip_prefix("/")
-                    .unwrap_or_else(|_| ensure_unix_relative_path(parent)),
-            );
-            if !output_folder_and_mod_folder.exists() {
-                create_dir_all(&output_folder_and_mod_folder).unwrap();
-            }
-        }
-    }
-
-    output_folder.join(
-        module_path
-            .strip_prefix("/")
-            .unwrap_or_else(|_| ensure_unix_relative_path(&module_path)),
-    )
-}
-
 async fn extract_modules(
     eszip: &EszipV2,
     specifiers: &[String],
     lowest_path: &str,
     output_folder: &Path,
 ) {
+    let closest_common_dir = closest_common_directory(specifiers);
+    let closest_common_dir_buf = normalize_path(PathBuf::from(closest_common_dir));
     let main_path = PathBuf::from(lowest_path);
     let entry_path = main_path.parent().unwrap();
+
     for global_specifier in specifiers {
-        let module_path = create_module_path(global_specifier, entry_path, output_folder);
+        let full_path = PathBuf::from(global_specifier);
+        let is_insider_path = full_path.starts_with(entry_path);
+
+        let target_folder = if is_insider_path {
+            output_folder.join("str")
+        } else {
+            output_folder.to_path_buf()
+        };
+
+        let new_file_path = if is_insider_path {
+            target_folder.join(full_path.strip_prefix(entry_path).unwrap())
+        } else {
+            let mod_specifier = ModuleSpecifier::parse(full_path.to_str().unwrap()).unwrap();
+            let file_path = specifier_to_file_path(&mod_specifier).unwrap();
+            target_folder.join(
+                file_path
+                    .strip_prefix(closest_common_dir_buf.clone())
+                    .unwrap(),
+            )
+        };
+
         let module_content = eszip
             .get_module(global_specifier)
             .unwrap()
@@ -246,21 +241,30 @@ async fn extract_modules(
             .await
             .unwrap();
 
-        let mut file = File::create(&module_path).unwrap();
-        file.write_all(module_content.as_ref()).unwrap();
+        if let Some(parent) = new_file_path.parent() {
+            create_dir_all(parent).unwrap();
+        }
+
+        let mut file = File::create(&new_file_path).unwrap();
+        file.write_all(&module_content).unwrap();
     }
 }
 
 pub async fn extract_eszip(payload: ExtractEszipPayload) {
     let eszip = payload_to_eszip(payload.data).await;
     let output_folder = payload.folder;
+    let output_folder_str = &output_folder.join("str");
 
     if !output_folder.exists() {
         create_dir_all(&output_folder).unwrap();
     }
 
+    if !output_folder_str.exists() {
+        create_dir_all(output_folder_str).unwrap();
+    }
+
     let file_specifiers = extract_file_specifiers(&eszip);
-    if let Some(lowest_path) = sb_core::util::path::find_lowest_path(&file_specifiers) {
+    if let Some(lowest_path) = find_lowest_path(&file_specifiers) {
         extract_modules(&eszip, &file_specifiers, &lowest_path, &output_folder).await;
     } else {
         panic!("Path seems to be invalid");

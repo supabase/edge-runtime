@@ -66,6 +66,21 @@ pub enum WorkerEvents {
     Log(LogEvent),
 }
 
+impl WorkerEvents {
+    pub fn with_cpu_time_used(mut self, cpu_time_used_ms: usize) -> Self {
+        match &mut self {
+            Self::UncaughtException(UncaughtExceptionEvent { cpu_time_used, .. })
+            | Self::Shutdown(ShutdownEvent { cpu_time_used, .. }) => {
+                *cpu_time_used = cpu_time_used_ms;
+            }
+
+            _ => {}
+        }
+
+        self
+    }
+}
+
 #[derive(Serialize, Deserialize, Default, Debug, Clone)]
 pub struct EventMetadata {
     pub service_path: Option<String>,

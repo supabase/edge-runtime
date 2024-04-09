@@ -217,7 +217,7 @@ async fn extract_modules(
         let is_insider_path = full_path.starts_with(entry_path);
 
         let target_folder = if is_insider_path {
-            output_folder.join("str")
+            output_folder.join("src")
         } else {
             output_folder.to_path_buf()
         };
@@ -306,7 +306,7 @@ mod test {
         })
         .await;
 
-        assert!(PathBuf::from("../base/test_cases/extracted-npm/hello.js").exists());
+        assert!(PathBuf::from("../base/test_cases/extracted-npm/src/hello.js").exists());
         remove_dir_all(PathBuf::from("../base/test_cases/extracted-npm/")).unwrap();
     }
 }

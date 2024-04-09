@@ -1,0 +1,1 @@
+export const SomeOtherFile = "The wars between the galactic empire and earth are meant to be won only by those with access to light year power";

@@ -42,6 +42,40 @@ pub fn root_url_to_safe_local_dirname(root: &ModuleSpecifier) -> PathBuf {
     result
 }
 
+pub fn closest_common_directory(paths: &[String]) -> String {
+    if paths.is_empty() {
+        return String::new();
+    }
+
+    // Parse the URLs and collect the path components
+    let paths: Vec<Vec<_>> = paths
+        .iter()
+        .map(|url| {
+            let path = url.trim_start_matches("file://");
+            Path::new(path)
+                .components()
+                .map(|comp| comp.as_os_str().to_str().unwrap_or(""))
+                .collect()
+        })
+        .collect();
+
+    // Find the shortest path to limit the comparison
+    let min_length = paths.iter().map(|p| p.len()).min().unwrap_or(0);
+
+    let mut common_path = Vec::new();
+
+    for i in 0..min_length {
+        let component = paths[0][i];
+        if paths.iter().all(|path| path[i] == component) {
+            common_path.push(component);
+        } else {
+            break;
+        }
+    }
+
+    common_path.join("/")
+}
+
 pub fn find_lowest_path(paths: &Vec<String>) -> Option<String> {
     let mut lowest_path: Option<(&str, usize)> = None;
 

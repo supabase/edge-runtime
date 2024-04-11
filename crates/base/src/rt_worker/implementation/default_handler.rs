@@ -34,7 +34,10 @@ impl WorkerHandler for Worker {
                     let err_string = err.to_string();
 
                     if err_string.ends_with("execution terminated") {
-                        Ok(termination_event_rx.await.unwrap())
+                        Ok(termination_event_rx
+                            .await
+                            .unwrap()
+                            .with_cpu_time_used(cpu_usage_ms as usize))
                     } else {
                         error!(
                             "runtime has escaped from the event loop unexpectedly: {}",

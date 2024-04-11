@@ -3,7 +3,6 @@ use deno_core::normalize_path;
 use deno_fs::{FsDirEntry, FsFileType, OpenOptions};
 use deno_io::fs::{File, FsError, FsResult, FsStat};
 use deno_npm::resolution::ValidSerializedNpmResolutionSnapshot;
-use deno_semver::Version;
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -33,39 +32,9 @@ impl StaticFs {
     }
 
     pub fn is_valid_npm_package(&self, path: &Path) -> bool {
-        if let Some(npm_snapshot) = &self.snapshot {
-            let serialized_snapshot = npm_snapshot.as_serialized();
+        if self.snapshot.is_some() {
             let vfs_path = self.vfs_path.clone();
-            if path.starts_with(vfs_path) {
-                let gen_path_str = path.to_str().unwrap();
-                let main_path = self.vfs_path.to_str().unwrap();
-
-                let package_info = gen_path_str.replace(main_path, "");
-                let package_info = {
-                    if let Some(res) = package_info.strip_prefix('/') {
-                        res.to_string()
-                    } else {
-                        package_info
-                    }
-                };
-
-                let package_info: Vec<&str> = package_info.split('/').collect();
-
-                let (name, ver) = {
-                    let name = package_info.first().unwrap().to_string();
-                    let ver = package_info.get(1).unwrap().to_string();
-                    (name, ver)
-                };
-
-                let does_package_exist = serialized_snapshot.packages.iter().any(|data| {
-                    data.id.nv.name == name
-                        && data.id.nv.version == Version::parse_standard(ver.as_str()).unwrap()
-                });
-
-                does_package_exist
-            } else {
-                false
-            }
+            path.starts_with(vfs_path)
         } else {
             false
         }
@@ -318,7 +287,11 @@ impl deno_fs::FileSystem for StaticFs {
                 let res = self.files.get(path).unwrap().to_vec();
                 Ok(res)
             } else {
-                Err(std::io::Error::new(std::io::ErrorKind::NotFound, "path not found").into())
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!("path not found {}", path),
+                )
+                .into())
             }
         }
     }

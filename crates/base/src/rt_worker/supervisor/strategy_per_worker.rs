@@ -42,6 +42,7 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
     let mut current_thread_id = Option::<ThreadId>::None;
 
     let mut is_worker_entered = false;
+    let mut is_wall_clock_expired = false;
     let mut cpu_usage_metrics_rx = cpu_usage_metrics_rx.unwrap();
     let mut cpu_usage_ms = 0i64;
 
@@ -189,7 +190,7 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
             }
 
             // wall clock warning
-            _ = wall_clock_duration_alert.tick() => {
+            _ = wall_clock_duration_alert.tick(), if !is_wall_clock_expired  => {
                 if wall_clock_alerts == 0 {
                     // first tick completes immediately
                     wall_clock_alerts += 1;
@@ -199,19 +200,21 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
                     error!("wall clock duration warning. isolate: {:?}", key);
                     wall_clock_alerts += 1;
                 } else {
-                    // wall-clock limit reached
-                    // Don't terminate isolate from supervisor when wall-clock
-                    // duration reached. It's dropped in deno_runtime.rs
-                    interrupt_fn(
-                        // NOTE: Wall clock is also triggered when no more
-                        // pending requests, so we must compare the request
-                        // count here to judge whether we need to terminate the
-                        // isolate.
-                        req_ack_count == demand.load(Ordering::Acquire),
-                    );
-
-                    error!("wall clock duration reached. isolate: {:?}", key);
-                    return (ShutdownReason::WallClockTime, cpu_usage_ms);
+                    // NOTE: Wall clock is also triggered when no more
+                    // pending requests, so we must compare the request
+                    // count here to judge whether we need to terminate the
+                    // isolate.
+                    if req_ack_count == demand.load(Ordering::Acquire) {
+                        interrupt_fn(true);
+                        error!("wall clock duration reached. isolate: {:?}", key);
+                        return (ShutdownReason::WallClockTime, cpu_usage_ms);
+                    } else {
+                        // It looks like there are still items being handled.
+                        // Instead of forcing it to end by the wall clock limit,
+                        // let it terminate by another limit routine.
+                        is_wall_clock_expired = true;
+                        continue;
+                    }
                 }
             }
 

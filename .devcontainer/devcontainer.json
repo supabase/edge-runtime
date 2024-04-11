@@ -1,0 +1,28 @@
+{
+  "name": "Rust",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "features": {
+    "ghcr.io/jungaretti/features/make:1": {},
+    "ghcr.io/lee-orr/rusty-dev-containers/cargo-make:0": {}
+  },
+  "runArgs": [
+    "--rm",
+    "--privileged",
+    "--security-opt",
+    "seccomp=unconfined"
+  ],
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "extensions.verifySignature": false
+      },
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "eamodio.gitlens",
+        "ms-azuretools.vscode-docker"
+      ]
+    }
+  }
+}

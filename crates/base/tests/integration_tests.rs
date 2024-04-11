@@ -175,6 +175,7 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
         timing: None,
         maybe_eszip: None,
         maybe_entrypoint: None,
+        maybe_decorator: None,
         maybe_module_code: None,
         conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
             worker_pool_tx,
@@ -330,6 +331,7 @@ async fn test_main_worker_boot_error() {
         timing: None,
         maybe_eszip: None,
         maybe_entrypoint: None,
+        maybe_decorator: None,
         maybe_module_code: None,
         conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
             worker_pool_tx,
@@ -730,6 +732,7 @@ async fn test_worker_boot_invalid_imports() {
         timing: None,
         maybe_eszip: None,
         maybe_entrypoint: None,
+        maybe_decorator: None,
         maybe_module_code: None,
         conf: WorkerRuntimeOpts::UserWorker(test_user_runtime_opts()),
         static_patterns: vec![],

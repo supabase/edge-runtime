@@ -220,6 +220,7 @@ impl DenoRuntime {
             conf,
             maybe_eszip,
             maybe_entrypoint,
+            maybe_decorator,
             maybe_module_code,
             static_patterns,
             ..
@@ -239,8 +240,10 @@ impl DenoRuntime {
 
         let mut net_access_disabled = false;
         let mut allow_remote_modules = true;
+
         if is_user_worker {
             let user_conf = conf.as_user_worker().unwrap();
+
             net_access_disabled = user_conf.net_access_disabled;
             allow_remote_modules = user_conf.allow_remote_modules;
         }
@@ -262,6 +265,7 @@ impl DenoRuntime {
 
             emitter_factory.set_file_fetcher_allow_remote(allow_remote_modules);
             emitter_factory.set_file_fetcher_cache_strategy(cache_strategy);
+            emitter_factory.set_decorator_type(maybe_decorator);
 
             let maybe_import_map = load_import_map(import_map_path.clone())?;
             emitter_factory.set_import_map(maybe_import_map);
@@ -917,6 +921,7 @@ mod test {
                 timing: None,
                 maybe_eszip: None,
                 maybe_entrypoint: None,
+                maybe_decorator: None,
                 maybe_module_code: Some(FastString::from(String::from(
                     "Deno.serve((req) => new Response('Hello World'));",
                 ))),
@@ -962,6 +967,7 @@ mod test {
                 timing: None,
                 maybe_eszip: Some(EszipPayloadKind::VecKind(eszip_code)),
                 maybe_entrypoint: None,
+                maybe_decorator: None,
                 maybe_module_code: None,
                 conf: {
                     WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
@@ -1027,6 +1033,7 @@ mod test {
                 timing: None,
                 maybe_eszip: Some(EszipPayloadKind::VecKind(eszip_code)),
                 maybe_entrypoint: None,
+                maybe_decorator: None,
                 maybe_module_code: None,
                 conf: {
                     WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
@@ -1089,6 +1096,7 @@ mod test {
                 timing: None,
                 maybe_eszip: None,
                 maybe_entrypoint: None,
+                maybe_decorator: None,
                 maybe_module_code: None,
                 conf: {
                     if let Some(uc) = user_conf {

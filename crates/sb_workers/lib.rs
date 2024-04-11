@@ -24,7 +24,7 @@ use hyper::upgrade::OnUpgrade;
 use hyper::{Body, Method, Request};
 use log::error;
 use sb_core::conn_sync::{ConnSync, ConnWatcher};
-use sb_graph::EszipPayloadKind;
+use sb_graph::{DecoratorType, EszipPayloadKind};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::cell::RefCell;
@@ -67,6 +67,8 @@ pub struct UserWorkerCreateOptions {
     worker_timeout_ms: u64,
     cpu_time_soft_limit_ms: u64,
     cpu_time_hard_limit_ms: u64,
+
+    decorator_type: Option<DecoratorType>,
 }
 
 #[op2(async)]
@@ -98,6 +100,8 @@ pub async fn op_user_worker_create(
             worker_timeout_ms,
             cpu_time_soft_limit_ms,
             cpu_time_hard_limit_ms,
+
+            decorator_type: maybe_decorator,
         } = opts;
 
         let mut env_vars_map = HashMap::new();
@@ -115,6 +119,7 @@ pub async fn op_user_worker_create(
             maybe_eszip: maybe_eszip.map(EszipPayloadKind::JsBufferKind),
             maybe_entrypoint,
             maybe_module_code: maybe_module_code.map(|v| v.into()),
+            maybe_decorator,
             conf: WorkerRuntimeOpts::UserWorker(UserWorkerRuntimeOpts {
                 memory_limit_mb,
                 low_memory_multiplier,

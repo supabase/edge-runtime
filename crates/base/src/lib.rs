@@ -11,3 +11,4 @@ pub mod utils;
 mod inspector_server;
 
 pub use inspector_server::InspectorOption;
+pub use sb_graph::DecoratorType;

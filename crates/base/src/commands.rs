@@ -5,6 +5,7 @@ use crate::{
     InspectorOption,
 };
 use anyhow::Error;
+use sb_graph::DecoratorType;
 use tokio::sync::mpsc::Sender;
 
 #[allow(clippy::too_many_arguments)]
@@ -14,6 +15,7 @@ pub async fn start_server(
     tls: Option<Tls>,
     main_service_path: String,
     event_worker_path: Option<String>,
+    decorator: Option<DecoratorType>,
     user_worker_policy: Option<WorkerPoolPolicy>,
     import_map_path: Option<String>,
     flags: ServerFlags,
@@ -29,6 +31,7 @@ pub async fn start_server(
         tls,
         main_service_path,
         event_worker_path,
+        decorator,
         user_worker_policy,
         import_map_path,
         flags,

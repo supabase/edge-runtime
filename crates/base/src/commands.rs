@@ -22,6 +22,8 @@ pub async fn start_server(
     termination_token: Option<TerminationToken>,
     static_patterns: Vec<String>,
     inspector_option: Option<InspectorOption>,
+    jsx_specifier: Option<String>,
+    jsx_module: Option<String>,
 ) -> Result<(), Error> {
     let mut server = Server::new(
         ip,
@@ -37,6 +39,8 @@ pub async fn start_server(
         termination_token,
         static_patterns,
         inspector_option.map(Inspector::from_option),
+        jsx_specifier,
+        jsx_module,
     )
     .await?;
 

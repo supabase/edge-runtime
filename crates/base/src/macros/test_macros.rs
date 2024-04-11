@@ -31,7 +31,9 @@ macro_rules! integration_test {
             },
             termination_token.clone(),
             vec![],
-            None
+            None,
+            Some("https://esm.sh/preact".to_string()),
+            Some("jsx-runtime".to_string())
         )
         .boxed();
 

@@ -162,6 +162,7 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
         Some(pool_termination_token.clone()),
         vec![],
         None,
+        None,
     )
     .await
     .unwrap();
@@ -318,6 +319,7 @@ async fn test_main_worker_boot_error() {
         Some(pool_termination_token.clone()),
         vec![],
         None,
+        None,
     )
     .await
     .unwrap();
@@ -404,26 +406,29 @@ async fn test_main_worker_abort_request() {
 #[tokio::test]
 #[serial]
 async fn test_main_worker_with_jsx_function() {
-    integration_test!(
-        "./test_cases/jsx",
-        NON_SECURE_PORT,
-        "jsx-server",
-        None,
-        None,
-        None,
-        None,
-        (|resp: Result<reqwest::Response, reqwest::Error>| async {
-            let res = resp.unwrap();
-            assert!(res.status().as_u16() == 200);
+    let jsx_tests: Vec<&str> = vec!["./test_cases/jsx", "./test_cases/jsx-2"];
+    for test_path in jsx_tests {
+        integration_test!(
+            test_path,
+            NON_SECURE_PORT,
+            "jsx-server",
+            None,
+            None,
+            None,
+            None,
+            (|resp: Result<reqwest::Response, reqwest::Error>| async {
+                let res = resp.unwrap();
+                assert!(res.status().as_u16() == 200);
 
-            let body_bytes = res.bytes().await.unwrap();
-            assert_eq!(
-                body_bytes,
-                r#"{"type":"div","props":{"children":"Hello"},"__k":null,"__":null,"__b":0,"__e":null,"__c":null,"__v":-1,"__i":-1,"__u":0}"#
-            );
-        }),
-        TerminationToken::new()
-    );
+                let body_bytes = res.bytes().await.unwrap();
+                assert_eq!(
+                    body_bytes,
+                    r#"{"type":"div","props":{"children":"Hello"},"__k":null,"__":null,"__b":0,"__e":null,"__c":null,"__v":-1,"__i":-1,"__u":0}"#
+                );
+            }),
+            TerminationToken::new()
+        );
+    }
 }
 
 //#[tokio::test]

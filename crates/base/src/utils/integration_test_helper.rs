@@ -206,6 +206,7 @@ impl TestBedBuilder {
                     Some(token.clone()),
                     vec![],
                     None,
+                    None,
                 )
                 .await
                 .unwrap(),

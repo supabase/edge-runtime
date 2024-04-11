@@ -5,6 +5,7 @@ use crate::rt_worker::worker_ctx::{
 use crate::rt_worker::worker_pool::WorkerPoolPolicy;
 use crate::InspectorOption;
 use anyhow::{anyhow, bail, Context, Error};
+use deno_config::JsxImportSourceConfig;
 use event_worker::events::WorkerEventWithMetadata;
 use futures_util::Stream;
 use hyper::{server::conn::Http, service::Service, Body, Request, Response};
@@ -35,6 +36,7 @@ use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::TlsAcceptor;
 use tokio_util::sync::CancellationToken;
+use url::Url;
 
 pub enum ServerEvent {
     ConnectionError(hyper::Error),
@@ -328,6 +330,8 @@ impl Server {
         termination_token: Option<TerminationToken>,
         static_patterns: Vec<String>,
         inspector: Option<Inspector>,
+        jsx_specifier: Option<String>,
+        jsx_module: Option<String>,
     ) -> Result<Self, Error> {
         let mut worker_events_tx: Option<mpsc::UnboundedSender<WorkerEventWithMetadata>> = None;
         let maybe_events_entrypoint = entrypoints.events;
@@ -355,6 +359,12 @@ impl Server {
             None
         };
 
+        let jsx_config = jsx_module.map(|jsx_mod| JsxImportSourceConfig {
+            default_specifier: jsx_specifier,
+            module: jsx_mod,
+            base_url: Url::from_file_path(std::env::current_dir().unwrap()).unwrap(),
+        });
+
         // Create a user worker pool
         let (shared_metric_src, worker_pool_tx) = create_user_worker_pool(
             maybe_user_worker_policy.unwrap_or_default(),
@@ -362,6 +372,7 @@ impl Server {
             Some(termination_tokens.pool.clone()),
             static_patterns,
             inspector.clone(),
+            jsx_config.clone(),
         )
         .await?;
 
@@ -386,6 +397,7 @@ impl Server {
             } else {
                 None
             },
+            jsx_config,
         )
         .await?;
 

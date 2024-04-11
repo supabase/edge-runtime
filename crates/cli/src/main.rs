@@ -141,6 +141,8 @@ fn cli() -> Command {
                         .action(ArgAction::SetTrue)
                 )
                 .arg(arg!(--"static" <Path> "Glob pattern for static files to be included"))
+                .arg(arg!(--"jsx-specifier" <Path> "A valid JSX specifier"))
+                .arg(arg!(--"jsx-module" <Path> "A valid JSX module: jsx-runtime | jsx-dev-runtime | precompile | react"))
         )
         .subcommand(
             Command::new("bundle")
@@ -236,6 +238,9 @@ fn main() -> Result<(), anyhow::Error> {
                     vec![]
                 };
 
+                let jsx_specifier = sub_matches.get_one::<String>("jsx-specifier").cloned();
+                let jsx_module = sub_matches.get_one::<String>("jsx-module").cloned();
+
                 let static_patterns: Vec<String> =
                     static_patterns.into_iter().map(|s| s.to_string()).collect();
 
@@ -298,7 +303,9 @@ fn main() -> Result<(), anyhow::Error> {
                     },
                     None,
                     static_patterns,
-                    maybe_inspector_option
+                    maybe_inspector_option,
+                    jsx_specifier,
+                    jsx_module
                 )
                 .await?;
             }

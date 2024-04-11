@@ -7,6 +7,7 @@ use crate::rt_worker::worker::{Worker, WorkerHandler};
 use crate::rt_worker::worker_pool::WorkerPool;
 use anyhow::{anyhow, bail, Error};
 use cpu_timer::CPUTimer;
+use deno_config::JsxImportSourceConfig;
 use deno_core::{InspectorSessionProxy, LocalInspectorSession};
 use event_worker::events::{
     BootEvent, ShutdownEvent, WorkerEventWithMetadata, WorkerEvents, WorkerMemoryUsed,
@@ -627,6 +628,8 @@ pub async fn send_user_worker_request(
     Ok(res)
 }
 
+// Todo: Fix
+#[allow(clippy::too_many_arguments)]
 pub async fn create_main_worker(
     main_worker_path: PathBuf,
     import_map_path: Option<String>,
@@ -635,6 +638,7 @@ pub async fn create_main_worker(
     maybe_entrypoint: Option<String>,
     termination_token: Option<TerminationToken>,
     inspector: Option<Inspector>,
+    jsx: Option<JsxImportSourceConfig>,
 ) -> Result<mpsc::UnboundedSender<WorkerRequestMsg>, Error> {
     let mut service_path = main_worker_path.clone();
     let mut maybe_eszip = None;
@@ -659,7 +663,7 @@ pub async fn create_main_worker(
                 conf: WorkerRuntimeOpts::MainWorker(runtime_opts),
                 env_vars: std::env::vars().collect(),
                 static_patterns: vec![],
-                maybe_jsx_import_source_config: None,
+                maybe_jsx_import_source_config: jsx,
             },
             termination_token,
         ),
@@ -723,6 +727,7 @@ pub async fn create_user_worker_pool(
     termination_token: Option<TerminationToken>,
     static_patterns: Vec<String>,
     inspector: Option<Inspector>,
+    jsx: Option<JsxImportSourceConfig>,
 ) -> Result<(SharedMetricSource, mpsc::UnboundedSender<UserWorkerMsgs>), Error> {
     let metric_src = SharedMetricSource::default();
     let (user_worker_msgs_tx, mut user_worker_msgs_rx) =
@@ -771,6 +776,13 @@ pub async fn create_user_worker_pool(
                             Some(UserWorkerMsgs::Create(worker_options, tx)) => {
                                 worker_pool.create_user_worker(WorkerContextInitOpts {
                                     static_patterns: static_patterns.clone(),
+                                    maybe_jsx_import_source_config: {
+                                        if worker_options.maybe_jsx_import_source_config.is_some() {
+                                            worker_options.maybe_jsx_import_source_config
+                                        } else {
+                                            jsx.clone()
+                                        }
+                                    },
                                     ..worker_options
                                 }, tx, termination_token.as_ref().map(|it| it.child_token()));
                             }

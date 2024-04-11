@@ -1057,7 +1057,7 @@ async fn test_decorators(ty: Option<DecoratorType>) {
     let endpoint = if is_disabled {
         "tc39".to_string()
     } else {
-        serde_json::to_string(&ty).unwrap().replace("\"", "")
+        serde_json::to_string(&ty).unwrap().replace('\"', "")
     };
 
     let payload = if is_disabled {

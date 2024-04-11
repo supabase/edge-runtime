@@ -90,7 +90,7 @@ fn cli() -> Command {
                         .value_parser(["per_worker", "per_request", "oneshot"])
                 )
                 .arg(
-                    arg!(--"decorator" [TYPE] "Type of decorator to use on the main worker and event worker. If not specified, the decorator feature is disabled.")
+                    arg!(--"decorator" <TYPE> "Type of decorator to use on the main worker and event worker. If not specified, the decorator feature is disabled.")
                         .value_parser(["tc39", "typescript", "typescript_with_metadata"])
                 )
                 .arg(
@@ -154,7 +154,7 @@ fn cli() -> Command {
                 .arg(arg!(--"static" <Path> "Glob pattern for static files to be included"))
                 .arg(arg!(--"import-map" <Path> "Path to import map file"))
                 .arg(
-                    arg!(--"decorator" [TYPE] "Type of decorator to use when bundling. If not specified, the decorator feature is disabled.")
+                    arg!(--"decorator" <TYPE> "Type of decorator to use when bundling. If not specified, the decorator feature is disabled.")
                         .value_parser(["tc39", "typescript", "typescript_with_metadata"])
                 )
         ).subcommand(

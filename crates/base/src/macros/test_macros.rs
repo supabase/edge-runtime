@@ -23,6 +23,8 @@ macro_rules! integration_test_listen_fut {
             $token.clone(),
             vec![],
             None,
+            Some("https://esm.sh/preact".to_string()),
+            Some("jsx-runtime".to_string())
         )
         .boxed()
     }};

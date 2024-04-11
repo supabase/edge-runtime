@@ -216,6 +216,7 @@ impl TestBedBuilder {
                     Some(token.clone()),
                     vec![],
                     None,
+                    None,
                     self.request_idle_timeout,
                 )
                 .await

@@ -253,14 +253,14 @@ async fn extract_modules(
 pub async fn extract_eszip(payload: ExtractEszipPayload) {
     let eszip = payload_to_eszip(payload.data).await;
     let output_folder = payload.folder;
-    let output_folder_str = &output_folder.join("str");
+    let output_folder_src = &output_folder.join("src");
 
     if !output_folder.exists() {
         create_dir_all(&output_folder).unwrap();
     }
 
-    if !output_folder_str.exists() {
-        create_dir_all(output_folder_str).unwrap();
+    if !output_folder_src.exists() {
+        create_dir_all(output_folder_src).unwrap();
     }
 
     let file_specifiers = extract_file_specifiers(&eszip);

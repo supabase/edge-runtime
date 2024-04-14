@@ -5,9 +5,9 @@ use base::commands::start_server;
 use base::deno_runtime::MAYBE_DENO_VERSION;
 use base::rt_worker::worker_pool::{SupervisorPolicy, WorkerPoolPolicy};
 use base::server::{ServerFlags, Tls, WorkerEntrypoints};
-use base::InspectorOption;
+use base::{DecoratorType, InspectorOption};
 use clap::builder::{FalseyValueParser, TypedValueParser};
-use clap::{arg, crate_version, value_parser, ArgAction, ArgGroup, Command};
+use clap::{arg, crate_version, value_parser, ArgAction, ArgGroup, ArgMatches, Command};
 use deno_core::url::Url;
 use log::warn;
 use sb_graph::emitter::EmitterFactory;
@@ -90,6 +90,10 @@ fn cli() -> Command {
                         .value_parser(["per_worker", "per_request", "oneshot"])
                 )
                 .arg(
+                    arg!(--"decorator" <TYPE> "Type of decorator to use on the main worker and event worker. If not specified, the decorator feature is disabled.")
+                        .value_parser(["tc39", "typescript", "typescript_with_metadata"])
+                )
+                .arg(
                     arg!(--"graceful-exit-timeout" <SECONDS> "Maximum time in seconds that can wait for workers before terminating forcibly")
                         .default_value("0")
                         .value_parser(
@@ -149,6 +153,10 @@ fn cli() -> Command {
                 .arg(arg!(--"entrypoint" <Path> "Path to entrypoint to bundle as an eszip").required(true))
                 .arg(arg!(--"static" <Path> "Glob pattern for static files to be included"))
                 .arg(arg!(--"import-map" <Path> "Path to import map file"))
+                .arg(
+                    arg!(--"decorator" <TYPE> "Type of decorator to use when bundling. If not specified, the decorator feature is disabled.")
+                        .value_parser(["tc39", "typescript", "typescript_with_metadata"])
+                )
         ).subcommand(
         Command::new("unbundle")
             .about("Unbundles an .eszip file into the specified directory")
@@ -267,6 +275,7 @@ fn main() -> Result<(), anyhow::Error> {
                     maybe_tls,
                     main_service_path,
                     event_service_manager_path,
+                    get_decorator_option(sub_matches),
                     Some(WorkerPoolPolicy::new(
                         maybe_supervisor_policy,
                         if let Some(true) = maybe_supervisor_policy
@@ -305,6 +314,7 @@ fn main() -> Result<(), anyhow::Error> {
             Some(("bundle", sub_matches)) => {
                 let output_path = sub_matches.get_one::<String>("output").cloned().unwrap();
                 let import_map_path = sub_matches.get_one::<String>("import-map").cloned();
+                let maybe_decorator = get_decorator_option(sub_matches);
                 let static_patterns = if let Some(val_ref) = sub_matches
                     .get_many::<String>("static") {
                     val_ref.map(|s| s.as_str()).collect::<Vec<&str>>()
@@ -335,6 +345,8 @@ fn main() -> Result<(), anyhow::Error> {
                             .to_string(),
                     );
                 }
+
+                emitter_factory.set_decorator_type(maybe_decorator);
                 emitter_factory.set_import_map(maybe_import_map.clone());
 
                 let mut eszip = generate_binary_eszip(
@@ -381,6 +393,18 @@ fn main() -> Result<(), anyhow::Error> {
     });
 
     res
+}
+
+fn get_decorator_option(sub_matches: &ArgMatches) -> Option<DecoratorType> {
+    sub_matches
+        .get_one::<String>("decorator")
+        .cloned()
+        .and_then(|it| match it.to_lowercase().as_str() {
+            "tc39" => Some(DecoratorType::Tc39),
+            "typescript" => Some(DecoratorType::Typescript),
+            "typescript_with_metadata" => Some(DecoratorType::TypescriptWithMetadata),
+            _ => None,
+        })
 }
 
 fn get_inspector_option(key: &str, addr: &SocketAddr) -> Result<InspectorOption, anyhow::Error> {

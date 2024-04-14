@@ -1,6 +1,6 @@
 #[macro_export]
 macro_rules! integration_test {
-    ($main_file:expr, $port:expr, $url:expr, $shot_policy:expr, $import_map:expr, $req_builder:expr, $tls:expr, ($($function:tt)+) $(, $termination_token:expr)?) => {
+    ($main_file:expr, $port:expr, $url:expr, $policy:expr, $import_map:expr, $req_builder:expr, $tls:expr, ($($function:tt)+) $(, $termination_token:expr)?) => {
         use futures_util::FutureExt;
 
         let (tx, mut rx) = tokio::sync::mpsc::channel::<base::server::ServerHealth>(1);
@@ -21,7 +21,8 @@ macro_rules! integration_test {
             tls,
             String::from($main_file),
             None,
-            $shot_policy,
+            None,
+            $policy,
             $import_map,
             $crate::server::ServerFlags::default(),
             Some(tx.clone()),

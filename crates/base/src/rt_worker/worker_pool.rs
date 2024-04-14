@@ -353,6 +353,7 @@ impl WorkerPool {
                         maybe_eszip,
                         maybe_module_code,
                         maybe_entrypoint,
+                        maybe_decorator,
                         ..
                     } = worker_options;
 
@@ -369,6 +370,7 @@ impl WorkerPool {
                                 maybe_eszip,
                                 maybe_module_code,
                                 maybe_entrypoint,
+                                maybe_decorator,
                                 static_patterns: vec![],
                             },
                             tx,

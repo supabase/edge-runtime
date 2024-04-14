@@ -14,6 +14,7 @@ use sb_core::util::fs::specifier_to_file_path;
 use sb_core::util::path::{closest_common_directory, find_lowest_path};
 use sb_fs::{build_vfs, VfsOpts};
 use sb_npm::InnerCliNpmResolverRef;
+use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::fs;
 use std::fs::{create_dir_all, File};
@@ -30,6 +31,37 @@ pub const VFS_ESZIP_KEY: &str = "---SUPABASE-VFS-DATA-ESZIP---";
 pub const SOURCE_CODE_ESZIP_KEY: &str = "---SUPABASE-SOURCE-CODE-ESZIP---";
 pub const STATIC_FILES_ESZIP_KEY: &str = "---SUPABASE-STATIC-FILES-ESZIP---";
 pub const STATIC_FS_PREFIX: &str = "mnt/data";
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DecoratorType {
+    /// Use TC39 Decorators Proposal - https://github.com/tc39/proposal-decorators
+    Tc39,
+    /// Use TypeScript experimental decorators.
+    Typescript,
+    /// Use TypeScript experimental decorators. It also emits metadata.
+    TypescriptWithMetadata,
+}
+
+impl Default for DecoratorType {
+    fn default() -> Self {
+        Self::Typescript
+    }
+}
+
+impl DecoratorType {
+    fn is_use_decorators_proposal(self) -> bool {
+        matches!(self, Self::Tc39)
+    }
+
+    fn is_use_ts_decorators(self) -> bool {
+        matches!(self, Self::Typescript | Self::TypescriptWithMetadata)
+    }
+
+    fn is_emit_metadata(self) -> bool {
+        matches!(self, Self::TypescriptWithMetadata)
+    }
+}
 
 #[derive(Debug)]
 pub enum EszipPayloadKind {

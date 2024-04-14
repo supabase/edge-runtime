@@ -14,7 +14,7 @@ use tokio::sync::{mpsc, oneshot, watch, Notify, OwnedSemaphorePermit};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-use sb_graph::EszipPayloadKind;
+use sb_graph::{DecoratorType, EszipPayloadKind};
 
 #[derive(Debug, Clone)]
 pub struct UserWorkerRuntimeOpts {
@@ -153,6 +153,7 @@ pub struct WorkerContextInitOpts {
     pub maybe_eszip: Option<EszipPayloadKind>,
     pub maybe_module_code: Option<FastString>,
     pub maybe_entrypoint: Option<String>,
+    pub maybe_decorator: Option<DecoratorType>,
     pub static_patterns: Vec<String>,
 }
 

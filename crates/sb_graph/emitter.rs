@@ -1,4 +1,5 @@
 use crate::graph_resolver::{CliGraphResolver, CliGraphResolverOptions};
+use crate::DecoratorType;
 use deno_ast::EmitOptions;
 use deno_core::error::AnyError;
 use deno_core::parking_lot::Mutex;
@@ -85,6 +86,7 @@ pub struct EmitterFactory {
     package_json_deps_installer: Deferred<Arc<PackageJsonDepsInstaller>>,
     maybe_package_json_deps: Option<PackageJsonDeps>,
     maybe_lockfile: Option<LockfileOpts>,
+    maybe_decorator: Option<DecoratorType>,
     npm_resolver: Deferred<Arc<dyn CliNpmResolver>>,
     resolver: Deferred<Arc<CliGraphResolver>>,
     file_fetcher_cache_strategy: Option<CacheSetting>,
@@ -113,6 +115,7 @@ impl EmitterFactory {
             package_json_deps_installer: Default::default(),
             maybe_package_json_deps: None,
             maybe_lockfile: None,
+            maybe_decorator: None,
             npm_resolver: Default::default(),
             resolver: Default::default(),
             file_fetcher_cache_strategy: None,
@@ -134,6 +137,10 @@ impl EmitterFactory {
         self.maybe_import_map = import_map
             .map(|import_map| Some(Arc::new(import_map)))
             .unwrap_or_else(|| None);
+    }
+
+    pub fn set_decorator_type(&mut self, decorator_type: Option<DecoratorType>) {
+        self.maybe_decorator = decorator_type;
     }
 
     pub fn init_package_json_deps(&mut self, package: &PackageJson) {
@@ -170,9 +177,25 @@ impl EmitterFactory {
 
     pub fn emit_options(&self) -> EmitOptions {
         EmitOptions {
+            use_decorators_proposal: self
+                .maybe_decorator
+                .map(DecoratorType::is_use_decorators_proposal)
+                .unwrap_or_default(),
+
+            use_ts_decorators: self
+                .maybe_decorator
+                .map(DecoratorType::is_use_ts_decorators)
+                .unwrap_or_default(),
+
+            emit_metadata: self
+                .maybe_decorator
+                .map(DecoratorType::is_emit_metadata)
+                .unwrap_or_default(),
+
             inline_source_map: true,
             inline_sources: true,
             source_map: true,
+
             ..Default::default()
         }
     }

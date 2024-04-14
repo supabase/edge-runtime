@@ -9,7 +9,9 @@ use base::{
     integration_test,
     rt_worker::worker_ctx::{create_user_worker_pool, create_worker, TerminationToken},
     server::{ServerEvent, Tls},
+    DecoratorType,
 };
+use deno_core::serde_json;
 use futures_util::{SinkExt, StreamExt};
 use http::{Method, Request, StatusCode};
 use http_utils::utils::get_upgrade_type;
@@ -175,6 +177,7 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
         timing: None,
         maybe_eszip: None,
         maybe_entrypoint: None,
+        maybe_decorator: None,
         maybe_module_code: None,
         conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
             worker_pool_tx,
@@ -330,6 +333,7 @@ async fn test_main_worker_boot_error() {
         timing: None,
         maybe_eszip: None,
         maybe_entrypoint: None,
+        maybe_decorator: None,
         maybe_module_code: None,
         conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
             worker_pool_tx,
@@ -730,6 +734,7 @@ async fn test_worker_boot_invalid_imports() {
         timing: None,
         maybe_eszip: None,
         maybe_entrypoint: None,
+        maybe_decorator: None,
         maybe_module_code: None,
         conf: WorkerRuntimeOpts::UserWorker(test_user_runtime_opts()),
         static_patterns: vec![],
@@ -1056,6 +1061,82 @@ async fn test_websocket_upgrade_node_non_secure() {
 #[serial]
 async fn test_websocket_upgrade_node_secure() {
     test_websocket_upgrade(new_localhost_tls(true), true).await;
+}
+
+async fn test_decorators(ty: Option<DecoratorType>) {
+    let is_disabled = ty.is_none();
+    let client = reqwest::Client::new();
+
+    let endpoint = if is_disabled {
+        "tc39".to_string()
+    } else {
+        serde_json::to_string(&ty).unwrap().replace('\"', "")
+    };
+
+    let payload = if is_disabled {
+        serde_json::json!({})
+    } else {
+        serde_json::json!({
+            "decoratorType": ty
+        })
+    };
+
+    let req = client
+        .request(
+            Method::OPTIONS,
+            format!(
+                "http://localhost:{}/decorator_{}",
+                NON_SECURE_PORT, endpoint
+            ),
+        )
+        .json(&payload)
+        .build()
+        .unwrap();
+
+    integration_test!(
+        "./test_cases/main_with_decorator",
+        NON_SECURE_PORT,
+        "",
+        None,
+        None,
+        Some(reqwest::RequestBuilder::from_parts(client, req)),
+        None,
+        (|resp: Result<reqwest::Response, reqwest::Error>| async {
+            let resp = resp.unwrap();
+
+            if is_disabled {
+                assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+                assert!(
+                    resp.text().await.unwrap().starts_with(
+                        "{\"msg\":\"InvalidWorkerCreation: worker boot error Uncaught SyntaxError: Invalid or unexpected token"
+                    ),
+
+                );
+            } else {
+                assert_eq!(resp.status(), StatusCode::OK);
+                assert_eq!(resp.text().await.unwrap().as_str(), "meow?");
+            }
+        }),
+        TerminationToken::new()
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_decorator_should_be_syntax_error() {
+    test_decorators(None).await;
+}
+
+#[tokio::test]
+#[serial]
+async fn test_decorator_parse_tc39() {
+    test_decorators(Some(DecoratorType::Tc39)).await;
+}
+
+#[tokio::test]
+#[serial]
+async fn test_decorator_parse_typescript_experimental_with_metadata() {
+    test_decorators(Some(DecoratorType::TypescriptWithMetadata)).await;
 }
 
 trait TlsExt {

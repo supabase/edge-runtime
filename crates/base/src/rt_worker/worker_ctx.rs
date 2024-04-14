@@ -21,7 +21,7 @@ use hyper::{Body, Request, Response};
 use log::{debug, error};
 use sb_core::conn_sync::ConnSync;
 use sb_core::{MetricSource, SharedMetricSource};
-use sb_graph::EszipPayloadKind;
+use sb_graph::{DecoratorType, EszipPayloadKind};
 use sb_workers::context::{
     EventWorkerRuntimeOpts, MainWorkerRuntimeOpts, Timing, UserWorkerMsgs, WorkerContextInitOpts,
     WorkerRequestMsg, WorkerRuntimeOpts,
@@ -627,12 +627,14 @@ pub async fn send_user_worker_request(
     Ok(res)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn create_main_worker(
     main_worker_path: PathBuf,
     import_map_path: Option<String>,
     no_module_cache: bool,
     runtime_opts: MainWorkerRuntimeOpts,
     maybe_entrypoint: Option<String>,
+    maybe_decorator: Option<DecoratorType>,
     termination_token: Option<TerminationToken>,
     inspector: Option<Inspector>,
 ) -> Result<mpsc::UnboundedSender<WorkerRequestMsg>, Error> {
@@ -655,6 +657,7 @@ pub async fn create_main_worker(
                 timing: None,
                 maybe_eszip,
                 maybe_entrypoint,
+                maybe_decorator,
                 maybe_module_code: None,
                 conf: WorkerRuntimeOpts::MainWorker(runtime_opts),
                 env_vars: std::env::vars().collect(),
@@ -675,6 +678,7 @@ pub async fn create_events_worker(
     import_map_path: Option<String>,
     no_module_cache: bool,
     maybe_entrypoint: Option<String>,
+    maybe_decorator: Option<DecoratorType>,
     termination_token: Option<TerminationToken>,
 ) -> Result<(MetricSource, mpsc::UnboundedSender<WorkerEventWithMetadata>), Error> {
     let (events_tx, events_rx) = mpsc::unbounded_channel::<WorkerEventWithMetadata>();
@@ -701,6 +705,7 @@ pub async fn create_events_worker(
                 timing: None,
                 maybe_eszip,
                 maybe_entrypoint,
+                maybe_decorator,
                 maybe_module_code: None,
                 conf: WorkerRuntimeOpts::EventsWorker(EventWorkerRuntimeOpts {}),
                 static_patterns: vec![],

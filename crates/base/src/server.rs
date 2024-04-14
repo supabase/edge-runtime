@@ -13,6 +13,7 @@ use rustls_pemfile::read_one_from_slice;
 use rustls_pemfile::Item;
 use sb_core::conn_sync::ConnSync;
 use sb_core::SharedMetricSource;
+use sb_graph::DecoratorType;
 use sb_workers::context::{MainWorkerRuntimeOpts, WorkerRequestMsg};
 use std::future::{pending, Future};
 use std::net::IpAddr;
@@ -320,6 +321,7 @@ impl Server {
         tls: Option<Tls>,
         main_service_path: String,
         maybe_events_service_path: Option<String>,
+        maybe_decorator: Option<DecoratorType>,
         maybe_user_worker_policy: Option<WorkerPoolPolicy>,
         import_map_path: Option<String>,
         flags: ServerFlags,
@@ -345,6 +347,7 @@ impl Server {
                 import_map_path.clone(),
                 flags.no_module_cache,
                 maybe_events_entrypoint,
+                maybe_decorator,
                 Some(termination_tokens.event.clone().unwrap()),
             )
             .await?;
@@ -377,6 +380,7 @@ impl Server {
                 event_worker_metric_src,
             },
             maybe_main_entrypoint,
+            maybe_decorator,
             Some(termination_tokens.main.clone()),
             if flags.allow_main_inspector {
                 inspector.map(|it| Inspector {

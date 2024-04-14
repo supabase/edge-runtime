@@ -972,16 +972,17 @@ async fn req_failure_case_intentional_peer_reset_secure() {
     req_failure_case_intentional_peer_reset(new_localhost_tls(true)).await;
 }
 
-async fn test_websocket_upgrade(maybe_tls: Option<Tls>) {
+async fn test_websocket_upgrade(maybe_tls: Option<Tls>, use_node_ws: bool) {
     let nonce = tungstenite::handshake::client::generate_key();
     let client = maybe_tls.client();
     let req = client
         .request(
             Method::GET,
             format!(
-                "{}://localhost:{}/websocket-upgrade",
+                "{}://localhost:{}/websocket-upgrade{}",
                 maybe_tls.schema(),
                 maybe_tls.port(),
+                if use_node_ws { "-node" } else { "" }
             ),
         )
         .header(reqwest::header::CONNECTION, "upgrade")
@@ -1035,14 +1036,26 @@ async fn test_websocket_upgrade(maybe_tls: Option<Tls>) {
 
 #[tokio::test]
 #[serial]
-async fn test_websocket_upgrade_non_secure() {
-    test_websocket_upgrade(new_localhost_tls(false)).await;
+async fn test_websocket_upgrade_deno_non_secure() {
+    test_websocket_upgrade(new_localhost_tls(false), false).await;
 }
 
 #[tokio::test]
 #[serial]
-async fn test_websocket_upgrade_secure() {
-    test_websocket_upgrade(new_localhost_tls(true)).await;
+async fn test_websocket_upgrade_deno_secure() {
+    test_websocket_upgrade(new_localhost_tls(true), false).await;
+}
+
+#[tokio::test]
+#[serial]
+async fn test_websocket_upgrade_node_non_secure() {
+    test_websocket_upgrade(new_localhost_tls(false), true).await;
+}
+
+#[tokio::test]
+#[serial]
+async fn test_websocket_upgrade_node_secure() {
+    test_websocket_upgrade(new_localhost_tls(true), true).await;
 }
 
 trait TlsExt {

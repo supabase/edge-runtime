@@ -14,6 +14,8 @@ use log::error;
 use serde::Serialize;
 use tokio::sync::oneshot;
 
+mod upgrade;
+
 pub mod auth_tokens;
 pub mod cache;
 pub mod cert;

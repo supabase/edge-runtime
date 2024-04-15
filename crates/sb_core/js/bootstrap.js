@@ -438,8 +438,7 @@ globalThis.bootstrapSBEdge = opts => {
 		args: readOnly([]), // args are set to be empty
 		mainModule: getterOnly(() => ops.op_main_module()),
 		version: getterOnly(() => ({
-			deno:
-				`supabase-edge-runtime-${globalThis.SUPABASE_VERSION} (compatible with Deno v${globalThis.DENO_VERSION})`,
+			deno: globalThis.DENO_VERSION,
 			v8: '11.6.189.12',
 			typescript: '5.1.6',
 		})),

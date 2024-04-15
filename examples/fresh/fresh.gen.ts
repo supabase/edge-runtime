@@ -21,7 +21,11 @@ const manifest = {
   islands: {
     "./islands/Counter.tsx": $Counter,
   },
-  baseUrl: import.meta.url,
+
+  // baseUrl: import.meta.url,
+  // 👇 You will not able to make it a relative path whatever you do
+  baseUrl: "file://./mnt/data/examples/fresh/fresh.gen.ts",
+
 } satisfies Manifest;
 
 export default manifest;

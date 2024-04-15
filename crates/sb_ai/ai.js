@@ -40,13 +40,15 @@ const parseJSON = async function* (itr) {
 class Session {
 	model;
 	is_ollama;
+	inferenceAPIHost;
 
 	constructor(model) {
 		this.model = model;
 		this.is_ollama = false;
 
+		this.inferenceAPIHost = core.ops.op_get_env('AI_INFERENCE_API_HOST');
 		if (model === 'llama2' || model === 'mixtral' || model === 'mistral') {
-			this.is_ollama = true;
+			this.is_ollama = !!this.inferenceAPIHost; // only enable ollama if env variable is set
 		} else {
 			core.ops.op_sb_ai_init_model(model);
 		}
@@ -54,7 +56,6 @@ class Session {
 
 	async run(prompt, opts = {}) {
 		if (this.is_ollama) {
-			const inferenceAPIHost = core.ops.op_get_env('AI_INFERENCE_API_HOST');
 			const stream = opts.stream ?? false;
 			const timeout = opts.timeout ?? 60; // default timeout 60s
 
@@ -62,7 +63,7 @@ class Session {
 			const signal = controller.signal;
 			setTimeout(() => controller.abort(new Error('Request timeout')), 30 * 1000);
 
-			const res = await fetch(`${inferenceAPIHost}/api/generate`, {
+			const res = await fetch(new URL('/api/generate', this.inferenceAPIHost), {
 				body: JSON.stringify({ model: this.model, prompt, stream }),
 				method: 'POST',
 			}, { signal });

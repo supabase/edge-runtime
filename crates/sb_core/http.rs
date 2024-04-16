@@ -13,13 +13,11 @@ use futures::Future;
 use hyper::upgrade::{OnUpgrade, Parts};
 use log::error;
 use serde::Serialize;
+use tokio::io::{copy_bidirectional, AsyncReadExt, AsyncWriteExt, DuplexStream};
 use tokio::{
     io::{AsyncRead, AsyncWrite},
-    sync::{oneshot, watch},
-};
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
     net::UnixStream,
+    sync::{oneshot, watch},
 };
 
 use crate::{
@@ -37,15 +35,27 @@ deno_core::extension!(
     middleware = sb_http_middleware,
 );
 
-pub(crate) struct UnixStream2(UnixStream, Option<watch::Receiver<ConnSync>>);
+pub(crate) struct Stream2<S>(S, Option<watch::Receiver<ConnSync>>);
 
-impl UnixStream2 {
-    pub fn new(stream: UnixStream, watcher: Option<watch::Receiver<ConnSync>>) -> Self {
+impl<S> Stream2<S>
+where
+    S: AsyncWrite + AsyncRead + Unpin,
+{
+    pub fn new(stream: S, watcher: Option<watch::Receiver<ConnSync>>) -> Self {
         Self(stream, watcher)
     }
 }
 
-impl AsyncRead for UnixStream2 {
+impl<S> Stream2<S> {
+    fn into_inner(self) -> (S, Option<watch::Receiver<ConnSync>>) {
+        (self.0, self.1)
+    }
+}
+
+impl<S> AsyncRead for Stream2<S>
+where
+    S: AsyncRead + Unpin,
+{
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
@@ -55,7 +65,10 @@ impl AsyncRead for UnixStream2 {
     }
 }
 
-impl AsyncWrite for UnixStream2 {
+impl<S> AsyncWrite for Stream2<S>
+where
+    S: AsyncWrite + Unpin,
+{
     fn poll_write(
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
@@ -106,6 +119,9 @@ impl AsyncWrite for UnixStream2 {
     }
 }
 
+pub(crate) type DuplexStream2 = Stream2<DuplexStream>;
+pub(crate) type UnixStream2 = Stream2<UnixStream>;
+
 fn http_error(message: &'static str) -> AnyError {
     custom_error("Http", message)
 }
@@ -129,10 +145,19 @@ async fn op_http_upgrade_websocket2(
     };
 
     let upgraded = hyper::upgrade::on(request).await?;
-    let Parts { io, read_buf, .. } = upgraded.downcast::<UnixStream2>().unwrap();
+    let Parts { io, read_buf, .. } = upgraded.downcast::<DuplexStream2>().unwrap();
+    let (mut rw, conn_sync) = io.into_inner();
 
-    let ws_rid = ws_create_server_stream(&mut state.borrow_mut(), io.0.into(), read_buf)?;
-    Ok(ws_rid)
+    // NOTE(Nyannyacha): We use `UnixStream` out of necessity here because
+    // `ws_create_server_stream` only supports network stream types.
+    let (ours, theirs) = UnixStream::pair()?;
+
+    tokio::spawn(async move {
+        let mut theirs = UnixStream2::new(theirs, conn_sync);
+        let _ = copy_bidirectional(&mut rw, &mut theirs).await;
+    });
+
+    ws_create_server_stream(&mut state.borrow_mut(), ours.into(), read_buf)
 }
 
 #[op2]

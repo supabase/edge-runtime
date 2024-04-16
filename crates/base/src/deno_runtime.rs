@@ -1,7 +1,7 @@
 use crate::inspector_server::Inspector;
 use crate::rt_worker::rt;
 use crate::rt_worker::supervisor::{CPUUsage, CPUUsageMetrics};
-use crate::rt_worker::worker::UnixStreamEntry;
+use crate::rt_worker::worker::DuplexStreamEntry;
 use crate::utils::units::{bytes_to_display, mib_to_bytes};
 
 use anyhow::{anyhow, bail, Context, Error};
@@ -33,7 +33,6 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::fmt;
-use std::os::fd::RawFd;
 use std::sync::Arc;
 use std::task::Poll;
 use std::time::Duration;
@@ -525,7 +524,7 @@ impl DenoRuntime {
             }
 
             if conf.is_main_worker() || conf.is_user_worker() {
-                op_state.put::<HashMap<RawFd, watch::Receiver<ConnSync>>>(HashMap::new());
+                op_state.put::<HashMap<usize, watch::Receiver<ConnSync>>>(HashMap::new());
             }
 
             if conf.is_user_worker() {
@@ -596,14 +595,15 @@ impl DenoRuntime {
 
     pub async fn run(
         &mut self,
-        unix_stream_rx: mpsc::UnboundedReceiver<UnixStreamEntry>,
+        duplex_stream_rx: mpsc::UnboundedReceiver<DuplexStreamEntry>,
         maybe_cpu_usage_metrics_tx: Option<mpsc::UnboundedSender<CPUUsageMetrics>>,
         name: Option<String>,
     ) -> (Result<(), Error>, i64) {
         {
             let op_state_rc = self.js_runtime.op_state();
             let mut op_state = op_state_rc.borrow_mut();
-            op_state.put::<mpsc::UnboundedReceiver<UnixStreamEntry>>(unix_stream_rx);
+
+            op_state.put::<mpsc::UnboundedReceiver<DuplexStreamEntry>>(duplex_stream_rx);
 
             if self.conf.is_main_worker() {
                 op_state.put::<mpsc::UnboundedSender<UserWorkerMsgs>>(
@@ -887,7 +887,7 @@ extern "C" fn mem_check_gc_prologue_callback_fn(
 #[cfg(test)]
 mod test {
     use crate::deno_runtime::DenoRuntime;
-    use crate::rt_worker::worker::UnixStreamEntry;
+    use crate::rt_worker::worker::DuplexStreamEntry;
     use deno_core::{FastString, ModuleCodeString, PollEventLoopOptions};
     use sb_graph::emitter::EmitterFactory;
     use sb_graph::{generate_binary_eszip, EszipPayloadKind};
@@ -1467,8 +1467,8 @@ mod test {
         let mut user_rt =
             create_basic_user_runtime("./test_cases/array_buffers", 20, 1000, &[]).await;
 
-        let (_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStreamEntry>();
-        let (result, _) = user_rt.run(unix_stream_rx, None, None).await;
+        let (_tx, duplex_stream_rx) = mpsc::unbounded_channel::<DuplexStreamEntry>();
+        let (result, _) = user_rt.run(duplex_stream_rx, None, None).await;
 
         assert!(result.is_ok(), "expected no errors");
 
@@ -1482,8 +1482,8 @@ mod test {
         let mut user_rt =
             create_basic_user_runtime("./test_cases/array_buffers", 15, 1000, &[]).await;
 
-        let (_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStreamEntry>();
-        let (result, _) = user_rt.run(unix_stream_rx, None, None).await;
+        let (_tx, duplex_stream_rx) = mpsc::unbounded_channel::<DuplexStreamEntry>();
+        let (result, _) = user_rt.run(duplex_stream_rx, None, None).await;
 
         match result {
             Err(err) => {
@@ -1501,7 +1501,7 @@ mod test {
         memory_limit_mb: u64,
         worker_timeout_ms: u64,
     ) {
-        let (_unix_stream_tx, unix_stream_rx) = mpsc::unbounded_channel::<UnixStreamEntry>();
+        let (_duplex_stream_tx, duplex_stream_rx) = mpsc::unbounded_channel::<DuplexStreamEntry>();
         let (callback_tx, mut callback_rx) = mpsc::unbounded_channel::<()>();
         let mut user_rt =
             create_basic_user_runtime(path, memory_limit_mb, worker_timeout_ms, static_patterns)
@@ -1518,7 +1518,7 @@ mod test {
         });
 
         let wait_fut = async move {
-            let (result, _) = user_rt.run(unix_stream_rx, None, None).await;
+            let (result, _) = user_rt.run(duplex_stream_rx, None, None).await;
 
             assert_eq!(
                 result.unwrap_err().to_string(),

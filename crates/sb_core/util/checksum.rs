@@ -27,7 +27,7 @@ mod tests {
     #[test]
     fn test() {
         let input = vec![b"hello", b"world", b"hello", b"hello"];
-        let pdf = gen(&input);
-        assert_eq!("00d03979f1c2c9cece94003e15ced43d1de8bf126f28d27b93f1e37874fb5395",pdf.as_str());
+        let output = gen(&input);
+        assert_eq!("00d03979f1c2c9cece94003e15ced43d1de8bf126f28d27b93f1e37874fb5395",output.as_str());
     }
 }

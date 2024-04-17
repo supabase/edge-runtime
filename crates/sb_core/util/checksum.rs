@@ -2,22 +2,12 @@
 
 use ring::digest::Context;
 use ring::digest::SHA256;
-use std::fmt::Write;
-
 pub fn gen(v: &[impl AsRef<[u8]>]) -> String {
     let mut ctx = Context::new(&SHA256);
     for src in v {
         ctx.update(src.as_ref());
     }
-    let digest = ctx.finish();
-    let mut hash_str = String::with_capacity(64);
-    digest
-        .as_ref()
-        .iter()
-        .for_each(|byte| write!(hash_str, "{byte:02x}")
-            .expect("write! macro on string cannot fail"));
-
-    hash_str
+    faster_hex::hex_string(ctx.finish().as_ref())
 }
 
 #[cfg(test)]

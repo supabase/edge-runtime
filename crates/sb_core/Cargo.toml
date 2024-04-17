@@ -52,3 +52,4 @@ enum-as-inner.workspace = true
 httparse.workspace = true
 http.workspace = true
 memmem = "0.1"
+faster-hex.workspace=true

@@ -6,7 +6,7 @@ use base::deno_runtime::MAYBE_DENO_VERSION;
 use base::rt_worker::worker_pool::{SupervisorPolicy, WorkerPoolPolicy};
 use base::server::{ServerFlags, Tls, WorkerEntrypoints};
 use base::{DecoratorType, InspectorOption};
-use clap::builder::{FalseyValueParser, TypedValueParser};
+use clap::builder::{BoolishValueParser, FalseyValueParser, TypedValueParser};
 use clap::{arg, crate_version, value_parser, ArgAction, ArgGroup, ArgMatches, Command};
 use deno_core::url::Url;
 use log::warn;
@@ -145,6 +145,13 @@ fn cli() -> Command {
                         .action(ArgAction::SetTrue)
                 )
                 .arg(arg!(--"static" <Path> "Glob pattern for static files to be included"))
+                .arg(arg!(--"tcp-nodelay" [BOOL] "Disables Nagle's algorithm")
+                    .num_args(0..=1)
+                    .value_parser(BoolishValueParser::new())
+                    .require_equals(true)
+                    .default_value("true")
+                    .default_missing_value("true")
+                )
         )
         .subcommand(
             Command::new("bundle")
@@ -269,6 +276,10 @@ fn main() -> Result<(), anyhow::Error> {
                     None
                 };
 
+                let tcp_nodelay =sub_matches.get_one::<bool>("tcp-nodelay")
+                .copied()
+                .unwrap();
+
                 start_server(
                     ip.as_str(),
                     port,
@@ -298,6 +309,7 @@ fn main() -> Result<(), anyhow::Error> {
                     ServerFlags {
                         no_module_cache,
                         allow_main_inspector,
+                        tcp_nodelay,
                         graceful_exit_deadline_sec: graceful_exit_timeout.unwrap_or(0),
                     },
                     None,

@@ -2,17 +2,25 @@
 
 use ring::digest::Context;
 use ring::digest::SHA256;
-
 pub fn gen(v: &[impl AsRef<[u8]>]) -> String {
     let mut ctx = Context::new(&SHA256);
     for src in v {
         ctx.update(src.as_ref());
     }
-    let digest = ctx.finish();
-    let out: Vec<String> = digest
-        .as_ref()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect();
-    out.join("")
+    faster_hex::hex_string(ctx.finish().as_ref())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::util::checksum::gen;
+
+    #[test]
+    fn test() {
+        let input = vec![b"hello", b"world", b"hello", b"hello"];
+        let output = gen(&input);
+        assert_eq!(
+            "00d03979f1c2c9cece94003e15ced43d1de8bf126f28d27b93f1e37874fb5395",
+            output.as_str()
+        );
+    }
 }

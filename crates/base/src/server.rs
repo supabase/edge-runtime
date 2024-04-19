@@ -230,6 +230,7 @@ pub struct WorkerEntrypoints {
 pub struct ServerFlags {
     pub no_module_cache: bool,
     pub allow_main_inspector: bool,
+    pub tcp_nodelay: bool,
     pub graceful_exit_deadline_sec: u64,
 }
 
@@ -446,7 +447,13 @@ impl Server {
         }
 
         let event_tx = can_receive_event.then_some(event_tx.clone());
-        let mut graceful_exit_deadline = flags.graceful_exit_deadline_sec;
+        let ServerFlags {
+            tcp_nodelay,
+            graceful_exit_deadline_sec,
+            ..
+        } = flags;
+
+        let mut graceful_exit_deadline = graceful_exit_deadline_sec;
 
         loop {
             let main_worker_req_tx = self.main_worker_req_tx.clone();
@@ -457,6 +464,10 @@ impl Server {
                 msg = non_secure_listener.accept() => {
                     match msg {
                         Ok((stream, _)) => {
+                            if tcp_nodelay {
+                                let _ = stream.set_nodelay(true);
+                            }
+
                             accept_stream(stream, main_worker_req_tx, event_tx, metric_src)
                         }
                         Err(e) => error!("socket error: {}", e)
@@ -473,6 +484,10 @@ impl Server {
                 } => {
                     match msg {
                         Ok((stream, _)) => {
+                            if tcp_nodelay {
+                                let _ = stream.get_ref().0.set_nodelay(true);
+                            }
+
                             accept_stream(stream, main_worker_req_tx, event_tx, metric_src);
                         }
                         Err(e) => error!("socket error: {}", e)

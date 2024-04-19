@@ -26,7 +26,7 @@ fn op_http_start(
         // process of starting a HTTP server on top of this connection, so we just return a bad
         // resource error. See also: https://github.com/denoland/deno/pull/16242
         let resource = Rc::try_unwrap(resource_rc)
-            .map_err(|_| bad_resource("upstream is currently in use"))?;
+            .map_err(|_| bad_resource("Duplex stream is currently in use"))?;
 
         let (id, stream) = resource.into_inner();
         let watcher = state

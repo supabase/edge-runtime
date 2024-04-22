@@ -1,7 +1,7 @@
+use anyhow::Error;
 use deno_core::error::bad_resource;
 use deno_core::error::AnyError;
 use deno_core::op2;
-use deno_core::AsyncMutFuture;
 use deno_core::AsyncRefCell;
 use deno_core::AsyncResult;
 use deno_core::CancelHandle;
@@ -11,14 +11,13 @@ use deno_core::OpState;
 use deno_core::RcRef;
 use deno_core::Resource;
 use deno_core::ResourceId;
+use deno_net::io::UnixStreamResource;
 use deno_net::ops::IpAddr;
-use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::os::fd::AsRawFd;
+use std::os::fd::RawFd;
 use std::rc::Rc;
-use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::Ordering;
-use tokio::io;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc;
@@ -26,72 +25,56 @@ use tokio::sync::watch;
 
 use crate::conn_sync::ConnSync;
 
-pub struct TokioDuplexResource {
-    id: usize,
-    rw: AsyncRefCell<io::DuplexStream>,
-    cancel_handle: CancelHandle,
+pub struct TcpStreamResource {
+    rd: AsyncRefCell<tokio::net::tcp::OwnedReadHalf>,
+    wr: AsyncRefCell<tokio::net::tcp::OwnedWriteHalf>,
+    // When a `TcpStream` resource is closed, all pending 'read' ops are
+    // canceled, while 'write' ops are allowed to complete. Therefore only
+    // 'read' futures are attached to this cancel handle.
+    cancel: CancelHandle,
 }
 
-impl TokioDuplexResource {
-    pub fn new(rw: io::DuplexStream) -> Self {
-        static COUNTER: AtomicUsize = AtomicUsize::new(0);
-
-        Self {
-            id: COUNTER.fetch_add(1, Ordering::SeqCst),
-            rw: rw.into(),
-            cancel_handle: CancelHandle::default(),
-        }
+impl TcpStreamResource {
+    pub fn into_inner(
+        self,
+    ) -> (
+        tokio::net::tcp::OwnedReadHalf,
+        tokio::net::tcp::OwnedWriteHalf,
+    ) {
+        (self.rd.into_inner(), self.wr.into_inner())
     }
 
-    pub fn into_inner(self) -> (usize, io::DuplexStream) {
-        (self.id, self.rw.into_inner())
-    }
-
-    pub fn borrow_mut(self: &Rc<Self>) -> AsyncMutFuture<io::DuplexStream> {
-        RcRef::map(self, |r| &r.rw).borrow_mut()
-    }
-
-    pub fn cancel_handle(self: &Rc<Self>) -> RcRef<CancelHandle> {
-        RcRef::map(self, |r| &r.cancel_handle)
-    }
-
-    pub fn cancel_read_ops(&self) {
-        self.cancel_handle.cancel()
-    }
-
-    pub async fn read(self: Rc<Self>, data: &mut [u8]) -> Result<usize, AnyError> {
-        let mut rw = self.borrow_mut().await;
-        let nread = rw.read(data).try_or_cancel(self.cancel_handle()).await?;
+    async fn read(self: Rc<Self>, data: &mut [u8]) -> Result<usize, Error> {
+        let mut rd = RcRef::map(&self, |r| &r.rd).borrow_mut().await;
+        let cancel = RcRef::map(self, |r| &r.cancel);
+        let nread = rd.read(data).try_or_cancel(cancel).await?;
         Ok(nread)
     }
 
-    pub async fn write(self: Rc<Self>, data: &[u8]) -> Result<usize, AnyError> {
-        let mut rw = self.borrow_mut().await;
-        let nwritten = rw.write(data).await?;
+    async fn write(self: Rc<Self>, data: &[u8]) -> Result<usize, Error> {
+        let mut wr = RcRef::map(self, |r| &r.wr).borrow_mut().await;
+        let nwritten = wr.write(data).await?;
         Ok(nwritten)
-    }
-
-    pub async fn shutdown(self: Rc<Self>) -> Result<(), AnyError> {
-        let mut rw = self.borrow_mut().await;
-        rw.shutdown().await?;
-        Ok(())
     }
 }
 
-impl Resource for TokioDuplexResource {
+impl Resource for TcpStreamResource {
     deno_core::impl_readable_byob!();
     deno_core::impl_writable!();
 
-    fn name(&self) -> Cow<str> {
-        "tokioDuplexStream".into()
-    }
-
-    fn shutdown(self: Rc<Self>) -> AsyncResult<()> {
-        Box::pin(self.shutdown())
-    }
-
     fn close(self: Rc<Self>) {
-        self.cancel_read_ops();
+        self.cancel.cancel()
+    }
+}
+
+impl From<tokio::net::TcpStream> for TcpStreamResource {
+    fn from(s: tokio::net::TcpStream) -> Self {
+        let (rd, wr) = s.into_split();
+        Self {
+            rd: rd.into(),
+            wr: wr.into(),
+            cancel: Default::default(),
+        }
     }
 }
 
@@ -119,11 +102,11 @@ pub async fn op_net_accept(
     // we need to add it back later after processing a message.
     let rx = {
         let mut op_state = state.borrow_mut();
-        op_state.try_take::<mpsc::UnboundedReceiver<(io::DuplexStream, Option<watch::Receiver<ConnSync>>)>>()
+        op_state.try_take::<mpsc::UnboundedReceiver<(tokio::net::UnixStream, Option<watch::Receiver<ConnSync>>)>>()
     };
 
     if rx.is_none() {
-        return Err(bad_resource("duplex stream receiver is already used"));
+        return Err(bad_resource("unix channel receiver is already used"));
     }
 
     let rx = rx.unwrap();
@@ -132,18 +115,18 @@ pub async fn op_net_accept(
         move |value| {
             let mut op_state = state.borrow_mut();
             op_state.put::<mpsc::UnboundedReceiver<(
-                io::DuplexStream,
+                tokio::net::UnixStream,
                 Option<watch::Receiver<ConnSync>>,
             )>>(value);
         }
     });
 
-    let Some((stream, conn_sync)) = rx.recv().await else {
-        return Err(bad_resource("duplex stream channel is closed"));
+    let Some((unix_stream, conn_sync)) = rx.recv().await else {
+        return Err(bad_resource("unix stream channel is closed"));
     };
 
-    let resource = TokioDuplexResource::new(stream);
-    let id = resource.id;
+    let fd = unix_stream.as_raw_fd();
+    let resource = UnixStreamResource::new(unix_stream.into_split());
 
     // since the op state was dropped before,
     // reborrow and add the channel receiver again
@@ -154,8 +137,8 @@ pub async fn op_net_accept(
 
     if let Some(watcher) = conn_sync {
         let _ = op_state
-            .borrow_mut::<HashMap<usize, watch::Receiver<ConnSync>>>()
-            .insert(id, watcher);
+            .borrow_mut::<HashMap<RawFd, watch::Receiver<ConnSync>>>()
+            .insert(fd, watcher);
     }
 
     Ok((

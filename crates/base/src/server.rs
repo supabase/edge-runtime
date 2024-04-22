@@ -6,9 +6,10 @@ use crate::rt_worker::worker_pool::WorkerPoolPolicy;
 use crate::InspectorOption;
 use anyhow::{anyhow, bail, Context, Error};
 use event_worker::events::WorkerEventWithMetadata;
-use futures_util::Stream;
+use futures_util::future::poll_fn;
+use futures_util::{FutureExt, Stream};
 use hyper::{server::conn::Http, service::Service, Body, Request, Response};
-use log::{debug, error, info};
+use log::{debug, error, info, trace, warn};
 use rustls_pemfile::read_one_from_slice;
 use rustls_pemfile::Item;
 use sb_core::conn_sync::ConnSync;
@@ -29,9 +30,10 @@ use std::time::Duration;
 use tls_listener::TlsListener;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
+use tokio::pin;
 use tokio::sync::mpsc::{Sender, UnboundedSender};
 use tokio::sync::{mpsc, oneshot, watch};
-use tokio::time::timeout;
+use tokio::time::{sleep, timeout};
 use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::TlsAcceptor;
@@ -39,10 +41,12 @@ use tokio_util::sync::CancellationToken;
 
 pub enum ServerEvent {
     ConnectionError(hyper::Error),
+    #[cfg(debug_assertions)]
+    Draining,
 }
 
 pub enum ServerHealth {
-    Listening(mpsc::UnboundedReceiver<ServerEvent>),
+    Listening(mpsc::UnboundedReceiver<ServerEvent>, SharedMetricSource),
     Failure,
 }
 
@@ -232,6 +236,7 @@ pub struct ServerFlags {
     pub allow_main_inspector: bool,
     pub tcp_nodelay: bool,
     pub graceful_exit_deadline_sec: u64,
+    pub graceful_exit_keepalive_deadline_ms: Option<u64>,
 }
 
 #[derive(Debug)]
@@ -413,6 +418,13 @@ impl Server {
     }
 
     pub async fn listen(&mut self) -> Result<(), Error> {
+        mod signal {
+            pub use tokio::signal::ctrl_c;
+
+            #[cfg(unix)]
+            pub use tokio::signal::unix;
+        }
+
         let addr = SocketAddr::new(IpAddr::V4(self.ip), self.port);
         let non_secure_listener = TcpListener::bind(&addr).await?;
         let mut secure_listener = if let Some(tls) = self.tls.take() {
@@ -425,11 +437,13 @@ impl Server {
             None
         };
 
+        let metric_src = self.metric_src.clone();
         let termination_tokens = &self.termination_tokens;
         let input_termination_token = termination_tokens.input.as_ref();
         let flags = self.flags;
 
         let mut can_receive_event = false;
+        let mut interrupted = false;
         let (event_tx, event_rx) = mpsc::unbounded_channel();
 
         debug!(
@@ -443,22 +457,50 @@ impl Server {
 
         if let Some(callback) = self.callback_tx.clone() {
             can_receive_event = true;
-            let _ = callback.send(ServerHealth::Listening(event_rx)).await;
+            let _ = callback
+                .send(ServerHealth::Listening(event_rx, metric_src.clone()))
+                .await;
         }
 
         let event_tx = can_receive_event.then_some(event_tx.clone());
+        let graceful_exit_token = CancellationToken::new();
+
         let ServerFlags {
             tcp_nodelay,
-            graceful_exit_deadline_sec,
+            mut graceful_exit_deadline_sec,
+            mut graceful_exit_keepalive_deadline_ms,
             ..
         } = flags;
 
-        let mut graceful_exit_deadline = graceful_exit_deadline_sec;
+        let mut terminate_signal_fut = if cfg!(unix) {
+            use signal::unix::signal;
+            use signal::unix::SignalKind;
+
+            let mut signals = [SignalKind::terminate(), SignalKind::window_change()]
+                .into_iter()
+                .map(|it| (it.as_raw_value(), signal(it).unwrap()))
+                .collect::<Vec<_>>();
+
+            poll_fn(move |cx| {
+                for (signum, signal) in &mut signals {
+                    let poll_result = signal.poll_recv(cx);
+
+                    if poll_result.is_ready() {
+                        return Poll::Ready::<std::os::raw::c_int>(*signum);
+                    }
+                }
+
+                Poll::Pending
+            })
+            .boxed()
+        } else {
+            pending().boxed()
+        };
 
         loop {
             let main_worker_req_tx = self.main_worker_req_tx.clone();
             let event_tx = event_tx.clone();
-            let metric_src = self.metric_src.clone();
+            let metric_src = metric_src.clone();
 
             tokio::select! {
                 msg = non_secure_listener.accept() => {
@@ -468,7 +510,7 @@ impl Server {
                                 let _ = stream.set_nodelay(true);
                             }
 
-                            accept_stream(stream, main_worker_req_tx, event_tx, metric_src)
+                            accept_stream(stream, main_worker_req_tx, event_tx, metric_src, graceful_exit_token.clone())
                         }
                         Err(e) => error!("socket error: {}", e)
                     }
@@ -488,7 +530,7 @@ impl Server {
                                 let _ = stream.get_ref().0.set_nodelay(true);
                             }
 
-                            accept_stream(stream, main_worker_req_tx, event_tx, metric_src);
+                            accept_stream(stream, main_worker_req_tx, event_tx, metric_src, graceful_exit_token.clone());
                         }
                         Err(e) => error!("socket error: {}", e)
                     }
@@ -504,45 +546,121 @@ impl Server {
                 } => {
                     info!("termination token resolved");
 
-                    if graceful_exit_deadline == 0 {
-                        graceful_exit_deadline = u64::MAX;
+                    if graceful_exit_deadline_sec == 0 {
+                        graceful_exit_deadline_sec = u64::MAX;
+                        graceful_exit_keepalive_deadline_ms = graceful_exit_keepalive_deadline_ms.map(|_| u64::MAX);
                     }
 
                     break;
                 }
 
-                // wait for shutdown signal...
-                // TODO(Nyannyacha): Handle more signals for connection
-                // draining.
-                _ = tokio::signal::ctrl_c() => {
-                    info!("shutdown signal received");
+                signum = &mut terminate_signal_fut => {
+                    info!("shutdown signal received: {}", signum);
+                    break;
+                }
+
+                _ = signal::ctrl_c() => {
+                    info!("interrupt signal received");
+                    interrupted = true;
                     break;
                 }
             }
         }
 
-        if graceful_exit_deadline > 0 {
-            let timeout_fut = timeout(
-                Duration::from_secs(graceful_exit_deadline),
-                termination_tokens.terminate(),
-            );
+        if !interrupted && graceful_exit_deadline_sec > 0 {
+            static REQ_METRIC_CHECK_SLEEP_DUR: Duration = Duration::from_millis(10);
+
+            let wait_fut = async move {
+                #[cfg(debug_assertions)]
+                {
+                    if let Some(tx) = event_tx.as_ref() {
+                        let _ = tx.send(ServerEvent::Draining);
+                    }
+                }
+
+                if let Some(keepalive_deadline_ms) = graceful_exit_keepalive_deadline_ms {
+                    // NOTE(Nyannyacha): What this branch does is not an
+                    // implementation in the strict sense of the graceful close
+                    // on the transport connection mentioned in RFC 2616 section
+                    // 8.1.4.
+                    //
+                    // It pushes back the cancellation of the
+                    // `graceful_exit_token` so that it can accept additional
+                    // requests coming in over an already established keep-alive
+                    // HTTP connection.
+                    //
+                    // However, this is non-standard behavior and therefore
+                    // flagged as experimental.
+                    //
+                    // Backgrounds:
+                    // [1]: https://datatracker.ietf.org/doc/html/rfc2616#autoid-59
+                    // [2]: https://trac.nginx.org/nginx/ticket/1022
+                    // [3]: https://mailman.nginx.org/pipermail/nginx-devel/2019-January/011810.html
+                    // [4]: https://github.com/kubernetes-retired/contrib/issues/1123
+                    // [5]: https://github.com/golang/go/issues/23829
+                    // [6]: https://github.com/reactor/reactor-netty/issues/1247
+                    // [7]: https://theantway.com/2017/11/analyze-connection-reset-error-in-nginx-upstream-with-keep-alive-enabled
+                    // [8]: https://github.com/hyperium/hyper/issues/3553#issuecomment-1917170510
+
+                    if keepalive_deadline_ms < u64::MAX {
+                        tokio::spawn(async move {
+                            sleep(Duration::from_millis(keepalive_deadline_ms)).await;
+                            graceful_exit_token.cancel();
+                        });
+                    }
+                } else {
+                    graceful_exit_token.cancel();
+                }
+
+                loop {
+                    let active_io = metric_src.active_io();
+                    let received_request_count = if cfg!(debug_assertions) {
+                        metric_src.received_requests()
+                    } else {
+                        0
+                    };
+
+                    let handled_request_count = if cfg!(debug_assertions) {
+                        metric_src.handled_requests()
+                    } else {
+                        0
+                    };
+
+                    trace!(
+                        "io: {}, received: {}, handled: {}",
+                        active_io,
+                        received_request_count,
+                        handled_request_count
+                    );
+
+                    if active_io == 0 && received_request_count == handled_request_count {
+                        break;
+                    }
+
+                    sleep(REQ_METRIC_CHECK_SLEEP_DUR).await;
+                }
+
+                termination_tokens.terminate().await;
+            };
+
+            let timeout_fut = timeout(Duration::from_secs(graceful_exit_deadline_sec), wait_fut);
 
             tokio::select! {
                 res = timeout_fut => {
                     if res.is_err() {
                         error!(
                             "did not able to terminate the workers within {} seconds",
-                            graceful_exit_deadline,
+                            graceful_exit_deadline_sec,
                         );
                     }
                 }
 
-                // TODO(Nyannyacha): Handle more signals for connection
-                // draining.
-                _ = tokio::signal::ctrl_c() => {
+                _ = signal::ctrl_c() => {
                     error!("received interrupt signal while waiting workers");
                 }
             }
+        } else if !interrupted && metric_src.received_requests() != metric_src.handled_requests() {
+            warn!("runtime exits immediately since the graceful exit feature has been disabled");
         }
 
         Ok(())
@@ -554,17 +672,36 @@ fn accept_stream<I>(
     req_tx: UnboundedSender<WorkerRequestMsg>,
     event_tx: Option<UnboundedSender<ServerEvent>>,
     metric_src: SharedMetricSource,
+    graceful_exit_token: CancellationToken,
 ) where
     I: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
+    metric_src.incl_active_io();
     tokio::task::spawn({
         async move {
-            let (service, cancel) = WorkerService::new(metric_src, req_tx);
+            let (service, cancel) = WorkerService::new(metric_src.clone(), req_tx);
+
             let _guard = cancel.drop_guard();
+            let _active_io_count_guard = scopeguard::guard(metric_src, |it| {
+                it.decl_active_io();
+            });
 
             let conn_fut = Http::new().serve_connection(io, service).with_upgrades();
+            let mut shutting_down = false;
 
-            if let Err(e) = conn_fut.await {
+            pin!(conn_fut);
+
+            let conn_result = loop {
+                tokio::select! {
+                    res = conn_fut.as_mut() => break res,
+                    _ = graceful_exit_token.cancelled(), if !shutting_down => {
+                        shutting_down = true;
+                        conn_fut.as_mut().graceful_shutdown();
+                    }
+                }
+            };
+
+            if let Err(e) = conn_result {
                 // Most common cause for these errors are when the client closes
                 // the connection before we could send a response
                 if e.is_incomplete_message() {
@@ -573,7 +710,7 @@ fn accept_stream<I>(
                     error!("client connection error ({:?})", e);
                 }
 
-                if let Some(tx) = event_tx {
+                if let Some(tx) = event_tx.as_ref() {
                     let _ = tx.send(ServerEvent::ConnectionError(e));
                 }
             }

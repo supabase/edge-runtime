@@ -94,11 +94,39 @@ fn cli() -> Command {
                         .value_parser(["tc39", "typescript", "typescript_with_metadata"])
                 )
                 .arg(
-                    arg!(--"graceful-exit-timeout" <SECONDS> "Maximum time in seconds that can wait for workers before terminating forcibly")
-                        .default_value("0")
+                    arg!(--"graceful-exit-timeout" [SECONDS])
+                        .help(
+                            concat!(
+                                "Maximum time in seconds that can wait for workers before terminating forcibly. ",
+                                "If providing zero value, the runtime will not try a graceful exit."
+                            )
+                        )
+                        // NOTE(Nyannyacha): Default timeout value follows the
+                        // value[1] defined in moby.
+                        //
+                        // [1]: https://github.com/moby/moby/blob/master/daemon/config/config.go#L45-L47
+                        .default_value("15")
                         .value_parser(
                             value_parser!(u64)
-                                .range(0..u64::MAX)
+                                .range(..u64::MAX)
+                        )
+                )
+                .arg(
+                    arg!(
+                        --"experimental-graceful-exit-keepalive-deadline-ratio"
+                        <PERCENTAGE>
+                    )
+                        .help(
+                            concat!(
+                                "(Experimental) Maximum period of time that incoming requests can be processed over a pre-established ",
+                                "keep-alive HTTP connection. ",
+                                "This is specified as a percentage of the `--graceful-exit-timeout` value. ",
+                                "The percentage cannot be greater than 95."
+                            )
+                        )
+                        .value_parser(
+                            value_parser!(u64)
+                                .range(..=95)
                         )
                 )
                 .arg(
@@ -239,7 +267,24 @@ fn main() -> Result<(), anyhow::Error> {
                     .get_one::<String>("policy")
                     .map(|it| it.parse::<SupervisorPolicy>().unwrap());
 
-                let graceful_exit_timeout = sub_matches.get_one::<u64>("graceful-exit-timeout").cloned();
+                let graceful_exit_deadline_sec = sub_matches.get_one::<u64>("graceful-exit-timeout").cloned().unwrap_or(0);
+                let graceful_exit_keepalive_deadline_ms = sub_matches.get_one::<u64>("experimental-graceful-exit-keepalive-deadline-ratio").cloned()
+                    .and_then(|it| {
+                        if it == 0 {
+                            return None;
+                        }
+
+                        let deadline_ms = graceful_exit_deadline_sec * 1000;
+                        let percent = std::cmp::min(it, 100) as f64;
+                        let point = percent / 100.0f64;
+
+                        if point.is_normal() {
+                            Some(((deadline_ms as f64) * point) as u64)
+                        } else {
+                            None
+                        }
+                    });
+
                 let maybe_max_parallelism =
                     sub_matches.get_one::<usize>("max-parallelism").cloned();
                 let maybe_request_wait_timeout =
@@ -309,8 +354,9 @@ fn main() -> Result<(), anyhow::Error> {
                     ServerFlags {
                         no_module_cache,
                         allow_main_inspector,
-                        tcp_nodelay,
-                        graceful_exit_deadline_sec: graceful_exit_timeout.unwrap_or(0),
+						tcp_nodelay,
+                        graceful_exit_deadline_sec,
+                        graceful_exit_keepalive_deadline_ms,
                     },
                     None,
                     WorkerEntrypoints {

@@ -46,9 +46,24 @@ pub struct SharedMetricSource {
     retired_user_workers: Arc<AtomicUsize>,
     received_requests: Arc<AtomicUsize>,
     handled_requests: Arc<AtomicUsize>,
+    active_io: Arc<AtomicUsize>,
 }
 
 impl SharedMetricSource {
+    pub fn active_io(&self) -> usize {
+        self.active_io.load(Ordering::Relaxed)
+    }
+
+    #[cfg(debug_assertions)]
+    pub fn received_requests(&self) -> usize {
+        self.received_requests.load(Ordering::Relaxed)
+    }
+
+    #[cfg(debug_assertions)]
+    pub fn handled_requests(&self) -> usize {
+        self.handled_requests.load(Ordering::Relaxed)
+    }
+
     pub fn incl_active_user_workers(&self) {
         self.active_user_workers.fetch_add(1, Ordering::Relaxed);
     }
@@ -69,11 +84,20 @@ impl SharedMetricSource {
         self.handled_requests.fetch_add(1, Ordering::Relaxed);
     }
 
+    pub fn incl_active_io(&self) {
+        self.active_io.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn decl_active_io(&self) {
+        self.active_io.fetch_sub(1, Ordering::Relaxed);
+    }
+
     pub fn reset(&self) {
         self.active_user_workers.store(0, Ordering::Relaxed);
         self.retired_user_workers.store(0, Ordering::Relaxed);
         self.received_requests.store(0, Ordering::Relaxed);
         self.handled_requests.store(0, Ordering::Relaxed);
+        self.active_io.store(0, Ordering::Relaxed);
     }
 }
 

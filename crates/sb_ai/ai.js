@@ -46,11 +46,11 @@ class Session {
 		this.model = model;
 		this.is_ollama = false;
 
-		this.inferenceAPIHost = core.ops.op_get_env('AI_INFERENCE_API_HOST');
-		if (model === 'llama2' || model === 'mixtral' || model === 'mistral') {
-			this.is_ollama = !!this.inferenceAPIHost; // only enable ollama if env variable is set
-		} else {
+		if (model === 'gte-small') {
 			core.ops.op_sb_ai_init_model(model);
+		} else {
+			this.inferenceAPIHost = core.ops.op_get_env('AI_INFERENCE_API_HOST');
+			this.is_ollama = !!this.inferenceAPIHost; // only enable ollama if env variable is set
 		}
 	}
 

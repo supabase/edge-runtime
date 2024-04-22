@@ -54,12 +54,10 @@ impl SharedMetricSource {
         self.active_io.load(Ordering::Relaxed)
     }
 
-    #[cfg(debug_assertions)]
     pub fn received_requests(&self) -> usize {
         self.received_requests.load(Ordering::Relaxed)
     }
 
-    #[cfg(debug_assertions)]
     pub fn handled_requests(&self) -> usize {
         self.handled_requests.load(Ordering::Relaxed)
     }

@@ -614,17 +614,8 @@ impl Server {
 
                 loop {
                     let active_io = metric_src.active_io();
-                    let received_request_count = if cfg!(debug_assertions) {
-                        metric_src.received_requests()
-                    } else {
-                        0
-                    };
-
-                    let handled_request_count = if cfg!(debug_assertions) {
-                        metric_src.handled_requests()
-                    } else {
-                        0
-                    };
+                    let received_request_count = metric_src.received_requests();
+                    let handled_request_count = metric_src.handled_requests();
 
                     trace!(
                         "io: {}, received: {}, handled: {}",

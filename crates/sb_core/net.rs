@@ -1,14 +1,11 @@
 use deno_core::error::bad_resource;
 use deno_core::error::AnyError;
 use deno_core::op2;
-use deno_core::AsyncMutFuture;
 use deno_core::AsyncRefCell;
 use deno_core::AsyncResult;
 use deno_core::CancelHandle;
-use deno_core::CancelTryFuture;
 use deno_core::Op;
 use deno_core::OpState;
-use deno_core::RcRef;
 use deno_core::Resource;
 use deno_core::ResourceId;
 use deno_net::ops::IpAddr;
@@ -19,8 +16,6 @@ use std::rc::Rc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use tokio::io;
-use tokio::io::AsyncReadExt;
-use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc;
 use tokio::sync::watch;
 
@@ -47,34 +42,20 @@ impl TokioDuplexResource {
         (self.id, self.rw.into_inner())
     }
 
-    pub fn borrow_mut(self: &Rc<Self>) -> AsyncMutFuture<io::DuplexStream> {
-        RcRef::map(self, |r| &r.rw).borrow_mut()
-    }
-
-    pub fn cancel_handle(self: &Rc<Self>) -> RcRef<CancelHandle> {
-        RcRef::map(self, |r| &r.cancel_handle)
-    }
-
     pub fn cancel_read_ops(&self) {
         self.cancel_handle.cancel()
     }
 
-    pub async fn read(self: Rc<Self>, data: &mut [u8]) -> Result<usize, AnyError> {
-        let mut rw = self.borrow_mut().await;
-        let nread = rw.read(data).try_or_cancel(self.cancel_handle()).await?;
-        Ok(nread)
+    pub async fn read(self: Rc<Self>, _data: &mut [u8]) -> Result<usize, AnyError> {
+        unreachable!()
     }
 
-    pub async fn write(self: Rc<Self>, data: &[u8]) -> Result<usize, AnyError> {
-        let mut rw = self.borrow_mut().await;
-        let nwritten = rw.write(data).await?;
-        Ok(nwritten)
+    pub async fn write(self: Rc<Self>, _data: &[u8]) -> Result<usize, AnyError> {
+        unreachable!()
     }
 
     pub async fn shutdown(self: Rc<Self>) -> Result<(), AnyError> {
-        let mut rw = self.borrow_mut().await;
-        rw.shutdown().await?;
-        Ok(())
+        unreachable!()
     }
 }
 

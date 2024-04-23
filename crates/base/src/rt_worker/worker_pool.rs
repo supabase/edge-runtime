@@ -525,7 +525,7 @@ impl WorkerPool {
                     .await;
 
                     match result {
-                        Ok(rep) => Ok((rep, req_end_tx)),
+                        Ok(req) => Ok((req, req_end_tx)),
                         Err(err) => {
                             let _ = req_end_tx.send(());
                             error!("failed to send request to user worker: {}", err.to_string());

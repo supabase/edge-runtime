@@ -217,7 +217,7 @@ impl Resource for UserWorkerRequestBodyResource {
             body.send(Ok(bytes))
                 .or_cancel(cancel)
                 .await?
-                .map_err(|_| type_error("request body receiver not connected (request closed)"))?;
+                .map_err(|e| type_error(format!("request body receiver not connected ({})", e)))?;
 
             Ok(WriteOutcome::Full { nwritten })
         })
@@ -381,6 +381,7 @@ pub async fn op_user_worker_fetch_send(
     state: Rc<RefCell<OpState>>,
     #[string] key: String,
     #[smi] rid: ResourceId,
+    #[smi] request_body_rid: Option<ResourceId>,
     #[smi] stream_rid: ResourceId,
     #[smi] watcher_rid: Option<ResourceId>,
 ) -> Result<UserWorkerResponse, AnyError> {
@@ -455,6 +456,23 @@ pub async fn op_user_worker_fetch_send(
         Ok((res, req_end_tx)) => (res, req_end_tx),
         Err(err) => {
             error!("user worker failed to respond: {}", err);
+
+            if let Some(rid) = request_body_rid {
+                match state
+                    .borrow()
+                    .resource_table
+                    .get::<UserWorkerRequestBodyResource>(rid)
+                {
+                    Ok(res) => {
+                        res.cancel.cancel();
+                    }
+
+                    Err(_) => {
+                        error!("invalid resource type or already closed");
+                    }
+                }
+            }
+
             match err.downcast_ref() {
                 Some(err @ WorkerError::RequestCancelledBySupervisor) => {
                     return Err(custom_error("WorkerRequestCancelled", err.to_string()));

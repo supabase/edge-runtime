@@ -63,6 +63,7 @@ class UserWorker {
 		const resPromise = op_user_worker_fetch_send(
 			this.key,
 			requestRid,
+			requestBodyRid,
 			tag.streamRid,
 			tag.watcherRid
 		);

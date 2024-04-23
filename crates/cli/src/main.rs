@@ -228,10 +228,15 @@ fn main() -> Result<(), anyhow::Error> {
                 let port = sub_matches.get_one::<u16>("port").copied().unwrap();
 
                 let maybe_tls = if let Some(port) = sub_matches.get_one::<u16>("tls").copied() {
-                    let Some((key_slice, cert_slice)) = sub_matches.get_one::<PathBuf>("key").and_then(|it| std::fs::read(it).ok())
-                    .zip(
-                        sub_matches.get_one::<PathBuf>("cert").and_then(|it| std::fs::read(it).ok())
-                    ) else {
+                    let Some((key_slice, cert_slice)) = sub_matches
+                        .get_one::<PathBuf>("key")
+                        .and_then(|it| std::fs::read(it).ok())
+                        .zip(
+                            sub_matches
+                                .get_one::<PathBuf>("cert")
+                                .and_then(|it| std::fs::read(it).ok()),
+                        )
+                    else {
                         bail!("unable to load the key file or cert file");
                     };
 
@@ -267,8 +272,14 @@ fn main() -> Result<(), anyhow::Error> {
                     .get_one::<String>("policy")
                     .map(|it| it.parse::<SupervisorPolicy>().unwrap());
 
-                let graceful_exit_deadline_sec = sub_matches.get_one::<u64>("graceful-exit-timeout").cloned().unwrap_or(0);
-                let graceful_exit_keepalive_deadline_ms = sub_matches.get_one::<u64>("experimental-graceful-exit-keepalive-deadline-ratio").cloned()
+                let graceful_exit_deadline_sec = sub_matches
+                    .get_one::<u64>("graceful-exit-timeout")
+                    .cloned()
+                    .unwrap_or(0);
+
+                let graceful_exit_keepalive_deadline_ms = sub_matches
+                    .get_one::<u64>("experimental-graceful-exit-keepalive-deadline-ratio")
+                    .cloned()
                     .and_then(|it| {
                         if it == 0 {
                             return None;
@@ -289,12 +300,12 @@ fn main() -> Result<(), anyhow::Error> {
                     sub_matches.get_one::<usize>("max-parallelism").cloned();
                 let maybe_request_wait_timeout =
                     sub_matches.get_one::<u64>("request-wait-timeout").cloned();
-                let static_patterns = if let Some(val_ref) = sub_matches
-                    .get_many::<String>("static") {
-                    val_ref.map(|s| s.as_str()).collect::<Vec<&str>>()
-                } else {
-                    vec![]
-                };
+                let static_patterns =
+                    if let Some(val_ref) = sub_matches.get_many::<String>("static") {
+                        val_ref.map(|s| s.as_str()).collect::<Vec<&str>>()
+                    } else {
+                        vec![]
+                    };
 
                 let static_patterns: Vec<String> =
                     static_patterns.into_iter().map(|s| s.to_string()).collect();
@@ -321,9 +332,7 @@ fn main() -> Result<(), anyhow::Error> {
                     None
                 };
 
-                let tcp_nodelay =sub_matches.get_one::<bool>("tcp-nodelay")
-                .copied()
-                .unwrap();
+                let tcp_nodelay = sub_matches.get_one::<bool>("tcp-nodelay").copied().unwrap();
 
                 start_server(
                     ip.as_str(),
@@ -340,7 +349,13 @@ fn main() -> Result<(), anyhow::Error> {
                         {
                             if let Some(parallelism) = maybe_max_parallelism {
                                 if parallelism == 0 || parallelism > 1 {
-                                    warn!("if `oneshot` policy is enabled, the maximum parallelism is fixed to `1` as forcibly");
+                                    warn!(
+                                        "{}",
+                                        concat!(
+                                            "if `oneshot` policy is enabled, the maximum ",
+                                            "parallelism is fixed to `1` as forcibly"
+                                        )
+                                    );
                                 }
                             }
 
@@ -354,7 +369,7 @@ fn main() -> Result<(), anyhow::Error> {
                     ServerFlags {
                         no_module_cache,
                         allow_main_inspector,
-						tcp_nodelay,
+                        tcp_nodelay,
                         graceful_exit_deadline_sec,
                         graceful_exit_keepalive_deadline_ms,
                     },
@@ -365,7 +380,7 @@ fn main() -> Result<(), anyhow::Error> {
                     },
                     None,
                     static_patterns,
-                    maybe_inspector_option
+                    maybe_inspector_option,
                 )
                 .await?;
             }
@@ -373,12 +388,12 @@ fn main() -> Result<(), anyhow::Error> {
                 let output_path = sub_matches.get_one::<String>("output").cloned().unwrap();
                 let import_map_path = sub_matches.get_one::<String>("import-map").cloned();
                 let maybe_decorator = get_decorator_option(sub_matches);
-                let static_patterns = if let Some(val_ref) = sub_matches
-                    .get_many::<String>("static") {
-                    val_ref.map(|s| s.as_str()).collect::<Vec<&str>>()
-                } else {
-                    vec![]
-                };
+                let static_patterns =
+                    if let Some(val_ref) = sub_matches.get_many::<String>("static") {
+                        val_ref.map(|s| s.as_str()).collect::<Vec<&str>>()
+                    } else {
+                        vec![]
+                    };
 
                 let entry_point_path = sub_matches
                     .get_one::<String>("entrypoint")
@@ -415,7 +430,12 @@ fn main() -> Result<(), anyhow::Error> {
                 )
                 .await?;
 
-                include_glob_patterns_in_eszip(static_patterns, &mut eszip, Some(STATIC_FS_PREFIX.to_string())).await;
+                include_glob_patterns_in_eszip(
+                    static_patterns,
+                    &mut eszip,
+                    Some(STATIC_FS_PREFIX.to_string()),
+                )
+                .await;
 
                 let bin = eszip.into_bytes();
 

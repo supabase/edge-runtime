@@ -35,46 +35,91 @@ deno_core::extension!(
     middleware = sb_http_middleware,
 );
 
-pub(crate) struct Stream2<S>(S, Option<watch::Receiver<ConnSync>>);
-
-impl<S> Stream2<S>
+pub(crate) struct Stream2<S>
 where
-    S: AsyncWrite + AsyncRead + Unpin,
+    S: AsyncWrite + AsyncRead + Send + Unpin + 'static,
 {
-    pub fn new(stream: S, watcher: Option<watch::Receiver<ConnSync>>) -> Self {
-        Self(stream, watcher)
+    io: Option<(S, Option<watch::Receiver<ConnSync>>)>,
+    is_shutdown: bool,
+}
+
+impl<S> Drop for Stream2<S>
+where
+    S: AsyncWrite + AsyncRead + Send + Unpin + 'static,
+{
+    fn drop(&mut self) {
+        if self.is_shutdown {
+            return;
+        }
+
+        let Some((stream, conn_sync)) = self.io.take() else {
+            return;
+        };
+
+        let mut stream = Stream2::new(stream, conn_sync);
+        let _ = tokio::spawn(async move {
+            match stream.shutdown().await {
+                Ok(_) => {}
+                Err(e) => {
+                    error!("stream could not be terminated properly: {}", e);
+                }
+            }
+        });
     }
 }
 
-impl<S> Stream2<S> {
-    fn into_inner(self) -> (S, Option<watch::Receiver<ConnSync>>) {
-        (self.0, self.1)
+impl<S> Stream2<S>
+where
+    S: AsyncWrite + AsyncRead + Send + Unpin + 'static,
+{
+    pub fn new(stream: S, watcher: Option<watch::Receiver<ConnSync>>) -> Self {
+        Self {
+            io: Some((stream, watcher)),
+            is_shutdown: false,
+        }
+    }
+}
+
+impl<S> Stream2<S>
+where
+    S: AsyncWrite + AsyncRead + Send + Unpin + 'static,
+{
+    fn into_inner(mut self) -> Option<(S, Option<watch::Receiver<ConnSync>>)> {
+        self.io.take()
     }
 }
 
 impl<S> AsyncRead for Stream2<S>
 where
-    S: AsyncRead + Unpin,
+    S: AsyncWrite + AsyncRead + Send + Unpin + 'static,
 {
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
         buf: &mut tokio::io::ReadBuf<'_>,
     ) -> Poll<std::io::Result<()>> {
-        Pin::new(&mut Pin::into_inner(self).0).poll_read(cx, buf)
+        if let Some((stream, _)) = Pin::into_inner(self).io.as_mut() {
+            Pin::new(stream).poll_read(cx, buf)
+        } else {
+            Poll::Ready(Err(std::io::Error::from(std::io::ErrorKind::BrokenPipe)))
+        }
     }
 }
 
 impl<S> AsyncWrite for Stream2<S>
 where
-    S: AsyncWrite + Unpin,
+    S: AsyncWrite + AsyncRead + Send + Unpin + 'static,
 {
     fn poll_write(
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
         buf: &[u8],
     ) -> Poll<Result<usize, std::io::Error>> {
-        Pin::new(&mut Pin::into_inner(self).0).poll_write(cx, buf)
+        if let Some((stream, _)) = Pin::into_inner(self).io.as_mut() {
+            Pin::new(stream).poll_write(cx, buf)
+        } else {
+            Poll::Ready(Err(std::io::Error::from(std::io::ErrorKind::BrokenPipe)))
+        }
     }
 
     fn poll_write_vectored(
@@ -82,40 +127,64 @@ where
         cx: &mut std::task::Context<'_>,
         bufs: &[std::io::IoSlice<'_>],
     ) -> Poll<Result<usize, std::io::Error>> {
-        Pin::new(&mut Pin::into_inner(self).0).poll_write_vectored(cx, bufs)
+        if let Some((stream, _)) = Pin::into_inner(self).io.as_mut() {
+            Pin::new(stream).poll_write_vectored(cx, bufs)
+        } else {
+            Poll::Ready(Err(std::io::Error::from(std::io::ErrorKind::BrokenPipe)))
+        }
     }
 
     fn is_write_vectored(&self) -> bool {
-        true
+        self.io
+            .as_ref()
+            .map(|(it, _)| it.is_write_vectored())
+            .unwrap_or_default()
     }
 
-    #[inline]
     fn poll_flush(
         self: Pin<&mut Self>,
-        _: &mut std::task::Context<'_>,
+        cx: &mut std::task::Context<'_>,
     ) -> Poll<Result<(), std::io::Error>> {
-        Poll::Ready(Ok(()))
+        if let Some((stream, _)) = Pin::into_inner(self).io.as_mut() {
+            Pin::new(stream).poll_flush(cx)
+        } else {
+            Poll::Ready(Err(std::io::Error::from(std::io::ErrorKind::BrokenPipe)))
+        }
     }
 
     fn poll_shutdown(
-        mut self: Pin<&mut Self>,
+        self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Result<(), std::io::Error>> {
-        if let Some(ref mut sync) = self.1 {
-            let fut = sync.wait_for(|it| *it == ConnSync::Recv);
+        let pinned = Pin::into_inner(self);
 
-            pin_mut!(fut);
-            ready!(fut.poll(cx).map(|it| {
-                if let Err(ex) = it {
-                    error!("cannot track outbound connection correctly");
-                    return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, ex));
-                }
-
-                Ok(())
-            }))?
+        if pinned.is_shutdown {
+            return Poll::Ready(Ok(()));
         }
 
-        Pin::new(&mut Pin::into_inner(self).0).poll_shutdown(cx)
+        if let Some((stream, conn_sync)) = pinned.io.as_mut() {
+            if let Some(ref mut sync) = conn_sync {
+                let fut = sync.wait_for(|it| *it == ConnSync::Recv);
+
+                pin_mut!(fut);
+                ready!(fut.poll(cx).map(|it| {
+                    if let Err(ex) = it {
+                        error!("cannot track outbound connection correctly");
+                        return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, ex));
+                    }
+
+                    Ok(())
+                }))?
+            }
+
+            let poll_result = ready!(Pin::new(stream).poll_shutdown(cx));
+
+            pinned.is_shutdown = true;
+
+            Poll::Ready(poll_result)
+        } else {
+            Poll::Ready(Err(std::io::Error::from(std::io::ErrorKind::BrokenPipe)))
+        }
     }
 }
 
@@ -146,7 +215,9 @@ async fn op_http_upgrade_websocket2(
 
     let upgraded = hyper::upgrade::on(request).await?;
     let Parts { io, read_buf, .. } = upgraded.downcast::<DuplexStream2>().unwrap();
-    let (mut rw, conn_sync) = io.into_inner();
+    let (mut rw, conn_sync) = io
+        .into_inner()
+        .with_context(|| "invalid duplex stream was found")?;
 
     // NOTE(Nyannyacha): We use `UnixStream` out of necessity here because
     // `ws_create_server_stream` only supports network stream types.

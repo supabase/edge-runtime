@@ -113,3 +113,6 @@ deno_core.workspace = true
 deno_canvas.workspace = true
 deno_webgpu.workspace = true
 sb_ai = { version = "0.1.0", path = "../sb_ai" }
+
+[features]
+termination-signal-ext = []

@@ -3,14 +3,13 @@ use deno_core::FastString;
 use enum_as_inner::EnumAsInner;
 use event_worker::events::WorkerEventWithMetadata;
 use hyper::{Body, Request, Response};
-use sb_core::conn_sync::ConnSync;
 use sb_core::util::sync::AtomicFlag;
 use sb_core::{MetricSource, SharedMetricSource};
 use std::path::PathBuf;
 use std::sync::atomic::AtomicUsize;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::mpsc::unbounded_channel;
-use tokio::sync::{mpsc, oneshot, watch, Notify, OwnedSemaphorePermit};
+use tokio::sync::{mpsc, oneshot, Notify, OwnedSemaphorePermit};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -108,6 +107,16 @@ pub enum WorkerKind {
     EventsWorker,
 }
 
+impl std::fmt::Display for WorkerKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            WorkerKind::UserWorker => write!(f, "user"),
+            WorkerKind::MainWorker => write!(f, "main"),
+            WorkerKind::EventsWorker => write!(f, "event"),
+        }
+    }
+}
+
 impl From<&WorkerRuntimeOpts> for WorkerKind {
     fn from(value: &WorkerRuntimeOpts) -> Self {
         value.to_worker_kind()
@@ -168,7 +177,7 @@ pub enum UserWorkerMsgs {
         Uuid,
         Request<Body>,
         oneshot::Sender<Result<SendRequestResult, Error>>,
-        Option<watch::Receiver<ConnSync>>,
+        Option<CancellationToken>,
     ),
     Idle(Uuid),
     Shutdown(Uuid),
@@ -185,5 +194,5 @@ pub struct CreateUserWorkerResult {
 pub struct WorkerRequestMsg {
     pub req: Request<Body>,
     pub res_tx: oneshot::Sender<Result<Response<Body>, hyper::Error>>,
-    pub conn_watch: Option<watch::Receiver<ConnSync>>,
+    pub conn_token: Option<CancellationToken>,
 }

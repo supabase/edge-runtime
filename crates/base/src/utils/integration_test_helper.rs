@@ -18,16 +18,17 @@ use futures_util::{future::BoxFuture, Future, FutureExt};
 use http::{Request, Response};
 use hyper::Body;
 use pin_project::pin_project;
-use sb_core::conn_sync::ConnSync;
+
 use sb_workers::context::{
     MainWorkerRuntimeOpts, Timing, UserWorkerRuntimeOpts, WorkerContextInitOpts, WorkerRequestMsg,
     WorkerRuntimeOpts,
 };
 use scopeguard::ScopeGuard;
 use tokio::{
-    sync::{mpsc, oneshot, watch, Notify},
+    sync::{mpsc, oneshot, Notify},
     time::timeout,
 };
+use tokio_util::sync::CancellationToken;
 
 pub struct CreateTestUserWorkerArgs(WorkerContextInitOpts, Option<SupervisorPolicy>);
 
@@ -43,31 +44,21 @@ impl From<(WorkerContextInitOpts, SupervisorPolicy)> for CreateTestUserWorkerArg
     }
 }
 
-pub fn create_conn_watch() -> (
-    ScopeGuard<watch::Sender<ConnSync>, impl FnOnce(watch::Sender<ConnSync>)>,
-    watch::Receiver<ConnSync>,
-) {
-    let (conn_watch_tx, conn_watch_rx) = watch::channel(ConnSync::Want);
-    let conn_watch_tx = scopeguard::guard(conn_watch_tx, |tx| tx.send(ConnSync::Recv).unwrap());
-
-    (conn_watch_tx, conn_watch_rx)
-}
-
 #[derive(Debug)]
 pub struct RequestScope {
     policy: SupervisorPolicy,
     req_start_tx: mpsc::UnboundedSender<Arc<Notify>>,
     req_end_tx: mpsc::UnboundedSender<()>,
     termination_token: TerminationToken,
-    conn: (Option<watch::Sender<ConnSync>>, watch::Receiver<ConnSync>),
+    conn_token: CancellationToken,
 }
 
 impl RequestScope {
-    pub fn conn_rx(&self) -> Option<watch::Receiver<ConnSync>> {
-        Some(self.conn.1.clone())
+    pub fn conn_token(&self) -> CancellationToken {
+        self.conn_token.clone()
     }
 
-    pub async fn start_request(mut self) -> RequestScopeGuard {
+    pub async fn start_request(self) -> RequestScopeGuard {
         if self.policy.is_per_request() {
             let fence = Arc::<Notify>::default();
 
@@ -79,7 +70,7 @@ impl RequestScope {
             cancelled: false,
             req_end_tx: self.req_end_tx.clone(),
             termination_token: Some(self.termination_token.clone()),
-            conn_tx: self.conn.0.take().unwrap(),
+            conn_token: self.conn_token.clone(),
             inner: None,
             _pinned: PhantomPinned,
         }
@@ -91,7 +82,7 @@ pub struct RequestScopeGuard {
     cancelled: bool,
     req_end_tx: mpsc::UnboundedSender<()>,
     termination_token: Option<TerminationToken>,
-    conn_tx: watch::Sender<ConnSync>,
+    conn_token: CancellationToken,
     inner: Option<BoxFuture<'static, ()>>,
     _pinned: PhantomPinned,
 }
@@ -116,7 +107,7 @@ impl Future for RequestScopeGuard {
         });
 
         ready!(inner.as_mut().poll_unpin(cx));
-        this.conn_tx.send(ConnSync::Recv).unwrap();
+        this.conn_token.cancel();
 
         Poll::Ready(())
     }
@@ -262,7 +253,7 @@ impl TestBed {
     where
         F: FnOnce() -> Result<Request<Body>, Error>,
     {
-        let (conn_tx, conn_rx) = create_conn_watch();
+        let conn_token = CancellationToken::new();
         let (res_tx, res_rx) = oneshot::channel();
 
         let req: Request<Body> = request_factory_fn()?;
@@ -270,7 +261,7 @@ impl TestBed {
         let _ = self.main_worker_msg_tx.send(WorkerRequestMsg {
             req,
             res_tx,
-            conn_watch: Some(conn_rx),
+            conn_token: Some(conn_token.clone()),
         });
 
         let Ok(res) = res_rx.await else {
@@ -279,7 +270,9 @@ impl TestBed {
 
         Ok(scopeguard::guard(
             res.context("request failure")?,
-            move |_| drop(conn_tx),
+            move |_| {
+                conn_token.cancel();
+            },
         ))
     }
 
@@ -301,7 +294,6 @@ pub async fn create_test_user_worker<Opt: Into<CreateTestUserWorkerArgs>>(
     let CreateTestUserWorkerArgs(mut opts, maybe_policy) = opts.into();
     let (req_start_tx, req_start_rx) = mpsc::unbounded_channel();
     let (req_end_tx, req_end_rx) = mpsc::unbounded_channel();
-    let (conn_tx, conn_rx) = watch::channel(ConnSync::Want);
 
     let policy = maybe_policy.unwrap_or_else(SupervisorPolicy::oneshot);
     let termination_token = TerminationToken::new();
@@ -326,7 +318,7 @@ pub async fn create_test_user_worker<Opt: Into<CreateTestUserWorkerArgs>>(
                 req_start_tx,
                 req_end_tx,
                 termination_token,
-                conn: (Some(conn_tx), conn_rx),
+                conn_token: CancellationToken::new(),
             },
         )
     })

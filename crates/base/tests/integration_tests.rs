@@ -152,12 +152,12 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
     use base::rt_worker::worker_ctx::{create_user_worker_pool, create_worker, TerminationToken};
     use http::{Request, Response};
     use hyper::Body;
-    use integration_test_helper::create_conn_watch;
 
     use sb_workers::context::{
         MainWorkerRuntimeOpts, WorkerContextInitOpts, WorkerRequestMsg, WorkerRuntimeOpts,
     };
     use tokio::sync::oneshot;
+    use tokio_util::sync::CancellationToken;
 
     let pool_termination_token = TerminationToken::new();
     let main_termination_token = TerminationToken::new();
@@ -204,11 +204,11 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
         .body(Body::empty())
         .unwrap();
 
-    let (conn_tx, conn_rx) = create_conn_watch();
+    let conn_token = CancellationToken::new();
     let msg = WorkerRequestMsg {
         req,
         res_tx,
-        conn_watch: Some(conn_rx),
+        conn_token: Some(conn_token.clone()),
     };
 
     let _ = worker_req_tx.send(msg);
@@ -220,7 +220,7 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
 
     assert!(body_bytes.starts_with(b"meow: "));
 
-    drop(conn_tx);
+    conn_token.cancel();
     pool_termination_token.cancel_and_wait().await;
     main_termination_token.cancel_and_wait().await;
 }

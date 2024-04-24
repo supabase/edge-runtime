@@ -19,12 +19,11 @@ use hyper::client::conn::http1;
 use hyper::upgrade::OnUpgrade;
 use hyper::{Body, Request, Response};
 use log::{debug, error};
-use sb_core::conn_sync::ConnSync;
 use sb_core::{MetricSource, SharedMetricSource};
 use sb_graph::{DecoratorType, EszipPayloadKind};
 use sb_workers::context::{
     EventWorkerRuntimeOpts, MainWorkerRuntimeOpts, Timing, UserWorkerMsgs, WorkerContextInitOpts,
-    WorkerRequestMsg, WorkerRuntimeOpts,
+    WorkerKind, WorkerRequestMsg, WorkerRuntimeOpts,
 };
 use sb_workers::errors::WorkerError;
 use std::future::pending;
@@ -35,7 +34,7 @@ use std::time::Duration;
 use tokio::io::{self, copy_bidirectional};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
-use tokio::sync::{mpsc, oneshot, watch, Mutex};
+use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio_rustls::server::TlsStream;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -93,6 +92,7 @@ impl TerminationToken {
 }
 
 async fn handle_request(
+    worker_kind: WorkerKind,
     duplex_stream_tx: mpsc::UnboundedSender<DuplexStreamEntry>,
     msg: WorkerRequestMsg,
 ) -> Result<(), Error> {
@@ -100,10 +100,10 @@ async fn handle_request(
     let WorkerRequestMsg {
         mut req,
         res_tx,
-        conn_watch,
+        conn_token,
     } = msg;
 
-    let _ = duplex_stream_tx.send((theirs, conn_watch.clone()));
+    let _ = duplex_stream_tx.send((theirs, conn_token.clone()));
     let req_upgrade_type = get_upgrade_type(req.headers());
     let req_upgrade = req_upgrade_type
         .clone()
@@ -120,7 +120,11 @@ async fn handle_request(
         async move {
             match connection.without_shutdown().await {
                 Err(e) => {
-                    error!("Error in worker connection: {}", e.message());
+                    error!(
+                        "error in {} worker connection: {}",
+                        worker_kind,
+                        e.message()
+                    );
                 }
 
                 Ok(parts) => {
@@ -137,10 +141,8 @@ async fn handle_request(
                         };
                     }
 
-                    if let Some(mut watcher) = conn_watch {
-                        if watcher.wait_for(|it| *it == ConnSync::Recv).await.is_err() {
-                            error!("cannot track outbound connection correctly");
-                        }
+                    if let Some(token) = conn_token {
+                        token.cancelled_owned().await;
                     }
                 }
             }
@@ -517,16 +519,17 @@ pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
     let (worker_boot_result_tx, worker_boot_result_rx) =
         oneshot::channel::<Result<MetricSource, Error>>();
 
-    let CreateWorkerArgs(init_opts, maybe_supervisor_policy, maybe_termination_token) =
+    let CreateWorkerArgs(worker_init_opts, maybe_supervisor_policy, maybe_termination_token) =
         init_opts.into();
 
-    let mut worker_init = Worker::new(&init_opts)?;
+    let worker_kind = worker_init_opts.conf.to_worker_kind();
+    let mut worker = Worker::new(&worker_init_opts)?;
 
-    if init_opts.conf.is_user_worker() {
-        worker_init.set_supervisor_policy(maybe_supervisor_policy);
+    if worker_kind.is_user_worker() {
+        worker.set_supervisor_policy(maybe_supervisor_policy);
     }
 
-    let worker: Box<dyn WorkerHandler> = Box::new(worker_init);
+    let worker: Box<dyn WorkerHandler> = Box::new(worker);
 
     // Downcast to call the method in "Worker" since the implementation might be of worker
     // But at the end we are using the trait itself.
@@ -535,7 +538,7 @@ pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
 
     if let Some(worker_struct_ref) = downcast_reference {
         worker_struct_ref.start(
-            init_opts,
+            worker_init_opts,
             (duplex_stream_tx.clone(), duplex_stream_rx),
             worker_boot_result_tx,
             maybe_termination_token.clone(),
@@ -552,7 +555,9 @@ pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
                     tokio::task::spawn({
                         let stream_tx_inner = stream_tx.clone();
                         async move {
-                            if let Err(err) = handle_request(stream_tx_inner, msg).await {
+                            if let Err(err) =
+                                handle_request(worker_kind, stream_tx_inner, msg).await
+                            {
                                 error!("worker failed to handle request: {:?}", err);
                             }
                         }
@@ -600,15 +605,15 @@ pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
 
 pub async fn send_user_worker_request(
     worker_request_msg_tx: mpsc::UnboundedSender<WorkerRequestMsg>,
-    cancel: CancellationToken,
     req: Request<Body>,
-    conn_watch: Option<watch::Receiver<ConnSync>>,
+    cancel: CancellationToken,
+    conn_token: Option<CancellationToken>,
 ) -> Result<Response<Body>, Error> {
     let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
     let msg = WorkerRequestMsg {
         req,
         res_tx,
-        conn_watch,
+        conn_token,
     };
 
     // send the message to worker
@@ -779,8 +784,8 @@ pub async fn create_user_worker_pool(
                                 worker_pool.add_user_worker(key, profile);
                             }
 
-                            Some(UserWorkerMsgs::SendRequest(key, req, res_tx, conn_watch)) => {
-                                worker_pool.send_request(&key, req, res_tx, conn_watch);
+                            Some(UserWorkerMsgs::SendRequest(key, req, res_tx, conn_token)) => {
+                                worker_pool.send_request(&key, req, res_tx, conn_token);
                             }
 
                             Some(UserWorkerMsgs::Idle(key)) => {

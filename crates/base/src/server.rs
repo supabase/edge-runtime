@@ -12,7 +12,6 @@ use hyper::{server::conn::Http, service::Service, Body, Request, Response};
 use log::{debug, error, info, trace, warn};
 use rustls_pemfile::read_one_from_slice;
 use rustls_pemfile::Item;
-use sb_core::conn_sync::ConnSync;
 use sb_core::SharedMetricSource;
 use sb_graph::DecoratorType;
 use sb_workers::context::{MainWorkerRuntimeOpts, WorkerRequestMsg};
@@ -32,7 +31,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
 use tokio::pin;
 use tokio::sync::mpsc::{Sender, UnboundedSender};
-use tokio::sync::{mpsc, oneshot, watch};
+use tokio::sync::{mpsc, oneshot};
 use tokio::time::{sleep, timeout};
 use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use tokio_rustls::rustls::ServerConfig;
@@ -149,13 +148,12 @@ impl Service<Request<Body>> for WorkerService {
         let worker_req_tx = self.worker_req_tx.clone();
         let fut = async move {
             let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
-            let (ob_conn_watch_tx, ob_conn_watch_rx) = watch::channel(ConnSync::Want);
 
             let req_uri = req.uri().clone();
             let msg = WorkerRequestMsg {
                 req,
                 res_tx,
-                conn_watch: Some(ob_conn_watch_rx.clone()),
+                conn_token: Some(cancel.clone()),
             };
 
             worker_req_tx.send(msg)?;
@@ -169,9 +167,6 @@ impl Service<Request<Body>> for WorkerService {
                     tokio::select! {
                         _ = cancel.cancelled() => {
                             metric_src_inner.incl_handled_requests();
-                            if let Err(ex) = ob_conn_watch_tx.send(ConnSync::Recv) {
-                                error!("can't update connection watcher: {}", ex.to_string());
-                            }
                         }
                         // TODO: I think it would be good to introduce the hard
                         // timeout here to prevent the requester's inability to get

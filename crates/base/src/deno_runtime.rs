@@ -24,7 +24,6 @@ use futures_util::future::poll_fn;
 use futures_util::task::AtomicWaker;
 use log::{error, trace};
 use once_cell::sync::{Lazy, OnceCell};
-use sb_core::conn_sync::ConnSync;
 use sb_core::http::sb_core_http;
 use sb_core::http_start::sb_core_http_start;
 use sb_core::util::sync::AtomicFlag;
@@ -36,7 +35,7 @@ use std::fmt;
 use std::sync::Arc;
 use std::task::Poll;
 use std::time::Duration;
-use tokio::sync::{mpsc, watch, Notify};
+use tokio::sync::{mpsc, Notify};
 use tokio::time::interval;
 use tokio_util::sync::CancellationToken;
 
@@ -523,7 +522,7 @@ impl DenoRuntime {
             }
 
             if conf.is_main_worker() || conf.is_user_worker() {
-                op_state.put::<HashMap<usize, watch::Receiver<ConnSync>>>(HashMap::new());
+                op_state.put::<HashMap<usize, CancellationToken>>(HashMap::new());
             }
 
             if conf.is_user_worker() {

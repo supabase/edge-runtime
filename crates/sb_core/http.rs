@@ -7,9 +7,8 @@ use deno_core::{
 };
 use deno_http::{HttpRequestReader, HttpStreamResource};
 use deno_websocket::ws_create_server_stream;
-use futures::pin_mut;
 use futures::ready;
-use futures::Future;
+use futures::{future::BoxFuture, FutureExt};
 use hyper::upgrade::{OnUpgrade, Parts};
 use log::error;
 use serde::Serialize;
@@ -17,13 +16,11 @@ use tokio::io::{copy_bidirectional, AsyncReadExt, AsyncWriteExt, DuplexStream};
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     net::UnixStream,
-    sync::{oneshot, watch},
+    sync::oneshot,
 };
+use tokio_util::sync::CancellationToken;
 
-use crate::{
-    conn_sync::ConnSync,
-    upgrade::{UpgradeStream, WebSocketUpgrade},
-};
+use crate::upgrade::{UpgradeStream, WebSocketUpgrade};
 
 deno_core::extension!(
     sb_core_http,
@@ -39,8 +36,9 @@ pub(crate) struct Stream2<S>
 where
     S: AsyncWrite + AsyncRead + Send + Unpin + 'static,
 {
-    io: Option<(S, Option<watch::Receiver<ConnSync>>)>,
+    io: Option<(S, Option<CancellationToken>)>,
     is_shutdown: bool,
+    wait_fut: Option<BoxFuture<'static, ()>>,
 }
 
 impl<S> Drop for Stream2<S>
@@ -72,10 +70,11 @@ impl<S> Stream2<S>
 where
     S: AsyncWrite + AsyncRead + Send + Unpin + 'static,
 {
-    pub fn new(stream: S, watcher: Option<watch::Receiver<ConnSync>>) -> Self {
+    pub fn new(stream: S, token: Option<CancellationToken>) -> Self {
         Self {
-            io: Some((stream, watcher)),
+            io: Some((stream, token)),
             is_shutdown: false,
+            wait_fut: None,
         }
     }
 }
@@ -84,7 +83,7 @@ impl<S> Stream2<S>
 where
     S: AsyncWrite + AsyncRead + Send + Unpin + 'static,
 {
-    fn into_inner(mut self) -> Option<(S, Option<watch::Receiver<ConnSync>>)> {
+    fn into_inner(mut self) -> Option<(S, Option<CancellationToken>)> {
         self.io.take()
     }
 }
@@ -162,19 +161,13 @@ where
             return Poll::Ready(Ok(()));
         }
 
-        if let Some((stream, conn_sync)) = pinned.io.as_mut() {
-            if let Some(ref mut sync) = conn_sync {
-                let fut = sync.wait_for(|it| *it == ConnSync::Recv);
+        if let Some((stream, token)) = pinned.io.as_mut() {
+            if let Some(ref token) = token {
+                let fut = pinned
+                    .wait_fut
+                    .get_or_insert_with(|| token.clone().cancelled_owned().boxed());
 
-                pin_mut!(fut);
-                ready!(fut.poll(cx).map(|it| {
-                    if let Err(ex) = it {
-                        error!("cannot track outbound connection correctly");
-                        return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, ex));
-                    }
-
-                    Ok(())
-                }))?
+                ready!(fut.as_mut().poll_unpin(cx));
             }
 
             let poll_result = ready!(Pin::new(stream).poll_shutdown(cx));

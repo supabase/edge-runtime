@@ -17,9 +17,7 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use tokio::io;
 use tokio::sync::mpsc;
-use tokio::sync::watch;
-
-use crate::conn_sync::ConnSync;
+use tokio_util::sync::CancellationToken;
 
 pub struct TokioDuplexResource {
     id: usize,
@@ -100,7 +98,8 @@ pub async fn op_net_accept(
     // we need to add it back later after processing a message.
     let rx = {
         let mut op_state = state.borrow_mut();
-        op_state.try_take::<mpsc::UnboundedReceiver<(io::DuplexStream, Option<watch::Receiver<ConnSync>>)>>()
+        op_state
+            .try_take::<mpsc::UnboundedReceiver<(io::DuplexStream, Option<CancellationToken>)>>()
     };
 
     if rx.is_none() {
@@ -112,14 +111,13 @@ pub async fn op_net_accept(
         let state = state.clone();
         move |value| {
             let mut op_state = state.borrow_mut();
-            op_state.put::<mpsc::UnboundedReceiver<(
-                io::DuplexStream,
-                Option<watch::Receiver<ConnSync>>,
-            )>>(value);
+            op_state.put::<mpsc::UnboundedReceiver<(io::DuplexStream, Option<CancellationToken>)>>(
+                value,
+            );
         }
     });
 
-    let Some((stream, conn_sync)) = rx.recv().await else {
+    let Some((stream, conn_token)) = rx.recv().await else {
         return Err(bad_resource("duplex stream channel is closed"));
     };
 
@@ -133,10 +131,10 @@ pub async fn op_net_accept(
     let mut op_state = state.borrow_mut();
     let rid = op_state.resource_table.add(resource);
 
-    if let Some(watcher) = conn_sync {
+    if let Some(token) = conn_token {
         let _ = op_state
-            .borrow_mut::<HashMap<usize, watch::Receiver<ConnSync>>>()
-            .insert(id, watcher);
+            .borrow_mut::<HashMap<usize, CancellationToken>>()
+            .insert(id, token);
     }
 
     Ok((

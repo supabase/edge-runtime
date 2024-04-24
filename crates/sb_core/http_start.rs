@@ -8,9 +8,8 @@ use deno_core::op2;
 use deno_core::OpState;
 use deno_core::ResourceId;
 use deno_http::http_create_conn_resource;
-use tokio::sync::watch;
+use tokio_util::sync::CancellationToken;
 
-use crate::conn_sync::ConnSync;
 use crate::conn_sync::ConnWatcher;
 use crate::http::DuplexStream2;
 use crate::net::TokioDuplexResource;
@@ -29,20 +28,20 @@ fn op_http_start(
             .map_err(|_| bad_resource("Duplex stream is currently in use"))?;
 
         let (id, stream) = resource.into_inner();
-        let watcher = state
-            .borrow_mut::<HashMap<usize, watch::Receiver<ConnSync>>>()
+        let token = state
+            .borrow_mut::<HashMap<usize, CancellationToken>>()
             .remove(&id);
 
         // set a hardcoded address
         let addr: std::net::SocketAddr = "0.0.0.0:9999".parse().unwrap();
         let conn = http_create_conn_resource(
             state,
-            DuplexStream2::new(stream, watcher.clone()),
+            DuplexStream2::new(stream, token.clone()),
             addr,
             "http",
         )?;
 
-        let conn_watcher = state.resource_table.add(ConnWatcher(watcher));
+        let conn_watcher = state.resource_table.add(ConnWatcher(token));
 
         return Ok((conn, conn_watcher));
     }

@@ -11,7 +11,6 @@ use event_worker::events::{
 };
 use futures_util::FutureExt;
 use log::{debug, error};
-use sb_core::conn_sync::ConnSync;
 use sb_core::{MetricSource, RuntimeMetricSource, WorkerMetricSource};
 use sb_workers::context::{UserWorkerMsgs, WorkerContextInitOpts};
 use std::any::Any;
@@ -19,8 +18,7 @@ use std::future::{pending, Future};
 use std::pin::Pin;
 use tokio::io;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
-use tokio::sync::oneshot::{Receiver, Sender};
-use tokio::sync::{oneshot, watch};
+use tokio::sync::oneshot::{self, Receiver, Sender};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -44,7 +42,7 @@ pub struct Worker {
 }
 
 pub type HandleCreationType<'r> = Pin<Box<dyn Future<Output = Result<WorkerEvents, Error>> + 'r>>;
-pub type DuplexStreamEntry = (io::DuplexStream, Option<watch::Receiver<ConnSync>>);
+pub type DuplexStreamEntry = (io::DuplexStream, Option<CancellationToken>);
 
 pub trait WorkerHandler: Send {
     fn handle_error(&self, error: Error) -> Result<WorkerEvents, Error>;

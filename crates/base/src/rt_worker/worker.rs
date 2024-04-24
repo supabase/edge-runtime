@@ -17,7 +17,7 @@ use sb_workers::context::{UserWorkerMsgs, WorkerContextInitOpts};
 use std::any::Any;
 use std::future::{pending, Future};
 use std::pin::Pin;
-use tokio::net::UnixStream;
+use tokio::io;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot::{Receiver, Sender};
 use tokio::sync::{oneshot, watch};
@@ -44,14 +44,14 @@ pub struct Worker {
 }
 
 pub type HandleCreationType<'r> = Pin<Box<dyn Future<Output = Result<WorkerEvents, Error>> + 'r>>;
-pub type UnixStreamEntry = (UnixStream, Option<watch::Receiver<ConnSync>>);
+pub type DuplexStreamEntry = (io::DuplexStream, Option<watch::Receiver<ConnSync>>);
 
 pub trait WorkerHandler: Send {
     fn handle_error(&self, error: Error) -> Result<WorkerEvents, Error>;
     fn handle_creation<'r>(
         &self,
         created_rt: &'r mut DenoRuntime,
-        unix_stream_rx: UnboundedReceiver<UnixStreamEntry>,
+        duplex_stream_rx: UnboundedReceiver<DuplexStreamEntry>,
         termination_event_rx: Receiver<WorkerEvents>,
         maybe_cpu_metrics_tx: Option<UnboundedSender<CPUUsageMetrics>>,
         name: Option<String>,
@@ -91,9 +91,9 @@ impl Worker {
     pub fn start(
         &self,
         mut opts: WorkerContextInitOpts,
-        unix_stream_pair: (
-            UnboundedSender<UnixStreamEntry>,
-            UnboundedReceiver<UnixStreamEntry>,
+        duplex_stream_pair: (
+            UnboundedSender<DuplexStreamEntry>,
+            UnboundedReceiver<DuplexStreamEntry>,
         ),
         booter_signal: Sender<Result<MetricSource, Error>>,
         termination_token: Option<TerminationToken>,
@@ -104,7 +104,7 @@ impl Worker {
         let event_metadata = self.event_metadata.clone();
         let supervisor_policy = self.supervisor_policy;
 
-        let (unix_stream_tx, unix_stream_rx) = unix_stream_pair;
+        let (duplex_stream_tx, duplex_stream_rx) = duplex_stream_pair;
         let events_msg_tx = self.events_msg_tx.clone();
         let pool_msg_tx = self.pool_msg_tx.clone();
 
@@ -244,7 +244,7 @@ impl Worker {
                             let result = method_cloner
                                 .handle_creation(
                                     &mut runtime,
-                                    unix_stream_rx,
+                                    duplex_stream_rx,
                                     termination_event_rx,
                                     maybe_cpu_usage_metrics_tx,
                                     Some(worker_name),
@@ -283,7 +283,7 @@ impl Worker {
                     }
                 };
 
-                drop(unix_stream_tx);
+                drop(duplex_stream_tx);
 
                 match result {
                     Ok(event) => {

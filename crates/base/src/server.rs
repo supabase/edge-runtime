@@ -6,7 +6,7 @@ use crate::rt_worker::worker_pool::WorkerPoolPolicy;
 use crate::InspectorOption;
 use anyhow::{anyhow, bail, Context, Error};
 use event_worker::events::WorkerEventWithMetadata;
-use futures_util::future::poll_fn;
+use futures_util::future::{poll_fn, BoxFuture};
 use futures_util::{FutureExt, Stream};
 use hyper::{server::conn::Http, service::Service, Body, Request, Response};
 use log::{debug, error, info, trace, warn};
@@ -37,6 +37,13 @@ use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::TlsAcceptor;
 use tokio_util::sync::CancellationToken;
+
+mod signal {
+    pub use tokio::signal::ctrl_c;
+
+    #[cfg(unix)]
+    pub use tokio::signal::unix;
+}
 
 pub enum ServerEvent {
     ConnectionError(hyper::Error),
@@ -413,13 +420,6 @@ impl Server {
     }
 
     pub async fn listen(&mut self) -> Result<(), Error> {
-        mod signal {
-            pub use tokio::signal::ctrl_c;
-
-            #[cfg(unix)]
-            pub use tokio::signal::unix;
-        }
-
         let addr = SocketAddr::new(IpAddr::V4(self.ip), self.port);
         let non_secure_listener = TcpListener::bind(&addr).await?;
         let mut secure_listener = if let Some(tls) = self.tls.take() {
@@ -467,30 +467,7 @@ impl Server {
             ..
         } = flags;
 
-        let mut terminate_signal_fut = if cfg!(unix) {
-            use signal::unix::signal;
-            use signal::unix::SignalKind;
-
-            let mut signals = [SignalKind::terminate()]
-                .into_iter()
-                .map(|it| (it.as_raw_value(), signal(it).unwrap()))
-                .collect::<Vec<_>>();
-
-            poll_fn(move |cx| {
-                for (signum, signal) in &mut signals {
-                    let poll_result = signal.poll_recv(cx);
-
-                    if poll_result.is_ready() {
-                        return Poll::Ready::<std::os::raw::c_int>(*signum);
-                    }
-                }
-
-                Poll::Pending
-            })
-            .boxed()
-        } else {
-            pending().boxed()
-        };
+        let mut terminate_signal_fut = get_termination_signal();
 
         loop {
             let main_worker_req_tx = self.main_worker_req_tx.clone();
@@ -651,6 +628,40 @@ impl Server {
 
         Ok(())
     }
+}
+
+#[cfg(unix)]
+fn get_termination_signal() -> BoxFuture<'static, i32> {
+    use signal::unix::signal;
+    use signal::unix::SignalKind;
+
+    let mut signals = vec![SignalKind::terminate()]
+        .into_iter()
+        .chain(if cfg!(feature = "termination-signal-ext") {
+            vec![SignalKind::window_change()]
+        } else {
+            vec![]
+        })
+        .map(|it| (it.as_raw_value(), signal(it).unwrap()))
+        .collect::<Vec<_>>();
+
+    poll_fn(move |cx| {
+        for (signum, signal) in &mut signals {
+            let poll_result = signal.poll_recv(cx);
+
+            if poll_result.is_ready() {
+                return Poll::Ready::<std::os::raw::c_int>(*signum);
+            }
+        }
+
+        Poll::Pending
+    })
+    .boxed()
+}
+
+#[cfg(not(unix))]
+fn get_termination_signal() -> BoxFuture<'static, i32> {
+    pending().boxed()
 }
 
 fn accept_stream<I>(

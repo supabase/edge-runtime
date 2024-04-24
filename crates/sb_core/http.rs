@@ -55,14 +55,17 @@ where
         };
 
         let mut stream = Stream2::new(stream, conn_sync);
-        let _ = tokio::spawn(async move {
+
+        // TODO(Nyannyacha): Optimize this. No matter how I think about it,
+        // using `tokio::spawn` to defer the stream shutdown seems like a waste.
+        drop(tokio::spawn(async move {
             match stream.shutdown().await {
                 Ok(_) => {}
                 Err(e) => {
-                    error!("stream could not be terminated properly: {}", e);
+                    error!("stream could not be shutdown properly: {}", e);
                 }
             }
-        });
+        }));
     }
 }
 

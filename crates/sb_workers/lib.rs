@@ -458,12 +458,9 @@ pub async fn op_user_worker_fetch_send(
                     .resource_table
                     .get::<UserWorkerRequestBodyResource>(rid)
                 {
+                    Err(_) => {}
                     Ok(res) => {
                         res.cancel.cancel();
-                    }
-
-                    Err(_) => {
-                        error!("invalid resource type or already closed");
                     }
                 }
             }

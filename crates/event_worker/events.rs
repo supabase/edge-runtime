@@ -2,9 +2,6 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct PseudoEvent {}
-
-#[derive(Serialize, Deserialize, Debug)]
 pub struct BootEvent {
     pub boot_time: usize,
 }
@@ -43,6 +40,11 @@ pub struct UncaughtExceptionEvent {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+pub struct EventLoopCompletedEvent {
+    pub cpu_time_used: usize,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 pub struct LogEvent {
     pub msg: String,
     pub level: LogLevel,
@@ -62,7 +64,7 @@ pub enum WorkerEvents {
     BootFailure(BootFailureEvent),
     UncaughtException(UncaughtExceptionEvent),
     Shutdown(ShutdownEvent),
-    EventLoopCompleted(PseudoEvent),
+    EventLoopCompleted(EventLoopCompletedEvent),
     Log(LogEvent),
 }
 

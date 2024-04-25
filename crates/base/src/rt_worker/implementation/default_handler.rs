@@ -2,9 +2,12 @@ use crate::deno_runtime::DenoRuntime;
 use crate::rt_worker::supervisor::CPUUsageMetrics;
 use crate::rt_worker::worker::{HandleCreationType, UnixStreamEntry, Worker, WorkerHandler};
 use anyhow::Error;
-use event_worker::events::{BootFailureEvent, PseudoEvent, UncaughtExceptionEvent, WorkerEvents};
+use event_worker::events::{
+    BootFailureEvent, EventLoopCompletedEvent, UncaughtExceptionEvent, WorkerEvents,
+};
 use log::error;
 use std::any::Any;
+use std::time::Duration;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot::Receiver;
 
@@ -50,7 +53,23 @@ impl WorkerHandler for Worker {
                         }))
                     }
                 }
-                (Ok(()), _) => Ok(WorkerEvents::EventLoopCompleted(PseudoEvent {})),
+
+                (Ok(()), cpu_usage_ms) => {
+                    if created_rt.is_termination_requested.is_raised() {
+                        static EVENT_RECV_DEADLINE_DUR: Duration = Duration::from_secs(5);
+
+                        if let Ok(Ok(ev)) =
+                            tokio::time::timeout(EVENT_RECV_DEADLINE_DUR, termination_event_rx)
+                                .await
+                        {
+                            return Ok(ev.with_cpu_time_used(cpu_usage_ms as usize));
+                        }
+                    }
+
+                    Ok(WorkerEvents::EventLoopCompleted(EventLoopCompletedEvent {
+                        cpu_time_used: cpu_usage_ms as usize,
+                    }))
+                }
             }
         };
 

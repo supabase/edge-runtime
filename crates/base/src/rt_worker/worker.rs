@@ -6,8 +6,8 @@ use crate::rt_worker::worker_ctx::create_supervisor;
 use crate::utils::send_event_if_event_worker_available;
 use anyhow::{anyhow, Error};
 use event_worker::events::{
-    EventMetadata, ShutdownEvent, ShutdownReason, UncaughtExceptionEvent, WorkerEventWithMetadata,
-    WorkerEvents, WorkerMemoryUsed,
+    EventLoopCompletedEvent, EventMetadata, ShutdownEvent, ShutdownReason, UncaughtExceptionEvent,
+    WorkerEventWithMetadata, WorkerEvents, WorkerMemoryUsed,
 };
 use futures_util::FutureExt;
 use log::{debug, error};
@@ -290,6 +290,10 @@ impl Worker {
                         match event {
                             WorkerEvents::Shutdown(ShutdownEvent { cpu_time_used, .. })
                             | WorkerEvents::UncaughtException(UncaughtExceptionEvent {
+                                cpu_time_used,
+                                ..
+                            })
+                            | WorkerEvents::EventLoopCompleted(EventLoopCompletedEvent {
                                 cpu_time_used,
                                 ..
                             }) => {

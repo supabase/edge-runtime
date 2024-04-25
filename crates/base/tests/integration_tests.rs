@@ -19,6 +19,7 @@ use hyper::{body::to_bytes, Body};
 use reqwest::Certificate;
 use sb_core::SharedMetricSource;
 use sb_workers::context::{MainWorkerRuntimeOpts, WorkerContextInitOpts, WorkerRuntimeOpts};
+use serde::Deserialize;
 use serial_test::serial;
 use tokio::{
     join,
@@ -33,6 +34,7 @@ use crate::integration_test_helper::{
     create_test_user_worker, test_user_runtime_opts, test_user_worker_pool_policy, TestBedBuilder,
 };
 
+const MB: usize = 1024 * 1024;
 const NON_SECURE_PORT: u16 = 8498;
 const SECURE_PORT: u16 = 4433;
 const TESTBED_DEADLINE_SEC: u64 = 20;
@@ -981,6 +983,52 @@ async fn req_failure_case_intentional_peer_reset_non_secure() {
 #[serial]
 async fn req_failure_case_intentional_peer_reset_secure() {
     req_failure_case_intentional_peer_reset(new_localhost_tls(true)).await;
+}
+
+#[tokio::test]
+#[serial]
+async fn req_failure_case_op_cancel_from_server_due_to_cpu_resource_limit() {
+    use reqwest::multipart::{Form, Part};
+    use reqwest::Client;
+
+    let client = Client::builder().build().unwrap();
+    let req = client
+        .request(
+            Method::POST,
+            format!("http://localhost:{}/oak-file-upload", NON_SECURE_PORT),
+        )
+        .multipart(Form::new().part("meow", Part::bytes(vec![0u8; 48 * MB])))
+        .build()
+        .unwrap();
+
+    let original = reqwest::RequestBuilder::from_parts(client, req);
+    let request_builder = Some(original);
+
+    #[derive(Deserialize)]
+    struct ExpectedResponsePayload {
+        msg: String,
+    }
+
+    integration_test!(
+        "./test_cases/main_small_cpu_time",
+        NON_SECURE_PORT,
+        "",
+        None,
+        None,
+        request_builder,
+        None,
+        (|resp| async {
+            let res = resp.unwrap();
+
+            assert!(res.status().as_u16() == 500);
+
+            let res = res.json::<ExpectedResponsePayload>().await;
+
+            assert!(res.is_ok());
+            assert!(res.unwrap().msg == "Interrupted: operation canceled");
+        }),
+        TerminationToken::new()
+    );
 }
 
 async fn test_websocket_upgrade(maybe_tls: Option<Tls>, use_node_ws: bool) {

@@ -1025,7 +1025,10 @@ async fn req_failure_case_op_cancel_from_server_due_to_cpu_resource_limit() {
             let res = res.json::<ExpectedResponsePayload>().await;
 
             assert!(res.is_ok());
-            assert!(res.unwrap().msg == "Interrupted: operation canceled");
+            assert!(
+                res.unwrap().msg
+                    == "WorkerRequestCancelled: request has been cancelled by supervisor"
+            );
         }),
         TerminationToken::new()
     );

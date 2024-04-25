@@ -10,7 +10,7 @@ import { target } from "../config";
 import { randomIntBetween } from "https://jslib.k6.io/k6-utils/1.2.0/index.js"
 
 const MB = 1048576;
-const MSG_OP_CANCELED = "Interrupted: operation canceled";
+const MSG_CANCELED = "WorkerRequestCancelled: request has been cancelled by supervisor";
 
 const dummyBinary = crypto.randomBytes(randomIntBetween(25 * MB, 35 * MB));
 const dummyFile = http.file(dummyBinary, "dummy", "application/octet-stream");
@@ -38,7 +38,7 @@ export const options: Options = {
 
 export default function () {
     const res = http.post(
-        `${target}/file-upload`,
+        `${target}/oak-file-upload`,
         {
             "file": dummyFile
         }
@@ -56,7 +56,7 @@ export default function () {
 
             let m = r.json();
 
-            if (!m || typeof m !== "object" || !("msg" in m) || m["msg"] !== MSG_OP_CANCELED) {
+            if (!m || typeof m !== "object" || !("msg" in m) || m["msg"] !== MSG_CANCELED) {
                 return false;
             }
 

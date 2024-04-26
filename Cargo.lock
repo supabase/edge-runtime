@@ -4894,6 +4894,7 @@ dependencies = [
  "log",
  "sb_core",
  "sb_graph",
+ "scopeguard",
  "serde",
  "thiserror",
  "tokio",

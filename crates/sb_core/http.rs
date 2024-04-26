@@ -32,12 +32,19 @@ deno_core::extension!(
     middleware = sb_http_middleware,
 );
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StreamState {
+    Normal,
+    Dropping,
+    Dropped,
+}
+
 pub(crate) struct Stream2<S>
 where
     S: AsyncWrite + AsyncRead + Send + Unpin + 'static,
 {
     io: Option<(S, Option<CancellationToken>)>,
-    is_shutdown: bool,
+    state: StreamState,
     wait_fut: Option<BoxFuture<'static, ()>>,
 }
 
@@ -46,7 +53,7 @@ where
     S: AsyncWrite + AsyncRead + Send + Unpin + 'static,
 {
     fn drop(&mut self) {
-        if self.is_shutdown {
+        if self.state != StreamState::Normal {
             return;
         }
 
@@ -55,6 +62,8 @@ where
         };
 
         let mut stream = Stream2::new(stream, conn_sync);
+
+        stream.state = StreamState::Dropping;
 
         // TODO(Nyannyacha): Optimize this. No matter how I think about it,
         // using `tokio::spawn` to defer the stream shutdown seems like a waste.
@@ -76,16 +85,15 @@ where
     pub fn new(stream: S, token: Option<CancellationToken>) -> Self {
         Self {
             io: Some((stream, token)),
-            is_shutdown: false,
+            state: StreamState::Normal,
             wait_fut: None,
         }
     }
-}
 
-impl<S> Stream2<S>
-where
-    S: AsyncWrite + AsyncRead + Send + Unpin + 'static,
-{
+    pub fn is_dropped(&self) -> bool {
+        self.state == StreamState::Dropped
+    }
+
     fn into_inner(mut self) -> Option<(S, Option<CancellationToken>)> {
         self.io.take()
     }
@@ -160,7 +168,7 @@ where
     ) -> Poll<Result<(), std::io::Error>> {
         let pinned = Pin::into_inner(self);
 
-        if pinned.is_shutdown {
+        if pinned.is_dropped() {
             return Poll::Ready(Ok(()));
         }
 
@@ -175,7 +183,7 @@ where
 
             let poll_result = ready!(Pin::new(stream).poll_shutdown(cx));
 
-            pinned.is_shutdown = true;
+            pinned.state = StreamState::Dropped;
 
             Poll::Ready(poll_result)
         } else {

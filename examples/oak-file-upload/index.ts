@@ -1,5 +1,4 @@
-import { Application, Router } from 'https://deno.land/x/oak@v12.3.0/mod.ts'
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { Application } from 'https://deno.land/x/oak@v12.3.1/mod.ts'
 
 const MB = 1024 * 1024
 

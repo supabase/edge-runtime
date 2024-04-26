@@ -78,17 +78,17 @@ class UserWorker {
 		
 		if (sent.status === "rejected") {
 			if (res.status === "fulfilled") {
-				core.close(res.value.bodyRid);
+				res = res.value;
 			} else {
 				if (
 					ObjectPrototypeIsPrototypeOf(InterruptedPrototype, sent.reason) ||
 					StringPrototypeIncludes(sent.reason.message, "operation canceled")
 				) {
 					throw res.reason;
+				} else {
+					throw sent.reason;
 				}
 			}
-
-			throw sent.reason;
 		} else if (res.status === "rejected") {
 			throw res.reason;
 		} else {

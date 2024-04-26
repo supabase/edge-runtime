@@ -446,24 +446,26 @@ pub async fn op_user_worker_fetch_send(
         conn_token.clone(),
     ))?;
 
+    let request_body_guard = scopeguard::guard(request_body_rid, |rid| {
+        if let Some(rid) = rid {
+            match state
+                .borrow()
+                .resource_table
+                .get::<UserWorkerRequestBodyResource>(rid)
+            {
+                Err(_) => {}
+                Ok(res) => {
+                    res.cancel.cancel();
+                }
+            }
+        }
+    });
+
     let res = result_rx.await?;
     let (res, req_end_tx) = match res {
         Ok((res, req_end_tx)) => (res, req_end_tx),
         Err(err) => {
             error!("user worker failed to respond: {}", err);
-
-            if let Some(rid) = request_body_rid {
-                match state
-                    .borrow()
-                    .resource_table
-                    .get::<UserWorkerRequestBodyResource>(rid)
-                {
-                    Err(_) => {}
-                    Ok(res) => {
-                        res.cancel.cancel();
-                    }
-                }
-            }
 
             match err.downcast_ref() {
                 Some(err @ WorkerError::RequestCancelledBySupervisor) => {
@@ -479,6 +481,8 @@ pub async fn op_user_worker_fetch_send(
             }
         }
     };
+
+    drop(request_body_guard);
 
     let mut headers = vec![];
     for (key, value) in res.headers().iter() {

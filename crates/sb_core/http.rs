@@ -166,15 +166,15 @@ where
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Result<(), std::io::Error>> {
-        let pinned = Pin::into_inner(self);
+        let this = Pin::into_inner(self);
 
-        if pinned.is_dropped() {
+        if this.is_dropped() {
             return Poll::Ready(Ok(()));
         }
 
-        if let Some((stream, token)) = pinned.io.as_mut() {
+        if let Some((stream, token)) = this.io.as_mut() {
             if let Some(ref token) = token {
-                let fut = pinned
+                let fut = this
                     .wait_fut
                     .get_or_insert_with(|| token.clone().cancelled_owned().boxed());
 
@@ -183,7 +183,7 @@ where
 
             let poll_result = ready!(Pin::new(stream).poll_shutdown(cx));
 
-            pinned.state = StreamState::Dropped;
+            this.state = StreamState::Dropped;
 
             Poll::Ready(poll_result)
         } else {

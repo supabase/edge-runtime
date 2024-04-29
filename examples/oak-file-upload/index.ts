@@ -21,8 +21,14 @@ app.use(async (ctx) => {
     ctx.response.body = 'Success!'
   } catch (e) {
     console.error(e)
-    ctx.response.status = 500
-    ctx.response.body = 'Error!'
+    if ('status' in e) {
+      ctx.response.headers.set('Connection', 'close')
+      ctx.response.status = e.status
+      ctx.response.body = e.message
+    } else {
+      ctx.response.status = 500
+      ctx.response.body = 'Error!'
+    }
   }
 })
 

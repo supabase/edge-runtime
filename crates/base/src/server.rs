@@ -476,7 +476,7 @@ impl Server {
             use signal::unix::signal;
             use signal::unix::SignalKind;
 
-            let mut signals = [SignalKind::terminate(), SignalKind::window_change()]
+            let mut signals = [SignalKind::terminate()]
                 .into_iter()
                 .map(|it| (it.as_raw_value(), signal(it).unwrap()))
                 .collect::<Vec<_>>();

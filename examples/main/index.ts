@@ -1,6 +1,13 @@
+// @ts-ignore
+import { STATUS_CODE } from "https://deno.land/std/http/status.ts";
+
 console.log('main function started');
 
 Deno.serve(async (req: Request) => {
+	const headers = new Headers({
+		"Content-Type": "application/json"
+	});
+
 	const url = new URL(req.url);
 	const { pathname } = url;
 
@@ -8,7 +15,10 @@ Deno.serve(async (req: Request) => {
 	if (pathname === '/_internal/health') {
 		return new Response(
 			JSON.stringify({ 'message': 'ok' }),
-			{ status: 200, headers: { 'Content-Type': 'application/json' } },
+			{
+				status: STATUS_CODE.OK,
+				headers
+			},
 		);
 	}
 
@@ -46,7 +56,7 @@ Deno.serve(async (req: Request) => {
 		const error = { msg: 'missing function name in request' };
 		return new Response(
 			JSON.stringify(error),
-			{ status: 400, headers: { 'Content-Type': 'application/json' } },
+			{ status: STATUS_CODE.BadRequest, headers: { 'Content-Type': 'application/json' } },
 		);
 	}
 
@@ -65,6 +75,7 @@ Deno.serve(async (req: Request) => {
 		//     "cors": "./examples/_shared/cors.ts"
 		//   }
 		// }
+
 		// const importMapPath = `data:${encodeURIComponent(JSON.stringify(importMap))}?${encodeURIComponent('/home/deno/functions/test')}`;
 		const importMapPath = null;
 		const envVarsObj = Deno.env.toObject();
@@ -117,6 +128,8 @@ Deno.serve(async (req: Request) => {
 			console.error(e);
 
 			if (e instanceof Deno.errors.WorkerRequestCancelled) {
+				headers.append("Connection", "close");
+
 				// XXX(Nyannyacha): I can't think right now how to re-poll
 				// inside the worker pool without exposing the error to the
 				// surface.
@@ -128,14 +141,17 @@ Deno.serve(async (req: Request) => {
 				// The current request to the worker has been canceled due to
 				// some internal reasons. We should repoll the worker and call
 				// `fetch` again.
+
 				// return await callWorker();
-				console.log('cancelled!');
 			}
 
 			const error = { msg: e.toString() };
 			return new Response(
 				JSON.stringify(error),
-				{ status: 500, headers: { 'Content-Type': 'application/json' } },
+				{
+					status: STATUS_CODE.InternalServerError,
+					headers
+				},
 			);
 		}
 	};

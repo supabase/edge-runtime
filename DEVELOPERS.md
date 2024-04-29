@@ -7,14 +7,14 @@
 - [Running load tests inside a Dev Container](#running-load-tests-inside-a-dev-container)
 
 ## How to run locally
-To serve all functions in the examples folder on port 9000, you can do this with the [example main service](./examples/main/index.ts) provided with this repo
+To serve all functions in the examples folder on port 9998, you can do this with the [example main service](./examples/main/index.ts) provided with this repo
 ```sh
 ./scripts/run.sh
 ```
 
 Test by calling the [hello world function](./examples/hello-world/index.ts)
 ```sh
-curl --request POST 'http://localhost:9000/hello-world' \
+curl --request POST 'http://localhost:9998/hello-world' \
 --header 'Content-Type: application/json' \
 --data-raw '{
     "name": "John Doe"

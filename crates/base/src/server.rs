@@ -56,12 +56,12 @@ pub enum ServerHealth {
     Failure,
 }
 
-struct NotifyOnEos<S> {
+struct CancelOnDrop<S> {
     inner: S,
     cancel: Option<CancellationToken>,
 }
 
-impl<S> Drop for NotifyOnEos<S> {
+impl<S> Drop for CancelOnDrop<S> {
     fn drop(&mut self) {
         if let Some(cancel) = self.cancel.take() {
             cancel.cancel();
@@ -69,7 +69,7 @@ impl<S> Drop for NotifyOnEos<S> {
     }
 }
 
-impl<S: Stream + Unpin> Stream for NotifyOnEos<S> {
+impl<S: Stream + Unpin> Stream for CancelOnDrop<S> {
     type Item = S::Item;
 
     fn poll_next(
@@ -77,6 +77,10 @@ impl<S: Stream + Unpin> Stream for NotifyOnEos<S> {
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Self::Item>> {
         Pin::new(&mut self.as_mut().inner).poll_next(cx)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
     }
 }
 
@@ -191,7 +195,17 @@ impl Service<Request<Body>> for WorkerService {
             };
 
             let res = match res {
-                Ok(res) => res,
+                Ok(res) => {
+                    let (parts, body) = res.into_parts();
+                    Response::from_parts(
+                        parts,
+                        Body::wrap_stream(CancelOnDrop {
+                            inner: body,
+                            cancel: Some(cancel),
+                        }),
+                    )
+                }
+
                 Err(e) => {
                     error!(
                         "request failed (uri: {:?} reason: {:?})",
@@ -200,24 +214,15 @@ impl Service<Request<Body>> for WorkerService {
                     );
 
                     // FIXME: add an error body
-                    return Ok(Response::builder()
-                        .status(500)
-                        .body(Body::wrap_stream(NotifyOnEos {
+                    Response::builder()
+                        .status(http::StatusCode::INTERNAL_SERVER_ERROR)
+                        .body(Body::wrap_stream(CancelOnDrop {
                             inner: Body::empty(),
-                            cancel: Some(cancel.clone()),
+                            cancel: Some(cancel),
                         }))
-                        .unwrap());
+                        .unwrap()
                 }
             };
-
-            let (parts, body) = res.into_parts();
-            let res = Response::from_parts(
-                parts,
-                Body::wrap_stream(NotifyOnEos {
-                    inner: body,
-                    cancel: Some(cancel),
-                }),
-            );
 
             Ok(res)
         };

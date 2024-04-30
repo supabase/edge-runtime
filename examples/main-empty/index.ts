@@ -1,6 +1,5 @@
-import { serve } from "https://deno.land/std@0.131.0/http/server.ts";
-import {sum} from "./some-import.ts";
 import isEven from "npm:is-even";
+import { sum } from "./some-import.ts";
 
 console.log('Hello A');
 globalThis.isTenEven = isEven(10);
@@ -10,7 +9,7 @@ let val = sum(1, 2);
 console.log(Deno.cwd())
 console.log(Deno.readFileSync('mnt/data/examples/postgres-on-the-edge/README.md'));
 
-serve(async (req: Request) => {
+Deno.serve(async () => {
     return new Response(
         JSON.stringify({ hello: "world" }),
         { status: 200, headers: { "Content-Type": "application/json" } },

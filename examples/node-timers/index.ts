@@ -1,6 +1,5 @@
 import { nextTick } from "node:process";
 import { setImmediate } from "node:timers";
-import { serve } from "https://deno.land/std@0.131.0/http/server.ts"
 
 console.log("Hello => number 1");
 
@@ -28,8 +27,7 @@ nextTick(() => {
 // Hello after request
 
 
-serve(async (req: Request) => {
-
+Deno.serve(async () => {
     setImmediate(() => {
         console.log('Hello after request');
     })

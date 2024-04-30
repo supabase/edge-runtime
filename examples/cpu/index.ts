@@ -1,13 +1,3 @@
-import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
-
-serve(async (req) => {
-	const { base } = await req.json();
-	const data = mySlowFunction(base);
-	return new Response(JSON.stringify(data), {
-		headers: { 'Content-Type': 'application/json' },
-	});
-});
-
 function mySlowFunction(baseNumber) {
 	console.time('mySlowFunction');
 	let now = Date.now();
@@ -19,3 +9,11 @@ function mySlowFunction(baseNumber) {
 	console.timeEnd('mySlowFunction');
 	return { result: result, duration: duration };
 }
+
+Deno.serve(async (req: Request) => {
+	const { base } = await req.json();
+	const data = mySlowFunction(base);
+	return new Response(JSON.stringify(data), {
+		headers: { 'Content-Type': 'application/json' },
+	});
+});

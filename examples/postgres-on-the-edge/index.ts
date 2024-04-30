@@ -1,5 +1,4 @@
 import * as postgres from 'https://deno.land/x/postgres@v0.14.2/mod.ts'
-import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 
 // Get the connection string from the environment variable "DATABASE_URL"
 const databaseUrl = Deno.env.get('DATABASE_URL')!
@@ -7,7 +6,7 @@ const databaseUrl = Deno.env.get('DATABASE_URL')!
 // Create a database pool with three connections that are lazily established
 const pool = new postgres.Pool(databaseUrl, 3, true)
 
-serve(async (_req) => {
+Deno.serve(async () => {
   try {
     // Grab a connection from the pool
     const connection = await pool.connect()

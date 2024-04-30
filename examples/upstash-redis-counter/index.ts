@@ -2,12 +2,11 @@
 // https://deno.land/manual/getting_started/setup_your_environment
 // This enables autocomplete, go to definition, etc.
 
-import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { connect, parseURL } from "https://deno.land/x/redis/mod.ts";
 
 console.log(`Function "upstash-redis-counter" up and running!`)
 
-serve(async (_req) => {
+Deno.serve(async () => {
   try {
     const redis = await connect(parseURL(Deno.env.get('REDIS_STORE_URL')));
 

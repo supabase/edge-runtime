@@ -1,12 +1,10 @@
-import { serve } from 'https://deno.land/std@0.131.0/http/server.ts';
-
 interface reqPayload {
 	name: string;
 }
 
 console.info('server started modified');
 
-serve(async (req: Request) => {
+Deno.serve(async (req: Request) => {
 	console.log('serving request');
 	const rb = req.body;
 	const reader = rb.getReader();
@@ -26,4 +24,4 @@ serve(async (req: Request) => {
 		JSON.stringify({ totalSize }),
 		{ headers: { 'Content-Type': 'application/json', 'Connection': 'keep-alive' } },
 	);
-}, { port: 9005 });
+});

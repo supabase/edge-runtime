@@ -34,6 +34,16 @@ docker build -t supabase/edge-runtime .
 docker run -it --rm -p 9000:9000 -v ./examples/:/examples supabase/edge-runtime start --main-service /examples/main
 ```
 
+Another option would be to install [Orb](https://docs.orbstack.dev/install) and use an [Orbstack Machine](https://docs.orbstack.dev/machines/) to run a Linux Machine.
+
+First create a machine:
+
+```
+orb create ubuntu new-ubuntu
+```
+
+and run `orb` in the base directory to enter the virtual machine.
+
 ## How to run tests
 
 ```sh

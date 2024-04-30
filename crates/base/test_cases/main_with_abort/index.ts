@@ -1,8 +1,6 @@
-import { serve } from 'https://deno.land/std@0.131.0/http/server.ts';
-
 console.log('main function started');
 
-serve(async (req: Request) => {
+Deno.serve(async (req: Request) => {
 	const url = new URL(req.url);
 	const { pathname } = url;
 	const path_parts = pathname.split('/');

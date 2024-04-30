@@ -1,6 +1,4 @@
-import { serve } from "https://deno.land/std@0.131.0/http/server.ts"
-
-serve(async (req: Request) => {
+Deno.serve(async () => {
     let passed = false;
     try {
         const tcpConn = await Deno.connect({ hostname: "deno.land", port: 443 });
@@ -30,7 +28,7 @@ MNf4EgWfK+tZMnuqfpfO9740KzfcVoMNo4QJD4yn5YxroUOO/Azi
 
         await tlsConn.handshake();
 
-    } catch(e) {
+    } catch (e) {
         passed = e instanceof Deno.errors.InvalidData;
     }
 

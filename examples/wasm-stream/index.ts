@@ -1,4 +1,3 @@
-import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { init } from 'https://esm.sh/@dqbd/tiktoken/lite/init';
 
 await init(async (imports) => {
@@ -8,7 +7,7 @@ await init(async (imports) => {
 	);
 });
 
-serve(async (req) => {
+Deno.serve(async () => {
 	return new Response(
 		JSON.stringify({
 			hello: 'world',

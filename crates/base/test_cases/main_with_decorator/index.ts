@@ -1,29 +1,27 @@
-import { serve } from "https://deno.land/std@0.131.0/http/server.ts"
-
 console.log('main function started');
 
-serve(async (req: Request) => {
+Deno.serve(async (req: Request) => {
   const url = new URL(req.url);
-  const {pathname} = url;
+  const { pathname } = url;
   const path_parts = pathname.split("/");
   const service_name = path_parts[1];
 
   if (!service_name || service_name === "") {
     const error = { msg: "missing function name in request" }
     return new Response(
-        JSON.stringify(error),
-        { status: 400, headers: { "Content-Type": "application/json" } },
+      JSON.stringify(error),
+      { status: 400, headers: { "Content-Type": "application/json" } },
     )
   }
 
   const servicePath = `./test_cases/${service_name}`;
-  
+
   let decoratorType: string | undefined;
 
   try {
     const payload = await req.json();
     decoratorType = payload.decoratorType;
-  } catch {}
+  } catch { }
 
   console.error(`serving the request with ${servicePath}`);
 
@@ -38,15 +36,15 @@ serve(async (req: Request) => {
     const envVars = Object.keys(envVarsObj).map(k => [k, envVarsObj[k]]);
 
     return await EdgeRuntime.userWorkers.create({
-        servicePath,
-        memoryLimitMb,
-        workerTimeoutMs,
-        cpuTimeSoftLimitMs,
-        cpuTimeHardLimitMs,
-        noModuleCache,
-        importMapPath,
-        envVars,
-        decoratorType
+      servicePath,
+      memoryLimitMb,
+      workerTimeoutMs,
+      cpuTimeSoftLimitMs,
+      cpuTimeHardLimitMs,
+      noModuleCache,
+      importMapPath,
+      envVars,
+      decoratorType
     });
   }
 
@@ -57,14 +55,14 @@ serve(async (req: Request) => {
     } catch (e) {
       console.error(e);
 
-			// if (e instanceof Deno.errors.WorkerRequestCancelled) {
-			// 	return await callWorker();
-			// }
+      // if (e instanceof Deno.errors.WorkerRequestCancelled) {
+      // 	return await callWorker();
+      // }
 
       const error = { msg: e.toString() }
       return new Response(
-          JSON.stringify(error),
-          { status: 500, headers: { "Content-Type": "application/json" } },
+        JSON.stringify(error),
+        { status: 500, headers: { "Content-Type": "application/json" } },
       );
     }
   }

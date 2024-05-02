@@ -23,7 +23,7 @@ use serial_test::serial;
 use tokio::{
     join,
     sync::{mpsc, oneshot},
-    time::timeout,
+    time::{sleep, timeout},
 };
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use tungstenite::Message;
@@ -1228,6 +1228,55 @@ async fn test_decorator_parse_tc39() {
 #[serial]
 async fn test_decorator_parse_typescript_experimental_with_metadata() {
     test_decorators(Some(DecoratorType::TypescriptWithMetadata)).await;
+}
+
+#[tokio::test]
+#[serial]
+async fn send_partial_payload_into_closed_pipe_should_not_be_affected_worker_stability() {
+    let tb = TestBedBuilder::new("./test_cases/main")
+        .with_oneshot_policy(100000)
+        .build()
+        .await;
+
+    let mut resp1 = tb
+        .request(|| {
+            Request::builder()
+                .uri("/chunked-char-1000ms")
+                .method("GET")
+                .body(Body::empty())
+                .context("can't make request")
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(resp1.status().as_u16(), StatusCode::OK);
+
+    let resp1_body = resp1.body_mut();
+    let resp1_chunk1 = resp1_body.next().await.unwrap().unwrap();
+
+    assert_eq!(resp1_chunk1, "m");
+
+    drop(resp1);
+    sleep(Duration::from_secs(1)).await;
+
+    // NOTE(Nyannyacha): Before dc057b0, the statement below panics with the
+    // reason `connection closed before message completed`. This is the result
+    // of `Deno.serve` failing to properly handle an exception from a previous
+    // request.
+    let resp2 = tb
+        .request(|| {
+            Request::builder()
+                .uri("/empty-response")
+                .method("GET")
+                .body(Body::empty())
+                .context("can't make request")
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(resp2.status().as_u16(), StatusCode::NO_CONTENT);
+
+    tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
 }
 
 trait TlsExt {

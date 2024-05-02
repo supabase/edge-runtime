@@ -5,12 +5,13 @@ import { fromInnerResponse, newInnerResponse } from "ext:deno_fetch/23_response.
 import { RequestPrototype } from "ext:deno_fetch/23_request.js";
 import { HttpConn, upgradeWebSocket } from "ext:sb_core_main_js/js/01_http.js";
 
+const ops = core.ops;
+
 const { internalRidSymbol } = core;
 const { ObjectPrototypeIsPrototypeOf } = primordials;
 
 const HttpConnPrototypeNextRequest = HttpConn.prototype.nextRequest;
 const HttpConnPrototypeClose = HttpConn.prototype.close;
-const ops = core.ops;
 
 const kSupabaseTag = Symbol("kSupabaseTag");
 const RAW_UPGRADE_RESPONSE_SENTINEL = fromInnerResponse(
@@ -49,9 +50,11 @@ function internalServerError() {
 }
 
 function serveHttp(conn) {
+	let closed = false;
+
 	const [connRid, watcherRid] = ops.op_http_start(conn[internalRidSymbol]);
 	const httpConn = new HttpConn(connRid, conn.remoteAddr, conn.localAddr);
-
+	
 	httpConn.nextRequest = async () => {
 		const nextRequest = await HttpConnPrototypeNextRequest.call(httpConn);
 
@@ -68,105 +71,67 @@ function serveHttp(conn) {
 	};
 
 	httpConn.close = () => {
-		core.tryClose(watcherRid);
-		HttpConnPrototypeClose.call(httpConn);
+		if (!closed) {
+			closed = true;
+			core.tryClose(watcherRid);
+			HttpConnPrototypeClose.call(httpConn);
+		}
 	};
 
 	return httpConn;
 }
 
 async function serve(args1, args2) {
-	let opts = {
+	let options = {
 		port: 9999,
-		hostname: '0.0.0.0',
-		transport: 'tcp',
+		hostname: "0.0.0.0",
+		transport: "tcp",
 	};
 
-	const listener = Deno.listen(opts);
+	const listener = Deno.listen(options);
 
-	if (typeof args1 === 'function') {
-		opts['handler'] = args1;
-	} else if (typeof args2 === 'function') {
-		opts['handler'] = args2;
-	} else if (typeof args1 === 'object' && typeof args1['handler'] === 'function') {
-		opts['handler'] = args1['handler'];
+	if (typeof args1 === "function") {
+		options["handler"] = args1;
+	} else if (typeof args2 === "function") {
+		options["handler"] = args2;
+	} else if (typeof args1 === "object" && typeof args1["handler"] === "function") {
+		options["handler"] = args1["handler"];
 	} else {
-		throw new TypeError('A handler function must be provided.');
+		throw new TypeError("A handler function must be provided.");
 	}
 
-	if (typeof args1 === 'object') {
-		if (typeof args1['onListen'] === 'function') {
-			opts['onListen'] = args1['onListen'];
+	if (typeof args1 === "object") {
+		if (typeof args1["onListen"] === "function") {
+			options["onListen"] = args1["onListen"];
 		}
-		if (typeof args1['onError'] === 'function') {
-			opts['onError'] = args1['onError'];
+		if (typeof args1["onError"] === "function") {
+			options["onError"] = args1["onError"];
 		}
 	}
-
-	let serve;
 
 	const handleHttp = async (conn) => {
-		serve = serveHttp(conn);
-		for await (const e of serve) {
-			try {
-				let res = await opts['handler'](e.request, {
-					remoteAddr: {
-						port: opts.port,
-						hostname: opts.hostname,
-						transport: opts.transport
-					}
-				});
+		const currentHttpConn = serveHttp(conn);
 
-				res = await res;
-
-				if (res === internals.RAW_UPGRADE_RESPONSE_SENTINEL) {
-					const { fenceRid } = getSupabaseTag(e.request);
-
-					if (fenceRid === void 0) {
-						throw TypeError("Cannot find a fence for upgrading response");
-					}
-
-					setTimeout(async () => {
-						let {
-							status,
-							headers
-						} = await ops.op_http_upgrade_raw2_fence(fenceRid);
-
-						try {
-							await e.respondWith(new Response(null, {
-								headers,
-								status
-							}));
-						} catch(error) {
-							console.error(error);
-						}
-					});
-
-					return;
-				}
-
-				e.respondWith(res);
-			} catch (error) {
-				if (opts['onError'] !== void 0) {
-					try {
-						const res = await opts['onError'](error);
-						e.respondWith(res);
-						continue;
-					} catch(error2) {
-						error = error2;
-					}
-				}
-
-				console.error(error);
-				e.respondWith(internalServerError());
+		try {
+			for await (const requestEvent of currentHttpConn) {
+				// NOTE: Respond to the request. Note we do not await this async
+				// method to allow the connection to handle multiple requests in
+				// the case of h2.
+				//
+				// [1]: https://deno.land/std@0.131.0/http/server.ts?source=#L338
+				respond(requestEvent, currentHttpConn, options);
 			}
+		} catch {
+			// connection has been closed
+		} finally {
+			closeHttpConn(currentHttpConn);
 		}
 	};
 
 	const finished = (async () => {
-		opts['onListen']?.({
-			hostname: opts.hostname,
-			port: opts.port
+		options["onListen"]?.({
+			hostname: options.hostname,
+			port: options.port
 		});
 
 		for await (const conn of listener) {
@@ -175,23 +140,89 @@ async function serve(args1, args2) {
 	})();
 
 	const shutdown = () => {
-		// TODO: not currently supported
+		// TODO: Not currently supported
 	};
 
 	return {
 		finished,
 		shutdown,
 		ref() {
-			core.refOp(serve.rid);
+			// TODO: Not currently supported
 		},
 		unref() {
-			core.unrefOp(serve.rid);
+			// TODO: Not currently supported
 		},
 	};
 }
 
-function getSupabaseTag(req) {
-	return req[kSupabaseTag];
+async function respond(requestEvent, httpConn, options) {
+	/** @type {Response} */
+	let response;
+	try {
+		response = await options["handler"](requestEvent.request, {
+			remoteAddr: {
+				port: options.port,
+				hostname: options.hostname,
+				transport: options.transport
+			}
+		});
+
+	} catch (error) {
+		if (options["onError"] !== void 0) {
+			/** @throwable */
+			response = await options["onError"](error);
+		} else {
+			console.error(error);
+			response = internalServerError();
+		}
+	}
+
+	if (response === internals.RAW_UPGRADE_RESPONSE_SENTINEL) {
+		const { fenceRid } = getSupabaseTag(requestEvent.request);
+
+		if (fenceRid === void 0) {
+			throw TypeError("Cannot find a fence for upgrading response");
+		}
+
+		setTimeout(async () => {
+			let {
+				status,
+				headers
+			} = await ops.op_http_upgrade_raw2_fence(fenceRid);
+
+			try {
+				await requestEvent.respondWith(new Response(null, {
+					headers,
+					status
+				}));
+			} catch (error) {
+				console.error(error);
+				closeHttpConn(httpConn);
+			}
+		});
+	} else {
+		try {
+			// send the response
+			await requestEvent.respondWith(response);
+		} catch {
+			// respondWith() fails when the connection has already been closed,
+			// or there is some other error with responding on this connection
+			// that prompts us to close it and open a new connection.
+			return closeHttpConn(httpConn);
+		}
+	}
+}
+
+function closeHttpConn(httpConn) {
+	try {
+		httpConn.close();
+	} catch {
+		// connection has already been closed
+	}	
+}
+
+function getSupabaseTag(request) {
+	return request[kSupabaseTag];
 }
 
 function applySupabaseTag(src, dest) {

@@ -1,9 +1,6 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-
-
 console.log("Hello from Functions!")
 
-serve(async (req) => {
+Deno.serve(async (req: Request) => {
     // This is needed if you're planning to invoke your function from a browser.
     if (req.method === 'OPTIONS') {
         return new Response(null, { status: 204 })

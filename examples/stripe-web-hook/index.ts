@@ -2,7 +2,6 @@
 // https://deno.land/manual/getting_started/setup_your_environment
 // This enables autocomplete, go to definition, etc.
 
-import { serve } from "https://deno.land/std@0.131.0/http/server.ts";
 // esm.sh is used to compile stripe-node to be compatible with ES modules.
 import Stripe from "https://esm.sh/stripe@12.0.0?target=deno&no-check";
 
@@ -19,7 +18,7 @@ const stripe = Stripe("STRIPE_API_KEY", {
 
 console.log(`Function "browser-with-cors" up and running!`);
 
-serve(async (req) => {
+Deno.serve(async (req: Request) => {
   console.log("Deno version:", Deno.version);
   // This is needed if you're planning to invoke your function from a browser.
   if (req.method === "OPTIONS") {

@@ -268,13 +268,12 @@ impl DenoRuntime {
             emitter_factory.set_decorator_type(maybe_decorator);
 
             let maybe_import_map = load_import_map(import_map_path.clone())?;
+
             emitter_factory.set_import_map(maybe_import_map);
-            maybe_arc_import_map = emitter_factory.maybe_import_map.clone();
+            maybe_arc_import_map.clone_from(&emitter_factory.maybe_import_map);
 
             let arc_emitter_factory = Arc::new(emitter_factory);
-
             let main_module_url_file_path = main_module_url.clone().to_file_path().unwrap();
-
             let maybe_code = if only_module_code {
                 maybe_module_code
             } else {

@@ -51,6 +51,7 @@ function internalServerError() {
 
 function serveHttp(conn) {
 	let closed = false;
+
 	const [connRid, watcherRid] = ops.op_http_start(conn[internalRidSymbol]);
 	const httpConn = new HttpConn(connRid, conn.remoteAddr, conn.localAddr);
 	
@@ -108,22 +109,22 @@ async function serve(args1, args2) {
 		}
 	}
 
-	let httpConn;
 	const handleHttp = async (conn) => {
-		httpConn = serveHttp(conn);
+		const currentHttpConn = serveHttp(conn);
+
 		try {
-			for await (const requestEvent of httpConn) {
+			for await (const requestEvent of currentHttpConn) {
 				// NOTE: Respond to the request. Note we do not await this async
 				// method to allow the connection to handle multiple requests in
 				// the case of h2.
 				//
 				// [1]: https://deno.land/std@0.131.0/http/server.ts?source=#L338
-				respond(requestEvent, httpConn, options);
+				respond(requestEvent, currentHttpConn, options);
 			}
 		} catch {
 			// connection has been closed
 		} finally {
-			closeHttpConn(httpConn);
+			closeHttpConn(currentHttpConn);
 		}
 	};
 
@@ -146,10 +147,10 @@ async function serve(args1, args2) {
 		finished,
 		shutdown,
 		ref() {
-			core.refOp(httpConn.rid);
+			// TODO: Not currently supported
 		},
 		unref() {
-			core.unrefOp(httpConn.rid);
+			// TODO: Not currently supported
 		},
 	};
 }

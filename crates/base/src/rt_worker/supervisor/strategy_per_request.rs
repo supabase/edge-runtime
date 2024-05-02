@@ -54,11 +54,14 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
     let mut req_ack_count = 0usize;
     let mut req_start_ack = false;
 
-    // reduce 100ms from wall clock duration, so the interrupt can be handled before
-    // isolate is dropped
-    let wall_clock_duration = Duration::from_millis(runtime_opts.worker_timeout_ms)
-        .saturating_sub(Duration::from_millis(100));
+    let worker_timeout_ms = runtime_opts.worker_timeout_ms;
+    let worker_timeout_ms = if worker_timeout_ms < 1 {
+        1
+    } else {
+        worker_timeout_ms
+    };
 
+    let wall_clock_duration = Duration::from_millis(worker_timeout_ms);
     let wall_clock_duration_alert = tokio::time::sleep(wall_clock_duration);
 
     tokio::pin!(wall_clock_duration_alert);

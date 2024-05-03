@@ -49,14 +49,14 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
     let mut wall_clock_alerts = 0;
     let mut req_ack_count = 0usize;
 
-    let worker_timeout_ms = runtime_opts.worker_timeout_ms;
-    let worker_timeout_ms = if worker_timeout_ms < 2 {
+    let wall_clock_limit_ms = runtime_opts.worker_timeout_ms;
+    let is_wall_clock_limit_disabled = wall_clock_limit_ms == 0;
+
+    let wall_clock_duration = Duration::from_millis(if wall_clock_limit_ms < 2 {
         2
     } else {
-        worker_timeout_ms
-    };
-
-    let wall_clock_duration = Duration::from_millis(worker_timeout_ms);
+        wall_clock_limit_ms
+    });
 
     // Split wall clock duration into 2 intervals.
     // At the first interval, we will send a msg to retire the worker.
@@ -190,8 +190,7 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
                 return (ShutdownReason::EarlyDrop, cpu_usage_ms);
             }
 
-            // wall clock warning
-            _ = wall_clock_duration_alert.tick() => {
+            _ = wall_clock_duration_alert.tick(), if !is_wall_clock_limit_disabled => {
                 if wall_clock_alerts == 0 {
                     // first tick completes immediately
                     wall_clock_alerts += 1;

@@ -55,6 +55,9 @@ impl WorkerHandler for Worker {
                 }
 
                 (Ok(()), cpu_usage_ms) => {
+                    // NOTE(Nyannyacha): If a supervisor unconditionally
+                    // requests the isolate to terminate, it might not come to
+                    // this branch, so it might be removed in the future.
                     if created_rt.is_termination_requested.is_raised() {
                         static EVENT_RECV_DEADLINE_DUR: Duration = Duration::from_secs(5);
 

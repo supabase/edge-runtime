@@ -54,10 +54,14 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
     let mut req_ack_count = 0usize;
     let mut req_start_ack = false;
 
-    // reduce 100ms from wall clock duration, so the interrupt can be handled before
-    // isolate is dropped
-    let wall_clock_duration = Duration::from_millis(runtime_opts.worker_timeout_ms)
-        .saturating_sub(Duration::from_millis(100));
+    let wall_clock_limit_ms = runtime_opts.worker_timeout_ms;
+    let is_wall_clock_limit_disabled = wall_clock_limit_ms == 0;
+
+    let wall_clock_duration = Duration::from_millis(if wall_clock_limit_ms < 1 {
+        1
+    } else {
+        wall_clock_limit_ms
+    });
 
     let wall_clock_duration_alert = tokio::time::sleep(wall_clock_duration);
 
@@ -155,7 +159,7 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
                 complete_reason = Some(ShutdownReason::EarlyDrop);
             }
 
-            _ = &mut wall_clock_duration_alert => {
+            _ = &mut wall_clock_duration_alert, if !is_wall_clock_limit_disabled => {
                 if !oneshot && req_ack_count != demand.load(Ordering::Acquire) {
                     wall_clock_duration_alert
                         .as_mut()

@@ -1279,6 +1279,24 @@ async fn send_partial_payload_into_closed_pipe_should_not_be_affected_worker_sta
     tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
 }
 
+#[tokio::test]
+#[serial]
+async fn oak_with_jsr_specifier() {
+    integration_test!(
+        "./test_cases/main",
+        NON_SECURE_PORT,
+        "oak-with-jsr",
+        None,
+        None,
+        None,
+        None,
+        (|resp| async {
+            assert_eq!(resp.unwrap().text().await.unwrap(), "meow");
+        }),
+        TerminationToken::new()
+    );
+}
+
 trait TlsExt {
     fn client(&self) -> reqwest::Client;
     fn schema(&self) -> &'static str;

@@ -608,7 +608,7 @@ async fn test_file_upload() {
     let request_builder = Some(original);
 
     integration_test!(
-        "./test_cases/oak",
+        "./test_cases/oak-v12-file-upload",
         NON_SECURE_PORT,
         "",
         None,
@@ -1277,6 +1277,24 @@ async fn send_partial_payload_into_closed_pipe_should_not_be_affected_worker_sta
     assert_eq!(resp2.status().as_u16(), StatusCode::NO_CONTENT);
 
     tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
+}
+
+#[tokio::test]
+#[serial]
+async fn oak_with_jsr_specifier() {
+    integration_test!(
+        "./test_cases/main",
+        NON_SECURE_PORT,
+        "oak-with-jsr",
+        None,
+        None,
+        None,
+        None,
+        (|resp| async {
+            assert_eq!(resp.unwrap().text().await.unwrap(), "meow");
+        }),
+        TerminationToken::new()
+    );
 }
 
 trait TlsExt {

@@ -71,6 +71,7 @@ impl ModuleLoader for EmbeddedModuleLoader {
             .as_ref()
             .map(|r| r.as_str())
             .unwrap_or(specifier);
+
         if let Ok(reference) = NpmPackageReqReference::from_str(specifier_text) {
             return self.shared.node_resolver.resolve_req_reference(
                 &reference,
@@ -79,12 +80,18 @@ impl ModuleLoader for EmbeddedModuleLoader {
             );
         }
 
-        match maybe_mapped {
-            Some(resolved) => Ok(resolved),
-            None => {
-                deno_core::resolve_import(specifier, referrer.as_str()).map_err(|err| err.into())
+        let specifier = match maybe_mapped {
+            Some(resolved) => resolved,
+            None => deno_core::resolve_import(specifier, referrer.as_str())?,
+        };
+
+        if specifier.scheme() == "jsr" {
+            if let Some(module) = self.shared.eszip.get_module(specifier.as_str()) {
+                return Ok(ModuleSpecifier::parse(&module.specifier).unwrap());
             }
         }
+
+        Ok(specifier)
     }
 
     fn load(

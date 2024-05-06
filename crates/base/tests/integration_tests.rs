@@ -608,7 +608,7 @@ async fn test_file_upload() {
     let request_builder = Some(original);
 
     integration_test!(
-        "./test_cases/oak",
+        "./test_cases/oak-v12-file-upload",
         NON_SECURE_PORT,
         "",
         None,

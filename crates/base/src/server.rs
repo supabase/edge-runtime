@@ -487,7 +487,7 @@ impl Server {
                                 let _ = stream.set_nodelay(true);
                             }
 
-                            accept_stream(stream, main_worker_req_tx, event_tx, metric_src, graceful_exit_token.clone())
+                            accept_stream(stream, main_worker_req_tx, event_tx, metric_src, graceful_exit_token.clone(), None)
                         }
                         Err(e) => error!("socket error: {}", e)
                     }
@@ -507,7 +507,7 @@ impl Server {
                                 let _ = stream.get_ref().0.set_nodelay(true);
                             }
 
-                            accept_stream(stream, main_worker_req_tx, event_tx, metric_src, graceful_exit_token.clone());
+                            accept_stream(stream, main_worker_req_tx, event_tx, metric_src, graceful_exit_token.clone(), None);
                         }
                         Err(e) => error!("socket error: {}", e)
                     }
@@ -675,6 +675,7 @@ fn accept_stream<I>(
     event_tx: Option<UnboundedSender<ServerEvent>>,
     metric_src: SharedMetricSource,
     graceful_exit_token: CancellationToken,
+    maybe_req_idle_timeout_dur: Option<Duration>,
 ) where
     I: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
@@ -682,6 +683,15 @@ fn accept_stream<I>(
     tokio::task::spawn({
         async move {
             let (service, cancel) = WorkerService::new(metric_src.clone(), req_tx);
+            let (timeout_tx, timeout_rx) = mpsc::unbounded_channel();
+
+            let io = crate::timeout::Stream::new(
+                io,
+                maybe_req_idle_timeout_dur.unwrap_or(Duration::MAX),
+                timeout_rx,
+            );
+
+            let service = crate::timeout::Service::new(service, timeout_tx);
 
             let _guard = cancel.drop_guard();
             let _active_io_count_guard = scopeguard::guard(metric_src, |it| {

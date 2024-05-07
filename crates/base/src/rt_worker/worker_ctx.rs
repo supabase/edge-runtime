@@ -253,7 +253,7 @@ pub fn create_supervisor(
             debug!("Hard memory limit triggered");
 
             if memory_limit_tx.send(()).is_err() {
-                error!("failed to send memory limit reached notification - isolate may already be terminating"); 
+                error!("failed to send memory limit reached notification - isolate may already be terminating");
             }
 
             true
@@ -263,10 +263,7 @@ pub fn create_supervisor(
     worker_runtime.js_runtime.add_near_heap_limit_callback({
         let memory_limit_tx = memory_limit_tx.clone();
         move |cur, _| {
-            debug!(
-                "Low memory alert triggered: {}",
-                bytes_to_display(cur as u64),
-            );
+            debug!("Low memory alert triggered: {}", bytes_to_display(cur as u64),);
 
             if memory_limit_tx.send(()).is_err() {
                 error!("failed to send memory limit reached notification - isolate may already be terminating");

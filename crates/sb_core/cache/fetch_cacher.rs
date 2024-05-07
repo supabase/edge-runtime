@@ -178,8 +178,8 @@ impl Loader for FetchCacher {
                 LoaderCacheSetting::Reload => {
                     if matches!(file_fetcher.cache_setting(), CacheSetting::Only) {
                         return Err(deno_core::anyhow::anyhow!(
-              "Failed to resolve version constraint. Try running again without --cached-only"
-            ));
+                            "Failed to resolve version constraint. Try running again without --cached-only"
+                        ));
                     }
                     Some(CacheSetting::ReloadAll)
                 }
@@ -194,15 +194,12 @@ impl Loader for FetchCacher {
                 })
                 .await
                 .map(|file| {
-                    let maybe_headers =
-                        match (file.maybe_headers, file_header_overrides.get(&specifier)) {
-                            (Some(headers), Some(overrides)) => {
-                                Some(headers.into_iter().chain(overrides.clone()).collect())
-                            }
-                            (Some(headers), None) => Some(headers),
-                            (None, Some(overrides)) => Some(overrides.clone()),
-                            (None, None) => None,
-                        };
+                    let maybe_headers = match (file.maybe_headers, file_header_overrides.get(&specifier)) {
+                        (Some(headers), Some(overrides)) => Some(headers.into_iter().chain(overrides.clone()).collect()),
+                        (Some(headers), None) => Some(headers),
+                        (None, Some(overrides)) => Some(overrides.clone()),
+                        (None, None) => None,
+                    };
                     Ok(Some(LoadResponse::Module {
                         specifier: file.specifier,
                         maybe_headers,

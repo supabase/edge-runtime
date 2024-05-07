@@ -212,14 +212,9 @@ fn register_sigalrm() {
     std::thread::Builder::new()
         .name("sb-cpu-timer".into())
         .spawn(|| {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap();
-
+            let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
             let sig_receiver_handle = rt.spawn(async move {
-                let mut signals =
-                    SignalsInfo::with_exfiltrator([signal::SIGALRM], raw::WithRawSiginfo).unwrap();
+                let mut signals = SignalsInfo::with_exfiltrator([signal::SIGALRM], raw::WithRawSiginfo).unwrap();
 
                 while let Some(siginfo) = signals.next().await {
                     let _ = sig_timer_id_tx.send(unsafe { siginfo.si_value().sival_ptr as usize });

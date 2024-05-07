@@ -1310,12 +1310,11 @@ async fn test_decorators(ty: Option<DecoratorType>) {
 
             if is_disabled {
                 assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
-                assert!(
-                    resp.text().await.unwrap().starts_with(
-                        "{\"msg\":\"InvalidWorkerCreation: worker boot error Uncaught SyntaxError: Invalid or unexpected token"
-                    ),
-
-                );
+                assert!(resp
+                    .text()
+                    .await
+                    .unwrap()
+                    .starts_with("{\"msg\":\"InvalidWorkerCreation: worker boot error Uncaught SyntaxError: Invalid or unexpected token"),);
             } else {
                 assert_eq!(resp.status(), StatusCode::OK);
                 assert_eq!(resp.text().await.unwrap().as_str(), "meow?");

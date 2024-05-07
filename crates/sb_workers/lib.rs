@@ -23,7 +23,7 @@ use hyper::header::{HeaderName, HeaderValue, CONTENT_LENGTH};
 use hyper::upgrade::OnUpgrade;
 use hyper::{Body, Method, Request};
 use log::error;
-use sb_core::conn_sync::{ConnSync, ConnWatcher};
+use sb_core::conn_sync::ConnWatcher;
 use sb_graph::{DecoratorType, EszipPayloadKind};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
@@ -33,7 +33,8 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::rc::Rc;
 use std::task::{Context, Poll};
-use tokio::sync::{mpsc, oneshot, watch};
+use tokio::sync::{mpsc, oneshot};
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 deno_core::extension!(
@@ -217,7 +218,7 @@ impl Resource for UserWorkerRequestBodyResource {
             body.send(Ok(bytes))
                 .or_cancel(cancel)
                 .await?
-                .map_err(|_| type_error("request body receiver not connected (request closed)"))?;
+                .map_err(|e| type_error(format!("request body receiver not connected ({})", e)))?;
 
             Ok(WriteOutcome::Full { nwritten })
         })
@@ -255,10 +256,10 @@ type BytesStream = Pin<Box<dyn Stream<Item = Result<bytes::Bytes, std::io::Error
 
 struct UserWorkerResponseBodyResource {
     reader: AsyncRefCell<Peekable<BytesStream>>,
-    cancel: CancelHandle,
     size: Option<u64>,
     req_end_tx: mpsc::UnboundedSender<()>,
-    conn_watch: Option<watch::Receiver<ConnSync>>,
+    cancel: CancelHandle,
+    conn_token: Option<CancellationToken>,
 }
 
 impl Resource for UserWorkerResponseBodyResource {
@@ -308,14 +309,8 @@ impl Resource for UserWorkerResponseBodyResource {
         };
 
         tokio::spawn(async move {
-            if let Some(mut watch) = this.conn_watch.clone() {
-                match watch.wait_for(|it| *it == ConnSync::Recv).await {
-                    Ok(_) => {}
-                    Err(ex) => error!(
-                        "error while waiting for the outbound connection to be finished: {}",
-                        ex.to_string()
-                    ),
-                }
+            if let Some(token) = this.conn_token {
+                token.cancelled_owned().await;
             }
         });
     }
@@ -381,6 +376,7 @@ pub async fn op_user_worker_fetch_send(
     state: Rc<RefCell<OpState>>,
     #[string] key: String,
     #[smi] rid: ResourceId,
+    #[smi] request_body_rid: Option<ResourceId>,
     #[smi] stream_rid: ResourceId,
     #[smi] watcher_rid: Option<ResourceId>,
 ) -> Result<UserWorkerResponse, AnyError> {
@@ -423,7 +419,7 @@ pub async fn op_user_worker_fetch_send(
     let (result_tx, result_rx) = oneshot::channel::<Result<SendRequestResult, Error>>();
     let key_parsed = Uuid::try_parse(key.as_str())?;
 
-    let watcher = watcher_rid
+    let conn_token = watcher_rid
         .and_then(|it| {
             state
                 .borrow_mut()
@@ -433,7 +429,7 @@ pub async fn op_user_worker_fetch_send(
         })
         .map(Rc::try_unwrap);
 
-    let watcher = match watcher {
+    let conn_token = match conn_token {
         Some(Ok(it)) => it.get(),
         Some(Err(_)) => {
             error!("failed to unwrap connection watcher");
@@ -447,14 +443,30 @@ pub async fn op_user_worker_fetch_send(
         key_parsed,
         req.0,
         result_tx,
-        watcher.clone(),
+        conn_token.clone(),
     ))?;
+
+    let request_body_guard = scopeguard::guard(request_body_rid, |rid| {
+        if let Some(rid) = rid {
+            match state
+                .borrow()
+                .resource_table
+                .get::<UserWorkerRequestBodyResource>(rid)
+            {
+                Err(_) => {}
+                Ok(res) => {
+                    res.cancel.cancel();
+                }
+            }
+        }
+    });
 
     let res = result_rx.await?;
     let (res, req_end_tx) = match res {
         Ok((res, req_end_tx)) => (res, req_end_tx),
         Err(err) => {
             error!("user worker failed to respond: {}", err);
+
             match err.downcast_ref() {
                 Some(err @ WorkerError::RequestCancelledBySupervisor) => {
                     return Err(custom_error("WorkerRequestCancelled", err.to_string()));
@@ -469,6 +481,8 @@ pub async fn op_user_worker_fetch_send(
             }
         }
     };
+
+    drop(request_body_guard);
 
     let mut headers = vec![];
     for (key, value) in res.headers().iter() {
@@ -498,7 +512,7 @@ pub async fn op_user_worker_fetch_send(
         cancel: CancelHandle::default(),
         size,
         req_end_tx,
-        conn_watch: watcher,
+        conn_token,
     });
 
     let response = UserWorkerResponse {

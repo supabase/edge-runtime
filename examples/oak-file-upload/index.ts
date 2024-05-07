@@ -1,5 +1,4 @@
-import { Application, Router } from 'https://deno.land/x/oak@v12.3.0/mod.ts'
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { Application } from 'https://deno.land/x/oak@v12.3.1/mod.ts'
 
 const MB = 1024 * 1024
 
@@ -22,8 +21,14 @@ app.use(async (ctx) => {
     ctx.response.body = 'Success!'
   } catch (e) {
     console.error(e)
-    ctx.response.status = 500
-    ctx.response.body = 'Error!'
+    if ('status' in e) {
+      ctx.response.headers.set('Connection', 'close')
+      ctx.response.status = e.status
+      ctx.response.body = e.message
+    } else {
+      ctx.response.status = 500
+      ctx.response.body = 'Error!'
+    }
   }
 })
 

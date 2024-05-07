@@ -73,6 +73,7 @@ cooked-waker = { version = "5" }
 
 [dev-dependencies]
 tokio-util = { workspace = true, features = ["rt", "compat"] }
+reqwest = { workspace = true, features = ["multipart"] }
 serial_test = { version = "3.0.0" }
 async-tungstenite = { version = "0.25.0", default-features = false }
 tungstenite = { version = "0.21.0", default-features = false, features = ["handshake"] }
@@ -85,6 +86,7 @@ sb_workers = { version = "0.1.0", path = "../sb_workers" }
 sb_env = { version = "0.1.0", path = "../sb_env" }
 sb_os = { version = "0.1.0", path = "../sb_os" }
 sb_node = { version = "0.1.0", path = "../node" }
+sb_ai = { version = "0.1.0", path = "../sb_ai" }
 anyhow = { workspace = true }
 bytes = { workspace = true }
 deno_ast = { workspace = true }
@@ -112,4 +114,6 @@ deno_broadcast_channel.workspace = true
 deno_core.workspace = true
 deno_canvas.workspace = true
 deno_webgpu.workspace = true
-sb_ai = { version = "0.1.0", path = "../sb_ai" }
+
+[features]
+termination-signal-ext = []

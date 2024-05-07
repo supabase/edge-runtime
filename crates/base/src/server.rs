@@ -6,13 +6,12 @@ use crate::rt_worker::worker_pool::WorkerPoolPolicy;
 use crate::InspectorOption;
 use anyhow::{anyhow, bail, Context, Error};
 use event_worker::events::WorkerEventWithMetadata;
-use futures_util::future::poll_fn;
+use futures_util::future::{poll_fn, BoxFuture};
 use futures_util::{FutureExt, Stream};
 use hyper::{server::conn::Http, service::Service, Body, Request, Response};
 use log::{debug, error, info, trace, warn};
 use rustls_pemfile::read_one_from_slice;
 use rustls_pemfile::Item;
-use sb_core::conn_sync::ConnSync;
 use sb_core::SharedMetricSource;
 use sb_graph::DecoratorType;
 use sb_workers::context::{MainWorkerRuntimeOpts, WorkerRequestMsg};
@@ -32,12 +31,19 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
 use tokio::pin;
 use tokio::sync::mpsc::{Sender, UnboundedSender};
-use tokio::sync::{mpsc, oneshot, watch};
+use tokio::sync::{mpsc, oneshot};
 use tokio::time::{sleep, timeout};
 use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::TlsAcceptor;
 use tokio_util::sync::CancellationToken;
+
+mod signal {
+    pub use tokio::signal::ctrl_c;
+
+    #[cfg(unix)]
+    pub use tokio::signal::unix;
+}
 
 pub enum ServerEvent {
     ConnectionError(hyper::Error),
@@ -50,12 +56,12 @@ pub enum ServerHealth {
     Failure,
 }
 
-struct NotifyOnEos<S> {
+struct CancelOnDrop<S> {
     inner: S,
     cancel: Option<CancellationToken>,
 }
 
-impl<S> Drop for NotifyOnEos<S> {
+impl<S> Drop for CancelOnDrop<S> {
     fn drop(&mut self) {
         if let Some(cancel) = self.cancel.take() {
             cancel.cancel();
@@ -63,7 +69,7 @@ impl<S> Drop for NotifyOnEos<S> {
     }
 }
 
-impl<S: Stream + Unpin> Stream for NotifyOnEos<S> {
+impl<S: Stream + Unpin> Stream for CancelOnDrop<S> {
     type Item = S::Item;
 
     fn poll_next(
@@ -71,6 +77,10 @@ impl<S: Stream + Unpin> Stream for NotifyOnEos<S> {
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Self::Item>> {
         Pin::new(&mut self.as_mut().inner).poll_next(cx)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
     }
 }
 
@@ -149,13 +159,12 @@ impl Service<Request<Body>> for WorkerService {
         let worker_req_tx = self.worker_req_tx.clone();
         let fut = async move {
             let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
-            let (ob_conn_watch_tx, ob_conn_watch_rx) = watch::channel(ConnSync::Want);
 
             let req_uri = req.uri().clone();
             let msg = WorkerRequestMsg {
                 req,
                 res_tx,
-                conn_watch: Some(ob_conn_watch_rx.clone()),
+                conn_token: Some(cancel.clone()),
             };
 
             worker_req_tx.send(msg)?;
@@ -169,9 +178,6 @@ impl Service<Request<Body>> for WorkerService {
                     tokio::select! {
                         _ = cancel.cancelled() => {
                             metric_src_inner.incl_handled_requests();
-                            if let Err(ex) = ob_conn_watch_tx.send(ConnSync::Recv) {
-                                error!("can't update connection watcher: {}", ex.to_string());
-                            }
                         }
                         // TODO: I think it would be good to introduce the hard
                         // timeout here to prevent the requester's inability to get
@@ -189,7 +195,17 @@ impl Service<Request<Body>> for WorkerService {
             };
 
             let res = match res {
-                Ok(res) => res,
+                Ok(res) => {
+                    let (parts, body) = res.into_parts();
+                    Response::from_parts(
+                        parts,
+                        Body::wrap_stream(CancelOnDrop {
+                            inner: body,
+                            cancel: Some(cancel),
+                        }),
+                    )
+                }
+
                 Err(e) => {
                     error!(
                         "request failed (uri: {:?} reason: {:?})",
@@ -198,24 +214,15 @@ impl Service<Request<Body>> for WorkerService {
                     );
 
                     // FIXME: add an error body
-                    return Ok(Response::builder()
-                        .status(500)
-                        .body(Body::wrap_stream(NotifyOnEos {
+                    Response::builder()
+                        .status(http::StatusCode::INTERNAL_SERVER_ERROR)
+                        .body(Body::wrap_stream(CancelOnDrop {
                             inner: Body::empty(),
-                            cancel: Some(cancel.clone()),
+                            cancel: Some(cancel),
                         }))
-                        .unwrap());
+                        .unwrap()
                 }
             };
-
-            let (parts, body) = res.into_parts();
-            let res = Response::from_parts(
-                parts,
-                Body::wrap_stream(NotifyOnEos {
-                    inner: body,
-                    cancel: Some(cancel),
-                }),
-            );
 
             Ok(res)
         };
@@ -418,13 +425,6 @@ impl Server {
     }
 
     pub async fn listen(&mut self) -> Result<(), Error> {
-        mod signal {
-            pub use tokio::signal::ctrl_c;
-
-            #[cfg(unix)]
-            pub use tokio::signal::unix;
-        }
-
         let addr = SocketAddr::new(IpAddr::V4(self.ip), self.port);
         let non_secure_listener = TcpListener::bind(&addr).await?;
         let mut secure_listener = if let Some(tls) = self.tls.take() {
@@ -472,30 +472,7 @@ impl Server {
             ..
         } = flags;
 
-        let mut terminate_signal_fut = if cfg!(unix) {
-            use signal::unix::signal;
-            use signal::unix::SignalKind;
-
-            let mut signals = [SignalKind::terminate()]
-                .into_iter()
-                .map(|it| (it.as_raw_value(), signal(it).unwrap()))
-                .collect::<Vec<_>>();
-
-            poll_fn(move |cx| {
-                for (signum, signal) in &mut signals {
-                    let poll_result = signal.poll_recv(cx);
-
-                    if poll_result.is_ready() {
-                        return Poll::Ready::<std::os::raw::c_int>(*signum);
-                    }
-                }
-
-                Poll::Pending
-            })
-            .boxed()
-        } else {
-            pending().boxed()
-        };
+        let mut terminate_signal_fut = get_termination_signal();
 
         loop {
             let main_worker_req_tx = self.main_worker_req_tx.clone();
@@ -656,6 +633,40 @@ impl Server {
 
         Ok(())
     }
+}
+
+#[cfg(unix)]
+fn get_termination_signal() -> BoxFuture<'static, i32> {
+    use signal::unix::signal;
+    use signal::unix::SignalKind;
+
+    let mut signals = vec![SignalKind::terminate()]
+        .into_iter()
+        .chain(if cfg!(feature = "termination-signal-ext") {
+            vec![SignalKind::window_change()]
+        } else {
+            vec![]
+        })
+        .map(|it| (it.as_raw_value(), signal(it).unwrap()))
+        .collect::<Vec<_>>();
+
+    poll_fn(move |cx| {
+        for (signum, signal) in &mut signals {
+            let poll_result = signal.poll_recv(cx);
+
+            if poll_result.is_ready() {
+                return Poll::Ready::<std::os::raw::c_int>(*signum);
+            }
+        }
+
+        Poll::Pending
+    })
+    .boxed()
+}
+
+#[cfg(not(unix))]
+fn get_termination_signal() -> BoxFuture<'static, i32> {
+    pending().boxed()
 }
 
 fn accept_stream<I>(

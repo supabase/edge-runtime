@@ -1,22 +1,16 @@
 use deno_core::Resource;
-use tokio::sync::watch;
+use tokio_util::sync::CancellationToken;
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum ConnSync {
-    Want,
-    Recv,
-}
-
-pub struct ConnWatcher(pub Option<watch::Receiver<ConnSync>>);
+pub struct ConnWatcher(pub Option<CancellationToken>);
 
 impl Resource for ConnWatcher {
     fn name(&self) -> std::borrow::Cow<str> {
-        "ConnWatcher".into()
+        "connWatcher".into()
     }
 }
 
 impl ConnWatcher {
-    pub fn get(&self) -> Option<watch::Receiver<ConnSync>> {
+    pub fn get(&self) -> Option<CancellationToken> {
         self.0.clone()
     }
 }

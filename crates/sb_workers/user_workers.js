@@ -2,16 +2,22 @@ import { primordials, core } from "ext:core/mod.js";
 import { readableStreamForRid, writableStreamForRid } from 'ext:deno_web/06_streams.js';
 import { getSupabaseTag } from 'ext:sb_core_main_js/js/http.js';
 
-const NO_SUPABASE_TAG_WARN_MSG = `Unable to find the supabase tag from the request instance.\n\
-Invoke \`EdgeRuntime.applySupabaseTag(origReq, newReq)\` if you have cloned the original request.`
-
 const ops = core.ops;
-
-const { TypeError } = primordials;
+const {
+	InterruptedPrototype,
+} = core;
+const { 
+	TypeError,
+	ObjectPrototypeIsPrototypeOf,
+	StringPrototypeIncludes,
+} = primordials;
 const {
 	op_user_worker_fetch_send,
-	op_user_worker_create
+	op_user_worker_create,
 } = core.ensureFastOps();
+
+const NO_SUPABASE_TAG_WARN_MSG = `Unable to find the supabase tag from the request instance.\n\
+Invoke \`EdgeRuntime.applySupabaseTag(origReq, newReq)\` if you have cloned the original request.`
 
 function nullBodyStatus(status) {
 	return status === 101 || status === 204 || status === 205 || status === 304;
@@ -63,6 +69,7 @@ class UserWorker {
 		const resPromise = op_user_worker_fetch_send(
 			this.key,
 			requestRid,
+			requestBodyRid,
 			tag.streamRid,
 			tag.watcherRid
 		);
@@ -71,10 +78,17 @@ class UserWorker {
 		
 		if (sent.status === "rejected") {
 			if (res.status === "fulfilled") {
-				core.close(res.value.bodyRid);
+				res = res.value;
+			} else {
+				if (
+					ObjectPrototypeIsPrototypeOf(InterruptedPrototype, sent.reason) ||
+					StringPrototypeIncludes(sent.reason.message, "operation canceled")
+				) {
+					throw res.reason;
+				} else {
+					throw sent.reason;
+				}
 			}
-
-			throw sent.reason;
 		} else if (res.status === "rejected") {
 			throw res.reason;
 		} else {

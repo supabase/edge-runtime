@@ -7,25 +7,20 @@ use deno_core::{
 };
 use deno_http::{HttpRequestReader, HttpStreamResource};
 use deno_websocket::ws_create_server_stream;
-use futures::pin_mut;
 use futures::ready;
-use futures::Future;
+use futures::{future::BoxFuture, FutureExt};
 use hyper::upgrade::{OnUpgrade, Parts};
 use log::error;
 use serde::Serialize;
+use tokio::io::{copy_bidirectional, AsyncReadExt, AsyncWriteExt, DuplexStream};
 use tokio::{
     io::{AsyncRead, AsyncWrite},
-    sync::{oneshot, watch},
-};
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
     net::UnixStream,
+    sync::oneshot,
 };
+use tokio_util::sync::CancellationToken;
 
-use crate::{
-    conn_sync::ConnSync,
-    upgrade::{UpgradeStream, WebSocketUpgrade},
-};
+use crate::upgrade::{UpgradeStream, WebSocketUpgrade};
 
 deno_core::extension!(
     sb_core_http,
@@ -37,31 +32,104 @@ deno_core::extension!(
     middleware = sb_http_middleware,
 );
 
-pub(crate) struct UnixStream2(UnixStream, Option<watch::Receiver<ConnSync>>);
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StreamState {
+    Normal,
+    Dropping,
+    Dropped,
+}
 
-impl UnixStream2 {
-    pub fn new(stream: UnixStream, watcher: Option<watch::Receiver<ConnSync>>) -> Self {
-        Self(stream, watcher)
+pub(crate) struct Stream2<S>
+where
+    S: AsyncWrite + AsyncRead + Send + Unpin + 'static,
+{
+    io: Option<(S, Option<CancellationToken>)>,
+    state: StreamState,
+    wait_fut: Option<BoxFuture<'static, ()>>,
+}
+
+impl<S> Drop for Stream2<S>
+where
+    S: AsyncWrite + AsyncRead + Send + Unpin + 'static,
+{
+    fn drop(&mut self) {
+        if self.state != StreamState::Normal {
+            return;
+        }
+
+        let Some((stream, conn_sync)) = self.io.take() else {
+            return;
+        };
+
+        let mut stream = Stream2::new(stream, conn_sync);
+
+        stream.state = StreamState::Dropping;
+
+        // TODO(Nyannyacha): Optimize this. No matter how I think about it,
+        // using `tokio::spawn` to defer the stream shutdown seems like a waste.
+        drop(tokio::spawn(async move {
+            match stream.shutdown().await {
+                Ok(_) => {}
+                Err(e) => {
+                    error!("stream could not be shutdown properly: {}", e);
+                }
+            }
+        }));
     }
 }
 
-impl AsyncRead for UnixStream2 {
+impl<S> Stream2<S>
+where
+    S: AsyncWrite + AsyncRead + Send + Unpin + 'static,
+{
+    pub fn new(stream: S, token: Option<CancellationToken>) -> Self {
+        Self {
+            io: Some((stream, token)),
+            state: StreamState::Normal,
+            wait_fut: None,
+        }
+    }
+
+    pub fn is_dropped(&self) -> bool {
+        self.state == StreamState::Dropped
+    }
+
+    fn into_inner(mut self) -> Option<(S, Option<CancellationToken>)> {
+        self.io.take()
+    }
+}
+
+impl<S> AsyncRead for Stream2<S>
+where
+    S: AsyncWrite + AsyncRead + Send + Unpin + 'static,
+{
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
         buf: &mut tokio::io::ReadBuf<'_>,
     ) -> Poll<std::io::Result<()>> {
-        Pin::new(&mut Pin::into_inner(self).0).poll_read(cx, buf)
+        if let Some((stream, _)) = Pin::into_inner(self).io.as_mut() {
+            Pin::new(stream).poll_read(cx, buf)
+        } else {
+            Poll::Ready(Err(std::io::Error::from(std::io::ErrorKind::BrokenPipe)))
+        }
     }
 }
 
-impl AsyncWrite for UnixStream2 {
+impl<S> AsyncWrite for Stream2<S>
+where
+    S: AsyncWrite + AsyncRead + Send + Unpin + 'static,
+{
     fn poll_write(
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
         buf: &[u8],
     ) -> Poll<Result<usize, std::io::Error>> {
-        Pin::new(&mut Pin::into_inner(self).0).poll_write(cx, buf)
+        if let Some((stream, _)) = Pin::into_inner(self).io.as_mut() {
+            Pin::new(stream).poll_write(cx, buf)
+        } else {
+            Poll::Ready(Err(std::io::Error::from(std::io::ErrorKind::BrokenPipe)))
+        }
     }
 
     fn poll_write_vectored(
@@ -69,42 +137,63 @@ impl AsyncWrite for UnixStream2 {
         cx: &mut std::task::Context<'_>,
         bufs: &[std::io::IoSlice<'_>],
     ) -> Poll<Result<usize, std::io::Error>> {
-        Pin::new(&mut Pin::into_inner(self).0).poll_write_vectored(cx, bufs)
+        if let Some((stream, _)) = Pin::into_inner(self).io.as_mut() {
+            Pin::new(stream).poll_write_vectored(cx, bufs)
+        } else {
+            Poll::Ready(Err(std::io::Error::from(std::io::ErrorKind::BrokenPipe)))
+        }
     }
 
     fn is_write_vectored(&self) -> bool {
-        true
+        self.io
+            .as_ref()
+            .map(|(it, _)| it.is_write_vectored())
+            .unwrap_or_default()
     }
 
-    #[inline]
     fn poll_flush(
         self: Pin<&mut Self>,
-        _: &mut std::task::Context<'_>,
+        cx: &mut std::task::Context<'_>,
     ) -> Poll<Result<(), std::io::Error>> {
-        Poll::Ready(Ok(()))
+        if let Some((stream, _)) = Pin::into_inner(self).io.as_mut() {
+            Pin::new(stream).poll_flush(cx)
+        } else {
+            Poll::Ready(Err(std::io::Error::from(std::io::ErrorKind::BrokenPipe)))
+        }
     }
 
     fn poll_shutdown(
-        mut self: Pin<&mut Self>,
+        self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Result<(), std::io::Error>> {
-        if let Some(ref mut sync) = self.1 {
-            let fut = sync.wait_for(|it| *it == ConnSync::Recv);
+        let this = Pin::into_inner(self);
 
-            pin_mut!(fut);
-            ready!(fut.poll(cx).map(|it| {
-                if let Err(ex) = it {
-                    error!("cannot track outbound connection correctly");
-                    return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, ex));
-                }
-
-                Ok(())
-            }))?
+        if this.is_dropped() {
+            return Poll::Ready(Ok(()));
         }
 
-        Pin::new(&mut Pin::into_inner(self).0).poll_shutdown(cx)
+        if let Some((stream, token)) = this.io.as_mut() {
+            if let Some(ref token) = token {
+                let fut = this
+                    .wait_fut
+                    .get_or_insert_with(|| token.clone().cancelled_owned().boxed());
+
+                ready!(fut.as_mut().poll_unpin(cx));
+            }
+
+            let poll_result = ready!(Pin::new(stream).poll_shutdown(cx));
+
+            this.state = StreamState::Dropped;
+
+            Poll::Ready(poll_result)
+        } else {
+            Poll::Ready(Err(std::io::Error::from(std::io::ErrorKind::BrokenPipe)))
+        }
     }
 }
+
+pub(crate) type DuplexStream2 = Stream2<DuplexStream>;
+pub(crate) type UnixStream2 = Stream2<UnixStream>;
 
 fn http_error(message: &'static str) -> AnyError {
     custom_error("Http", message)
@@ -129,10 +218,21 @@ async fn op_http_upgrade_websocket2(
     };
 
     let upgraded = hyper::upgrade::on(request).await?;
-    let Parts { io, read_buf, .. } = upgraded.downcast::<UnixStream2>().unwrap();
+    let Parts { io, read_buf, .. } = upgraded.downcast::<DuplexStream2>().unwrap();
+    let (mut rw, conn_sync) = io
+        .into_inner()
+        .with_context(|| "invalid duplex stream was found")?;
 
-    let ws_rid = ws_create_server_stream(&mut state.borrow_mut(), io.0.into(), read_buf)?;
-    Ok(ws_rid)
+    // NOTE(Nyannyacha): We use `UnixStream` out of necessity here because
+    // `ws_create_server_stream` only supports network stream types.
+    let (ours, theirs) = UnixStream::pair()?;
+
+    tokio::spawn(async move {
+        let mut theirs = UnixStream2::new(theirs, conn_sync);
+        let _ = copy_bidirectional(&mut rw, &mut theirs).await;
+    });
+
+    ws_create_server_stream(&mut state.borrow_mut(), ours.into(), read_buf)
 }
 
 #[op2]

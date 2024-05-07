@@ -1,7 +1,7 @@
 #[path = "../src/utils/integration_test_helper.rs"]
 mod integration_test_helper;
 
-use std::{collections::HashMap, path::Path, time::Duration};
+use std::{borrow::Cow, collections::HashMap, path::Path, time::Duration};
 
 use anyhow::Context;
 use async_tungstenite::WebSocketStream;
@@ -12,13 +12,19 @@ use base::{
     DecoratorType,
 };
 use deno_core::serde_json;
-use futures_util::{SinkExt, StreamExt};
+use futures_util::{Future, SinkExt, StreamExt};
 use http::{Method, Request, StatusCode};
 use http_utils::utils::get_upgrade_type;
 use hyper::{body::to_bytes, Body};
-use reqwest::Certificate;
+use reqwest::{
+    header,
+    multipart::{Form, Part},
+    Response,
+};
+use reqwest::{Certificate, Client, RequestBuilder};
 use sb_core::SharedMetricSource;
 use sb_workers::context::{MainWorkerRuntimeOpts, WorkerContextInitOpts, WorkerRuntimeOpts};
+use serde::Deserialize;
 use serial_test::serial;
 use tokio::{
     join,
@@ -33,6 +39,7 @@ use crate::integration_test_helper::{
     create_test_user_worker, test_user_runtime_opts, test_user_worker_pool_policy, TestBedBuilder,
 };
 
+const MB: usize = 1024 * 1024;
 const NON_SECURE_PORT: u16 = 8498;
 const SECURE_PORT: u16 = 4433;
 const TESTBED_DEADLINE_SEC: u64 = 20;
@@ -152,12 +159,12 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
     use base::rt_worker::worker_ctx::{create_user_worker_pool, create_worker, TerminationToken};
     use http::{Request, Response};
     use hyper::Body;
-    use integration_test_helper::create_conn_watch;
 
     use sb_workers::context::{
         MainWorkerRuntimeOpts, WorkerContextInitOpts, WorkerRequestMsg, WorkerRuntimeOpts,
     };
     use tokio::sync::oneshot;
+    use tokio_util::sync::CancellationToken;
 
     let pool_termination_token = TerminationToken::new();
     let main_termination_token = TerminationToken::new();
@@ -204,11 +211,11 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
         .body(Body::empty())
         .unwrap();
 
-    let (conn_tx, conn_rx) = create_conn_watch();
+    let conn_token = CancellationToken::new();
     let msg = WorkerRequestMsg {
         req,
         res_tx,
-        conn_watch: Some(conn_rx),
+        conn_token: Some(conn_token.clone()),
     };
 
     let _ = worker_req_tx.send(msg);
@@ -220,7 +227,7 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
 
     assert!(body_bytes.starts_with(b"meow: "));
 
-    drop(conn_tx);
+    conn_token.cancel();
     pool_termination_token.cancel_and_wait().await;
     main_termination_token.cancel_and_wait().await;
 }
@@ -228,7 +235,7 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
 #[tokio::test]
 #[serial]
 async fn test_main_worker_options_request() {
-    let client = reqwest::Client::new();
+    let client = Client::new();
     let req = client
         .request(
             Method::OPTIONS,
@@ -238,7 +245,7 @@ async fn test_main_worker_options_request() {
         .build()
         .unwrap();
 
-    let original = reqwest::RequestBuilder::from_parts(client, req);
+    let original = RequestBuilder::from_parts(client, req);
 
     let request_builder = Some(original);
 
@@ -277,7 +284,7 @@ async fn test_main_worker_post_request() {
     let stream = futures_util::stream::iter(chunks);
     let body = Body::wrap_stream(stream);
 
-    let client = reqwest::Client::new();
+    let client = Client::new();
     let req = client
         .request(
             Method::POST,
@@ -289,7 +296,7 @@ async fn test_main_worker_post_request() {
         .build()
         .unwrap();
 
-    let original = reqwest::RequestBuilder::from_parts(client, req);
+    let original = RequestBuilder::from_parts(client, req);
 
     let request_builder = Some(original);
 
@@ -370,7 +377,7 @@ async fn test_main_worker_abort_request() {
     let stream = futures_util::stream::iter(chunks);
     let body = Body::wrap_stream(stream);
 
-    let client = reqwest::Client::new();
+    let client = Client::new();
     let req = client
         .request(
             Method::POST,
@@ -382,7 +389,7 @@ async fn test_main_worker_abort_request() {
         .build()
         .unwrap();
 
-    let original = reqwest::RequestBuilder::from_parts(client, req);
+    let original = RequestBuilder::from_parts(client, req);
 
     let request_builder = Some(original);
 
@@ -464,7 +471,7 @@ async fn test_main_worker_post_request_with_transfer_encoding(maybe_tls: Option<
         .build()
         .unwrap();
 
-    let original = reqwest::RequestBuilder::from_parts(client, req);
+    let original = RequestBuilder::from_parts(client, req);
     let request_builder = Some(original);
 
     integration_test!(
@@ -523,7 +530,7 @@ async fn test_null_body_with_204_status() {
 #[tokio::test]
 #[serial]
 async fn test_null_body_with_204_status_post() {
-    let client = reqwest::Client::new();
+    let client = Client::new();
     let req = client
         .request(
             Method::POST,
@@ -533,7 +540,7 @@ async fn test_null_body_with_204_status_post() {
         .build()
         .unwrap();
 
-    let original = reqwest::RequestBuilder::from_parts(client, req);
+    let original = RequestBuilder::from_parts(client, req);
 
     let request_builder = Some(original);
 
@@ -584,14 +591,21 @@ async fn test_oak_server() {
 #[tokio::test]
 #[serial]
 async fn test_file_upload() {
-    let body_chunk = "--TEST\r\nContent-Disposition: form-data; name=\"file\"; filename=\"test.txt\"\r\nContent-Type: text/plain\r\n\r\ntestuser\r\n--TEST--\r\n";
+    let body_chunk = concat!(
+        "--TEST\r\n",
+        "Content-Disposition: form-data; name=\"file\"; filename=\"test.txt\"\r\n",
+        "Content-Type: text/plain\r\n",
+        "\r\n",
+        "testuser\r\n",
+        "--TEST--\r\n"
+    );
 
     let content_length = &body_chunk.len();
     let chunks: Vec<Result<_, std::io::Error>> = vec![Ok(body_chunk)];
     let stream = futures_util::stream::iter(chunks);
     let body = Body::wrap_stream(stream);
 
-    let client = reqwest::Client::new();
+    let client = Client::new();
     let req = client
         .request(
             Method::POST,
@@ -603,8 +617,7 @@ async fn test_file_upload() {
         .build()
         .unwrap();
 
-    let original = reqwest::RequestBuilder::from_parts(client, req);
-
+    let original = RequestBuilder::from_parts(client, req);
     let request_builder = Some(original);
 
     integration_test!(
@@ -617,13 +630,49 @@ async fn test_file_upload() {
         None,
         (|resp| async {
             let res = resp.unwrap();
-            assert!(res.status().as_u16() == 201);
+            assert_eq!(res.status().as_u16(), 201);
 
             let body_bytes = res.bytes().await.unwrap();
             assert_eq!(body_bytes, "file-type: text/plain");
         }),
         TerminationToken::new()
     );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_file_upload_real_multipart_bytes() {
+    test_oak_file_upload(
+        Cow::Borrowed("./test_cases/main"),
+        (9.98 * MB as f32) as usize, // < 10MB (in binary)
+        |resp| async {
+            let res = resp.unwrap();
+
+            assert_eq!(res.status().as_u16(), 201);
+
+            let res = res.text().await;
+
+            assert!(res.is_ok());
+            assert_eq!(res.unwrap(), "Success!");
+        },
+    )
+    .await;
+}
+
+#[tokio::test]
+#[serial]
+async fn test_file_upload_size_exceed() {
+    test_oak_file_upload(Cow::Borrowed("./test_cases/main"), 10 * MB, |resp| async {
+        let res = resp.unwrap();
+
+        assert_eq!(res.status().as_u16(), 500);
+
+        let res = res.text().await;
+
+        assert!(res.is_ok());
+        assert_eq!(res.unwrap(), "Error!");
+    })
+    .await;
 }
 
 #[tokio::test]
@@ -983,6 +1032,70 @@ async fn req_failure_case_intentional_peer_reset_secure() {
     req_failure_case_intentional_peer_reset(new_localhost_tls(true)).await;
 }
 
+#[tokio::test]
+#[serial]
+async fn req_failure_case_op_cancel_from_server_due_to_cpu_resource_limit() {
+    test_oak_file_upload(
+        Cow::Borrowed("./test_cases/main_small_cpu_time"),
+        48 * MB,
+        |resp| async {
+            let res = resp.unwrap();
+
+            assert_eq!(res.status().as_u16(), 500);
+
+            let res = res.json::<ErrorResponsePayload>().await;
+
+            assert!(res.is_ok());
+            assert_eq!(
+                res.unwrap().msg,
+                "WorkerRequestCancelled: request has been cancelled by supervisor"
+            );
+        },
+    )
+    .await;
+}
+
+async fn test_oak_file_upload<F, R>(main_service: Cow<'static, str>, bytes: usize, resp_callback: F)
+where
+    F: FnOnce(Result<Response, reqwest::Error>) -> R,
+    R: Future<Output = ()>,
+{
+    let client = Client::builder().build().unwrap();
+    let req = client
+        .request(
+            Method::POST,
+            format!("http://localhost:{}/oak-file-upload", NON_SECURE_PORT),
+        )
+        .multipart(
+            Form::new().part(
+                "meow",
+                Part::bytes(vec![0u8; bytes])
+                    .file_name("meow.bin")
+                    .mime_str("application/octet-stream")
+                    .unwrap(),
+            ),
+        )
+        .build()
+        .unwrap();
+
+    let original = RequestBuilder::from_parts(client, req);
+    let request_builder = Some(original);
+
+    integration_test!(
+        main_service,
+        NON_SECURE_PORT,
+        "",
+        None,
+        None,
+        request_builder,
+        None,
+        (|resp| async {
+            resp_callback(resp).await;
+        }),
+        TerminationToken::new()
+    );
+}
+
 async fn test_websocket_upgrade(maybe_tls: Option<Tls>, use_node_ws: bool) {
     let nonce = tungstenite::handshake::client::generate_key();
     let client = maybe_tls.client();
@@ -996,14 +1109,14 @@ async fn test_websocket_upgrade(maybe_tls: Option<Tls>, use_node_ws: bool) {
                 if use_node_ws { "-node" } else { "" }
             ),
         )
-        .header(reqwest::header::CONNECTION, "upgrade")
-        .header(reqwest::header::UPGRADE, "websocket")
-        .header(reqwest::header::SEC_WEBSOCKET_KEY, &nonce)
-        .header(reqwest::header::SEC_WEBSOCKET_VERSION, "13")
+        .header(header::CONNECTION, "upgrade")
+        .header(header::UPGRADE, "websocket")
+        .header(header::SEC_WEBSOCKET_KEY, &nonce)
+        .header(header::SEC_WEBSOCKET_VERSION, "13")
         .build()
         .unwrap();
 
-    let original = reqwest::RequestBuilder::from_parts(client, req);
+    let original = RequestBuilder::from_parts(client, req);
     let request_builder = Some(original);
 
     integration_test!(
@@ -1156,7 +1269,7 @@ async fn test_websocket_upgrade_node_secure() {
 
 async fn test_decorators(ty: Option<DecoratorType>) {
     let is_disabled = ty.is_none();
-    let client = reqwest::Client::new();
+    let client = Client::new();
 
     let endpoint = if is_disabled {
         "tc39".to_string()
@@ -1190,7 +1303,7 @@ async fn test_decorators(ty: Option<DecoratorType>) {
         "",
         None,
         None,
-        Some(reqwest::RequestBuilder::from_parts(client, req)),
+        Some(RequestBuilder::from_parts(client, req)),
         None,
         (|resp| async {
             let resp = resp.unwrap();
@@ -1210,6 +1323,11 @@ async fn test_decorators(ty: Option<DecoratorType>) {
         }),
         TerminationToken::new()
     );
+}
+
+#[derive(Deserialize)]
+struct ErrorResponsePayload {
+    msg: String,
 }
 
 #[tokio::test]
@@ -1298,20 +1416,20 @@ async fn oak_with_jsr_specifier() {
 }
 
 trait TlsExt {
-    fn client(&self) -> reqwest::Client;
+    fn client(&self) -> Client;
     fn schema(&self) -> &'static str;
     fn port(&self) -> u16;
 }
 
 impl TlsExt for Option<Tls> {
-    fn client(&self) -> reqwest::Client {
+    fn client(&self) -> Client {
         if self.is_some() {
-            reqwest::Client::builder()
+            Client::builder()
                 .add_root_certificate(Certificate::from_pem(TLS_LOCALHOST_ROOT_CA).unwrap())
                 .build()
                 .unwrap()
         } else {
-            reqwest::Client::new()
+            Client::new()
         }
     }
 

@@ -20,25 +20,43 @@ pub(super) enum State {
     Reset,
 }
 
+enum StreamKind {
+    UseTimeout {
+        sleep: Pin<Box<Sleep>>,
+        duration: Duration,
+        waiting: bool,
+        finished: bool,
+        state: UnboundedReceiver<State>,
+    },
+
+    Bypass,
+}
+
 pub struct Stream<S> {
     inner: S,
-    sleep: Pin<Box<Sleep>>,
-    duration: Duration,
-    waiting: bool,
-    finished: bool,
-    state: UnboundedReceiver<State>,
+    kind: StreamKind,
 }
 
 impl<S> Stream<S> {
-    pub(super) fn new(inner: S, duration: Duration, rx: UnboundedReceiver<State>) -> Self {
-        Self {
+    fn new(inner: S, kind: StreamKind) -> Self {
+        Self { inner, kind }
+    }
+
+    pub(super) fn with_timeout(inner: S, duration: Duration, rx: UnboundedReceiver<State>) -> Self {
+        Self::new(
             inner,
-            sleep: Box::pin(sleep(duration)),
-            duration,
-            waiting: false,
-            finished: false,
-            state: rx,
-        }
+            StreamKind::UseTimeout {
+                sleep: Box::pin(sleep(duration)),
+                duration,
+                waiting: false,
+                finished: false,
+                state: rx,
+            },
+        )
+    }
+
+    pub(super) fn with_bypass(inner: S) -> Self {
+        Self::new(inner, StreamKind::Bypass)
     }
 }
 
@@ -48,31 +66,43 @@ impl<S: AsyncRead + Unpin> AsyncRead for Stream<S> {
         cx: &mut std::task::Context<'_>,
         buf: &mut tokio::io::ReadBuf<'_>,
     ) -> Poll<std::io::Result<()>> {
-        if !self.finished {
-            match Pin::new(&mut self.state).poll_recv(cx) {
-                Poll::Ready(Some(State::Reset)) => {
-                    self.waiting = false;
+        match &mut self.kind {
+            StreamKind::UseTimeout {
+                sleep,
+                duration,
+                waiting,
+                finished,
+                state,
+            } => {
+                if !*finished {
+                    match Pin::new(state).poll_recv(cx) {
+                        Poll::Ready(Some(State::Reset)) => {
+                            *waiting = false;
 
-                    let deadline = Instant::now() + self.duration;
+                            let deadline = Instant::now() + *duration;
 
-                    self.sleep.as_mut().reset(deadline);
+                            sleep.as_mut().reset(deadline);
+                        }
+
+                        // enter waiting mode (for response body last chunk)
+                        Poll::Ready(Some(State::Wait)) => *waiting = true,
+                        Poll::Ready(None) => *finished = true,
+                        Poll::Pending => (),
+                    }
                 }
 
-                // enter waiting mode (for response body last chunk)
-                Poll::Ready(Some(State::Wait)) => self.waiting = true,
-                Poll::Ready(None) => self.finished = true,
-                Poll::Pending => (),
+                if !*waiting {
+                    // return error if timer is elapsed
+                    if let Poll::Ready(()) = sleep.as_mut().poll(cx) {
+                        return Poll::Ready(Err(std::io::Error::new(
+                            std::io::ErrorKind::TimedOut,
+                            "request header read timed out",
+                        )));
+                    }
+                }
             }
-        }
 
-        if !self.waiting {
-            // return error if timer is elapsed
-            if let Poll::Ready(()) = self.sleep.as_mut().poll(cx) {
-                return Poll::Ready(Err(std::io::Error::new(
-                    std::io::ErrorKind::TimedOut,
-                    "request header read timed out",
-                )));
-            }
+            StreamKind::Bypass => {}
         }
 
         Pin::new(&mut self.inner).poll_read(cx, buf)
@@ -117,11 +147,11 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for Stream<S> {
 
 pub struct Service<S> {
     inner: S,
-    tx: UnboundedSender<State>,
+    tx: Option<UnboundedSender<State>>,
 }
 
 impl<S> Service<S> {
-    pub(super) fn new(inner: S, tx: UnboundedSender<State>) -> Self {
+    pub(super) fn new(inner: S, tx: Option<UnboundedSender<State>>) -> Self {
         Self { inner, tx }
     }
 }
@@ -139,8 +169,10 @@ where
     }
 
     fn call(&mut self, req: Request) -> Self::Future {
-        // send timer wait signal
-        let _ = self.tx.send(State::Wait);
+        if let Some(tx) = self.tx.as_ref() {
+            // send timer wait signal
+            let _ = tx.send(State::Wait);
+        }
 
         ServiceFuture::new(self.inner.call(req), self.tx.clone())
     }
@@ -154,11 +186,8 @@ pub struct ServiceFuture<F> {
 }
 
 impl<F> ServiceFuture<F> {
-    fn new(inner: F, tx: UnboundedSender<State>) -> Self {
-        Self {
-            inner,
-            tx: Some(tx),
-        }
+    fn new(inner: F, tx: Option<UnboundedSender<State>>) -> Self {
+        Self { inner, tx }
     }
 }
 
@@ -172,10 +201,7 @@ where
         let this = self.project();
 
         this.inner.poll(cx).map(|result| {
-            result.map(|response| {
-                response
-                    .map(|body| Body::new(body, this.tx.take().expect("future polled after ready")))
-            })
+            result.map(|response| response.map(|body| Body::new(body, this.tx.take())))
         })
     }
 }
@@ -184,11 +210,11 @@ where
 pub struct Body<B> {
     #[pin]
     inner: B,
-    tx: UnboundedSender<State>,
+    tx: Option<UnboundedSender<State>>,
 }
 
 impl<B> Body<B> {
-    fn new(inner: B, tx: UnboundedSender<State>) -> Self {
+    fn new(inner: B, tx: Option<UnboundedSender<State>>) -> Self {
         Self { inner, tx }
     }
 }
@@ -205,13 +231,18 @@ where
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Result<Self::Data, Self::Error>>> {
         let this = self.project();
-        let option = ready!(this.inner.poll_data(cx));
 
-        if option.is_none() {
-            let _ = this.tx.send(State::Reset);
+        if let Some(tx) = this.tx.as_ref() {
+            let option = ready!(this.inner.poll_data(cx));
+
+            if option.is_none() {
+                let _ = tx.send(State::Reset);
+            }
+
+            Poll::Ready(option)
+        } else {
+            this.inner.poll_data(cx)
         }
-
-        Poll::Ready(option)
     }
 
     fn poll_trailers(
@@ -222,13 +253,17 @@ where
     }
 
     fn is_end_stream(&self) -> bool {
-        let is_end_stream = self.inner.is_end_stream();
+        if let Some(tx) = self.tx.as_ref() {
+            let is_end_stream = self.inner.is_end_stream();
 
-        if is_end_stream {
-            let _ = self.tx.send(State::Reset);
+            if is_end_stream {
+                let _ = tx.send(State::Reset);
+            }
+
+            is_end_stream
+        } else {
+            self.inner.is_end_stream()
         }
-
-        is_end_stream
     }
 
     fn size_hint(&self) -> hyper::body::SizeHint {

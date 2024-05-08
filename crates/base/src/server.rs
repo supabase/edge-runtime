@@ -686,23 +686,26 @@ fn accept_stream<I>(
     tokio::task::spawn({
         async move {
             let (service, cancel) = WorkerService::new(metric_src.clone(), req_tx);
-            let (timeout_tx, timeout_rx) = mpsc::unbounded_channel();
+            let (io, maybe_timeout_tx) = if let Some(timeout_dur) = maybe_req_idle_timeout_dur {
+                let (timeout_tx, timeout_rx) = mpsc::unbounded_channel();
 
-            let io = crate::timeout::Stream::new(
-                io,
-                maybe_req_idle_timeout_dur.unwrap_or(Duration::MAX),
-                timeout_rx,
-            );
-
-            let service = crate::timeout::Service::new(service, timeout_tx);
+                (
+                    crate::timeout::Stream::with_timeout(io, timeout_dur, timeout_rx),
+                    Some(timeout_tx),
+                )
+            } else {
+                (crate::timeout::Stream::with_bypass(io), None)
+            };
 
             let _guard = cancel.drop_guard();
             let _active_io_count_guard = scopeguard::guard(metric_src, |it| {
                 it.decl_active_io();
             });
 
-            let conn_fut = Http::new().serve_connection(io, service).with_upgrades();
             let mut shutting_down = false;
+            let conn_fut = Http::new()
+                .serve_connection(io, crate::timeout::Service::new(service, maybe_timeout_tx))
+                .with_upgrades();
 
             pin!(conn_fut);
 

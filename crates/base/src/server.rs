@@ -490,7 +490,14 @@ impl Server {
                                 let _ = stream.set_nodelay(true);
                             }
 
-                            accept_stream(stream, main_worker_req_tx, event_tx, metric_src, graceful_exit_token.clone(), None)
+                            accept_stream(
+                                stream,
+                                main_worker_req_tx,
+                                event_tx,
+                                metric_src,
+                                graceful_exit_token.clone(),
+                                request_idle_timeout_dur
+                            )
                         }
                         Err(e) => error!("socket error: {}", e)
                     }
@@ -510,7 +517,14 @@ impl Server {
                                 let _ = stream.get_ref().0.set_nodelay(true);
                             }
 
-                            accept_stream(stream, main_worker_req_tx, event_tx, metric_src, graceful_exit_token.clone(), None);
+                            accept_stream(
+                                stream,
+                                main_worker_req_tx,
+                                event_tx,
+                                metric_src,
+                                graceful_exit_token.clone(),
+                                request_idle_timeout_dur
+                            )
                         }
                         Err(e) => error!("socket error: {}", e)
                     }

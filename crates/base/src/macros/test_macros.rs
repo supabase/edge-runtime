@@ -1,4 +1,34 @@
 #[macro_export]
+macro_rules! integration_test_listen_fut {
+    ($port:expr, $tls:expr, $main_file:expr, $policy:expr, $import_map:expr, $flag:expr, $tx:expr, $token:expr) => {{
+        use futures_util::FutureExt;
+
+        let tls: Option<base::server::Tls> = $tls.clone();
+
+        base::commands::start_server(
+            "0.0.0.0",
+            $port,
+            tls,
+            String::from($main_file),
+            None,
+            None,
+            $policy,
+            $import_map,
+            $flag,
+            Some($tx.clone()),
+            $crate::server::WorkerEntrypoints {
+                main: None,
+                events: None,
+            },
+            $token.clone(),
+            vec![],
+            None,
+        )
+        .boxed()
+    }};
+}
+
+#[macro_export]
 macro_rules! integration_test_with_server_flag {
     ($flag:expr, $main_file:expr, $port:expr, $url:expr, $policy:expr, $import_map:expr, $req_builder:expr, $tls:expr, ($($function:tt)+) $(, $($token:tt)+)?) => {
         use futures_util::FutureExt;
@@ -17,26 +47,16 @@ macro_rules! integration_test_with_server_flag {
         });
 
         let token = $crate::integration_test_with_server_flag!(@term $(, $($token)+)?);
-        let mut listen_fut = base::commands::start_server(
-            "0.0.0.0",
+        let mut listen_fut = $crate::integration_test_listen_fut!(
             $port,
             tls,
-            String::from($main_file),
-            None,
-            None,
+            $main_file,
             $policy,
             $import_map,
             $flag,
-            Some(tx.clone()),
-            $crate::server::WorkerEntrypoints {
-                main: None,
-                events: None,
-            },
-            token.clone(),
-            vec![],
-            None
-        )
-        .boxed();
+            tx,
+            token
+        );
 
         tokio::select! {
             resp = signal => {

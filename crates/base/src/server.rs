@@ -244,6 +244,7 @@ pub struct ServerFlags {
     pub tcp_nodelay: bool,
     pub graceful_exit_deadline_sec: u64,
     pub graceful_exit_keepalive_deadline_ms: Option<u64>,
+    pub request_idle_timeout_ms: Option<u64>,
 }
 
 #[derive(Debug)]
@@ -467,11 +468,13 @@ impl Server {
 
         let ServerFlags {
             tcp_nodelay,
+            request_idle_timeout_ms,
             mut graceful_exit_deadline_sec,
             mut graceful_exit_keepalive_deadline_ms,
             ..
         } = flags;
 
+        let request_idle_timeout_dur = request_idle_timeout_ms.map(Duration::from_millis);
         let mut terminate_signal_fut = get_termination_signal();
 
         loop {

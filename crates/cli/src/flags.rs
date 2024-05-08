@@ -143,6 +143,11 @@ fn get_start_command() -> Command {
                 .value_parser(value_parser!(u64)),
         )
         .arg(
+            arg!(--"request-idle-timeout" <MILLISECONDS>)
+                .help("Maximum time that can be waited from when the connection is accepted until the request body is fully read")
+                .value_parser(value_parser!(u64)),
+        )
+        .arg(
             arg!(--"inspect"[HOST_AND_PORT])
                 .help("Activate inspector on host:port")
                 .num_args(0..=1)

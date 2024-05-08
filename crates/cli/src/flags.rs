@@ -18,15 +18,13 @@ pub(super) fn get_cli() -> Command {
         ))
         .arg_required_else_help(true)
         .arg(
-            arg!(-v - -verbose)
-                .help("Use verbose output")
+            arg!(-v --verbose "Use verbose output")
                 .conflicts_with("quiet")
                 .global(true)
                 .action(ArgAction::SetTrue),
         )
         .arg(
-            arg!(-q - -quiet)
-                .help("Do not print any log messages")
+            arg!(-q --quiet "Do not print any log messages")
                 .conflicts_with("verbose")
                 .global(true)
                 .action(ArgAction::SetTrue),
@@ -54,7 +52,7 @@ fn get_start_command() -> Command {
                 .value_parser(value_parser!(u16)),
         )
         .arg(
-            arg!(--tls[PORT])
+            arg!(--tls [PORT])
                 .env("EDGE_RUNTIME_TLS")
                 .num_args(0..=1)
                 .default_missing_value("443")
@@ -104,7 +102,7 @@ fn get_start_command() -> Command {
                 .value_parser(["tc39", "typescript", "typescript_with_metadata"]),
         )
         .arg(
-            arg!(--"graceful-exit-timeout"[SECONDS])
+            arg!(--"graceful-exit-timeout" [SECONDS])
                 .help(concat!(
                     "Maximum time in seconds that can wait for workers before terminating forcibly. ",
                     "If providing zero value, the runtime will not try a graceful exit."
@@ -148,7 +146,7 @@ fn get_start_command() -> Command {
                 .value_parser(value_parser!(u64)),
         )
         .arg(
-            arg!(--"inspect"[HOST_AND_PORT])
+            arg!(--"inspect" [HOST_AND_PORT])
                 .help("Activate inspector on host:port")
                 .num_args(0..=1)
                 .value_parser(value_parser!(SocketAddr))
@@ -156,7 +154,7 @@ fn get_start_command() -> Command {
                 .default_missing_value("127.0.0.1:9229"),
         )
         .arg(
-            arg!(--"inspect-brk"[HOST_AND_PORT])
+            arg!(--"inspect-brk" [HOST_AND_PORT])
                 .help("Activate inspector on host:port, wait for debugger to connect and break at the start of user script")
                 .num_args(0..=1)
                 .value_parser(value_parser!(SocketAddr))
@@ -164,7 +162,7 @@ fn get_start_command() -> Command {
                 .default_missing_value("127.0.0.1:9229"),
         )
         .arg(
-            arg!(--"inspect-wait"[HOST_AND_PORT])
+            arg!(--"inspect-wait" [HOST_AND_PORT])
                 .help("Activate inspector on host:port and wait for debugger to connect before running user code")
                 .num_args(0..=1)
                 .value_parser(value_parser!(SocketAddr))
@@ -180,7 +178,7 @@ fn get_start_command() -> Command {
         )
         .arg(arg!(--"static" <Path>).help("Glob pattern for static files to be included"))
         .arg(
-            arg!(--"tcp-nodelay"[BOOL])
+            arg!(--"tcp-nodelay" [BOOL])
                 .help("Disables Nagle's algorithm")
                 .num_args(0..=1)
                 .value_parser(BoolishValueParser::new())

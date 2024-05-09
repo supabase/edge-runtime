@@ -1455,7 +1455,7 @@ where
     let req_fut = {
         let token = token.clone();
         async move {
-            assert_eq!(test_fn(maybe_tls.stream().await).await, true);
+            assert!(test_fn(maybe_tls.stream().await).await);
 
             if timeout(Duration::from_secs(10), token.cancel_and_wait())
                 .await
@@ -1469,8 +1469,10 @@ where
     };
 
     let join_fut = tokio::spawn(async move {
-        while let Some(ServerHealth::Listening(..)) = health_rx.recv().await {
-            break;
+        loop {
+            if let Some(ServerHealth::Listening(..)) = health_rx.recv().await {
+                break;
+            }
         }
 
         req_fut.await;
@@ -1498,13 +1500,10 @@ async fn test_slowloris_no_prompt_timeout(maybe_tls: Option<Tls>, invert: bool) 
                     return true;
                 }
 
-                match err.kind() {
-                    io::ErrorKind::BrokenPipe | io::ErrorKind::UnexpectedEof => {
-                        return true;
-                    }
-
-                    _ => return false,
-                }
+                matches!(
+                    err.kind(),
+                    io::ErrorKind::BrokenPipe | io::ErrorKind::UnexpectedEof
+                )
             };
 
             // > 5000ms
@@ -1574,13 +1573,10 @@ async fn test_slowloris_slow_header_timedout(maybe_tls: Option<Tls>, invert: boo
                     return true;
                 }
 
-                match err.kind() {
-                    io::ErrorKind::BrokenPipe | io::ErrorKind::UnexpectedEof => {
-                        return true;
-                    }
-
-                    _ => return false,
-                }
+                matches!(
+                    err.kind(),
+                    io::ErrorKind::BrokenPipe | io::ErrorKind::UnexpectedEof
+                )
             };
 
             // takes 1000ms per each character (ie. > 5000ms)

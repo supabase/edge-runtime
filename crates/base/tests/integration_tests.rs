@@ -1428,7 +1428,7 @@ async fn oak_with_jsr_specifier() {
     );
 }
 
-async fn test_slowloris<F, R>(request_idle_timeout_ms: u64, maybe_tls: Option<Tls>, test_fn: F)
+async fn test_slowloris<F, R>(request_read_timeout_ms: u64, maybe_tls: Option<Tls>, test_fn: F)
 where
     F: (FnOnce(Box<dyn AsyncReadWrite>) -> R) + Send + 'static,
     R: Future<Output = bool> + Send,
@@ -1445,7 +1445,7 @@ where
         None,
         None,
         ServerFlags {
-            request_idle_timeout_ms: Some(request_idle_timeout_ms),
+            request_read_timeout_ms: Some(request_read_timeout_ms),
             ..Default::default()
         },
         health_tx,

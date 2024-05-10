@@ -244,7 +244,7 @@ pub struct ServerFlags {
     pub tcp_nodelay: bool,
     pub graceful_exit_deadline_sec: u64,
     pub graceful_exit_keepalive_deadline_ms: Option<u64>,
-    pub request_idle_timeout_ms: Option<u64>,
+    pub request_read_timeout_ms: Option<u64>,
 }
 
 #[derive(Debug)]
@@ -468,13 +468,13 @@ impl Server {
 
         let ServerFlags {
             tcp_nodelay,
-            request_idle_timeout_ms,
+            request_read_timeout_ms,
             mut graceful_exit_deadline_sec,
             mut graceful_exit_keepalive_deadline_ms,
             ..
         } = flags;
 
-        let request_idle_timeout_dur = request_idle_timeout_ms.map(Duration::from_millis);
+        let request_read_timeout_dur = request_read_timeout_ms.map(Duration::from_millis);
         let mut terminate_signal_fut = get_termination_signal();
 
         loop {
@@ -496,7 +496,7 @@ impl Server {
                                 event_tx,
                                 metric_src,
                                 graceful_exit_token.clone(),
-                                request_idle_timeout_dur
+                                request_read_timeout_dur
                             )
                         }
                         Err(e) => error!("socket error: {}", e)
@@ -523,7 +523,7 @@ impl Server {
                                 event_tx,
                                 metric_src,
                                 graceful_exit_token.clone(),
-                                request_idle_timeout_dur
+                                request_read_timeout_dur
                             )
                         }
                         Err(e) => error!("socket error: {}", e)
@@ -692,7 +692,7 @@ fn accept_stream<I>(
     event_tx: Option<UnboundedSender<ServerEvent>>,
     metric_src: SharedMetricSource,
     graceful_exit_token: CancellationToken,
-    maybe_req_idle_timeout_dur: Option<Duration>,
+    maybe_req_read_timeout_dur: Option<Duration>,
 ) where
     I: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
@@ -700,15 +700,10 @@ fn accept_stream<I>(
     tokio::task::spawn({
         async move {
             let (service, cancel) = WorkerService::new(metric_src.clone(), req_tx);
-            let (io, maybe_timeout_tx) = if let Some(timeout_dur) = maybe_req_idle_timeout_dur {
-                let (timeout_tx, timeout_rx) = mpsc::unbounded_channel();
-
-                (
-                    crate::timeout::Stream::with_timeout(io, timeout_dur, timeout_rx),
-                    Some(timeout_tx),
-                )
+            let (io, maybe_timeout_tx) = if let Some(timeout_dur) = maybe_req_read_timeout_dur {
+                crate::timeout::Stream::with_timeout(io, timeout_dur)
             } else {
-                (crate::timeout::Stream::with_bypass(io), None)
+                crate::timeout::Stream::with_bypass(io)
             };
 
             let _guard = cancel.drop_guard();

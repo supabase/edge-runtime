@@ -122,8 +122,8 @@ fn main() -> Result<(), anyhow::Error> {
                     sub_matches.get_one::<usize>("max-parallelism").cloned();
                 let maybe_request_wait_timeout =
                     sub_matches.get_one::<u64>("request-wait-timeout").cloned();
-                let maybe_request_idle_timeout =
-                    sub_matches.get_one::<u64>("request-idle-timeout").cloned();
+                let maybe_request_read_timeout =
+                    sub_matches.get_one::<u64>("request-read-timeout").cloned();
                 let static_patterns =
                     if let Some(val_ref) = sub_matches.get_many::<String>("static") {
                         val_ref.map(|s| s.as_str()).collect::<Vec<&str>>()
@@ -196,7 +196,7 @@ fn main() -> Result<(), anyhow::Error> {
                         tcp_nodelay,
                         graceful_exit_deadline_sec,
                         graceful_exit_keepalive_deadline_ms,
-                        request_idle_timeout_ms: maybe_request_idle_timeout,
+                        request_read_timeout_ms: maybe_request_read_timeout,
                     },
                     None,
                     WorkerEntrypoints {

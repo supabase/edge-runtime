@@ -11,7 +11,7 @@ use futures_util::Future;
 use pin_project::pin_project;
 use tokio::{
     io::{AsyncRead, AsyncWrite},
-    sync::mpsc::{UnboundedReceiver, UnboundedSender},
+    sync::mpsc::{self, UnboundedReceiver, UnboundedSender},
     time::{sleep, Instant, Sleep},
 };
 
@@ -26,7 +26,7 @@ enum StreamKind {
         duration: Duration,
         waiting: bool,
         finished: bool,
-        state: UnboundedReceiver<State>,
+        rx: UnboundedReceiver<State>,
     },
 
     Bypass,
@@ -42,21 +42,29 @@ impl<S> Stream<S> {
         Self { inner, kind }
     }
 
-    pub(super) fn with_timeout(inner: S, duration: Duration, rx: UnboundedReceiver<State>) -> Self {
-        Self::new(
-            inner,
-            StreamKind::UseTimeout {
-                sleep: Box::pin(sleep(duration)),
-                duration,
-                waiting: false,
-                finished: false,
-                state: rx,
-            },
+    pub(super) fn with_timeout(
+        inner: S,
+        duration: Duration,
+    ) -> (Self, Option<UnboundedSender<State>>) {
+        let (tx, rx) = mpsc::unbounded_channel();
+
+        (
+            Self::new(
+                inner,
+                StreamKind::UseTimeout {
+                    sleep: Box::pin(sleep(duration)),
+                    duration,
+                    waiting: false,
+                    finished: false,
+                    rx,
+                },
+            ),
+            Some(tx),
         )
     }
 
-    pub(super) fn with_bypass(inner: S) -> Self {
-        Self::new(inner, StreamKind::Bypass)
+    pub(super) fn with_bypass(inner: S) -> (Self, Option<UnboundedSender<State>>) {
+        (Self::new(inner, StreamKind::Bypass), None)
     }
 }
 
@@ -72,10 +80,10 @@ impl<S: AsyncRead + Unpin> AsyncRead for Stream<S> {
                 duration,
                 waiting,
                 finished,
-                state,
+                rx,
             } => {
                 if !*finished {
-                    match Pin::new(state).poll_recv(cx) {
+                    match Pin::new(rx).poll_recv(cx) {
                         Poll::Ready(Some(State::Reset)) => {
                             *waiting = false;
 

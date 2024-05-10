@@ -1,11 +1,14 @@
 // @ts-ignore
-import { STATUS_CODE } from "https://deno.land/std/http/status.ts";
+import { STATUS_CODE } from 'https://deno.land/std/http/status.ts';
 
 console.log('main function started');
 
+// log system memory usage every 30s
+// setInterval(() => console.log(EdgeRuntime.systemMemoryInfo()), 30 * 1000);
+
 Deno.serve(async (req: Request) => {
 	const headers = new Headers({
-		"Content-Type": "application/json"
+		'Content-Type': 'application/json',
 	});
 
 	const url = new URL(req.url);
@@ -17,7 +20,7 @@ Deno.serve(async (req: Request) => {
 			JSON.stringify({ 'message': 'ok' }),
 			{
 				status: STATUS_CODE.OK,
-				headers
+				headers,
 			},
 		);
 	}
@@ -128,7 +131,7 @@ Deno.serve(async (req: Request) => {
 			console.error(e);
 
 			if (e instanceof Deno.errors.WorkerRequestCancelled) {
-				headers.append("Connection", "close");
+				headers.append('Connection', 'close');
 
 				// XXX(Nyannyacha): I can't think right now how to re-poll
 				// inside the worker pool without exposing the error to the
@@ -150,7 +153,7 @@ Deno.serve(async (req: Request) => {
 				JSON.stringify(error),
 				{
 					status: STATUS_CODE.InternalServerError,
-					headers
+					headers,
 				},
 			);
 		}

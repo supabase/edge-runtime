@@ -190,6 +190,7 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
         Some(pool_termination_token.clone()),
         vec![],
         None,
+        None,
     )
     .await
     .unwrap();
@@ -213,7 +214,7 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
         static_patterns: vec![],
     };
 
-    let (_, worker_req_tx) = create_worker((opts, main_termination_token.clone()), None)
+    let (_, worker_req_tx) = create_worker((opts, main_termination_token.clone()), None, None)
         .await
         .unwrap();
 
@@ -346,6 +347,7 @@ async fn test_main_worker_boot_error() {
         Some(pool_termination_token.clone()),
         vec![],
         None,
+        None,
     )
     .await
     .unwrap();
@@ -369,7 +371,7 @@ async fn test_main_worker_boot_error() {
         static_patterns: vec![],
     };
 
-    let result = create_worker((opts, main_termination_token.clone()), None).await;
+    let result = create_worker((opts, main_termination_token.clone()), None, None).await;
 
     assert!(result.is_err());
     assert!(result

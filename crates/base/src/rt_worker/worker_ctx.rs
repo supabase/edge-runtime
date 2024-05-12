@@ -96,6 +96,7 @@ async fn handle_request(
     worker_kind: WorkerKind,
     duplex_stream_tx: mpsc::UnboundedSender<DuplexStreamEntry>,
     msg: WorkerRequestMsg,
+    _maybe_request_idle_timeout: Option<u64>,
 ) -> Result<(), Error> {
     let (ours, theirs) = io::duplex(1024);
     let WorkerRequestMsg {
@@ -512,6 +513,7 @@ impl CreateWorkerArgs {
 pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
     init_opts: Opt,
     inspector: Option<Inspector>,
+    maybe_request_idle_timeout: Option<u64>,
 ) -> Result<(MetricSource, mpsc::UnboundedSender<WorkerRequestMsg>), Error> {
     let (duplex_stream_tx, duplex_stream_rx) = mpsc::unbounded_channel::<DuplexStreamEntry>();
     let (worker_boot_result_tx, worker_boot_result_rx) =
@@ -553,8 +555,13 @@ pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
                     tokio::task::spawn({
                         let stream_tx_inner = stream_tx.clone();
                         async move {
-                            if let Err(err) =
-                                handle_request(worker_kind, stream_tx_inner, msg).await
+                            if let Err(err) = handle_request(
+                                worker_kind,
+                                stream_tx_inner,
+                                msg,
+                                maybe_request_idle_timeout,
+                            )
+                            .await
                             {
                                 error!("worker failed to handle request: {:?}", err);
                             }
@@ -666,6 +673,7 @@ pub async fn create_main_worker(
             termination_token,
         ),
         inspector,
+        None,
     )
     .await
     .map_err(|err| anyhow!("main worker boot error: {}", err))?;
@@ -713,6 +721,7 @@ pub async fn create_events_worker(
             termination_token,
         ),
         None,
+        None,
     )
     .await
     .map_err(|err| anyhow!("events worker boot error: {}", err))?;
@@ -726,6 +735,7 @@ pub async fn create_user_worker_pool(
     termination_token: Option<TerminationToken>,
     static_patterns: Vec<String>,
     inspector: Option<Inspector>,
+    request_idle_timeout: Option<u64>,
 ) -> Result<(SharedMetricSource, mpsc::UnboundedSender<UserWorkerMsgs>), Error> {
     let metric_src = SharedMetricSource::default();
     let (user_worker_msgs_tx, mut user_worker_msgs_rx) =
@@ -744,6 +754,7 @@ pub async fn create_user_worker_pool(
                 worker_event_sender,
                 user_worker_msgs_tx_clone,
                 inspector,
+                request_idle_timeout,
             );
 
             // Note: Keep this loop non-blocking. Spawn a task to run blocking calls.

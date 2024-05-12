@@ -132,6 +132,7 @@ pub struct TestBedBuilder {
     main_service_path: PathBuf,
     worker_pool_policy: Option<WorkerPoolPolicy>,
     main_worker_init_opts: Option<WorkerContextInitOpts>,
+    request_idle_timeout: Option<u64>,
 }
 
 impl TestBedBuilder {
@@ -143,6 +144,7 @@ impl TestBedBuilder {
             main_service_path: main_service_path.into(),
             worker_pool_policy: None,
             main_worker_init_opts: None,
+            request_idle_timeout: None,
         }
     }
 
@@ -198,6 +200,11 @@ impl TestBedBuilder {
         self
     }
 
+    pub fn with_request_idle_timeout(mut self, request_idle_timeout: u64) -> Self {
+        self.request_idle_timeout = Some(request_idle_timeout);
+        self
+    }
+
     pub async fn build(self) -> TestBed {
         let ((_, worker_pool_tx), pool_termination_token) = {
             let token = TerminationToken::new();
@@ -209,6 +216,7 @@ impl TestBedBuilder {
                     Some(token.clone()),
                     vec![],
                     None,
+                    self.request_idle_timeout,
                 )
                 .await
                 .unwrap(),
@@ -238,6 +246,7 @@ impl TestBedBuilder {
         let main_termination_token = TerminationToken::new();
         let (_, main_worker_msg_tx) = create_worker(
             (main_worker_init_opts, main_termination_token.clone()),
+            None,
             None,
         )
         .await
@@ -319,6 +328,7 @@ pub async fn create_test_user_worker<Opt: Into<CreateTestUserWorkerArgs>>(
         let (_, sender) = create_worker(
             opts.with_policy(policy)
                 .with_termination_token(termination_token.clone()),
+            None,
             None,
         )
         .await?;

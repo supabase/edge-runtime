@@ -381,6 +381,7 @@ impl Server {
             Some(termination_tokens.pool.clone()),
             static_patterns,
             inspector.clone(),
+            flags.request_idle_timeout_ms,
         )
         .await?;
 

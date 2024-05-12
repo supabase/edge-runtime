@@ -122,6 +122,8 @@ fn main() -> Result<(), anyhow::Error> {
                     sub_matches.get_one::<usize>("max-parallelism").cloned();
                 let maybe_request_wait_timeout =
                     sub_matches.get_one::<u64>("request-wait-timeout").cloned();
+                let maybe_request_idle_timeout =
+                    sub_matches.get_one::<u64>("request-idle-timeout").cloned();
                 let maybe_request_read_timeout =
                     sub_matches.get_one::<u64>("request-read-timeout").cloned();
                 let static_patterns =
@@ -157,6 +159,16 @@ fn main() -> Result<(), anyhow::Error> {
                 };
 
                 let tcp_nodelay = sub_matches.get_one::<bool>("tcp-nodelay").copied().unwrap();
+                let flags = ServerFlags {
+                    no_module_cache,
+                    allow_main_inspector,
+                    tcp_nodelay,
+                    graceful_exit_deadline_sec,
+                    graceful_exit_keepalive_deadline_ms,
+                    request_wait_timeout_ms: maybe_request_wait_timeout,
+                    request_idle_timeout_ms: maybe_request_idle_timeout,
+                    request_read_timeout_ms: maybe_request_read_timeout,
+                };
 
                 start_server(
                     ip.as_str(),
@@ -187,17 +199,10 @@ fn main() -> Result<(), anyhow::Error> {
                         } else {
                             maybe_max_parallelism
                         },
-                        maybe_request_wait_timeout,
+                        flags,
                     )),
                     import_map_path,
-                    ServerFlags {
-                        no_module_cache,
-                        allow_main_inspector,
-                        tcp_nodelay,
-                        graceful_exit_deadline_sec,
-                        graceful_exit_keepalive_deadline_ms,
-                        request_read_timeout_ms: maybe_request_read_timeout,
-                    },
+                    flags,
                     None,
                     WorkerEntrypoints {
                         main: maybe_main_entrypoint,

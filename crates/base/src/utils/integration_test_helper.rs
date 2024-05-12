@@ -10,9 +10,12 @@ use std::{
 };
 
 use anyhow::{bail, Context, Error};
-use base::rt_worker::{
-    worker_ctx::{create_user_worker_pool, create_worker, CreateWorkerArgs, TerminationToken},
-    worker_pool::{SupervisorPolicy, WorkerPoolPolicy},
+use base::{
+    rt_worker::{
+        worker_ctx::{create_user_worker_pool, create_worker, CreateWorkerArgs, TerminationToken},
+        worker_pool::{SupervisorPolicy, WorkerPoolPolicy},
+    },
+    server::ServerFlags,
 };
 use futures_util::{future::BoxFuture, Future, FutureExt};
 use http::{Request, Response};
@@ -152,7 +155,10 @@ impl TestBedBuilder {
         self.worker_pool_policy = Some(WorkerPoolPolicy::new(
             SupervisorPolicy::oneshot(),
             1,
-            Some(request_wait_timeout_ms),
+            ServerFlags {
+                request_wait_timeout_ms: Some(request_wait_timeout_ms),
+                ..Default::default()
+            },
         ));
 
         self
@@ -162,7 +168,10 @@ impl TestBedBuilder {
         self.worker_pool_policy = Some(WorkerPoolPolicy::new(
             SupervisorPolicy::PerWorker,
             1,
-            Some(request_wait_timeout_ms),
+            ServerFlags {
+                request_wait_timeout_ms: Some(request_wait_timeout_ms),
+                ..Default::default()
+            },
         ));
 
         self
@@ -172,7 +181,10 @@ impl TestBedBuilder {
         self.worker_pool_policy = Some(WorkerPoolPolicy::new(
             SupervisorPolicy::PerRequest { oneshot: false },
             1,
-            Some(request_wait_timeout_ms),
+            ServerFlags {
+                request_wait_timeout_ms: Some(request_wait_timeout_ms),
+                ..Default::default()
+            },
         ));
 
         self
@@ -325,7 +337,14 @@ pub async fn create_test_user_worker<Opt: Into<CreateTestUserWorkerArgs>>(
 }
 
 pub fn test_user_worker_pool_policy() -> WorkerPoolPolicy {
-    WorkerPoolPolicy::new(SupervisorPolicy::oneshot(), 1, 4 * 1000 * 3600)
+    WorkerPoolPolicy::new(
+        SupervisorPolicy::oneshot(),
+        1,
+        ServerFlags {
+            request_wait_timeout_ms: Some(4 * 1000 * 3600),
+            ..Default::default()
+        },
+    )
 }
 
 pub fn test_user_runtime_opts() -> UserWorkerRuntimeOpts {

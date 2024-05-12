@@ -1,5 +1,6 @@
 use crate::inspector_server::Inspector;
 use crate::rt_worker::worker_ctx::{create_worker, send_user_worker_request};
+use crate::server::ServerFlags;
 use anyhow::{anyhow, bail, Context, Error};
 use enum_as_inner::EnumAsInner;
 use event_worker::events::WorkerEventWithMetadata;
@@ -88,15 +89,15 @@ impl WorkerPoolPolicy {
     pub fn new(
         supervisor: impl Into<Option<SupervisorPolicy>>,
         max_parallelism: impl Into<Option<usize>>,
-        request_wait_timeout_ms: impl Into<Option<u64>>,
+        server_flags: ServerFlags,
     ) -> Self {
         let default = Self::default();
 
         Self {
             supervisor_policy: supervisor.into().unwrap_or(default.supervisor_policy),
             max_parallelism: max_parallelism.into().unwrap_or(default.max_parallelism),
-            request_wait_timeout_ms: request_wait_timeout_ms
-                .into()
+            request_wait_timeout_ms: server_flags
+                .request_wait_timeout_ms
                 .unwrap_or(default.request_wait_timeout_ms),
         }
     }

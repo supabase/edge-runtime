@@ -36,6 +36,7 @@ use tokio::io::{self, copy_bidirectional};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::time::sleep;
 use tokio_rustls::server::TlsStream;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -96,7 +97,7 @@ async fn handle_request(
     worker_kind: WorkerKind,
     duplex_stream_tx: mpsc::UnboundedSender<DuplexStreamEntry>,
     msg: WorkerRequestMsg,
-    _maybe_request_idle_timeout: Option<u64>,
+    maybe_request_idle_timeout: Option<u64>,
 ) -> Result<(), Error> {
     let (ours, theirs) = io::duplex(1024);
     let WorkerRequestMsg {
@@ -153,7 +154,23 @@ async fn handle_request(
 
     tokio::task::yield_now().await;
 
-    let res = request_sender.send_request(req).await;
+    let maybe_cancel_fut = async move {
+        if let Some(timeout_ms) = maybe_request_idle_timeout {
+            sleep(Duration::from_millis(timeout_ms)).await;
+        } else {
+            pending::<()>().await;
+            unreachable!()
+        }
+    };
+
+    let res = tokio::select! {
+        resp = request_sender.send_request(req) => resp,
+        _ = maybe_cancel_fut => {
+            // XXX(Nyannyacha): Should we add a more detailed message?
+            Ok(emit_status_code(http::StatusCode::REQUEST_TIMEOUT, None, true))
+        }
+    };
+
     let Ok(res) = res else {
         drop(res_tx.send(res));
         return Ok(());
@@ -166,7 +183,7 @@ async fn handle_request(
         match res_upgrade_type {
             Some(accepted) if accepted == requested => {}
             _ => {
-                drop(res_tx.send(Ok(emit_status_code(StatusCode::BAD_GATEWAY))));
+                drop(res_tx.send(Ok(emit_status_code(StatusCode::BAD_GATEWAY, None, true))));
                 return Ok(());
             }
         }

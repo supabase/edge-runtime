@@ -227,7 +227,7 @@ async fn relay_upgraded_request_and_response(
 
     match copy_bidirectional(&mut upstream, &mut downstream).await {
         Ok(_) => {}
-        Err(err) if maybe_idle_timeout.is_some() && matches!(err.kind(), ErrorKind::TimedOut) => {}
+        Err(err) if matches!(err.kind(), ErrorKind::TimedOut | ErrorKind::BrokenPipe) => {}
         Err(err) if matches!(err.kind(), ErrorKind::UnexpectedEof) => {
             let Ok(_) = downstream.downcast::<timeout::Stream<TlsStream<TcpStream>>>() else {
                 // TODO(Nyannyacha): It would be better if we send
@@ -240,8 +240,8 @@ async fn relay_upgraded_request_and_response(
             };
         }
 
-        _ => {
-            unreachable!("coping between upgraded connections failed");
+        value => {
+            unreachable!("coping between upgraded connections failed: {:?}", value);
         }
     }
 

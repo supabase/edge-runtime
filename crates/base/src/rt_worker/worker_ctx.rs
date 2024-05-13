@@ -1,6 +1,6 @@
 use crate::deno_runtime::DenoRuntime;
 use crate::inspector_server::Inspector;
-use crate::timeout;
+use crate::timeout::{self, CancelOnWriteTimeout, ReadTimeoutStream};
 use crate::utils::send_event_if_event_worker_available;
 use crate::utils::units::bytes_to_display;
 
@@ -137,6 +137,7 @@ async fn handle_request(
                                 tokio::spawn(relay_upgraded_request_and_response(
                                     req_upgrade,
                                     parts,
+                                    maybe_request_idle_timeout,
                                 ));
 
                                 return;
@@ -189,6 +190,23 @@ async fn handle_request(
         }
     }
 
+    if let Some(timeout_ms) = maybe_request_idle_timeout {
+        let headers = res.headers();
+        let is_streamed_response = !headers.contains_key(http::header::CONTENT_LENGTH);
+
+        if is_streamed_response {
+            let duration = Duration::from_millis(timeout_ms);
+            let (parts, body) = res.into_parts();
+
+            drop(res_tx.send(Ok(Response::from_parts(
+                parts,
+                Body::wrap_stream(CancelOnWriteTimeout::new(body, duration)),
+            ))));
+
+            return Ok(());
+        }
+    }
+
     drop(res_tx.send(Ok(res)));
     Ok(())
 }
@@ -196,13 +214,21 @@ async fn handle_request(
 async fn relay_upgraded_request_and_response(
     downstream: OnUpgrade,
     parts: http1::Parts<io::DuplexStream>,
+    maybe_idle_timeout: Option<u64>,
 ) {
-    let mut upstream = Upgraded2::new(parts.io, parts.read_buf);
+    let upstream = Upgraded2::new(parts.io, parts.read_buf);
+    let mut upstream = if let Some(timeout_ms) = maybe_idle_timeout {
+        ReadTimeoutStream::with_timeout(upstream, Duration::from_millis(timeout_ms))
+    } else {
+        ReadTimeoutStream::with_bypass(upstream)
+    };
+
     let mut downstream = downstream.await.expect("failed to upgrade request");
 
     match copy_bidirectional(&mut upstream, &mut downstream).await {
         Ok(_) => {}
-        Err(err) if err.kind() == ErrorKind::UnexpectedEof => {
+        Err(err) if maybe_idle_timeout.is_some() && matches!(err.kind(), ErrorKind::TimedOut) => {}
+        Err(err) if matches!(err.kind(), ErrorKind::UnexpectedEof) => {
             let Ok(_) = downstream.downcast::<timeout::Stream<TlsStream<TcpStream>>>() else {
                 // TODO(Nyannyacha): It would be better if we send
                 // `close_notify` before shutdown an upstream if downstream is a

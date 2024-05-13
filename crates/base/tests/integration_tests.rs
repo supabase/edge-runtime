@@ -14,7 +14,7 @@ use std::{
 use anyhow::Context;
 use async_tungstenite::WebSocketStream;
 use base::{
-    integration_test, integration_test_listen_fut,
+    integration_test, integration_test_listen_fut, integration_test_with_server_flag,
     rt_worker::worker_ctx::{create_user_worker_pool, create_worker, TerminationToken},
     server::{ServerEvent, ServerFlags, ServerHealth, Tls},
     DecoratorType,
@@ -1636,6 +1636,291 @@ async fn test_slowloris_slow_header_timedout_secure() {
 #[ignore = "too slow 2x"]
 async fn test_slowloris_slow_header_timedout_secure_inverted() {
     test_slowloris_slow_header_timedout(new_localhost_tls(true), true).await;
+}
+
+async fn test_request_idle_timeout_no_streamed_response(maybe_tls: Option<Tls>) {
+    let client = maybe_tls.client();
+    let req = client
+        .request(
+            Method::GET,
+            format!(
+                "{}://localhost:{}/sleep-5000ms",
+                maybe_tls.schema(),
+                maybe_tls.port(),
+            ),
+        )
+        .build()
+        .unwrap();
+
+    let original = RequestBuilder::from_parts(client, req);
+    let request_builder = Some(original);
+
+    integration_test_with_server_flag!(
+        ServerFlags {
+            request_idle_timeout_ms: Some(1000),
+            ..Default::default()
+        },
+        "./test_cases/main",
+        NON_SECURE_PORT,
+        "",
+        None,
+        None,
+        request_builder,
+        maybe_tls,
+        (|resp| async {
+            assert_eq!(resp.unwrap().status().as_u16(), StatusCode::REQUEST_TIMEOUT);
+        }),
+        TerminationToken::new()
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_request_idle_timeout_no_streamed_response_non_secure() {
+    test_request_idle_timeout_no_streamed_response(new_localhost_tls(false)).await;
+}
+
+#[tokio::test]
+#[serial]
+async fn test_request_idle_timeout_no_streamed_response_secure() {
+    test_request_idle_timeout_no_streamed_response(new_localhost_tls(true)).await;
+}
+
+async fn test_request_idle_timeout_streamed_response(maybe_tls: Option<Tls>) {
+    let client = maybe_tls.client();
+    let req = client
+        .request(
+            Method::GET,
+            format!(
+                "{}://localhost:{}/chunked-char-variable-delay-max-6000ms",
+                maybe_tls.schema(),
+                maybe_tls.port(),
+            ),
+        )
+        .build()
+        .unwrap();
+
+    let original = RequestBuilder::from_parts(client, req);
+    let request_builder = Some(original);
+
+    integration_test_with_server_flag!(
+        ServerFlags {
+            request_idle_timeout_ms: Some(2000),
+            ..Default::default()
+        },
+        "./test_cases/main",
+        NON_SECURE_PORT,
+        "",
+        None,
+        None,
+        request_builder,
+        maybe_tls,
+        (|resp| async {
+            let resp = resp.unwrap();
+
+            assert_eq!(resp.status().as_u16(), StatusCode::OK);
+            assert!(resp.content_length().is_none());
+
+            let mut buf = Vec::<u8>::new();
+            let mut bytes_stream = resp.bytes_stream();
+
+            loop {
+                match bytes_stream.next().await {
+                    Some(Ok(v)) => {
+                        buf.extend(v);
+                    }
+
+                    Some(Err(_)) => {
+                        break;
+                    }
+
+                    None => {
+                        break;
+                    }
+                }
+            }
+
+            assert_eq!(&buf, b"meo");
+        }),
+        TerminationToken::new()
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_request_idle_timeout_streamed_response_non_secure() {
+    test_request_idle_timeout_streamed_response(new_localhost_tls(false)).await;
+}
+
+#[tokio::test]
+#[serial]
+async fn test_request_idle_timeout_streamed_response_secure() {
+    test_request_idle_timeout_streamed_response(new_localhost_tls(true)).await;
+}
+
+async fn test_request_idle_timeout_streamed_response_first_chunk_timeout(maybe_tls: Option<Tls>) {
+    let client = maybe_tls.client();
+    let req = client
+        .request(
+            Method::GET,
+            format!(
+                "{}://localhost:{}/chunked-char-first-6000ms",
+                maybe_tls.schema(),
+                maybe_tls.port(),
+            ),
+        )
+        .build()
+        .unwrap();
+
+    let original = RequestBuilder::from_parts(client, req);
+    let request_builder = Some(original);
+
+    integration_test_with_server_flag!(
+        ServerFlags {
+            request_idle_timeout_ms: Some(1000),
+            ..Default::default()
+        },
+        "./test_cases/main",
+        NON_SECURE_PORT,
+        "",
+        None,
+        None,
+        request_builder,
+        maybe_tls,
+        (|resp| async {
+            let resp = resp.unwrap();
+
+            assert_eq!(resp.status().as_u16(), StatusCode::OK);
+            assert!(resp.content_length().is_none());
+
+            let mut buf = Vec::<u8>::new();
+            let mut bytes_stream = resp.bytes_stream();
+
+            loop {
+                match bytes_stream.next().await {
+                    Some(Ok(v)) => {
+                        buf.extend(v);
+                    }
+
+                    Some(Err(_)) => {
+                        break;
+                    }
+
+                    None => {
+                        break;
+                    }
+                }
+            }
+
+            assert_eq!(&buf, b"");
+        }),
+        TerminationToken::new()
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_request_idle_timeout_streamed_response_first_chunk_timeout_non_secure() {
+    test_request_idle_timeout_streamed_response_first_chunk_timeout(new_localhost_tls(false)).await;
+}
+
+#[tokio::test]
+#[serial]
+async fn test_request_idle_timeout_streamed_response_first_chunk_timeout_secure() {
+    test_request_idle_timeout_streamed_response_first_chunk_timeout(new_localhost_tls(true)).await;
+}
+
+async fn test_request_idle_timeout_websocket_deno(maybe_tls: Option<Tls>, use_node_ws: bool) {
+    let nonce = tungstenite::handshake::client::generate_key();
+    let client = maybe_tls.client();
+    let req = client
+        .request(
+            Method::GET,
+            format!(
+                "{}://localhost:{}/websocket-upgrade-no-send{}",
+                maybe_tls.schema(),
+                maybe_tls.port(),
+                if use_node_ws { "-node" } else { "" }
+            ),
+        )
+        .header(header::CONNECTION, "upgrade")
+        .header(header::UPGRADE, "websocket")
+        .header(header::SEC_WEBSOCKET_KEY, &nonce)
+        .header(header::SEC_WEBSOCKET_VERSION, "13")
+        .build()
+        .unwrap();
+
+    let original = RequestBuilder::from_parts(client, req);
+    let request_builder = Some(original);
+
+    integration_test_with_server_flag!(
+        ServerFlags {
+            request_idle_timeout_ms: Some(1000),
+            ..Default::default()
+        },
+        "./test_cases/main",
+        NON_SECURE_PORT,
+        "",
+        None,
+        None,
+        request_builder,
+        maybe_tls,
+        (|resp| async {
+            let res = resp.unwrap();
+            let accepted = get_upgrade_type(res.headers());
+
+            assert!(res.status().as_u16() == 101);
+            assert!(accepted.is_some());
+            assert_eq!(accepted.as_ref().unwrap(), "websocket");
+
+            let upgraded = res.upgrade().await.unwrap();
+            let mut ws = WebSocketStream::from_raw_socket(
+                upgraded.compat(),
+                tungstenite::protocol::Role::Client,
+                None,
+            )
+            .await;
+
+            sleep(Duration::from_secs(3)).await;
+
+            ws.send(Message::Text("meow!!".into())).await.unwrap();
+
+            let err = ws.next().await.unwrap().unwrap_err();
+
+            use tungstenite::error::ProtocolError;
+            use tungstenite::Error;
+
+            assert!(matches!(
+                err,
+                Error::Protocol(ProtocolError::ResetWithoutClosingHandshake)
+            ));
+        }),
+        TerminationToken::new()
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_request_idle_timeout_websocket_deno_non_secure() {
+    test_request_idle_timeout_websocket_deno(new_localhost_tls(false), false).await;
+}
+
+#[tokio::test]
+#[serial]
+async fn test_request_idle_timeout_websocket_deno_secure() {
+    test_request_idle_timeout_websocket_deno(new_localhost_tls(true), false).await;
+}
+
+#[tokio::test]
+#[serial]
+async fn test_request_idle_timeout_websocket_node_non_secure() {
+    test_request_idle_timeout_websocket_deno(new_localhost_tls(false), true).await;
+}
+
+#[tokio::test]
+#[serial]
+async fn test_request_idle_timeout_websocket_node_secure() {
+    test_request_idle_timeout_websocket_deno(new_localhost_tls(true), true).await;
 }
 
 trait AsyncReadWrite: AsyncRead + AsyncWrite + Send + Unpin {}

@@ -1,5 +1,6 @@
 use crate::deno_runtime::DenoRuntime;
 use crate::inspector_server::Inspector;
+use crate::timeout;
 use crate::utils::send_event_if_event_worker_available;
 use crate::utils::units::bytes_to_display;
 
@@ -184,7 +185,7 @@ async fn relay_upgraded_request_and_response(
     match copy_bidirectional(&mut upstream, &mut downstream).await {
         Ok(_) => {}
         Err(err) if err.kind() == ErrorKind::UnexpectedEof => {
-            let Ok(_) = downstream.downcast::<TlsStream<TcpStream>>() else {
+            let Ok(_) = downstream.downcast::<timeout::Stream<TlsStream<TcpStream>>>() else {
                 // TODO(Nyannyacha): It would be better if we send
                 // `close_notify` before shutdown an upstream if downstream is a
                 // TLS stream.
@@ -253,7 +254,7 @@ pub fn create_supervisor(
             debug!("Hard memory limit triggered");
 
             if memory_limit_tx.send(()).is_err() {
-                error!("failed to send memory limit reached notification - isolate may already be terminating"); 
+                error!("failed to send memory limit reached notification - isolate may already be terminating");
             }
 
             true
@@ -263,10 +264,7 @@ pub fn create_supervisor(
     worker_runtime.js_runtime.add_near_heap_limit_callback({
         let memory_limit_tx = memory_limit_tx.clone();
         move |cur, _| {
-            debug!(
-                "Low memory alert triggered: {}",
-                bytes_to_display(cur as u64),
-            );
+            debug!("Low memory alert triggered: {}", bytes_to_display(cur as u64),);
 
             if memory_limit_tx.send(()).is_err() {
                 error!("failed to send memory limit reached notification - isolate may already be terminating");

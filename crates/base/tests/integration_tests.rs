@@ -1,18 +1,26 @@
 #[path = "../src/utils/integration_test_helper.rs"]
 mod integration_test_helper;
 
-use std::{borrow::Cow, collections::HashMap, path::Path, time::Duration};
+use std::{
+    borrow::Cow,
+    collections::HashMap,
+    io::{self, Cursor},
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    path::Path,
+    sync::Arc,
+    time::Duration,
+};
 
 use anyhow::Context;
 use async_tungstenite::WebSocketStream;
 use base::{
-    integration_test,
+    integration_test, integration_test_listen_fut,
     rt_worker::worker_ctx::{create_user_worker_pool, create_worker, TerminationToken},
-    server::{ServerEvent, Tls},
+    server::{ServerEvent, ServerFlags, ServerHealth, Tls},
     DecoratorType,
 };
 use deno_core::serde_json;
-use futures_util::{Future, SinkExt, StreamExt};
+use futures_util::{future::BoxFuture, Future, FutureExt, SinkExt, StreamExt};
 use http::{Method, Request, StatusCode};
 use http_utils::utils::get_upgrade_type;
 use hyper::{body::to_bytes, Body};
@@ -27,9 +35,15 @@ use sb_workers::context::{MainWorkerRuntimeOpts, WorkerContextInitOpts, WorkerRu
 use serde::Deserialize;
 use serial_test::serial;
 use tokio::{
+    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     join,
+    net::TcpStream,
     sync::{mpsc, oneshot},
     time::{sleep, timeout},
+};
+use tokio_rustls::{
+    rustls::{pki_types::ServerName, ClientConfig, RootCertStore},
+    TlsConnector,
 };
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use tungstenite::Message;
@@ -1310,12 +1324,11 @@ async fn test_decorators(ty: Option<DecoratorType>) {
 
             if is_disabled {
                 assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
-                assert!(
-                    resp.text().await.unwrap().starts_with(
-                        "{\"msg\":\"InvalidWorkerCreation: worker boot error Uncaught SyntaxError: Invalid or unexpected token"
-                    ),
-
-                );
+                assert!(resp
+                    .text()
+                    .await
+                    .unwrap()
+                    .starts_with("{\"msg\":\"InvalidWorkerCreation: worker boot error Uncaught SyntaxError: Invalid or unexpected token"),);
             } else {
                 assert_eq!(resp.status(), StatusCode::OK);
                 assert_eq!(resp.text().await.unwrap().as_str(), "meow?");
@@ -1415,10 +1428,224 @@ async fn oak_with_jsr_specifier() {
     );
 }
 
+async fn test_slowloris<F, R>(request_read_timeout_ms: u64, maybe_tls: Option<Tls>, test_fn: F)
+where
+    F: (FnOnce(Box<dyn AsyncReadWrite>) -> R) + Send + 'static,
+    R: Future<Output = bool> + Send,
+{
+    let token = TerminationToken::new();
+
+    let (health_tx, mut health_rx) = mpsc::channel(1);
+    let (tx, rx) = oneshot::channel();
+
+    let mut listen_fut = integration_test_listen_fut!(
+        NON_SECURE_PORT,
+        maybe_tls,
+        "./test_cases/main",
+        None,
+        None,
+        ServerFlags {
+            request_read_timeout_ms: Some(request_read_timeout_ms),
+            ..Default::default()
+        },
+        health_tx,
+        Some(token.clone())
+    );
+
+    let req_fut = {
+        let token = token.clone();
+        async move {
+            assert!(test_fn(maybe_tls.stream().await).await);
+
+            if timeout(Duration::from_secs(10), token.cancel_and_wait())
+                .await
+                .is_err()
+            {
+                panic!("failed to terminate server within 10 seconds");
+            }
+
+            tx.send(()).unwrap();
+        }
+    };
+
+    let join_fut = tokio::spawn(async move {
+        loop {
+            if let Some(ServerHealth::Listening(..)) = health_rx.recv().await {
+                break;
+            }
+        }
+
+        req_fut.await;
+    });
+
+    tokio::select! {
+        _ = join_fut => {}
+        _ = &mut listen_fut => {}
+    };
+
+    if timeout(Duration::from_secs(10), rx).await.is_err() {
+        panic!("failed to check within 10 seconds");
+    }
+}
+
+async fn test_slowloris_no_prompt_timeout(maybe_tls: Option<Tls>, invert: bool) {
+    test_slowloris(
+        if invert { u64::MAX } else { 5000 },
+        maybe_tls,
+        move |mut io| async move {
+            static HEADER: &[u8] = b"GET /oak-with-jsr HTTP/1.1\r\nHost: localhost\r\n\r\n";
+
+            let check_io_kind_fn = move |err: std::io::Error| {
+                if invert {
+                    return true;
+                }
+
+                matches!(
+                    err.kind(),
+                    io::ErrorKind::BrokenPipe | io::ErrorKind::UnexpectedEof
+                )
+            };
+
+            // > 5000ms
+            sleep(Duration::from_secs(10)).await;
+
+            if let Err(err) = io.write_all(HEADER).await {
+                return check_io_kind_fn(err);
+            }
+
+            if let Err(err) = io.flush().await {
+                return check_io_kind_fn(err);
+            }
+
+            let mut buf = vec![0; 1_048_576];
+
+            match io.read(&mut buf).await {
+                Ok(nread) => {
+                    if invert {
+                        nread > 0
+                    } else {
+                        nread == 0
+                    }
+                }
+
+                Err(err) => check_io_kind_fn(err),
+            }
+        },
+    )
+    .await;
+}
+
+#[tokio::test]
+#[serial]
+async fn test_slowloris_no_prompt_timeout_non_secure() {
+    test_slowloris_no_prompt_timeout(new_localhost_tls(false), false).await;
+}
+
+#[tokio::test]
+#[serial]
+#[ignore = "too slow"]
+async fn test_slowloris_no_prompt_timeout_non_secure_inverted() {
+    test_slowloris_no_prompt_timeout(new_localhost_tls(false), true).await;
+}
+
+#[tokio::test]
+#[serial]
+async fn test_slowloris_no_prompt_timeout_secure() {
+    test_slowloris_no_prompt_timeout(new_localhost_tls(true), false).await;
+}
+
+#[tokio::test]
+#[serial]
+#[ignore = "too slow"]
+async fn test_slowloris_no_prompt_timeout_secure_inverted() {
+    test_slowloris_no_prompt_timeout(new_localhost_tls(true), true).await;
+}
+
+async fn test_slowloris_slow_header_timedout(maybe_tls: Option<Tls>, invert: bool) {
+    test_slowloris(
+        if invert { u64::MAX } else { 5000 },
+        maybe_tls,
+        move |mut io| async move {
+            static HEADER: &[u8] = b"GET /oak-with-jsr HTTP/1.1\r\nHost: localhost\r\n\r\n";
+
+            let check_io_kind_fn = move |err: std::io::Error| {
+                if invert {
+                    return true;
+                }
+
+                matches!(
+                    err.kind(),
+                    io::ErrorKind::BrokenPipe | io::ErrorKind::UnexpectedEof
+                )
+            };
+
+            // takes 1000ms per each character (ie. > 5000ms)
+            for &b in HEADER {
+                if let Err(err) = io.write(&[b]).await {
+                    return check_io_kind_fn(err);
+                }
+
+                if let Err(err) = io.flush().await {
+                    return check_io_kind_fn(err);
+                }
+
+                sleep(Duration::from_secs(1)).await;
+            }
+
+            let mut buf = vec![0; 1_048_576];
+
+            match io.read(&mut buf).await {
+                Ok(nread) => {
+                    if invert {
+                        nread > 0
+                    } else {
+                        nread == 0
+                    }
+                }
+
+                Err(err) => check_io_kind_fn(err),
+            }
+        },
+    )
+    .await;
+}
+
+#[tokio::test]
+#[serial]
+async fn test_slowloris_slow_header_timedout_non_secure() {
+    test_slowloris_slow_header_timedout(new_localhost_tls(false), false).await;
+}
+
+#[tokio::test]
+#[serial]
+#[ignore = "too slow 2x"]
+async fn test_slowloris_slow_header_timedout_non_secure_inverted() {
+    test_slowloris_slow_header_timedout(new_localhost_tls(false), true).await;
+}
+
+#[tokio::test]
+#[serial]
+async fn test_slowloris_slow_header_timedout_secure() {
+    test_slowloris_slow_header_timedout(new_localhost_tls(true), false).await;
+}
+
+#[tokio::test]
+#[serial]
+#[ignore = "too slow 2x"]
+async fn test_slowloris_slow_header_timedout_secure_inverted() {
+    test_slowloris_slow_header_timedout(new_localhost_tls(true), true).await;
+}
+
+trait AsyncReadWrite: AsyncRead + AsyncWrite + Send + Unpin {}
+
+impl<T> AsyncReadWrite for T where T: AsyncRead + AsyncWrite + Send + Unpin {}
+
 trait TlsExt {
     fn client(&self) -> Client;
     fn schema(&self) -> &'static str;
+    fn sock_addr(&self) -> SocketAddr;
     fn port(&self) -> u16;
+    fn stream(&self) -> BoxFuture<'static, Box<dyn AsyncReadWrite>>;
 }
 
 impl TlsExt for Option<Tls> {
@@ -1441,12 +1668,60 @@ impl TlsExt for Option<Tls> {
         }
     }
 
+    fn sock_addr(&self) -> SocketAddr {
+        const SOCK_ADDR_SECURE: SocketAddr =
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), SECURE_PORT);
+
+        const SOCK_ADDR_NON_SECURE: SocketAddr =
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), NON_SECURE_PORT);
+
+        if self.is_some() {
+            SOCK_ADDR_SECURE
+        } else {
+            SOCK_ADDR_NON_SECURE
+        }
+    }
+
     fn port(&self) -> u16 {
         if self.is_some() {
             SECURE_PORT
         } else {
             NON_SECURE_PORT
         }
+    }
+
+    fn stream(&self) -> BoxFuture<'static, Box<dyn AsyncReadWrite>> {
+        let use_tls = self.is_some();
+        let sock_addr = self.sock_addr();
+
+        async move {
+            if use_tls {
+                let mut cursor = Cursor::new(Vec::from(TLS_LOCALHOST_ROOT_CA));
+                let certs = rustls_pemfile::certs(&mut cursor)
+                    .collect::<Result<Vec<_>, _>>()
+                    .unwrap();
+
+                let mut root_cert_store = RootCertStore::empty();
+                let _ = root_cert_store.add_parsable_certificates(certs);
+
+                let config = ClientConfig::builder()
+                    .with_root_certificates(root_cert_store)
+                    .with_no_client_auth();
+
+                let connector = TlsConnector::from(Arc::new(config));
+                let dnsname = ServerName::try_from("localhost").unwrap();
+
+                let stream = TcpStream::connect(sock_addr).await.unwrap();
+                let stream = connector.connect(dnsname, stream).await.unwrap();
+
+                Box::new(stream) as Box<dyn AsyncReadWrite>
+            } else {
+                let stream = TcpStream::connect(sock_addr).await.unwrap();
+
+                Box::new(stream) as Box<dyn AsyncReadWrite>
+            }
+        }
+        .boxed()
     }
 }
 

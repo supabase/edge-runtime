@@ -327,6 +327,7 @@ impl EmitterFactory {
     pub fn cli_graph_resolver_options(&self) -> CliGraphResolverOptions {
         CliGraphResolverOptions {
             maybe_import_map: self.maybe_import_map.clone(),
+            no_npm: !self.file_fetcher_allow_remote,
             ..Default::default()
         }
     }
@@ -339,7 +340,11 @@ impl EmitterFactory {
                     self.package_json_deps_provider().clone(),
                     self.package_json_deps_installer().await.clone(),
                     self.cli_graph_resolver_options(),
-                    Some(self.npm_resolver().await.clone()),
+                    if self.file_fetcher_allow_remote {
+                        Some(self.npm_resolver().await.clone())
+                    } else {
+                        None
+                    },
                 )))
             })
             .await

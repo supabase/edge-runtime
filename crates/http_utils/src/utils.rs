@@ -1,4 +1,4 @@
-use http::{header, response, HeaderMap, Response, StatusCode};
+use http::{header, response, HeaderMap, HeaderValue, Response, StatusCode};
 use hyper::Body;
 
 pub fn get_upgrade_type(headers: &HeaderMap) -> Option<String> {
@@ -21,9 +21,25 @@ pub fn get_upgrade_type(headers: &HeaderMap) -> Option<String> {
     None
 }
 
-pub fn emit_status_code(status: StatusCode) -> Response<Body> {
-    response::Builder::new()
-        .status(status)
-        .body(Body::empty())
-        .unwrap()
+pub fn emit_status_code(
+    status: StatusCode,
+    body: Option<Body>,
+    connection_close: bool,
+) -> Response<Body> {
+    let builder = response::Builder::new().status(status);
+
+    let builder = if connection_close {
+        builder.header(header::CONNECTION, HeaderValue::from_static("close"))
+    } else {
+        builder
+    };
+
+    if let Some(body) = body {
+        builder.body(body)
+    } else {
+        builder
+            .header(http::header::CONTENT_LENGTH, 0)
+            .body(Body::empty())
+    }
+    .unwrap()
 }

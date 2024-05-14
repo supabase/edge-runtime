@@ -141,6 +141,11 @@ fn get_start_command() -> Command {
                 .value_parser(value_parser!(u64)),
         )
         .arg(
+            arg!(--"request-idle-timeout" <MILLISECONDS>)
+                .help("Maximum time in milliseconds that can be waited from when a worker takes over the request")
+                .value_parser(value_parser!(u64)),
+        )
+        .arg(
             arg!(--"request-read-timeout" <MILLISECONDS>)
                 .help("Maximum time in milliseconds that can be waited from when the connection is accepted until the request body is fully read")
                 .value_parser(value_parser!(u64)),

@@ -244,6 +244,8 @@ pub struct ServerFlags {
     pub tcp_nodelay: bool,
     pub graceful_exit_deadline_sec: u64,
     pub graceful_exit_keepalive_deadline_ms: Option<u64>,
+    pub request_wait_timeout_ms: Option<u64>,
+    pub request_idle_timeout_ms: Option<u64>,
     pub request_read_timeout_ms: Option<u64>,
 }
 
@@ -379,6 +381,7 @@ impl Server {
             Some(termination_tokens.pool.clone()),
             static_patterns,
             inspector.clone(),
+            flags.request_idle_timeout_ms,
         )
         .await?;
 

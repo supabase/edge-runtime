@@ -1,6 +1,6 @@
 use crate::deno_runtime::DenoRuntime;
 use crate::inspector_server::Inspector;
-use crate::timeout;
+use crate::timeout::{self, CancelOnWriteTimeout, ReadTimeoutStream};
 use crate::utils::send_event_if_event_worker_available;
 use crate::utils::units::bytes_to_display;
 
@@ -36,6 +36,7 @@ use tokio::io::{self, copy_bidirectional};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::time::sleep;
 use tokio_rustls::server::TlsStream;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -96,6 +97,7 @@ async fn handle_request(
     worker_kind: WorkerKind,
     duplex_stream_tx: mpsc::UnboundedSender<DuplexStreamEntry>,
     msg: WorkerRequestMsg,
+    maybe_request_idle_timeout: Option<u64>,
 ) -> Result<(), Error> {
     let (ours, theirs) = io::duplex(1024);
     let WorkerRequestMsg {
@@ -135,6 +137,7 @@ async fn handle_request(
                                 tokio::spawn(relay_upgraded_request_and_response(
                                     req_upgrade,
                                     parts,
+                                    maybe_request_idle_timeout,
                                 ));
 
                                 return;
@@ -152,7 +155,23 @@ async fn handle_request(
 
     tokio::task::yield_now().await;
 
-    let res = request_sender.send_request(req).await;
+    let maybe_cancel_fut = async move {
+        if let Some(timeout_ms) = maybe_request_idle_timeout {
+            sleep(Duration::from_millis(timeout_ms)).await;
+        } else {
+            pending::<()>().await;
+            unreachable!()
+        }
+    };
+
+    let res = tokio::select! {
+        resp = request_sender.send_request(req) => resp,
+        _ = maybe_cancel_fut => {
+            // XXX(Nyannyacha): Should we add a more detailed message?
+            Ok(emit_status_code(http::StatusCode::REQUEST_TIMEOUT, None, true))
+        }
+    };
+
     let Ok(res) = res else {
         drop(res_tx.send(res));
         return Ok(());
@@ -165,9 +184,26 @@ async fn handle_request(
         match res_upgrade_type {
             Some(accepted) if accepted == requested => {}
             _ => {
-                drop(res_tx.send(Ok(emit_status_code(StatusCode::BAD_GATEWAY))));
+                drop(res_tx.send(Ok(emit_status_code(StatusCode::BAD_GATEWAY, None, true))));
                 return Ok(());
             }
+        }
+    }
+
+    if let Some(timeout_ms) = maybe_request_idle_timeout {
+        let headers = res.headers();
+        let is_streamed_response = !headers.contains_key(http::header::CONTENT_LENGTH);
+
+        if is_streamed_response {
+            let duration = Duration::from_millis(timeout_ms);
+            let (parts, body) = res.into_parts();
+
+            drop(res_tx.send(Ok(Response::from_parts(
+                parts,
+                Body::wrap_stream(CancelOnWriteTimeout::new(body, duration)),
+            ))));
+
+            return Ok(());
         }
     }
 
@@ -178,13 +214,21 @@ async fn handle_request(
 async fn relay_upgraded_request_and_response(
     downstream: OnUpgrade,
     parts: http1::Parts<io::DuplexStream>,
+    maybe_idle_timeout: Option<u64>,
 ) {
-    let mut upstream = Upgraded2::new(parts.io, parts.read_buf);
+    let upstream = Upgraded2::new(parts.io, parts.read_buf);
+    let mut upstream = if let Some(timeout_ms) = maybe_idle_timeout {
+        ReadTimeoutStream::with_timeout(upstream, Duration::from_millis(timeout_ms))
+    } else {
+        ReadTimeoutStream::with_bypass(upstream)
+    };
+
     let mut downstream = downstream.await.expect("failed to upgrade request");
 
     match copy_bidirectional(&mut upstream, &mut downstream).await {
         Ok(_) => {}
-        Err(err) if err.kind() == ErrorKind::UnexpectedEof => {
+        Err(err) if matches!(err.kind(), ErrorKind::TimedOut | ErrorKind::BrokenPipe) => {}
+        Err(err) if matches!(err.kind(), ErrorKind::UnexpectedEof) => {
             let Ok(_) = downstream.downcast::<timeout::Stream<TlsStream<TcpStream>>>() else {
                 // TODO(Nyannyacha): It would be better if we send
                 // `close_notify` before shutdown an upstream if downstream is a
@@ -196,8 +240,8 @@ async fn relay_upgraded_request_and_response(
             };
         }
 
-        _ => {
-            unreachable!("coping between upgraded connections failed");
+        value => {
+            unreachable!("coping between upgraded connections failed: {:?}", value);
         }
     }
 
@@ -512,6 +556,7 @@ impl CreateWorkerArgs {
 pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
     init_opts: Opt,
     inspector: Option<Inspector>,
+    maybe_request_idle_timeout: Option<u64>,
 ) -> Result<(MetricSource, mpsc::UnboundedSender<WorkerRequestMsg>), Error> {
     let (duplex_stream_tx, duplex_stream_rx) = mpsc::unbounded_channel::<DuplexStreamEntry>();
     let (worker_boot_result_tx, worker_boot_result_rx) =
@@ -553,8 +598,13 @@ pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
                     tokio::task::spawn({
                         let stream_tx_inner = stream_tx.clone();
                         async move {
-                            if let Err(err) =
-                                handle_request(worker_kind, stream_tx_inner, msg).await
+                            if let Err(err) = handle_request(
+                                worker_kind,
+                                stream_tx_inner,
+                                msg,
+                                maybe_request_idle_timeout,
+                            )
+                            .await
                             {
                                 error!("worker failed to handle request: {:?}", err);
                             }
@@ -666,6 +716,7 @@ pub async fn create_main_worker(
             termination_token,
         ),
         inspector,
+        None,
     )
     .await
     .map_err(|err| anyhow!("main worker boot error: {}", err))?;
@@ -713,6 +764,7 @@ pub async fn create_events_worker(
             termination_token,
         ),
         None,
+        None,
     )
     .await
     .map_err(|err| anyhow!("events worker boot error: {}", err))?;
@@ -726,6 +778,7 @@ pub async fn create_user_worker_pool(
     termination_token: Option<TerminationToken>,
     static_patterns: Vec<String>,
     inspector: Option<Inspector>,
+    request_idle_timeout: Option<u64>,
 ) -> Result<(SharedMetricSource, mpsc::UnboundedSender<UserWorkerMsgs>), Error> {
     let metric_src = SharedMetricSource::default();
     let (user_worker_msgs_tx, mut user_worker_msgs_rx) =
@@ -744,6 +797,7 @@ pub async fn create_user_worker_pool(
                 worker_event_sender,
                 user_worker_msgs_tx_clone,
                 inspector,
+                request_idle_timeout,
             );
 
             // Note: Keep this loop non-blocking. Spawn a task to run blocking calls.

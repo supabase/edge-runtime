@@ -7,6 +7,7 @@ use std::{
     time::Duration,
 };
 
+use enum_as_inner::EnumAsInner;
 use futures_util::Future;
 use pin_project::pin_project;
 use tokio::{
@@ -276,5 +277,166 @@ where
 
     fn size_hint(&self) -> hyper::body::SizeHint {
         self.inner.size_hint()
+    }
+}
+
+pub(crate) struct CancelOnWriteTimeout<S> {
+    inner: S,
+    duration: Duration,
+    sleep: Pin<Box<Sleep>>,
+}
+
+impl<S: futures_util::Stream + Unpin> futures_util::Stream for CancelOnWriteTimeout<S> {
+    type Item = S::Item;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        match Pin::new(&mut self.inner).poll_next(cx) {
+            Poll::Ready(v) => {
+                let deadline = Instant::now() + self.duration;
+
+                self.sleep.as_mut().reset(deadline);
+
+                Poll::Ready(v)
+            }
+
+            Poll::Pending => {
+                if let Poll::Ready(()) = self.sleep.as_mut().poll(cx) {
+                    return Poll::Ready(None);
+                }
+
+                Poll::Pending
+            }
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+}
+
+impl<S> CancelOnWriteTimeout<S> {
+    pub(crate) fn new(inner: S, duration: Duration) -> Self {
+        Self {
+            inner,
+            duration,
+            sleep: Box::pin(sleep(duration)),
+        }
+    }
+}
+
+#[derive(EnumAsInner)]
+pub(crate) enum ReadTimeoutOp {
+    UseTimeout {
+        duration: Duration,
+        sleep: Pin<Box<Sleep>>,
+    },
+
+    Bypass,
+}
+
+pub(crate) struct ReadTimeoutStream<S> {
+    inner: S,
+    op: ReadTimeoutOp,
+}
+
+impl<S> AsyncRead for ReadTimeoutStream<S>
+where
+    S: AsyncRead + Unpin,
+{
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        match Pin::new(&mut self.inner).poll_read(cx, buf) {
+            Poll::Ready(v) => {
+                if self.op.is_bypass() {
+                    return Poll::Ready(v);
+                }
+
+                let (duration, sleep) = self.op.as_use_timeout_mut().unwrap();
+
+                let deadline = Instant::now() + *duration;
+
+                sleep.as_mut().reset(deadline);
+
+                Poll::Ready(v)
+            }
+
+            Poll::Pending => {
+                if let Some((_, sleep)) = self.op.as_use_timeout_mut() {
+                    if let Poll::Ready(()) = sleep.as_mut().poll(cx) {
+                        return Poll::Ready(Err(std::io::Error::new(
+                            std::io::ErrorKind::TimedOut,
+                            "socket timed out",
+                        )));
+                    }
+                }
+
+                Poll::Pending
+            }
+        }
+    }
+}
+
+impl<S> AsyncWrite for ReadTimeoutStream<S>
+where
+    S: AsyncWrite + Unpin,
+{
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> Poll<Result<usize, std::io::Error>> {
+        Pin::new(&mut self.inner).poll_write(cx, buf)
+    }
+
+    fn poll_write_vectored(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        bufs: &[std::io::IoSlice<'_>],
+    ) -> Poll<Result<usize, std::io::Error>> {
+        Pin::new(&mut self.inner).poll_write_vectored(cx, bufs)
+    }
+
+    fn poll_flush(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Result<(), std::io::Error>> {
+        Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Result<(), std::io::Error>> {
+        Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
+
+    fn is_write_vectored(&self) -> bool {
+        self.inner.is_write_vectored()
+    }
+}
+
+impl<S> ReadTimeoutStream<S> {
+    pub(crate) fn new(inner: S, kind: ReadTimeoutOp) -> Self {
+        Self { inner, op: kind }
+    }
+
+    pub(crate) fn with_timeout(inner: S, duration: Duration) -> Self {
+        Self::new(
+            inner,
+            ReadTimeoutOp::UseTimeout {
+                duration,
+                sleep: Box::pin(sleep(duration)),
+            },
+        )
+    }
+
+    pub(crate) fn with_bypass(inner: S) -> Self {
+        Self::new(inner, ReadTimeoutOp::Bypass)
     }
 }

@@ -11,7 +11,7 @@ license = "MIT"
 path = "lib.rs"
 
 [dependencies]
-deno_ast = { workspace = true, features = ["transpiling", "bundler", "cjs", "codegen", "dep_graph", "module_specifier", "proposal", "react", "sourcemap", "transforms", "typescript", "view", "visit"] }
+deno_ast = { workspace = true, features = ["transpiling", "bundler", "cjs", "codegen", "proposal", "react", "sourcemap", "transforms", "typescript", "view", "visit"] }
 deno_net.workspace = true
 deno_web.workspace = true
 deno_fetch.workspace = true
@@ -33,6 +33,7 @@ log.workspace = true
 tokio-util.workspace = true
 ring.workspace = true
 deno_graph.workspace = true
+deno_io.workspace = true
 once_cell.workspace = true
 import_map.workspace = true
 data-url = { version= "=0.3.0" }

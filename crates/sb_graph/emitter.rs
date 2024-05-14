@@ -1,6 +1,6 @@
 use crate::graph_resolver::{CliGraphResolver, CliGraphResolverOptions};
 use crate::DecoratorType;
-use deno_ast::EmitOptions;
+use deno_ast::{EmitOptions, SourceMapOption, TranspileOptions};
 use deno_core::error::AnyError;
 use deno_core::parking_lot::Mutex;
 use deno_lockfile::Lockfile;
@@ -177,6 +177,14 @@ impl EmitterFactory {
 
     pub fn emit_options(&self) -> EmitOptions {
         EmitOptions {
+            inline_sources: false,
+            source_map: SourceMapOption::None,
+            ..Default::default()
+        }
+    }
+
+    pub fn transpile_options(&self) -> TranspileOptions {
+        TranspileOptions {
             use_decorators_proposal: self
                 .maybe_decorator
                 .map(DecoratorType::is_use_decorators_proposal)
@@ -191,11 +199,6 @@ impl EmitterFactory {
                 .maybe_decorator
                 .map(DecoratorType::is_emit_metadata)
                 .unwrap_or_default(),
-
-            inline_source_map: true,
-            inline_sources: true,
-            source_map: true,
-
             ..Default::default()
         }
     }

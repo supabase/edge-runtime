@@ -68,7 +68,7 @@ impl NpmModuleLoader {
         let file_path = specifier.to_file_path().unwrap();
         let code = self
             .fs
-            .read_text_file_sync(&file_path)
+            .read_text_file_sync(&file_path, None)
             .map_err(AnyError::from)
             .with_context(|| {
                 if file_path.is_dir() {
@@ -105,7 +105,7 @@ impl NpmModuleLoader {
             // translate cjs to esm if it's cjs and inject node globals
             self.node_code_translator.translate_cjs_to_esm(
                 specifier,
-                Some(code.as_str()),
+                Some(code),
                 permissions,
             )?
         } else {

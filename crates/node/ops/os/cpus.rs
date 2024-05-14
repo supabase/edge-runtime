@@ -230,16 +230,18 @@ pub fn cpu_info() -> Option<Vec<CpuInfo>> {
 pub fn cpu_info() -> Option<Vec<CpuInfo>> {
     use std::io::BufRead;
 
-    let mut cpus = vec![CpuInfo::new(); 8192]; /* Kernel maxmimum */
+    let mut cpus = vec![CpuInfo::new(); 8192]; /* Kernel maximum */
 
     let fp = std::fs::File::open("/proc/stat").ok()?;
     let reader = std::io::BufReader::new(fp);
 
+    let mut count = 0;
     for (i, line) in reader.lines().enumerate() {
         let line = line.ok()?;
         if !line.starts_with("cpu") {
             break;
         }
+        count = i;
         let mut fields = line.split_whitespace();
         fields.next()?;
         let user = fields.next()?.parse::<u64>().ok()?;
@@ -258,7 +260,7 @@ pub fn cpu_info() -> Option<Vec<CpuInfo>> {
     let fp = std::fs::File::open("/proc/cpuinfo").ok()?;
     let reader = std::io::BufReader::new(fp);
 
-    let mut i = 0;
+    let mut j = 0;
     for line in reader.lines() {
         let line = line.ok()?;
         if !line.starts_with("model name") {
@@ -268,11 +270,16 @@ pub fn cpu_info() -> Option<Vec<CpuInfo>> {
         fields.next()?;
         let model = fields.next()?.trim();
 
-        cpus[i].model = model.to_string();
-        i += 1;
+        cpus[j].model = model.to_string();
+        j += 1;
     }
 
-    cpus.truncate(i);
+    while j < count {
+        cpus[j].model = "unknown".to_string();
+        j += 1;
+    }
+
+    cpus.truncate(count);
     Some(cpus)
 }
 
@@ -285,12 +292,9 @@ mod tests {
         let info = cpu_info();
         assert!(info.is_some());
         let info = info.unwrap();
-        // NOTE(Nyannyacha): This may not exist in the docker container.
-        // assert!(!info.is_empty());
+        assert!(!info.is_empty());
         for cpu in info {
-            // NOTE(Nyannyacha): This may not exist in the docker container.
-            // assert!(!cpu.model.is_empty());
-
+            assert!(!cpu.model.is_empty());
             assert!(cpu.times.user > 0);
             assert!(cpu.times.sys > 0);
             assert!(cpu.times.idle > 0);

@@ -3,21 +3,23 @@
 use std::borrow::Cow;
 use std::path::Path;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::Arc;
 
-use crate::package_json::get_local_package_json_version_reqs;
-use crate::{NpmProcessState, NpmProcessStateKind};
 use deno_ast::ModuleSpecifier;
 use deno_core::anyhow::bail;
 use deno_core::error::AnyError;
 use deno_core::serde_json;
 use deno_fs::FileSystem;
 use deno_semver::package::PackageReq;
-use sb_core::util::fs::{canonicalize_path_maybe_not_exists_with_fs, specifier_to_file_path};
 use sb_node::NodePermissions;
 use sb_node::NodeResolutionMode;
 use sb_node::NpmResolver;
 use sb_node::PackageJson;
+
+use crate::package_json::get_local_package_json_version_reqs;
+use crate::{NpmProcessState, NpmProcessStateKind};
+use sb_core::util::fs::{canonicalize_path_maybe_not_exists_with_fs, specifier_to_file_path};
 
 use super::common::types_package_name;
 use super::CliNpmResolver;
@@ -49,7 +51,7 @@ impl ByonmCliNpmResolver {
         &self,
         dep_name: &str,
         referrer: &ModuleSpecifier,
-    ) -> Option<PackageJson> {
+    ) -> Option<Rc<PackageJson>> {
         let referrer_path = referrer.to_file_path().ok()?;
         let mut current_folder = referrer_path.parent()?;
         loop {

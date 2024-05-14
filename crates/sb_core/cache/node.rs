@@ -5,6 +5,7 @@ use deno_ast::CjsAnalysis;
 use deno_core::error::AnyError;
 use deno_core::serde_json;
 use deno_webstorage::rusqlite::params;
+use sb_node::analyze::CliCjsAnalysis;
 
 use super::cache_db::CacheDB;
 use super::cache_db::CacheDBConfiguration;
@@ -58,11 +59,16 @@ impl NodeAnalysisCache {
         &self,
         specifier: &str,
         expected_source_hash: &str,
-    ) -> Option<CjsAnalysis> {
+    ) -> Option<CliCjsAnalysis> {
         Self::ensure_ok(self.inner.get_cjs_analysis(specifier, expected_source_hash))
     }
 
-    pub fn set_cjs_analysis(&self, specifier: &str, source_hash: &str, cjs_analysis: &CjsAnalysis) {
+    pub fn set_cjs_analysis(
+        &self,
+        specifier: &str,
+        source_hash: &str,
+        cjs_analysis: &CliCjsAnalysis,
+    ) {
         Self::ensure_ok(
             self.inner
                 .set_cjs_analysis(specifier, source_hash, cjs_analysis),
@@ -84,7 +90,7 @@ impl NodeAnalysisCacheInner {
         &self,
         specifier: &str,
         expected_source_hash: &str,
-    ) -> Result<Option<CjsAnalysis>, AnyError> {
+    ) -> Result<Option<CliCjsAnalysis>, AnyError> {
         let query = "
       SELECT
         data
@@ -107,7 +113,7 @@ impl NodeAnalysisCacheInner {
         &self,
         specifier: &str,
         source_hash: &str,
-        cjs_analysis: &CjsAnalysis,
+        cjs_analysis: &CliCjsAnalysis,
     ) -> Result<(), AnyError> {
         let sql = "
       INSERT OR REPLACE INTO

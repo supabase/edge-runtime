@@ -3,13 +3,11 @@
 // TODO(petamoriken): enable prefer-primordials for node polyfills
 // deno-lint-ignore-file prefer-primordials
 
-import { core, internals } from "ext:core/mod.js";
-import { createDeferredPromise } from "ext:deno_node/internal/util.mjs";
+import { core } from "ext:core/mod.js";
 import {
   op_fetch_response_upgrade,
   op_fetch_send,
   op_node_http_request,
-  op_http_upgrade_raw2,
 } from "ext:core/ops";
 
 import { TextEncoder } from "ext:deno_web/08_text_encoding.js";
@@ -40,6 +38,7 @@ import {
   OutgoingMessage,
   parseUniqueHeadersOption,
   validateHeaderName,
+  validateHeaderValue,
 } from "ext:deno_node/_http_outgoing.ts";
 import { ok as assert } from "node:assert";
 import { kOutHeaders } from "ext:deno_node/internal/http.ts";
@@ -53,12 +52,14 @@ import { notImplemented, warnNotImplemented } from "ext:deno_node/_utils.ts";
 import {
   connResetException,
   ERR_HTTP_HEADERS_SENT,
+  ERR_HTTP_SOCKET_ASSIGNED,
   ERR_INVALID_ARG_TYPE,
   ERR_INVALID_HTTP_TOKEN,
   ERR_INVALID_PROTOCOL,
   ERR_UNESCAPED_CHARACTERS,
 } from "ext:deno_node/internal/errors.ts";
 import { getTimerDuration } from "ext:deno_node/internal/timers.mjs";
+import { serve, upgradeHttpRaw } from "ext:deno_http/00_serve.ts";
 import { createHttpClient } from "ext:deno_fetch/22_http_client.js";
 import { headersEntries } from "ext:deno_fetch/20_headers.js";
 import { timerId } from "ext:deno_web/03_abort_signal.js";
@@ -66,7 +67,7 @@ import { clearTimeout as webClearTimeout } from "ext:deno_web/02_timers.js";
 import { resourceForReadableStream } from "ext:deno_web/06_streams.js";
 import { TcpConn } from "ext:deno_net/01_net.js";
 
-/* import { serve, upgradeHttpRaw } from "ext:deno_http/00_serve.js"; */
+const { internalRidSymbol } = core;
 
 enum STATUS_CODES {
   /** RFC 7231, 6.2.1 */
@@ -298,11 +299,11 @@ class FakeSocket extends EventEmitter {
     this.readable = true;
   }
 
-  setKeepAlive() { }
+  setKeepAlive() {}
 
-  end() { }
+  end() {}
 
-  destroy() { }
+  destroy() {}
 
   setTimeout(callback, timeout = 0, ...args) {
     setTimeout(callback, timeout, args);
@@ -521,7 +522,7 @@ class ClientRequest extends OutgoingMessage {
         this.setHeader(
           "Authorization",
           "Basic " +
-          Buffer.from(options!.auth).toString("base64"),
+            Buffer.from(options!.auth).toString("base64"),
         );
       }
 
@@ -619,7 +620,7 @@ class ClientRequest extends OutgoingMessage {
       this.method,
       url,
       headers,
-      client.rid,
+      client[internalRidSymbol],
       this._bodyWriteRid,
     );
   }
@@ -805,7 +806,7 @@ class ClientRequest extends OutgoingMessage {
     }
     this.destroyed = true;
 
-    const rid = this._client?.rid;
+    const rid = this._client?.[internalRidSymbol];
     if (rid) {
       core.tryClose(rid);
     }
@@ -842,7 +843,8 @@ class ClientRequest extends OutgoingMessage {
       path = "/" + path;
     }
     const url = new URL(
-      `${protocol}//${auth ? `${auth}@` : ""}${host}${port === 80 ? "" : `:${port}`
+      `${protocol}//${auth ? `${auth}@` : ""}${host}${
+        port === 80 ? "" : `:${port}`
       }${path}`,
     );
     url.hash = hash;
@@ -1340,6 +1342,8 @@ export class ServerResponse extends NodeWritable {
   headersSent = false;
   #firstChunk: Chunk | null = null;
   #resolve: (value: Response | PromiseLike<Response>) => void;
+  // deno-lint-ignore no-explicit-any
+  #socketOverride: any | null = null;
 
   static #enqueue(controller: ReadableStreamDefaultController, chunk: Chunk) {
     if (typeof chunk === "string") {
@@ -1369,7 +1373,11 @@ export class ServerResponse extends NodeWritable {
       autoDestroy: true,
       defaultEncoding: "utf-8",
       emitClose: true,
-      write: (chunk, _encoding, cb) => {
+      write: (chunk, encoding, cb) => {
+        if (this.#socketOverride && this.#socketOverride.writable) {
+          this.#socketOverride.write(chunk, encoding);
+          return cb();
+        }
         if (!this.headersSent) {
           if (this.#firstChunk === null) {
             this.#firstChunk = chunk;
@@ -1417,6 +1425,9 @@ export class ServerResponse extends NodeWritable {
   }
   getHeaderNames() {
     return Array.from(this.#headers.keys());
+  }
+  getHeaders() {
+    return Object.fromEntries(this.#headers.entries());
   }
   hasHeader(name: string) {
     return this.#headers.has(name);
@@ -1483,6 +1494,20 @@ export class ServerResponse extends NodeWritable {
   _implicitHeader() {
     this.writeHead(this.statusCode);
   }
+
+  assignSocket(socket) {
+    if (socket._httpMessage) {
+      throw new ERR_HTTP_SOCKET_ASSIGNED();
+    }
+    socket._httpMessage = this;
+    this.#socketOverride = socket;
+  }
+
+  detachSocket(socket) {
+    assert(socket._httpMessage === this);
+    socket._httpMessage = null;
+    this.#socketOverride = null;
+  }
 }
 
 // TODO(@AaronO): optimize
@@ -1534,6 +1559,10 @@ export class IncomingMessageForServer extends NodeReadable {
     return "1.1";
   }
 
+  set httpVersion(val) {
+    assert(val === "1.1");
+  }
+
   get headers() {
     if (!this.#headers) {
       this.#headers = {};
@@ -1546,10 +1575,14 @@ export class IncomingMessageForServer extends NodeReadable {
     return this.#headers;
   }
 
+  set headers(val) {
+    this.#headers = val;
+  }
+
   get upgrade(): boolean {
     return Boolean(
       this.#req.headers.get("connection")?.toLowerCase().includes("upgrade") &&
-      this.#req.headers.get("upgrade"),
+        this.#req.headers.get("upgrade"),
     );
   }
 
@@ -1574,10 +1607,10 @@ export class ServerImpl extends EventEmitter {
 
   #addr: Deno.NetAddr;
   #hasClosed = false;
-  #server: Deno.Server;
+  #server: Deno.HttpServer;
   #unref = false;
   #ac?: AbortController;
-  #servePromise: any;
+  #serveDeferred: ReturnType<typeof Promise.withResolvers<void>>;
   listening = false;
 
   constructor(opts, requestListener?: ServerHandler) {
@@ -1594,14 +1627,15 @@ export class ServerImpl extends EventEmitter {
 
     this._opts = opts;
 
-    this.#servePromise = createDeferredPromise();
-    this.#servePromise.promise.finally(() => this.emit("close"));
+    this.#serveDeferred = Promise.withResolvers<void>();
+    this.#serveDeferred.promise.then(() => this.emit("close"));
     if (requestListener !== undefined) {
       this.on("request", requestListener);
     }
   }
 
   listen(...args: unknown[]): this {
+    // TODO(bnoordhuis) Delegate to net.Server#listen().
     const normalized = _normalizeArgs(args);
     const options = normalized[0] as Partial<ListenOptions>;
     const cb = normalized[1];
@@ -1619,13 +1653,16 @@ export class ServerImpl extends EventEmitter {
 
     // TODO(bnoordhuis) Node prefers [::] when host is omitted,
     // we on the other hand default to 0.0.0.0.
-    const hostname = options.host ?? "0.0.0.0";
+    let hostname = options.host ?? "0.0.0.0";
+    if (hostname == "localhost") {
+      hostname = "127.0.0.1";
+    }
     this.#addr = {
       hostname,
       port,
     } as Deno.NetAddr;
     this.listening = true;
-    this._serve();
+    nextTick(() => this._serve());
 
     return this;
   }
@@ -1640,28 +1677,14 @@ export class ServerImpl extends EventEmitter {
       });
       const req = new IncomingMessageForServer(request, socket);
       if (req.upgrade && this.listenerCount("upgrade") > 0) {
-        const tag = internals.getSupabaseTag(request);
-
-        if (tag === void 0) {
-          throw new TypeError("Unable to find supabase tag");
-        }
-
-        const { streamRid } = tag;
-        const [upgradeRid, fenceRid] = op_http_upgrade_raw2(streamRid);
-        const conn = new TcpConn(
-          upgradeRid,
-          info?.remoteAddr,
-          info?.localAddr
-        );
-
+        const { conn, response } = upgradeHttpRaw(request);
         const socket = new Socket({
           handle: new TCP(constants.SERVER, conn),
         });
-
-        tag.fenceRid = fenceRid;
+        // Update socket held by `req`.
+        req.socket = socket;
         this.emit("upgrade", req, socket, Buffer.from([]));
-
-        return internals.RAW_UPGRADE_RESPONSE_SENTINEL;
+        return response;
       } else {
         return new Promise<Response>((resolve): void => {
           const res = new ServerResponse(resolve, socket);
@@ -1674,33 +1697,29 @@ export class ServerImpl extends EventEmitter {
       return;
     }
     this.#ac = ac;
+    try {
+      this.#server = serve(
+        {
+          handler: handler as Deno.ServeHandler,
+          ...this.#addr,
+          signal: ac.signal,
+          // @ts-ignore Might be any without `--unstable` flag
+          onListen: ({ port }) => {
+            this.#addr!.port = port;
+            this.emit("listening");
+          },
+          ...this._additionalServeOptions?.(),
+        },
+      );
+    } catch (e) {
+      this.emit("error", e);
+      return;
+    }
 
-    this.#server = Deno.serve((req) => {
-      return handler(req, {
-        remoteAddr: {
-          hostname: "0.0.0.0",
-          port: 9999
-        }
-      });
-    });
-    //
-    // this.#server = serve(
-    //   {
-    //     handler: handler as Deno.ServeHandler,
-    //     ...this.#addr,
-    //     signal: ac.signal,
-    //     // @ts-ignore Might be any without `--unstable` flag
-    //     onListen: ({ port }) => {
-    //       this.#addr!.port = port;
-    //       this.emit("listening");
-    //     },
-    //     ...this._additionalServeOptions?.(),
-    //   },
-    // );
     if (this.#unref) {
       this.#server.unref();
     }
-    this.#server.then((p) => p.finished.then(() => this.#servePromise!.resolve()));
+    this.#server.finished.then(() => this.#serveDeferred!.resolve());
   }
 
   setTimeout() {
@@ -1740,7 +1759,7 @@ export class ServerImpl extends EventEmitter {
       this.#ac.abort();
       this.#ac = undefined;
     } else {
-      this.#servePromise!.resolve();
+      this.#serveDeferred!.resolve();
     }
 
     this.#server = undefined;
@@ -1754,7 +1773,6 @@ export class ServerImpl extends EventEmitter {
     };
   }
 }
-
 
 Server.prototype = ServerImpl.prototype;
 
@@ -1802,6 +1820,8 @@ export function get(...args: any[]) {
   return req;
 }
 
+export const maxHeaderSize = 16_384;
+
 export {
   Agent,
   ClientRequest,
@@ -1810,6 +1830,8 @@ export {
   METHODS,
   OutgoingMessage,
   STATUS_CODES,
+  validateHeaderName,
+  validateHeaderValue,
 };
 export default {
   Agent,
@@ -1826,4 +1848,7 @@ export default {
   ServerResponse,
   request,
   get,
+  validateHeaderName,
+  validateHeaderValue,
+  maxHeaderSize,
 };

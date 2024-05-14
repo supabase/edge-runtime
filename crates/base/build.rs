@@ -3,9 +3,10 @@ use std::env;
 use std::path::PathBuf;
 
 mod supabase_startup_snapshot {
+    use std::borrow::Cow;
     use super::*;
     use deno_core::error::AnyError;
-    use deno_core::snapshot_util::*;
+    use deno_core::snapshot::{create_snapshot, CreateSnapshotOptions};
     use deno_core::Extension;
     use deno_fs::OpenOptions;
     use deno_http::DefaultHttpPropertyExtractor;
@@ -23,7 +24,9 @@ mod supabase_startup_snapshot {
     use sb_node::deno_node;
     use sb_workers::sb_user_workers;
     use std::path::Path;
+    use std::rc::Rc;
     use std::sync::Arc;
+    use deno_io::fs::FsError;
     use url::Url;
 
     #[derive(Clone)]
@@ -90,6 +93,10 @@ mod supabase_startup_snapshot {
     }
 
     impl deno_fs::FsPermissions for Permissions {
+        fn check_open<'a>(&mut self, _resolved: bool, _read: bool, _write: bool, path: &'a Path, _api_name: &str) -> Result<Cow<'a, Path>, FsError> {
+            Ok(Cow::Borrowed(path))
+        }
+
         fn check_read(&mut self, _path: &Path, _api_name: &str) -> Result<(), AnyError> {
             unreachable!("snapshotting!")
         }
@@ -128,12 +135,13 @@ mod supabase_startup_snapshot {
             unreachable!("snapshotting!")
         }
 
-        fn check(
+        fn check<'a>(
             &mut self,
-            _open_options: &OpenOptions,
-            _path: &Path,
-            _api_name: &str,
-        ) -> Result<(), AnyError> {
+            resolved: bool,
+            open_options: &OpenOptions,
+            path: &'a Path,
+            api_name: &str,
+        ) -> Result<std::borrow::Cow<'a, Path>, FsError> {
             unreachable!("snapshotting!")
         }
     }
@@ -212,24 +220,19 @@ mod supabase_startup_snapshot {
             sb_core_runtime::init_ops_and_esm(None),
         ];
 
-        for extension in &mut extensions {
-            for source in extension.esm_files.to_mut() {
-                let _ = maybe_transpile_source(source).unwrap();
-            }
-            for source in extension.js_files.to_mut() {
-                let _ = maybe_transpile_source(source).unwrap();
-            }
-        }
-
-        let _ = create_snapshot(CreateSnapshotOptions {
-            cargo_manifest_dir: env!("CARGO_MANIFEST_DIR"),
-            snapshot_path,
-            startup_snapshot: None,
-            skip_op_registration: false,
-            extensions,
-            compression_cb: None,
-            with_runtime_cb: None,
-        });
+        let _ = create_snapshot(
+            CreateSnapshotOptions {
+                cargo_manifest_dir: env!("CARGO_MANIFEST_DIR"),
+                startup_snapshot: None,
+                extensions,
+                extension_transpiler: Some(Rc::new(|specifier, source| {
+                    maybe_transpile_source(specifier, source)
+                })),
+                skip_op_registration: false,
+                with_runtime_cb: None,
+            },
+            None,
+        );
     }
 }
 

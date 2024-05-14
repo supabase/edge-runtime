@@ -9,6 +9,7 @@ use deno_core::ModuleSpecifier;
 use deno_graph::MediaType;
 use deno_graph::Module;
 use deno_graph::ModuleGraph;
+use std::hash::Hash;
 use std::sync::Arc;
 
 pub struct Emitter {
@@ -76,11 +77,20 @@ impl Emitter {
                 source.clone(),
                 media_type,
             )?;
-            let transpiled_source = parsed_source.transpile(&self.emit_options)?;
-            debug_assert!(transpiled_source.source_map.is_none());
+
+            let transpiled_source = parsed_source.transpile(
+                &deno_ast::TranspileOptions {
+                    imports_not_used_as_values: deno_ast::ImportsNotUsedAsValues::Remove,
+                    ..Default::default()
+                },
+                &self.emit_options,
+            )?;
+
+            let source = transpiled_source.into_source();
+            debug_assert!(source.source_map.is_none());
             self.emit_cache
-                .set_emit_code(specifier, source_hash, &transpiled_source.text);
-            Ok(transpiled_source.text.into())
+                .set_emit_code(specifier, source_hash, &source.text.clone());
+            Ok(source.text.into())
         }
     }
 

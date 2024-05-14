@@ -18,41 +18,41 @@ resolver = "2"
 
 [workspace.dependencies]
 url = { version = "2.3.1" }
-eszip = "0.60.0"
+eszip = "=0.68.2"
 log = "0.4.20"
 anyhow = { version = "1.0.57" }
 libc = { version = "0.2.144" }
-deno_ast = { version = "0.32.0", features = ["transpiling"] }
-deno_broadcast_channel = { version = "0.130.0" }
-deno_core = { version = "0.256.0" }
-deno_console = { version = "0.136.0" }
-deno_crypto =  { version = "0.150.0" }
-deno_fetch = { version = "0.160.0" }
-deno_fs = { version = "0.46.0", features = ["sync_fs"] }
-deno_config = "=0.9.1"
-deno_io = "0.46.0"
-deno_webgpu = "0.103.0"
-deno_canvas = "0.5.0"
-deno_graph = "=0.64.1"
-deno_http =  { version = "0.133.0" }
-deno_media_type = { version = "0.1.1", features = ["module_specifier"] }
-deno_net = { version = "0.128.0" }
-deno_npm = "0.16.0"
-deno_url = { version = "0.136.0" }
+deno_ast = { version = "=0.38.1", features = ["transpiling"] }
+deno_broadcast_channel = { version = "0.143.0" }
+deno_core = { version = "0.278.0" }
+deno_console = { version = "0.149.0" }
+deno_crypto =  { version = "0.163.0" }
+deno_fetch = { version = "0.173.0" }
+deno_fs = { version = "0.59.0", features = ["sync_fs"] }
+deno_config = "=0.16.3"
+deno_io = "0.59.0"
+deno_webgpu = "0.116.0"
+deno_canvas = "0.18.0"
+deno_graph = "=0.74.5"
+deno_http =  { version = "0.146.0" }
+deno_media_type = { version = "0.1.4", features = ["module_specifier"] }
+deno_net = { version = "0.141.0" }
+deno_npm = "0.18.0"
+deno_url = { version = "0.149.0" }
 deno_semver = "0.5.4"
-deno_tls = { version = "0.123.0"}
-deno_webidl = { version = "0.136.0" }
-deno_web = { version = "0.167.0" }
-deno_websocket = { version = "0.141.0" }
-deno_webstorage = { version = "0.131.0" }
+deno_tls = { version = "0.136.0"}
+deno_webidl = { version = "0.149.0" }
+deno_web = { version = "0.180.0" }
+deno_websocket = { version = "0.154.0" }
+deno_webstorage = { version = "0.144.0" }
 enum-as-inner = "0.6.0"
 serde = { version = "1.0.149", features = ["derive"] }
 hyper = "0.14.26"
-tokio = { version = "1.35", features = ["full"] }
+tokio = { version = "1.36.0", features = ["full"] }
 bytes = { version = "1.4.0" }
 once_cell = "1.17.1"
 thiserror = "1.0.40"
-deno_lockfile = "0.18.0"
+deno_lockfile = "0.19.0"
 async-trait = "0.1.73"
 indexmap = { version = "2.0.0", features = ["serde"] }
 flate2 = "=1.0.26"
@@ -72,15 +72,15 @@ futures = { version = "0.3.28" }
 futures-util = { version = "0.3.28" }
 ctor = { version = "0.2.6" }
 fastwebsockets = { version = "0.4.4", features = ["upgrade"] }
-percent-encoding = "=2.3.0"
+percent-encoding = "=2.3.1"
 scopeguard = { version = "1.2.0" }
 glob = "0.3.1"
 httparse = "1.8"
 http = "0.2"
 faster-hex = "0.9.0"
 # DEBUG
-#[patch.crates-io]
-#deno_core = { path = "/your/path/to/deno_core/core" }
+[patch.crates-io]
+deno_core = { path = "/Users/andrespirela/Documents/workspace/supabase/deno_core/core" }
 
 [profile.release]
 lto = true

@@ -330,7 +330,7 @@ pub async fn create_eszip_from_graph_raw(
     let parser_arc = emitter.clone().parsed_source_cache().unwrap();
     let parser = parser_arc.as_capturing_parser();
 
-    eszip::EszipV2::from_graph(graph, &parser, Default::default())
+    eszip::EszipV2::from_graph(graph, &parser, emitter.emit_options())
 }
 
 pub async fn create_graph(

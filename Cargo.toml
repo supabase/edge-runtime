@@ -81,10 +81,13 @@ http = "0.2"
 faster-hex = "0.9.0"
 tracing = "0.1"
 tracing-subscriber = "0.3"
+sha2 = "0.10"
+rkyv = "0.7"
 
 [patch.crates-io]
 # TODO(Nyannyacha): Patch below is temporary. Clean the line in the Deno 1.44 update.
 deno_core = { git = "https://github.com/supabase/deno_core", branch = "278-supabase" }
+eszip = { git = "https://github.com/nyannyacha/eszip", branch = "fix-pub-vis-0-60-0" }
 
 [profile.dind]
 inherits = "dev"

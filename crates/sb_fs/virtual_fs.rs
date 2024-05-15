@@ -29,7 +29,7 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 #[error(
-"Failed to strip prefix '{}' from '{}'", root_path.display(), target.display()
+    "Failed to strip prefix '{}' from '{}'", root_path.display(), target.display()
 )]
 pub struct StripRootError {
     root_path: PathBuf,

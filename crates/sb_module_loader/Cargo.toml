@@ -10,12 +10,18 @@ license = "MIT"
 path = "lib.rs"
 
 [dependencies]
+sb_core = { version = "0.1.0", path = "../sb_core" }
+sb_node = { version = "0.1.0", path = "../node" }
+sb_npm = { version = "0.1.0", path = "../npm" }
+sb_graph = { version = "0.1.0", path = "../sb_graph" }
+sb_fs = { version = "0.1.0", path = "../sb_fs" }
+sb_eszip_shared = { version = "0.1.0", path = "../sb_eszip_shared" }
 deno_semver.workspace = true
 anyhow.workspace = true
 deno_core.workspace = true
 eszip.workspace = true
 import_map.workspace = true
-log = { workspace = true }
+log.workspace = true
 serde.workspace = true
 tokio.workspace = true
 deno_ast.workspace = true
@@ -26,8 +32,3 @@ deno_tls.workspace = true
 monch.workspace = true
 base64.workspace = true
 tracing.workspace = true
-sb_core = { version = "0.1.0", path = "../sb_core" }
-sb_node = { version = "0.1.0", path = "../node" }
-sb_npm = { version = "0.1.0", path = "../npm" }
-sb_graph = { version = "0.1.0", path = "../sb_graph" }
-sb_fs = { version = "0.1.0", path = "../sb_fs" }

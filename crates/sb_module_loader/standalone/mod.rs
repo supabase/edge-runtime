@@ -209,7 +209,11 @@ pub async fn create_module_loader_for_standalone_from_eszip_kind(
     maybe_import_map_path: Option<String>,
     include_source_map: bool,
 ) -> Result<RuntimeProviders, AnyError> {
-    let eszip = payload_to_eszip(eszip_payload_kind).await;
+    let (eszip, maybe_data_section) = payload_to_eszip(eszip_payload_kind).await;
+
+    if let Some(section) = maybe_data_section {
+        section.read_data_section_all().await.unwrap();
+    }
 
     let mut maybe_import_map: Option<ImportMap> = None;
 

@@ -138,16 +138,17 @@ fn get_start_command() -> Command {
         .arg(
             arg!(--"request-wait-timeout" <MILLISECONDS>)
                 .help("Maximum time in milliseconds that can wait to establish a connection with a worker")
+                .default_value("10000")
                 .value_parser(value_parser!(u64)),
         )
         .arg(
             arg!(--"request-idle-timeout" <MILLISECONDS>)
-                .help("Maximum time in milliseconds that can be waited from when a worker takes over the request")
+                .help("Maximum time in milliseconds that can be waited from when a worker takes over the request (disabled by default)")
                 .value_parser(value_parser!(u64)),
         )
         .arg(
             arg!(--"request-read-timeout" <MILLISECONDS>)
-                .help("Maximum time in milliseconds that can be waited from when the connection is accepted until the request body is fully read")
+                .help("Maximum time in milliseconds that can be waited from when the connection is accepted until the request body is fully read (disabled by default)")
                 .value_parser(value_parser!(u64)),
         )
         .arg(

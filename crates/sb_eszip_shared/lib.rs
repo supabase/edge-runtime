@@ -1,0 +1,10 @@
+use eszip::Module;
+
+pub static VFS_ESZIP_KEY: &str = "---SUPABASE-VFS-DATA-ESZIP---";
+pub static SOURCE_CODE_ESZIP_KEY: &str = "---SUPABASE-SOURCE-CODE-ESZIP---";
+pub static STATIC_FILES_ESZIP_KEY: &str = "---SUPABASE-STATIC-FILES-ESZIP---";
+
+pub trait AsyncEszipDataRead {
+    fn ensure_module(&self, specifier: &str) -> Option<Module>;
+    fn ensure_import_map(&self, specifier: &str) -> Option<Module>;
+}

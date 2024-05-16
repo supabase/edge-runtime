@@ -216,6 +216,7 @@ impl TestBedBuilder {
                     Some(token.clone()),
                     vec![],
                     None,
+                    None,
                     self.request_idle_timeout,
                 )
                 .await
@@ -241,6 +242,7 @@ impl TestBedBuilder {
                 event_worker_metric_src: None,
             }),
             static_patterns: vec![],
+            maybe_jsx_import_source_config: None,
         };
 
         let main_termination_token = TerminationToken::new();

@@ -182,6 +182,11 @@ fn get_start_command() -> Command {
                 .action(ArgAction::SetTrue),
         )
         .arg(arg!(--"static" <Path>).help("Glob pattern for static files to be included"))
+        .arg(arg!(--"jsx-specifier" <Path> "A valid JSX specifier"))
+        .arg(
+            arg!(--"jsx-module" <Path> "A valid JSX module")
+                .value_parser(["jsx-runtime", "jsx-dev-runtime", "precompile", "react"]),
+        )
         .arg(
             arg!(--"tcp-nodelay" [BOOL])
                 .help("Disables Nagle's algorithm")

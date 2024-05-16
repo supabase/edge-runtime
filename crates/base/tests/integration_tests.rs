@@ -191,6 +191,7 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
         vec![],
         None,
         None,
+        None,
     )
     .await
     .unwrap();
@@ -347,6 +348,7 @@ async fn test_main_worker_boot_error() {
         None,
         Some(pool_termination_token.clone()),
         vec![],
+        None,
         None,
         None,
     )

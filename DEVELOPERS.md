@@ -5,6 +5,7 @@
 - [How to update to a newer Deno version](#how-to-update-to-a-newer-deno-version)
 - [How to use Dev Container](#how-to-use-dev-container)
 - [Running load tests inside a Dev Container](#running-load-tests-inside-a-dev-container)
+- [Using `tracing-subscriber` as a logging backend](#using-tracing-subscriber-as-a-logging-backend)
 
 ## How to run locally
 To serve all functions in the examples folder on port 9998, you can do this with the [example main service](./examples/main/index.ts) provided with this repo
@@ -182,3 +183,19 @@ Once you've confirmed that k6 is run properly, you can proceed to load testing.
   ```
 
   For more about k6, see [this documentation](https://grafana.com/docs/k6/latest).
+
+## Using `tracing-subscriber` as a logging backend
+
+Sometimes the default logging backend may not provide enough information to debug edge-runtime.
+In that case, you can replace the logging backend with `tracing-subscriber` to get more detailed logs.
+
+The cargo feature for replacing the logging backend is `cli/tracing`, and you can simply replace it by adding arguments as shown below.
+
+```diff
+# scripts/run.sh
+
+-GIT_V_TAG=0.1.1 cargo build && EDGE_RUNTIME_PORT=9998 RUST_BACKTRACE=full ./target/debug/edge-runtime "$@" start \
++GIT_V_TAG=0.1.1 cargo build --features cli/tracing && EDGE_RUNTIME_PORT=9998 RUST_BACKTRACE=full ./target/debug/edge-runtime "$@" start \
+     --main-service ./examples/main \
+     --event-worker ./examples/event-manager
+```

@@ -13,6 +13,8 @@ use deno_core::{ModuleLoader, ModuleSourceCode};
 use deno_core::{ModuleSpecifier, RequestedModuleType};
 use deno_semver::npm::NpmPackageReqReference;
 use eszip::deno_graph;
+use sb_eszip_shared::AsyncEszipDataRead;
+use sb_graph::LazyLoadableEszip;
 use std::sync::Arc;
 use tracing::instrument;
 
@@ -21,7 +23,7 @@ use crate::util::arc_u8_to_arc_str;
 use sb_graph::graph_resolver::MappedSpecifierResolver;
 
 pub struct SharedModuleLoaderState {
-    pub(crate) eszip: eszip::EszipV2,
+    pub(crate) eszip: LazyLoadableEszip,
     pub(crate) mapped_specifier_resolver: MappedSpecifierResolver,
     pub(crate) npm_module_loader: Arc<NpmModuleLoader>,
     pub(crate) node_resolver: Arc<CliNodeResolver>,
@@ -90,7 +92,7 @@ impl ModuleLoader for EmbeddedModuleLoader {
         };
 
         if specifier.scheme() == "jsr" {
-            if let Some(module) = self.shared.eszip.get_module(specifier.as_str()) {
+            if let Some(module) = self.shared.eszip.ensure_module(specifier.as_str()) {
                 return Ok(ModuleSpecifier::parse(&module.specifier).unwrap());
             }
         }
@@ -151,12 +153,13 @@ impl ModuleLoader for EmbeddedModuleLoader {
             };
         }
 
-        let Some(module) = self.shared.eszip.get_module(original_specifier.as_str()) else {
+        let Some(module) = self.shared.eszip.ensure_module(original_specifier.as_str()) else {
             return deno_core::ModuleLoadResponse::Sync(Err(type_error(format!(
                 "Module not found: {}",
                 original_specifier
             ))));
         };
+
         let original_specifier = original_specifier.clone();
         let found_specifier =
             ModuleSpecifier::parse(&module.specifier).expect("invalid url in eszip");

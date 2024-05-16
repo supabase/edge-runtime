@@ -3,6 +3,7 @@ use deno_core::error::AnyError;
 use deno_core::{normalize_path, serde_json};
 use deno_npm::NpmSystemInfo;
 use eszip::EszipV2;
+use sb_eszip_shared::{AsyncEszipDataRead, STATIC_FILES_ESZIP_KEY};
 use sb_npm::cache::NpmCache;
 use sb_npm::registry::CliNpmRegistryApi;
 use sb_npm::resolution::NpmResolution;
@@ -24,17 +25,24 @@ pub struct VfsOpts {
 
 pub type EszipStaticFiles = HashMap<String, Vec<u8>>;
 
-pub async fn extract_static_files_from_eszip(eszip: &EszipV2) -> EszipStaticFiles {
-    let key = String::from("---SUPABASE-STATIC-FILES-ESZIP---");
+pub trait LazyEszipV2: std::ops::Deref<Target = EszipV2> + AsyncEszipDataRead {}
+
+impl<T> LazyEszipV2 for T where T: std::ops::Deref<Target = EszipV2> + AsyncEszipDataRead {}
+
+pub async fn extract_static_files_from_eszip(eszip: &dyn LazyEszipV2) -> EszipStaticFiles {
     let mut files: EszipStaticFiles = HashMap::new();
 
-    if eszip.specifiers().contains(&key) {
-        let eszip_static_files = eszip.get_module(key.as_str()).unwrap();
+    if eszip
+        .specifiers()
+        .iter()
+        .any(|it| it == STATIC_FILES_ESZIP_KEY)
+    {
+        let eszip_static_files = eszip.ensure_module(STATIC_FILES_ESZIP_KEY).unwrap();
         let data = eszip_static_files.take_source().await.unwrap();
         let data = data.to_vec();
         let data: Vec<String> = serde_json::from_slice(data.as_slice()).unwrap();
         for static_specifier in data {
-            let file_mod = eszip.get_module(static_specifier.as_str()).unwrap();
+            let file_mod = eszip.ensure_module(static_specifier.as_str()).unwrap();
             files.insert(
                 normalize_path(PathBuf::from(static_specifier))
                     .to_str()

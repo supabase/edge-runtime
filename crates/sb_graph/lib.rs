@@ -9,13 +9,17 @@ use deno_core::{serde_json, FastString, JsBuffer, ModuleSpecifier};
 use deno_fs::{FileSystem, RealFs};
 use deno_npm::NpmSystemInfo;
 use eszip::v2::{EszipV2Module, EszipV2Modules, EszipV2SourceSlot};
-use eszip::{EszipV2, ModuleKind, ParseError};
+use eszip::{EszipV2, Module, ModuleKind, ParseError};
 use futures::{AsyncReadExt, AsyncSeekExt};
 use glob::glob;
 use log::error;
 use sb_core::util::sync::AtomicFlag;
+use sb_eszip_shared::{
+    AsyncEszipDataRead, SOURCE_CODE_ESZIP_KEY, STATIC_FILES_ESZIP_KEY, VFS_ESZIP_KEY,
+};
 use sb_fs::{build_vfs, VfsOpts};
 use sb_npm::InnerCliNpmResolverRef;
+use scopeguard::ScopeGuard;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::borrow::Cow;
@@ -37,9 +41,6 @@ pub mod import_map;
 pub mod jsr;
 pub mod jsx_util;
 
-pub const VFS_ESZIP_KEY: &str = "---SUPABASE-VFS-DATA-ESZIP---";
-pub const SOURCE_CODE_ESZIP_KEY: &str = "---SUPABASE-SOURCE-CODE-ESZIP---";
-pub const STATIC_FILES_ESZIP_KEY: &str = "---SUPABASE-STATIC-FILES-ESZIP---";
 pub const STATIC_FS_PREFIX: &str = "mnt/data";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -84,6 +85,85 @@ async fn read_u32<R: futures::io::AsyncRead + Unpin>(reader: &mut R) -> Result<u
     let mut buf = [0u8; 4];
     reader.read_exact(&mut buf).await?;
     Ok(u32::from_be_bytes(buf))
+}
+
+pub struct LazyLoadableEszip {
+    eszip: EszipV2,
+    maybe_data_section: Option<Arc<EszipDataSection>>,
+}
+
+impl std::ops::Deref for LazyLoadableEszip {
+    type Target = EszipV2;
+
+    fn deref(&self) -> &Self::Target {
+        &self.eszip
+    }
+}
+
+impl std::ops::DerefMut for LazyLoadableEszip {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.eszip
+    }
+}
+
+impl AsyncEszipDataRead for LazyLoadableEszip {
+    fn ensure_module(&self, specifier: &str) -> Option<Module> {
+        let module = self.ensure_data(specifier)?;
+
+        if module.kind == ModuleKind::Jsonc {
+            return None;
+        }
+
+        Some(module)
+    }
+
+    fn ensure_import_map(&self, specifier: &str) -> Option<Module> {
+        let module = self.ensure_data(specifier)?;
+
+        if module.kind == ModuleKind::JavaScript {
+            return None;
+        }
+
+        Some(module)
+    }
+}
+
+impl LazyLoadableEszip {
+    fn new(eszip: EszipV2, maybe_data_section: Option<Arc<EszipDataSection>>) -> Self {
+        Self {
+            eszip,
+            maybe_data_section,
+        }
+    }
+
+    pub fn ensure_data(&self, specifier: &str) -> Option<Module> {
+        let module = self
+            .get_module(specifier)
+            .or_else(|| self.get_import_map(specifier))?;
+
+        if let Some(section) = self.maybe_data_section.clone() {
+            let specifier = module.specifier.clone();
+
+            drop(tokio::spawn(async move {
+                match section.read_data_section_by_specifier(&specifier).await {
+                    Ok(_) => {}
+                    Err(err) => {
+                        error!("failed to read module data from the data section: {}", err);
+                    }
+                }
+            }));
+        }
+
+        Some(module)
+    }
+
+    pub async fn ensure_read_all(&mut self) -> Result<(), ParseError> {
+        if let Some(section) = self.maybe_data_section.take() {
+            section.read_data_section_all().await
+        } else {
+            Ok(())
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -172,41 +252,35 @@ impl EszipDataSection {
             inner.by_ref()
         });
 
-        let mut source_bytes = vec![0u8; length];
-        io.read_exact(&mut source_bytes).await?;
+        let source_bytes = {
+            let wake_guard = scopeguard::guard(&self.modules, |modules| {
+                Self::wake_module_with_slot(modules, specifier, || EszipV2SourceSlot::Taken);
+            });
 
-        let expected_hash = &mut [0u8; 32];
-        io.read_exact(expected_hash).await?;
+            let mut source_bytes = vec![0u8; length];
+            io.read_exact(&mut source_bytes).await?;
 
-        let mut hasher = Sha256::new();
-        hasher.update(&source_bytes);
-        let actual_hash = hasher.finalize();
-        if &*actual_hash != expected_hash {
-            return Err(ParseError::InvalidV2SourceHash(specifier.to_string()))
-                .context("invalid source hash");
-        }
+            let expected_hash = &mut [0u8; 32];
+            io.read_exact(expected_hash).await?;
 
-        let wakers = {
-            let mut modules = self.modules.0.lock().unwrap();
-            let module = modules.get_mut(specifier).expect("module not found");
-            match module {
-                EszipV2Module::Module { ref mut source, .. } => {
-                    let slot = std::mem::replace(
-                        source,
-                        EszipV2SourceSlot::Ready(Arc::from(source_bytes)),
-                    );
+            let mut hasher = Sha256::new();
+            hasher.update(&source_bytes);
 
-                    match slot {
-                        EszipV2SourceSlot::Pending { wakers, .. } => wakers,
-                        _ => panic!("already populated source slot"),
-                    }
-                }
-                _ => panic!("invalid module type"),
+            let actual_hash = hasher.finalize();
+
+            if &*actual_hash != expected_hash {
+                return Err(ParseError::InvalidV2SourceHash(specifier.to_string()))
+                    .context("invalid source hash");
             }
+
+            let _ = ScopeGuard::into_inner(wake_guard);
+
+            source_bytes
         };
-        for w in wakers {
-            w.wake();
-        }
+
+        Self::wake_module_with_slot(&self.modules, specifier, move || {
+            EszipV2SourceSlot::Ready(Arc::from(source_bytes))
+        });
 
         Ok(())
     }
@@ -261,46 +335,54 @@ impl EszipDataSection {
 
             let mut hasher = Sha256::new();
             hasher.update(&source_bytes);
+
             let actual_hash = hasher.finalize();
+
             if &*actual_hash != expected_hash {
                 return Err(ParseError::InvalidV2SourceHash(specifier));
             }
 
             read += length + 32;
 
-            let wakers = {
-                let mut modules = modules.0.lock().unwrap();
-                let module = modules.get_mut(&specifier).expect("module not found");
-                match module {
-                    EszipV2Module::Module { ref mut source, .. } => {
-                        let slot = std::mem::replace(
-                            source,
-                            EszipV2SourceSlot::Ready(Arc::from(source_bytes)),
-                        );
-
-                        match slot {
-                            EszipV2SourceSlot::Pending { wakers, .. } => wakers,
-                            _ => panic!("already populated source slot"),
-                        }
-                    }
-                    _ => panic!("invalid module type"),
-                }
-            };
-
-            for w in wakers {
-                w.wake();
-            }
+            Self::wake_module_with_slot(&modules, &specifier, move || {
+                EszipV2SourceSlot::Ready(Arc::from(source_bytes))
+            });
         }
 
         Ok(())
     }
+
+    fn wake_module_with_slot<F>(modules: &EszipV2Modules, specifier: &str, slot_fn: F)
+    where
+        F: FnOnce() -> EszipV2SourceSlot,
+    {
+        let wakers = {
+            let mut modules = modules.0.lock().unwrap();
+            let module = modules.get_mut(specifier).expect("module not found");
+
+            match module {
+                EszipV2Module::Module { ref mut source, .. } => {
+                    let slot = std::mem::replace(source, slot_fn());
+
+                    match slot {
+                        EszipV2SourceSlot::Pending { wakers, .. } => wakers,
+                        _ => panic!("already populated source slot"),
+                    }
+                }
+
+                _ => panic!("invalid module type"),
+            }
+        };
+
+        for w in wakers {
+            w.wake();
+        }
+    }
 }
 
-pub async fn payload_to_eszip(
-    eszip_payload_kind: EszipPayloadKind,
-) -> (EszipV2, Option<Arc<EszipDataSection>>) {
+pub async fn payload_to_eszip(eszip_payload_kind: EszipPayloadKind) -> LazyLoadableEszip {
     match eszip_payload_kind {
-        EszipPayloadKind::Eszip(data) => (data, None),
+        EszipPayloadKind::Eszip(eszip) => LazyLoadableEszip::new(eszip, None),
         _ => {
             let bytes = match eszip_payload_kind {
                 EszipPayloadKind::JsBufferKind(js_buffer) => Vec::from(&*js_buffer),
@@ -317,7 +399,7 @@ pub async fn payload_to_eszip(
             let data_section =
                 EszipDataSection::new(io.into_inner(), initial_offset, eszip.modules.clone());
 
-            (eszip, Some(Arc::new(data_section)))
+            LazyLoadableEszip::new(eszip, Some(Arc::new(data_section)))
         }
     }
 }
@@ -520,12 +602,10 @@ async fn extract_modules(
 }
 
 pub async fn extract_eszip(payload: ExtractEszipPayload) {
-    let (eszip, maybe_data_section) = payload_to_eszip(payload.data).await;
+    let mut eszip = payload_to_eszip(payload.data).await;
     let output_folder = payload.folder;
 
-    if let Some(section) = maybe_data_section {
-        section.read_data_section_all().await.unwrap();
-    }
+    eszip.ensure_read_all().await.unwrap();
 
     if !output_folder.exists() {
         create_dir_all(&output_folder).unwrap();

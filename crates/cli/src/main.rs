@@ -215,7 +215,7 @@ fn main() -> Result<(), anyhow::Error> {
                     static_patterns,
                     maybe_inspector_option,
                     jsx_specifier,
-                    jsx_module
+                    jsx_module,
                 )
                 .await?;
             }

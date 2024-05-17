@@ -7,6 +7,8 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 
+use crate::rt::SYNC_IO_RT;
+
 use super::virtual_fs::FileBackedVfs;
 
 #[derive(Debug, Clone)]
@@ -33,23 +35,25 @@ impl DenoCompileFileSystem {
         }
     }
 
-    fn copy_to_real_path(&self, oldpath: &Path, newpath: &Path) -> FsResult<()> {
+    async fn copy_to_real_path_async(&self, oldpath: &Path, newpath: &Path) -> FsResult<()> {
         let old_file = self.0.file_entry(oldpath)?;
-        let old_file_bytes = self.0.read_file_all(old_file)?;
-        RealFs.write_file_sync(
-            newpath,
-            OpenOptions {
-                read: false,
-                write: true,
-                create: true,
-                truncate: true,
-                append: false,
-                create_new: false,
-                mode: None,
-            },
-            None,
-            &old_file_bytes,
-        )
+        let old_file_bytes = self.0.read_file_all(old_file).await?;
+
+        RealFs
+            .write_file_async(
+                newpath.to_path_buf(),
+                OpenOptions {
+                    read: false,
+                    write: true,
+                    create: true,
+                    truncate: true,
+                    append: false,
+                    create_new: false,
+                    mode: None,
+                },
+                old_file_bytes,
+            )
+            .await
     }
 }
 
@@ -136,7 +140,17 @@ impl FileSystem for DenoCompileFileSystem {
     fn copy_file_sync(&self, oldpath: &Path, newpath: &Path) -> FsResult<()> {
         self.error_if_in_vfs(newpath)?;
         if self.0.is_path_within(oldpath) {
-            self.copy_to_real_path(oldpath, newpath)
+            std::thread::scope(|s| {
+                let this = self.clone();
+
+                s.spawn(move || {
+                    SYNC_IO_RT.block_on(async move {
+                        this.copy_to_real_path_async(oldpath, newpath).await
+                    })
+                })
+                .join()
+                .unwrap()
+            })
         } else {
             RealFs.copy_file_sync(oldpath, newpath)
         }
@@ -145,7 +159,7 @@ impl FileSystem for DenoCompileFileSystem {
         self.error_if_in_vfs(&newpath)?;
         if self.0.is_path_within(&oldpath) {
             let fs = self.clone();
-            tokio::task::spawn_blocking(move || fs.copy_to_real_path(&oldpath, &newpath)).await?
+            fs.copy_to_real_path_async(&oldpath, &newpath).await
         } else {
             RealFs.copy_file_async(oldpath, newpath).await
         }

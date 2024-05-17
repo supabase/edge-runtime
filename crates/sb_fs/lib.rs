@@ -9,10 +9,11 @@ use sb_npm::registry::CliNpmRegistryApi;
 use sb_npm::resolution::NpmResolution;
 use sb_npm::{CliNpmResolver, InnerCliNpmResolverRef};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 pub mod file_system;
+mod rt;
 pub mod static_fs;
 pub mod virtual_fs;
 
@@ -57,6 +58,7 @@ pub async fn extract_static_files_from_eszip(eszip: &dyn LazyEszipV2) -> EszipSt
 }
 
 pub fn load_npm_vfs(
+    eszip: Arc<dyn AsyncEszipDataRead + 'static>,
     root_dir_path: PathBuf,
     vfs_data: Option<&[u8]>,
 ) -> Result<FileBackedVfs, AnyError> {
@@ -88,14 +90,22 @@ pub fn load_npm_vfs(
         }
     };
 
-    Ok(FileBackedVfs::new(fs_root))
+    Ok(FileBackedVfs::new(eszip, fs_root))
 }
 
-pub fn build_vfs(opts: VfsOpts) -> Result<VfsBuilder, AnyError> {
+pub fn build_vfs<'scope, F>(
+    opts: VfsOpts,
+    add_content_callback_fn: F,
+) -> Result<VfsBuilder<'scope>, AnyError>
+where
+    F: (for<'r> FnMut(&'r Path, &'r str, Vec<u8>) -> String) + 'scope,
+{
     match opts.npm_resolver.as_inner() {
         InnerCliNpmResolverRef::Managed(npm_resolver) => {
             if let Some(node_modules_path) = npm_resolver.root_node_modules_path() {
-                let mut builder = VfsBuilder::new(node_modules_path.clone())?;
+                let mut builder =
+                    VfsBuilder::new(node_modules_path.clone(), add_content_callback_fn)?;
+
                 builder.add_dir_recursive(node_modules_path)?;
                 Ok(builder)
             } else {
@@ -103,7 +113,7 @@ pub fn build_vfs(opts: VfsOpts) -> Result<VfsBuilder, AnyError> {
                 // but also don't make this dependent on the registry url
                 let registry_url = npm_resolver.registry_base_url();
                 let root_path = npm_resolver.registry_folder_in_global_cache(registry_url);
-                let mut builder = VfsBuilder::new(root_path)?;
+                let mut builder = VfsBuilder::new(root_path, add_content_callback_fn)?;
                 for package in npm_resolver.all_system_packages(&NpmSystemInfo::default()) {
                     let folder = npm_resolver.resolve_pkg_folder_from_pkg_id(&package.id)?;
                     builder.add_dir_recursive(&folder)?;
@@ -114,7 +124,7 @@ pub fn build_vfs(opts: VfsOpts) -> Result<VfsBuilder, AnyError> {
             }
         }
         _ => {
-            panic!("Unreachable");
+            unreachable!();
         }
     }
 }

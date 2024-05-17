@@ -87,6 +87,7 @@ async fn read_u32<R: futures::io::AsyncRead + Unpin>(reader: &mut R) -> Result<u
     Ok(u32::from_be_bytes(buf))
 }
 
+#[derive(Debug)]
 pub struct LazyLoadableEszip {
     eszip: EszipV2,
     maybe_data_section: Option<Arc<EszipDataSection>>,
@@ -103,6 +104,18 @@ impl std::ops::Deref for LazyLoadableEszip {
 impl std::ops::DerefMut for LazyLoadableEszip {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.eszip
+    }
+}
+
+impl Clone for LazyLoadableEszip {
+    fn clone(&self) -> Self {
+        Self {
+            eszip: EszipV2 {
+                modules: self.eszip.modules.clone(),
+                npm_snapshot: None,
+            },
+            maybe_data_section: self.maybe_data_section.clone(),
+        }
     }
 }
 
@@ -411,85 +424,88 @@ pub async fn generate_binary_eszip(
     maybe_import_map_url: Option<String>,
 ) -> Result<EszipV2, AnyError> {
     let graph = create_graph(file.clone(), emitter_factory.clone(), &maybe_module_code).await;
-    let eszip = create_eszip_from_graph_raw(graph, Some(emitter_factory.clone())).await;
+    let mut eszip = create_eszip_from_graph_raw(graph, Some(emitter_factory.clone())).await?;
 
-    if let Ok(mut eszip) = eszip {
-        let fs_path = file.clone();
-        let source_code: Arc<str> = if let Some(code) = maybe_module_code {
-            code.as_str().into()
-        } else {
-            let entry_content = RealFs
-                .read_file_sync(fs_path.clone().as_path(), None)
-                .unwrap();
-            String::from_utf8(entry_content.clone())?.into()
-        };
-        let emit_source = emitter_factory.emitter().unwrap().emit_parsed_source(
-            &ModuleSpecifier::parse(
-                &Url::from_file_path(&fs_path)
-                    .map(|it| Cow::Owned(it.to_string()))
-                    .ok()
-                    .unwrap_or("http://localhost".into()),
-            )
-            .unwrap(),
-            MediaType::from_path(fs_path.clone().as_path()),
-            &source_code,
-        )?;
+    let fs_path = file.clone();
+    let source_code: Arc<str> = if let Some(code) = maybe_module_code {
+        code.as_str().into()
+    } else {
+        let entry_content = RealFs.read_file_sync(fs_path.clone().as_path()).unwrap();
+        String::from_utf8(entry_content.clone())?.into()
+    };
+    let emit_source = emitter_factory.emitter().unwrap().emit_parsed_source(
+        &ModuleSpecifier::parse(
+            &Url::from_file_path(&fs_path)
+                .map(|it| Cow::Owned(it.to_string()))
+                .ok()
+                .unwrap_or("http://localhost".into()),
+        )
+        .unwrap(),
+        MediaType::from_path(fs_path.clone().as_path()),
+        &source_code,
+    )?;
 
-        let bin_code: Arc<[u8]> = emit_source.as_bytes().into();
+    let bin_code: Arc<[u8]> = emit_source.as_bytes().into();
 
-        let npm_res = emitter_factory.npm_resolution().await;
-        let resolver = emitter_factory.npm_resolver().await;
+    let npm_res = emitter_factory.npm_resolution().await;
+    let resolver = emitter_factory.npm_resolver().await;
 
-        let (npm_vfs, _npm_files) = match resolver.clone().as_inner() {
-            InnerCliNpmResolverRef::Managed(managed) => {
-                let snapshot =
-                    managed.serialized_valid_snapshot_for_system(&NpmSystemInfo::default());
-                if !snapshot.as_serialized().packages.is_empty() {
-                    let (root_dir, files) = build_vfs(VfsOpts {
+    let (npm_vfs, _npm_files) = match resolver.clone().as_inner() {
+        InnerCliNpmResolverRef::Managed(managed) => {
+            let snapshot = managed.serialized_valid_snapshot_for_system(&NpmSystemInfo::default());
+            if !snapshot.as_serialized().packages.is_empty() {
+                let (root_dir, files) = build_vfs(
+                    VfsOpts {
                         npm_resolver: resolver.clone(),
                         npm_registry_api: emitter_factory.npm_api().await.clone(),
                         npm_cache: emitter_factory.npm_cache().await.clone(),
                         npm_resolution: emitter_factory.npm_resolution().await.clone(),
-                    })?
-                    .into_dir_and_files();
+                    },
+                    |path, _key, content| {
+                        let key = String::from(path.to_string_lossy());
 
-                    let snapshot =
-                        npm_res.serialized_valid_snapshot_for_system(&NpmSystemInfo::default());
-                    eszip.add_npm_snapshot(snapshot);
-                    (Some(root_dir), files)
-                } else {
-                    (None, Vec::new())
-                }
+                        eszip.add_opaque_data(key.clone(), content.into());
+                        key
+                    },
+                )?
+                .into_dir_and_files();
+
+                let snapshot =
+                    npm_res.serialized_valid_snapshot_for_system(&NpmSystemInfo::default());
+
+                eszip.add_npm_snapshot(snapshot);
+
+                (Some(root_dir), files)
+            } else {
+                (None, Vec::new())
             }
-            InnerCliNpmResolverRef::Byonm(_) => unreachable!(),
-        };
+        }
+        InnerCliNpmResolverRef::Byonm(_) => unreachable!(),
+    };
 
-        let npm_vfs = serde_json::to_vec(&npm_vfs).unwrap().to_vec();
-        let boxed_slice = npm_vfs.into_boxed_slice();
+    let npm_vfs = serde_json::to_vec(&npm_vfs).unwrap().to_vec();
+    let boxed_slice = npm_vfs.into_boxed_slice();
 
-        eszip.add_opaque_data(String::from(VFS_ESZIP_KEY), Arc::from(boxed_slice));
-        eszip.add_opaque_data(String::from(SOURCE_CODE_ESZIP_KEY), bin_code);
+    eszip.add_opaque_data(String::from(VFS_ESZIP_KEY), Arc::from(boxed_slice));
+    eszip.add_opaque_data(String::from(SOURCE_CODE_ESZIP_KEY), bin_code);
 
-        // add import map
-        if emitter_factory.maybe_import_map.is_some() {
-            eszip.add_import_map(
-                ModuleKind::Json,
-                maybe_import_map_url.unwrap(),
-                Arc::from(
-                    emitter_factory
-                        .maybe_import_map
-                        .as_ref()
-                        .unwrap()
-                        .to_json()
-                        .as_bytes(),
-                ),
-            );
-        };
+    // add import map
+    if emitter_factory.maybe_import_map.is_some() {
+        eszip.add_import_map(
+            ModuleKind::Json,
+            maybe_import_map_url.unwrap(),
+            Arc::from(
+                emitter_factory
+                    .maybe_import_map
+                    .as_ref()
+                    .unwrap()
+                    .to_json()
+                    .as_bytes(),
+            ),
+        );
+    };
 
-        Ok(eszip)
-    } else {
-        eszip
-    }
+    Ok(eszip)
 }
 
 pub async fn include_glob_patterns_in_eszip(

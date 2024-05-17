@@ -21,11 +21,15 @@ use deno_io;
 use deno_io::fs::FsError;
 use deno_io::fs::FsResult;
 use deno_io::fs::FsStat;
+use futures::future::OptionFuture;
 use sb_core::util::checksum;
 use sb_core::util::fs::canonicalize_path;
+use sb_eszip_shared::AsyncEszipDataRead;
 use serde::Deserialize;
 use serde::Serialize;
 use thiserror::Error;
+
+use crate::rt::SYNC_IO_RT;
 
 #[derive(Error, Debug)]
 #[error(
@@ -36,16 +40,23 @@ pub struct StripRootError {
     target: PathBuf,
 }
 
-pub struct VfsBuilder {
+type AddContentCallback<'scope> =
+    Arc<std::sync::Mutex<dyn (for<'r> FnMut(&'r Path, &'r str, Vec<u8>) -> String) + 'scope>>;
+
+pub struct VfsBuilder<'scope> {
     root_path: PathBuf,
     root_dir: VirtualDirectory,
     files: Vec<Vec<u8>>,
     current_offset: u64,
     file_offsets: HashMap<String, u64>,
+    add_content_callback_fn: AddContentCallback<'scope>,
 }
 
-impl VfsBuilder {
-    pub fn new(root_path: PathBuf) -> Result<Self, AnyError> {
+impl<'scope> VfsBuilder<'scope> {
+    pub fn new<F>(root_path: PathBuf, add_content_callback_fn: F) -> Result<Self, AnyError>
+    where
+        F: (for<'r> FnMut(&'r Path, &'r str, Vec<u8>) -> String) + 'scope,
+    {
         let root_path = canonicalize_path(&root_path)?;
         log::debug!("Building vfs with root '{}'", root_path.display());
         Ok(Self {
@@ -61,6 +72,8 @@ impl VfsBuilder {
             files: Vec::new(),
             current_offset: 0,
             file_offsets: Default::default(),
+            add_content_callback_fn: Arc::from(std::sync::Mutex::new(add_content_callback_fn))
+                as AddContentCallback<'scope>,
         })
     }
 
@@ -165,23 +178,27 @@ impl VfsBuilder {
             self.current_offset
         };
 
+        let add_content_callback_fn = self.add_content_callback_fn.clone();
         let dir = self.add_dir(path.parent().unwrap())?;
         let name = path.file_name().unwrap().to_string_lossy();
         let data_len = data.len();
-        match dir.entries.binary_search_by(|e| e.name().cmp(&name)) {
+        let insert_index = match dir.entries.binary_search_by(|e| e.name().cmp(&name)) {
+            Err(insert_index) => insert_index,
             Ok(_) => unreachable!(),
-            Err(insert_index) => {
-                dir.entries.insert(
-                    insert_index,
-                    VfsEntry::File(VirtualFile {
-                        name: name.to_string(),
-                        offset,
-                        len: data.len() as u64,
-                        content: Some(data),
-                    }),
-                );
-            }
-        }
+        };
+
+        let len = data.len();
+        let key = (add_content_callback_fn.lock().unwrap())(path, &name, data);
+
+        dir.entries.insert(
+            insert_index,
+            VfsEntry::File(VirtualFile {
+                key,
+                name: name.to_string(),
+                offset,
+                len: len as u64,
+            }),
+        );
 
         // new file, update the list of files
         if self.current_offset == offset {
@@ -349,25 +366,36 @@ pub struct VirtualDirectory {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VirtualFile {
+    pub key: String,
     pub name: String,
     pub offset: u64,
     pub len: u64,
-    pub content: Option<Vec<u8>>, // Not Deno Original, but it's the best way to store it in the ESZIP.
 }
 
 impl VirtualFile {
-    pub fn read_file(&self, _pos: u64, buf: &mut [u8]) -> std::io::Result<usize> {
-        match &self.content {
-            Some(content) => {
-                let read_length = buf.len().min(content.len());
-                buf[..read_length].copy_from_slice(&content[..read_length]);
-                Ok(read_length)
-            }
-            None => Err(io::Error::new(
+    pub async fn read_file(
+        &self,
+        eszip: &dyn AsyncEszipDataRead,
+        _pos: u64,
+        buf: &mut [u8],
+    ) -> std::io::Result<usize> {
+        let content: OptionFuture<_> = eszip
+            .ensure_module(self.key.as_str())
+            .map(|it| async move { it.source().await })
+            .into();
+
+        let Some(Some(content)) = content.await else {
+            return Err(io::Error::new(
                 io::ErrorKind::NotFound,
                 "No content available",
-            )),
-        }
+            ));
+        };
+
+        let read_length = buf.len().min(content.len());
+
+        buf[..read_length].copy_from_slice(&content[..read_length]);
+
+        Ok(read_length)
     }
 }
 
@@ -540,7 +568,7 @@ impl FileBackedVfsFile {
         }
     }
 
-    fn read_to_buf(&self, buf: &mut [u8]) -> FsResult<usize> {
+    async fn read_to_buf(&self, buf: &mut [u8]) -> FsResult<usize> {
         let pos = {
             let mut pos = self.pos.lock();
             let read_pos = *pos;
@@ -548,12 +576,14 @@ impl FileBackedVfsFile {
             *pos = std::cmp::min(self.file.len, *pos + buf.len() as u64);
             read_pos
         };
+
         self.vfs
             .read_file(&self.file, pos, buf)
+            .await
             .map_err(|err| err.into())
     }
 
-    fn read_to_end(&self) -> FsResult<Vec<u8>> {
+    async fn read_to_end(&self) -> FsResult<Vec<u8>> {
         let pos = {
             let mut pos = self.pos.lock();
             let read_pos = *pos;
@@ -569,7 +599,7 @@ impl FileBackedVfsFile {
         }
         let size = (self.file.len - pos) as usize;
         let mut buf = vec![0; size];
-        self.vfs.read_file(&self.file, pos, &mut buf)?;
+        self.vfs.read_file(&self.file, pos, &mut buf).await?;
         Ok(buf)
     }
 }
@@ -577,15 +607,19 @@ impl FileBackedVfsFile {
 #[async_trait::async_trait(?Send)]
 impl deno_io::fs::File for FileBackedVfsFile {
     fn read_sync(self: Rc<Self>, buf: &mut [u8]) -> FsResult<usize> {
-        self.read_to_buf(buf)
+        std::thread::scope(|s| {
+            let inner = (*self).clone();
+
+            s.spawn(move || SYNC_IO_RT.block_on(inner.read_to_buf(buf)))
+                .join()
+                .unwrap()
+        })
     }
     async fn read_byob(self: Rc<Self>, mut buf: BufMutView) -> FsResult<(usize, BufMutView)> {
         let inner = (*self).clone();
-        tokio::task::spawn(async move {
-            let nread = inner.read_to_buf(&mut buf)?;
-            Ok((nread, buf))
-        })
-        .await?
+        let nread = inner.read_to_buf(&mut buf).await?;
+
+        Ok((nread, buf))
     }
 
     fn write_sync(self: Rc<Self>, _buf: &[u8]) -> FsResult<usize> {
@@ -603,11 +637,17 @@ impl deno_io::fs::File for FileBackedVfsFile {
     }
 
     fn read_all_sync(self: Rc<Self>) -> FsResult<Vec<u8>> {
-        self.read_to_end()
+        std::thread::scope(|s| {
+            let inner = (*self).clone();
+
+            s.spawn(move || SYNC_IO_RT.block_on(inner.read_to_end()))
+                .join()
+                .unwrap()
+        })
     }
     async fn read_all_async(self: Rc<Self>) -> FsResult<Vec<u8>> {
         let inner = (*self).clone();
-        tokio::task::spawn_blocking(move || inner.read_to_end()).await?
+        inner.read_to_end().await
     }
 
     fn chmod_sync(self: Rc<Self>, _pathmode: u32) -> FsResult<()> {
@@ -699,12 +739,13 @@ impl deno_io::fs::File for FileBackedVfsFile {
 
 #[derive(Debug)]
 pub struct FileBackedVfs {
+    eszip: Arc<dyn AsyncEszipDataRead + 'static>,
     fs_root: VfsRoot,
 }
 
 impl FileBackedVfs {
-    pub fn new(fs_root: VfsRoot) -> Self {
-        Self { fs_root }
+    pub fn new(eszip: Arc<dyn AsyncEszipDataRead + 'static>, fs_root: VfsRoot) -> Self {
+        Self { eszip, fs_root }
     }
 
     pub fn root(&self) -> &Path {
@@ -766,19 +807,19 @@ impl FileBackedVfs {
         Ok(path)
     }
 
-    pub fn read_file_all(&self, file: &VirtualFile) -> std::io::Result<Vec<u8>> {
+    pub async fn read_file_all(&self, file: &VirtualFile) -> std::io::Result<Vec<u8>> {
         let mut buf = vec![0; file.len as usize];
-        self.read_file(file, 0, &mut buf)?;
+        self.read_file(file, 0, &mut buf).await?;
         Ok(buf)
     }
 
-    pub fn read_file(
+    pub async fn read_file(
         &self,
         file: &VirtualFile,
         pos: u64,
         buf: &mut [u8],
     ) -> std::io::Result<usize> {
-        file.read_file(pos, buf)
+        file.read_file(self.eszip.as_ref(), pos, buf).await
     }
 
     pub fn dir_entry(&self, path: &Path) -> std::io::Result<&VirtualDirectory> {

@@ -11,6 +11,7 @@ use deno_core::{FastString, ModuleSpecifier};
 use deno_tls::rustls::RootCertStore;
 use deno_tls::RootCertStoreProvider;
 use import_map::{parse_from_json, ImportMap};
+use log::warn;
 use sb_core::cache::caches::Caches;
 use sb_core::cache::deno_dir::DenoDirProvider;
 use sb_core::cache::node::NodeAnalysisCache;
@@ -212,6 +213,10 @@ pub async fn create_module_loader_for_standalone_from_eszip_kind(
 ) -> Result<RuntimeProviders, AnyError> {
     let eszip = payload_to_eszip(eszip_payload_kind).await;
     let mut maybe_import_map = None;
+
+    if let Err(err) = eszip.ensure_version().await {
+        warn!("{}", err);
+    }
 
     if let Some(import_map) = maybe_import_map_arc {
         let clone_import_map = (*import_map).clone();

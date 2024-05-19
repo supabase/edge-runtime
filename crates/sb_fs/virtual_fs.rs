@@ -22,11 +22,12 @@ use deno_io::fs::FsError;
 use deno_io::fs::FsResult;
 use deno_io::fs::FsStat;
 use futures::future::OptionFuture;
+use rkyv::Archive;
+use rkyv::Deserialize;
+use rkyv::Serialize;
 use sb_core::util::checksum;
 use sb_core::util::fs::canonicalize_path;
 use sb_eszip_shared::AsyncEszipDataRead;
-use serde::Deserialize;
-use serde::Serialize;
 use thiserror::Error;
 
 use crate::rt::SYNC_IO_RT;
@@ -331,8 +332,8 @@ impl<'a> VfsEntryRef<'a> {
     }
 }
 
-// todo(dsherret): we should store this more efficiently in the binary
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Archive, Serialize, Deserialize, Debug)]
+#[archive(check_bytes)]
 pub enum VfsEntry {
     Dir(VirtualDirectory),
     File(VirtualFile),
@@ -357,14 +358,24 @@ impl VfsEntry {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Archive, Serialize, Deserialize, Debug)]
+#[archive(
+    check_bytes,
+    bound(serialize = "__S: rkyv::ser::ScratchSpace + rkyv::ser::Serializer")
+)]
+#[archive_attr(check_bytes(
+    bound = "__C: rkyv::validation::ArchiveContext, <__C as rkyv::Fallible>::Error: std::error::Error"
+))]
 pub struct VirtualDirectory {
     pub name: String,
     // should be sorted by name
+    #[omit_bounds]
+    #[archive_attr(omit_bounds)]
     pub entries: Vec<VfsEntry>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Archive, Serialize, Deserialize, Debug, Clone)]
+#[archive(check_bytes)]
 pub struct VirtualFile {
     pub key: String,
     pub name: String,
@@ -399,7 +410,8 @@ impl VirtualFile {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Archive, Serialize, Deserialize, Debug)]
+#[archive(check_bytes)]
 pub struct VirtualSymlink {
     pub name: String,
     pub dest_parts: Vec<String>,

@@ -1,4 +1,5 @@
 use crate::virtual_fs::{FileBackedVfs, VfsBuilder, VfsRoot, VirtualDirectory};
+use anyhow::{bail, Context};
 use deno_core::error::AnyError;
 use deno_core::{normalize_path, serde_json};
 use deno_npm::NpmSystemInfo;
@@ -60,13 +61,24 @@ pub async fn extract_static_files_from_eszip(eszip: &dyn LazyEszipV2) -> EszipSt
 pub fn load_npm_vfs(
     eszip: Arc<dyn AsyncEszipDataRead + 'static>,
     root_dir_path: PathBuf,
-    vfs_data: Option<&[u8]>,
+    vfs_data_slice: Option<&[u8]>,
 ) -> Result<FileBackedVfs, AnyError> {
-    let dir: Option<VirtualDirectory> = if let Some(vfs_data) = vfs_data {
-        serde_json::from_slice(vfs_data)?
-    } else {
-        None
-    };
+    let dir = match vfs_data_slice
+        .map(rkyv::check_archived_root::<Option<VirtualDirectory>>)
+        .transpose()
+    {
+        Ok(Some(archived)) => Some(
+            <<Option<VirtualDirectory> as rkyv::Archive>::Archived as rkyv::Deserialize<
+                Option<VirtualDirectory>,
+                rkyv::Infallible,
+            >>::deserialize(archived, &mut rkyv::Infallible)
+            .with_context(|| "cannot deserialize vfs data")?,
+        ),
+
+        Ok(None) => None,
+        Err(err) => bail!("cannot load npm vfs: {}", err),
+    }
+    .flatten();
 
     let fs_root: VfsRoot = if let Some(mut dir) = dir {
         // align the name of the directory with the root dir

@@ -10,12 +10,14 @@ use deno_fs::{FileSystem, RealFs};
 use deno_npm::NpmSystemInfo;
 use eszip::v2::{EszipV2Module, EszipV2Modules, EszipV2SourceSlot};
 use eszip::{EszipV2, Module, ModuleKind, ParseError};
+use futures::future::OptionFuture;
 use futures::{AsyncReadExt, AsyncSeekExt};
 use glob::glob;
-use log::error;
+use log::{error, warn};
 use sb_core::util::sync::AtomicFlag;
 use sb_eszip_shared::{
-    AsyncEszipDataRead, SOURCE_CODE_ESZIP_KEY, STATIC_FILES_ESZIP_KEY, VFS_ESZIP_KEY,
+    AsyncEszipDataRead, SOURCE_CODE_ESZIP_KEY, STATIC_FILES_ESZIP_KEY, SUPABASE_ESZIP_VERSION,
+    SUPABASE_ESZIP_VERSION_KEY, VFS_ESZIP_KEY,
 };
 use sb_fs::{build_vfs, VfsOpts};
 use sb_npm::InnerCliNpmResolverRef;
@@ -176,6 +178,26 @@ impl LazyLoadableEszip {
         } else {
             Ok(())
         }
+    }
+
+    pub async fn ensure_version(&self) -> Result<(), anyhow::Error> {
+        let version = OptionFuture::<_>::from(
+            self.ensure_module(SUPABASE_ESZIP_VERSION_KEY)
+                .map(|it| async move { it.source().await }),
+        )
+        .await
+        .flatten();
+
+        if !matches!(version, Some(ref v) if v.as_ref() == SUPABASE_ESZIP_VERSION) {
+            let stringified = version
+                .as_deref()
+                .map(String::from_utf8_lossy)
+                .unwrap_or_else(|| Cow::Borrowed("unspecified"));
+
+            bail!("unsupported supabase eszip version: {}", stringified)
+        }
+
+        Ok(())
     }
 }
 
@@ -486,6 +508,11 @@ pub async fn generate_binary_eszip(
     let npm_vfs = serde_json::to_vec(&npm_vfs).unwrap().to_vec();
     let boxed_slice = npm_vfs.into_boxed_slice();
 
+    eszip.add_opaque_data(
+        String::from(SUPABASE_ESZIP_VERSION_KEY),
+        Arc::from(SUPABASE_ESZIP_VERSION),
+    );
+
     eszip.add_opaque_data(String::from(VFS_ESZIP_KEY), Arc::from(boxed_slice));
     eszip.add_opaque_data(String::from(SOURCE_CODE_ESZIP_KEY), bin_code);
 
@@ -620,6 +647,10 @@ async fn extract_modules(
 pub async fn extract_eszip(payload: ExtractEszipPayload) {
     let mut eszip = payload_to_eszip(payload.data).await;
     let output_folder = payload.folder;
+
+    if let Err(err) = eszip.ensure_version().await {
+        warn!("{}", err);
+    }
 
     eszip.ensure_read_all().await.unwrap();
 

@@ -14,6 +14,7 @@ use futures::future::OptionFuture;
 use futures::{AsyncReadExt, AsyncSeekExt};
 use glob::glob;
 use log::{error, warn};
+use rkyv::ser::Serializer;
 use sb_core::util::sync::AtomicFlag;
 use sb_eszip_shared::{
     AsyncEszipDataRead, SOURCE_CODE_ESZIP_KEY, STATIC_FILES_ESZIP_KEY, SUPABASE_ESZIP_VERSION,
@@ -507,15 +508,26 @@ pub async fn generate_binary_eszip(
         InnerCliNpmResolverRef::Byonm(_) => unreachable!(),
     };
 
-    let npm_vfs = serde_json::to_vec(&npm_vfs).unwrap().to_vec();
-    let boxed_slice = npm_vfs.into_boxed_slice();
+    let npm_vfs = {
+        let mut serializer = rkyv::ser::serializers::AllocSerializer::<0>::default();
+
+        serializer
+            .serialize_value(&npm_vfs)
+            .with_context(|| "cannot serialize vfs data")?;
+
+        serializer.into_serializer().into_inner()
+    };
 
     eszip.add_opaque_data(
         String::from(SUPABASE_ESZIP_VERSION_KEY),
         Arc::from(SUPABASE_ESZIP_VERSION),
     );
 
-    eszip.add_opaque_data(String::from(VFS_ESZIP_KEY), Arc::from(boxed_slice));
+    eszip.add_opaque_data(
+        String::from(VFS_ESZIP_KEY),
+        Arc::from(npm_vfs.into_boxed_slice()),
+    );
+
     eszip.add_opaque_data(String::from(SOURCE_CODE_ESZIP_KEY), bin_code);
 
     // add import map

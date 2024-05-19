@@ -106,8 +106,7 @@ pub async fn create_module_loader_for_eszip(
                     .unwrap()
                     .take_source()
                     .await
-                    .unwrap()
-                    .to_vec(),
+                    .unwrap(),
             )
         } else {
             None

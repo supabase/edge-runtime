@@ -476,6 +476,7 @@ pub async fn generate_binary_eszip(
         InnerCliNpmResolverRef::Managed(managed) => {
             let snapshot = managed.serialized_valid_snapshot_for_system(&NpmSystemInfo::default());
             if !snapshot.as_serialized().packages.is_empty() {
+                let mut count = 0;
                 let (root_dir, files) = build_vfs(
                     VfsOpts {
                         npm_resolver: resolver.clone(),
@@ -483,9 +484,10 @@ pub async fn generate_binary_eszip(
                         npm_cache: emitter_factory.npm_cache().await.clone(),
                         npm_resolution: emitter_factory.npm_resolution().await.clone(),
                     },
-                    |path, _key, content| {
-                        let key = String::from(path.to_string_lossy());
+                    |_path, _key, content| {
+                        let key = format!("vfs://{}", count);
 
+                        count += 1;
                         eszip.add_opaque_data(key.clone(), content.into());
                         key
                     },

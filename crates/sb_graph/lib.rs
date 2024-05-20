@@ -1,4 +1,5 @@
 use crate::emitter::EmitterFactory;
+use crate::errors::EszipError;
 use crate::graph_util::{create_eszip_from_graph_raw, create_graph};
 use anyhow::{bail, Context};
 use deno_ast::MediaType;
@@ -14,7 +15,6 @@ use futures::future::OptionFuture;
 use futures::{AsyncReadExt, AsyncSeekExt};
 use glob::glob;
 use log::{error, warn};
-use rkyv::ser::Serializer;
 use sb_core::util::sync::AtomicFlag;
 use sb_eszip_shared::{
     AsyncEszipDataRead, SOURCE_CODE_ESZIP_KEY, STATIC_FILES_ESZIP_KEY, SUPABASE_ESZIP_VERSION,
@@ -37,6 +37,8 @@ use tokio::sync::Mutex;
 mod eszip_parse;
 
 pub mod emitter;
+pub mod errors;
+pub mod eszip_migrate;
 pub mod graph_fs;
 pub mod graph_resolver;
 pub mod graph_util;
@@ -190,12 +192,10 @@ impl LazyLoadableEszip {
         .flatten();
 
         if !matches!(version, Some(ref v) if v.as_ref() == SUPABASE_ESZIP_VERSION) {
-            let stringified = version
-                .as_deref()
-                .map(String::from_utf8_lossy)
-                .unwrap_or_else(|| Cow::Borrowed("unspecified"));
-
-            bail!("unsupported supabase eszip version: {}", stringified)
+            bail!(EszipError::UnsupportedVersion {
+                expected: SUPABASE_ESZIP_VERSION,
+                found: version.as_deref().map(<[u8]>::to_vec)
+            });
         }
 
         Ok(())
@@ -508,15 +508,8 @@ pub async fn generate_binary_eszip(
         InnerCliNpmResolverRef::Byonm(_) => unreachable!(),
     };
 
-    let npm_vfs = {
-        let mut serializer = rkyv::ser::serializers::AllocSerializer::<0>::default();
-
-        serializer
-            .serialize_value(&npm_vfs)
-            .with_context(|| "cannot serialize vfs data")?;
-
-        serializer.into_serializer().into_inner()
-    };
+    let npm_vfs =
+        rkyv::to_bytes::<_, 1024>(&npm_vfs).with_context(|| "cannot serialize vfs data")?;
 
     eszip.add_opaque_data(
         String::from(SUPABASE_ESZIP_VERSION_KEY),
@@ -659,12 +652,15 @@ async fn extract_modules(
 }
 
 pub async fn extract_eszip(payload: ExtractEszipPayload) {
-    let mut eszip = payload_to_eszip(payload.data).await;
     let output_folder = payload.folder;
-
-    if let Err(err) = eszip.ensure_version().await {
-        warn!("{}", err);
-    }
+    let mut eszip =
+        match eszip_migrate::try_migrate_if_needed(payload_to_eszip(payload.data).await).await {
+            Ok(v) => v,
+            Err(_old) => {
+                warn!("eszip migration failed (give up extract job)");
+                return;
+            }
+        };
 
     eszip.ensure_read_all().await.unwrap();
 

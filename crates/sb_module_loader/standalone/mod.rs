@@ -4,14 +4,13 @@ use crate::node::cli_node_resolver::CliNodeResolver;
 use crate::node::node_module_loader::{CjsResolutionStore, NpmModuleLoader};
 use crate::standalone::standalone_module_loader::{EmbeddedModuleLoader, SharedModuleLoaderState};
 use crate::RuntimeProviders;
-use anyhow::Context;
+use anyhow::{bail, Context};
 use deno_core::error::AnyError;
 use deno_core::url::Url;
 use deno_core::{FastString, ModuleSpecifier};
 use deno_tls::rustls::RootCertStore;
 use deno_tls::RootCertStoreProvider;
 use import_map::{parse_from_json, ImportMap};
-use log::warn;
 use sb_core::cache::caches::Caches;
 use sb_core::cache::deno_dir::DenoDirProvider;
 use sb_core::cache::node::NodeAnalysisCache;
@@ -22,7 +21,7 @@ use sb_eszip_shared::{AsyncEszipDataRead, SOURCE_CODE_ESZIP_KEY, VFS_ESZIP_KEY};
 use sb_fs::file_system::DenoCompileFileSystem;
 use sb_fs::{extract_static_files_from_eszip, load_npm_vfs};
 use sb_graph::graph_resolver::MappedSpecifierResolver;
-use sb_graph::{payload_to_eszip, EszipPayloadKind, LazyLoadableEszip};
+use sb_graph::{eszip_migrate, payload_to_eszip, EszipPayloadKind, LazyLoadableEszip};
 use sb_node::analyze::NodeCodeTranslator;
 use sb_node::NodeResolver;
 use sb_npm::cache_dir::NpmCacheDir;
@@ -210,12 +209,17 @@ pub async fn create_module_loader_for_standalone_from_eszip_kind(
     maybe_import_map_path: Option<String>,
     include_source_map: bool,
 ) -> Result<RuntimeProviders, AnyError> {
-    let eszip = payload_to_eszip(eszip_payload_kind).await;
     let mut maybe_import_map = None;
-
-    if let Err(err) = eszip.ensure_version().await {
-        warn!("{}", err);
-    }
+    let eszip = match eszip_migrate::try_migrate_if_needed(
+        payload_to_eszip(eszip_payload_kind).await,
+    )
+    .await
+    {
+        Ok(v) => v,
+        Err(_old) => {
+            bail!("eszip migration failed");
+        }
+    };
 
     if let Some(import_map) = maybe_import_map_arc {
         let clone_import_map = (*import_map).clone();

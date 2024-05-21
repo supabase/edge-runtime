@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use anyhow::{bail, Error};
 use deno_core::error::AnyError;
 use deno_core::op2;
@@ -5,6 +6,7 @@ use deno_core::OpState;
 use log::error;
 use ndarray::{Array1, Array2, ArrayView3, Axis, Ix3};
 use ndarray_linalg::norm::{normalize, NormalizeAxis};
+use once_cell::sync::Lazy;
 use ort::{inputs, GraphOptimizationLevel, Session};
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -45,8 +47,19 @@ fn mean_pool(last_hidden_states: ArrayView3<f32>, attention_mask: ArrayView3<i64
 }
 
 fn init_gte(state: &mut OpState) -> Result<(), Error> {
-    // Create the ONNX Runtime environment, for all sessions created in this process.
-    ort::init().with_name("GTE").commit()?;
+    static ONNX_ENV_INIT: Lazy<Option<ort::Error>> = Lazy::new(|| {
+        // Create the ONNX Runtime environment, for all sessions created in this process.
+        if let Err(err) = ort::init().with_name("GTE").commit() {
+            error!("sb_ai: failed to create environment - {}", err);
+            return Some(err);
+        }
+
+        None
+    });
+
+    if let Some(err) = &*ONNX_ENV_INIT {
+        return Err(anyhow!("failed to create onnx environment: {err}"));
+    }
 
     let models_dir = std::env::var("SB_AI_MODELS_DIR").unwrap_or("/etc/sb_ai/models".to_string());
 

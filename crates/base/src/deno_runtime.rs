@@ -641,8 +641,14 @@ impl DenoRuntime {
             self.js_runtime.v8_isolate().enter();
 
             if inspector.is_some() {
+                let is_terminated = self.is_terminated.clone();
+                let mut this = scopeguard::guard_on_unwind(&mut *self, |this| {
+                    this.js_runtime.v8_isolate().exit();
+                    is_terminated.raise();
+                });
+
                 {
-                    let _guard = scopeguard::guard(self.is_found_inspector_session.clone(), |v| {
+                    let _guard = scopeguard::guard(this.is_found_inspector_session.clone(), |v| {
                         v.raise();
                     });
 
@@ -651,12 +657,12 @@ impl DenoRuntime {
                     // before the inspector session is connected if the function doesn't
                     // have a long execution time. Should we wait for an inspector
                     // session to connect with the V8?
-                    self.wait_for_inspector_session();
+                    this.wait_for_inspector_session();
                 }
 
-                if self.is_termination_requested.is_raised() {
-                    self.js_runtime.v8_isolate().exit();
-                    self.is_terminated.raise();
+                if this.is_termination_requested.is_raised() {
+                    this.js_runtime.v8_isolate().exit();
+                    is_terminated.raise();
                     return (Ok(()), 0i64);
                 }
             }

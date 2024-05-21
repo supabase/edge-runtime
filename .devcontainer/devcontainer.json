@@ -1,7 +1,11 @@
 {
   "name": "Rust",
   "build": {
-    "dockerfile": "Dockerfile"
+    "dockerfile": "Dockerfile",
+    "context": "..",
+    "args": {
+      "ONNXRUNTIME_VERSION": "1.17.0"
+    }
   },
   "features": {
     "ghcr.io/jungaretti/features/make:1": {},
@@ -21,7 +25,8 @@
       "extensions": [
         "rust-lang.rust-analyzer",
         "eamodio.gitlens",
-        "ms-azuretools.vscode-docker"
+        "ms-azuretools.vscode-docker",
+        "ms-vscode.hexeditor"
       ]
     }
   }

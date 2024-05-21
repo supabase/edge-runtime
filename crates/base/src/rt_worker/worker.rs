@@ -232,10 +232,30 @@ impl Worker {
                             pending().boxed()
                         };
 
+                        let _guard = scopeguard::guard((), |_| {
+                            worker_key.and_then(|worker_key_unwrapped| {
+                                pool_msg_tx.map(|tx| {
+                                    if let Err(err) = tx.send(UserWorkerMsgs::Shutdown(worker_key_unwrapped)) {
+                                        error!(
+                                            "failed to send the shutdown signal to user worker pool: {:?}",
+                                            err
+                                        );
+                                    }
+                                })
+                            });
+                        });
+
                         let result = unsafe {
                             let mut runtime = scopeguard::guard(new_runtime, |mut runtime| {
                                 runtime.js_runtime.v8_isolate().enter();
                             });
+
+                            let supervise_cancel_token =
+                                scopeguard::guard_on_unwind(supervise_cancel_token, |token| {
+                                    if let Some(token) = token {
+                                        token.cancel();
+                                    }
+                                });
 
                             runtime.js_runtime.v8_isolate().exit();
 
@@ -256,7 +276,7 @@ impl Worker {
                                 );
 
                             if found_unexpected_error {
-                                if let Some(token) = supervise_cancel_token {
+                                if let Some(token) = supervise_cancel_token.as_ref() {
                                     token.cancel();
                                 }
                             }
@@ -309,17 +329,6 @@ impl Worker {
                     }
                     Err(err) => error!("unexpected worker error {}", err),
                 };
-
-                worker_key.and_then(|worker_key_unwrapped| {
-                    pool_msg_tx.map(|tx| {
-                        if let Err(err) = tx.send(UserWorkerMsgs::Shutdown(worker_key_unwrapped)) {
-                            error!(
-                                "failed to send the shutdown signal to user worker pool: {:?}",
-                                err
-                            );
-                        }
-                    })
-                });
             })
         });
     }

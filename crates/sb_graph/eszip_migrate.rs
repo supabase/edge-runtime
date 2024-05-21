@@ -101,7 +101,7 @@ mod v0 {
 
         let v1_dir = if let Some(data) = vfs_mod_data {
             let mut count = 0;
-            let v0_dir = serde_json::from_slice::<Directory>(data.as_ref())
+            let v0_dir = serde_json::from_slice::<Option<Directory>>(data.as_ref())
                 .with_context(|| "failed to parse v0 structure")?;
 
             fn migrate_dir_v0_v1(
@@ -153,7 +153,7 @@ mod v0 {
                 v1_dir
             }
 
-            Some(migrate_dir_v0_v1(v0_dir, &mut v1_eszip, &mut count))
+            v0_dir.map(|it| migrate_dir_v0_v1(it, &mut v1_eszip, &mut count))
         } else {
             None
         };

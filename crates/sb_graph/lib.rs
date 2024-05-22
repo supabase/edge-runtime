@@ -15,7 +15,6 @@ use futures::future::OptionFuture;
 use futures::{AsyncReadExt, AsyncSeekExt};
 use glob::glob;
 use log::{error, warn};
-use sb_core::util::sync::AtomicFlag;
 use sb_eszip_shared::{
     AsyncEszipDataRead, SOURCE_CODE_ESZIP_KEY, STATIC_FILES_ESZIP_KEY, SUPABASE_ESZIP_VERSION,
     SUPABASE_ESZIP_VERSION_KEY, VFS_ESZIP_KEY,
@@ -29,7 +28,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fs;
 use std::fs::{create_dir_all, File};
-use std::io::{Cursor, Write};
+use std::io::{Cursor, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -213,8 +212,8 @@ pub struct EszipDataSection {
     inner: Arc<Mutex<Cursor<Vec<u8>>>>,
     initial_offset: u64,
     modules: EszipV2Modules,
-    partially_read: Arc<AtomicFlag>,
     source_offsets_by_specifier: Arc<Mutex<Option<HashMap<String, EszipDataSectionMetadata>>>>,
+    loaded_offsets_by_specifier: Arc<Mutex<HashMap<String, (usize, usize)>>>,
 }
 
 impl EszipDataSection {
@@ -223,8 +222,8 @@ impl EszipDataSection {
             inner: Arc::new(Mutex::new(inner)),
             initial_offset,
             modules,
-            partially_read: Arc::default(),
             source_offsets_by_specifier: Arc::default(),
+            loaded_offsets_by_specifier: Arc::default(),
         }
     }
 
@@ -232,10 +231,6 @@ impl EszipDataSection {
         &self,
         specifier: &str,
     ) -> Result<(), anyhow::Error> {
-        if !self.partially_read.is_raised() {
-            self.partially_read.raise();
-        }
-
         let mut source_offsets_guard = self.source_offsets_by_specifier.lock().await;
         let source_offsets = source_offsets_guard.get_or_insert_with(|| {
             self.modules
@@ -272,7 +267,13 @@ impl EszipDataSection {
 
         let (offset, length) = match metadata {
             metadata @ &mut EszipDataSectionMetadata::HasOffset { offset, length } => {
+                self.loaded_offsets_by_specifier
+                    .lock()
+                    .await
+                    .insert(String::from(specifier), (offset, length));
+
                 *metadata = EszipDataSectionMetadata::PendingOrAlreadyLoaded;
+
                 (offset, length)
             }
 
@@ -322,14 +323,13 @@ impl EszipDataSection {
     }
 
     pub async fn read_data_section_all(self: Arc<Self>) -> Result<(), ParseError> {
-        if self.partially_read.is_raised() {
-            panic!("can't invoke if part of the data section has been already read")
-        }
-
         // NOTE: Below codes is roughly originated from eszip@0.60.0/src/v2.rs
 
         let this = Arc::into_inner(self).unwrap();
         let modules = this.modules;
+        let mut loaded_offsets = Arc::into_inner(this.loaded_offsets_by_specifier)
+            .unwrap()
+            .into_inner();
 
         let mut inner = this.inner.try_lock_owned().unwrap();
         let mut io = AllowStdIo::new({
@@ -351,17 +351,29 @@ impl EszipDataSection {
                     ..
                 } = m
                 {
-                    Some((*offset, (*length, specifier.clone())))
+                    Some((*offset, (*length, specifier.clone(), true)))
                 } else {
-                    None
+                    loaded_offsets
+                        .remove(specifier.as_str())
+                        .map(|(offset, length)| (offset, (length, specifier.clone(), false)))
                 }
             })
             .collect::<HashMap<_, _>>();
 
         while read < sources_len {
-            let (length, specifier) = source_offsets
+            let (length, specifier, need_load) = source_offsets
                 .remove(&read)
                 .ok_or(ParseError::InvalidV2SourceOffset(read))?;
+
+            if !need_load {
+                read += length + 32;
+
+                io.seek(SeekFrom::Current((length + 32) as i64))
+                    .await
+                    .unwrap();
+
+                continue;
+            }
 
             let mut source_bytes = vec![0u8; length];
             io.read_exact(&mut source_bytes).await?;

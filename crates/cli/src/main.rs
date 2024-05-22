@@ -161,16 +161,7 @@ fn main() -> Result<(), anyhow::Error> {
                         .or(sub_matches.get_one::<SocketAddr>("inspect-wait")),
                 );
 
-                let maybe_inspector_option = if inspector.is_some()
-                    && !maybe_supervisor_policy
-                        .as_ref()
-                        .map(SupervisorPolicy::is_oneshot)
-                        .unwrap_or(false)
-                {
-                    bail!(
-                        "specifying `oneshot` policy is required to enable the inspector feature"
-                    );
-                } else if let Some((key, addr)) = inspector {
+                let maybe_inspector_option = if let Some((key, addr)) = inspector {
                     Some(get_inspector_option(key.as_str(), addr).unwrap())
                 } else {
                     None

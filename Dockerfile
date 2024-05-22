@@ -19,7 +19,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,id=${TARGETPLATFORM} --m
     mv /usr/src/edge-runtime/target/${PROFILE}/edge-runtime /root
 
 RUN ./scripts/install_onnx.sh $ONNXRUNTIME_VERSION $TARGETPLATFORM /root/libonnxruntime.so
-RUN ./scripts/download_models.sh
+# RUN ./scripts/download_models.sh
 
 
 FROM debian:bookworm-slim
@@ -27,7 +27,8 @@ RUN apt-get update && apt-get install -y libssl-dev && rm -rf /var/lib/apt/lists
 RUN apt-get remove -y perl && apt-get autoremove -y
 COPY --from=builder /root/edge-runtime /usr/local/bin/edge-runtime
 COPY --from=builder /root/libonnxruntime.so /usr/local/bin/libonnxruntime.so
-COPY --from=builder /usr/src/edge-runtime/models /etc/sb_ai/models
+# COPY --from=builder /usr/src/edge-runtime/models /etc/sb_ai/models
+COPY --from=builder /usr/src/edge-runtime/temp/models /etc/sb_ai/models
 ENV ORT_DYLIB_PATH=/usr/local/bin/libonnxruntime.so
 ENV SB_AI_MODELS_DIR=/etc/sb_ai/models
 ENTRYPOINT ["edge-runtime"]

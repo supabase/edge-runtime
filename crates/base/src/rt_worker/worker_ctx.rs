@@ -168,8 +168,7 @@ async fn handle_request(
     let res = tokio::select! {
         resp = request_sender.send_request(req) => resp,
         _ = maybe_cancel_fut => {
-            // XXX(Nyannyacha): Should we add a more detailed message?
-            Ok(emit_status_code(http::StatusCode::REQUEST_TIMEOUT, None, true))
+            Ok(emit_status_code(http::StatusCode::GATEWAY_TIMEOUT, None, false))
         }
     };
 

@@ -1701,7 +1701,7 @@ async fn test_request_idle_timeout_no_streamed_response(maybe_tls: Option<Tls>) 
         request_builder,
         maybe_tls,
         (|resp| async {
-            assert_eq!(resp.unwrap().status().as_u16(), StatusCode::REQUEST_TIMEOUT);
+            assert_eq!(resp.unwrap().status().as_u16(), StatusCode::GATEWAY_TIMEOUT);
         }),
         TerminationToken::new()
     );

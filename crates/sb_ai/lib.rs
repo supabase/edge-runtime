@@ -1,6 +1,9 @@
+mod pipeline;
 mod session;
-mod tensor_ops;
+pub(crate) mod tensor_ops;
 
+use crate::pipeline::feature_extraction::FeatureExtractionPipeline;
+use crate::pipeline::Pipeline;
 use crate::session::create_session;
 use crate::tensor_ops::mean_pool;
 
@@ -14,12 +17,14 @@ use ndarray::{Array1, Array2, ArrayView3, Axis, Ix3};
 use ndarray_linalg::norm::{normalize, NormalizeAxis};
 use once_cell::sync::Lazy;
 use ort::{inputs, GraphOptimizationLevel, Session};
+use pipeline::feature_extraction::{FeatureExtractionPipelineInput, FeatureExtractionResult};
+use pipeline::PipelineRequest;
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 use tokenizers::Tokenizer;
-use tokio::sync::mpsc;
+use tokio::sync::mpsc::{self, UnboundedSender};
 use tokio::task;
 
 use tracing::trace_span;
@@ -203,10 +208,18 @@ fn init_model(state: &mut OpState, name: String) -> Result<(), Error> {
     }
 
     let models_dir = std::env::var("SB_AI_MODELS_DIR").unwrap_or("/etc/sb_ai/models".to_string());
+    let model_type = "feature-extraction";
     println!("{models_dir}");
 
-    let (req_tx, mut req_rx) = mpsc::unbounded_channel::<GteModelRequest>();
-    state.put::<mpsc::UnboundedSender<GteModelRequest>>(req_tx);
+    // TODO: Use Pipeline trait with Enum to get it dynamically
+    let pipeline_channel = FeatureExtractionPipeline::get_channel();
+    let Ok((req_tx, mut req_rx)) = pipeline_channel else {
+        return Err(anyhow!(
+            "failed to create pipeline: {}",
+            pipeline_channel.unwrap_err()
+        ));
+    };
+    state.put(req_tx);
 
     #[allow(clippy::let_underscore_future)]
     let _handle: task::JoinHandle<()> = task::spawn(async move {
@@ -227,63 +240,10 @@ fn init_model(state: &mut OpState, name: String) -> Result<(), Error> {
             return;
         };
 
+        // TODO: move this responsability to pipeline
         // model's default max length is 128. Increase it to 512.
         let truncation = tokenizer.get_truncation_mut().unwrap();
         truncation.max_length = 512;
-
-        let run_inference = move |prompt: String,
-                                  do_mean_pooling: bool,
-                                  do_normalize: bool|
-              -> Result<Vec<f32>, Error> {
-            let encoded_prompt = tokenizer.encode(prompt, true).map_err(anyhow::Error::msg)?;
-            let input_ids = encoded_prompt
-                .get_ids()
-                .iter()
-                .map(|i| *i as i64)
-                .collect::<Vec<_>>();
-            let attention_mask = encoded_prompt
-                .get_attention_mask()
-                .iter()
-                .map(|i| *i as i64)
-                .collect::<Vec<_>>();
-            let token_type_ids = encoded_prompt
-                .get_type_ids()
-                .iter()
-                .map(|i| *i as i64)
-                .collect::<Vec<_>>();
-
-            let input_ids_array = Array1::from_iter(input_ids.iter().cloned());
-            let input_ids_array = input_ids_array.view().insert_axis(Axis(0));
-
-            let attention_mask_array = Array1::from_iter(attention_mask.iter().cloned());
-            let attention_mask_array = attention_mask_array.view().insert_axis(Axis(0));
-
-            let token_type_ids_array = Array1::from_iter(token_type_ids.iter().cloned());
-            let token_type_ids_array = token_type_ids_array.view().insert_axis(Axis(0));
-
-            let outputs = session.run(inputs! {
-                "input_ids" => input_ids_array,
-                "token_type_ids" => token_type_ids_array,
-                "attention_mask" => attention_mask_array,
-            }?)?;
-
-            let embeddings = outputs["last_hidden_state"].extract_tensor()?;
-            let embeddings = embeddings.into_dimensionality::<Ix3>()?;
-
-            let result = if do_mean_pooling {
-                mean_pool(embeddings, attention_mask_array.insert_axis(Axis(2)))
-            } else {
-                embeddings.into_owned().remove_axis(Axis(0))
-            };
-
-            let result = if do_normalize {
-                let (normalized, _) = normalize(result, NormalizeAxis::Row);
-                normalized
-            } else {
-                result
-            };
-            Ok(result.view().to_slice().unwrap().to_vec())
-        };
 
         loop {
             let req = req_rx.recv().await;
@@ -292,8 +252,9 @@ fn init_model(state: &mut OpState, name: String) -> Result<(), Error> {
             }
             let req = req.unwrap();
 
-            let result = run_inference(req.prompt, req.mean_pool, req.normalize);
-            if req.result_tx.send(result).is_err() {
+            // TODO: Use Pipeline trait with Enum to get it dynamically
+            let result = FeatureExtractionPipeline::run(&session, &tokenizer, &req.input);
+            if req.sender.send(result).is_err() {
                 error!("sb_ai: failed to send inference results (channel error)");
             };
         }
@@ -337,24 +298,29 @@ async fn run_model(
     prompt: String,
     mean_pool: bool,
     normalize: bool,
-) -> Result<Vec<f32>, Error> {
+) -> Result<FeatureExtractionResult, Error> {
     let req_tx;
     {
         let op_state = state.borrow();
-        let maybe_req_tx = op_state.try_borrow::<mpsc::UnboundedSender<GteModelRequest>>();
+        let maybe_req_tx = op_state.try_borrow::<UnboundedSender<
+            PipelineRequest<FeatureExtractionPipelineInput, FeatureExtractionResult>,
+        >>();
         if maybe_req_tx.is_none() {
             bail!("Run init model first")
         }
         req_tx = maybe_req_tx.unwrap().clone();
     }
 
-    let (result_tx, mut result_rx) = mpsc::unbounded_channel::<Result<Vec<f32>, Error>>();
+    let (result_tx, mut result_rx) =
+        mpsc::unbounded_channel::<Result<FeatureExtractionResult, Error>>();
 
-    req_tx.send(GteModelRequest {
-        prompt,
-        mean_pool,
-        normalize,
-        result_tx: result_tx.clone(),
+    req_tx.send(PipelineRequest {
+        input: FeatureExtractionPipelineInput {
+            prompt,
+            mean_pool,
+            normalize,
+        },
+        sender: result_tx,
     })?;
 
     let result = result_rx.recv().await;

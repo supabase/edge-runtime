@@ -191,7 +191,7 @@ fn init_gte(state: &mut OpState) -> Result<(), Error> {
     Ok(())
 }
 
-fn init_model(state: &mut OpState, name: String) -> Result<(), Error> {
+fn init_model(state: &mut OpState, task: String, name: Option<String>) -> Result<(), Error> {
     static ONNX_ENV_INIT: Lazy<Option<ort::Error>> = Lazy::new(|| {
         // Create the ONNX Runtime environment, for all sessions created in this process.
         // TODO: Add CUDA execution provider
@@ -208,8 +208,13 @@ fn init_model(state: &mut OpState, name: String) -> Result<(), Error> {
     }
 
     let models_dir = std::env::var("SB_AI_MODELS_DIR").unwrap_or("/etc/sb_ai/models".to_string());
-    let model_type = "feature-extraction";
-    println!("{models_dir}");
+
+    let models_dir = match name {
+        Some(name) => Path::new(&models_dir).join(&name),
+        None => Path::new(&models_dir).join("defaults").join(&task),
+    };
+
+    println!("{}", models_dir.to_str().unwrap_or(""));
 
     // TODO: Use Pipeline trait with Enum to get it dynamically
     let pipeline_channel = FeatureExtractionPipeline::get_channel();
@@ -223,15 +228,14 @@ fn init_model(state: &mut OpState, name: String) -> Result<(), Error> {
 
     #[allow(clippy::let_underscore_future)]
     let _handle: task::JoinHandle<()> = task::spawn(async move {
-        let session = create_session(Path::new(&models_dir).join(&name).join("model.onnx"));
+        let session = create_session(models_dir.join("model.onnx"));
         let Ok(session) = session else {
             error!("sb_ai: failed to create session - {}", session.unwrap_err());
             return;
         };
 
         let tokenizer =
-            Tokenizer::from_file(Path::new(&models_dir).join(&name).join("tokenizer.json"))
-                .map_err(anyhow::Error::msg);
+            Tokenizer::from_file(models_dir.join("tokenizer.json")).map_err(anyhow::Error::msg);
         let Ok(mut tokenizer) = tokenizer else {
             error!(
                 "sb_ai: failed to create tokenizer - {}",
@@ -355,14 +359,21 @@ pub async fn op_sb_ai_run_model(
 
 #[op2]
 #[serde]
-pub fn op_sb_ai_init_pipeline(state: &mut OpState, #[string] name: String) -> Result<(), AnyError> {
-    init_model(state, name)
+pub fn op_sb_ai_init_pipeline(
+    state: &mut OpState,
+    #[string] task: String,
+    #[string] name: String,
+) -> Result<(), AnyError> {
+    let name = Option::from(name).filter(|name| !name.is_empty());
+
+    init_model(state, task, name)
 }
 
 #[op2(async)]
 #[serde]
 pub async fn op_sb_ai_run_pipeline(
     state: Rc<RefCell<OpState>>,
+    #[string] task: String,
     #[string] name: String,
     #[string] prompt: String,
     mean_pool: bool,

@@ -14,6 +14,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use tokenizers::Tokenizer;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
+use tokio::sync::Mutex;
 use tokio::task;
 
 use crate::tensor_ops::mean_pool;
@@ -29,26 +30,53 @@ pub(crate) struct FeatureExtractionPipelineInput {
 }
 impl PipelineInput for FeatureExtractionPipelineInput {}
 
-pub struct FeatureExtractionPipeline;
-impl Pipeline<FeatureExtractionPipelineInput, FeatureExtractionResult>
-    for FeatureExtractionPipeline
-{
-    fn get_channel() -> Result<
-        (
-            UnboundedSender<
-                PipelineRequest<FeatureExtractionPipelineInput, FeatureExtractionResult>,
-            >,
+pub struct FeatureExtractionPipeline {
+    sender:
+        UnboundedSender<PipelineRequest<FeatureExtractionPipelineInput, FeatureExtractionResult>>,
+    receiver: Arc<
+        Mutex<
             UnboundedReceiver<
                 PipelineRequest<FeatureExtractionPipelineInput, FeatureExtractionResult>,
             >,
-        ),
-        Error,
-    > {
-        let channel = mpsc::unbounded_channel();
+        >,
+    >,
+}
+impl FeatureExtractionPipeline {
+    pub fn init() -> Self {
+        let (sender, receiver) = mpsc::unbounded_channel::<
+            PipelineRequest<FeatureExtractionPipelineInput, FeatureExtractionResult>,
+        >();
 
-        Ok(channel)
+        Self {
+            sender,
+            receiver: Arc::new(Mutex::new(receiver)),
+        }
     }
+}
+impl Pipeline<FeatureExtractionPipelineInput, FeatureExtractionResult>
+    for FeatureExtractionPipeline
+{
+    fn get_sender(
+        &self,
+    ) -> UnboundedSender<PipelineRequest<FeatureExtractionPipelineInput, FeatureExtractionResult>>
+    {
+        self.sender.to_owned()
+    }
+
+    fn get_receiver(
+        &self,
+    ) -> Arc<
+        Mutex<
+            UnboundedReceiver<
+                PipelineRequest<FeatureExtractionPipelineInput, FeatureExtractionResult>,
+            >,
+        >,
+    > {
+        Arc::clone(&self.receiver)
+    }
+
     fn run(
+        &self,
         session: &Session,
         tokenizer: &Tokenizer,
         input: &FeatureExtractionPipelineInput,

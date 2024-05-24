@@ -217,52 +217,12 @@ fn init_model(state: &mut OpState, task: String, name: Option<String>) -> Result
     println!("{}", models_dir.to_str().unwrap_or(""));
 
     // TODO: Use Pipeline trait with Enum to get it dynamically
-    let pipeline_channel = FeatureExtractionPipeline::get_channel();
-    let Ok((req_tx, mut req_rx)) = pipeline_channel else {
-        return Err(anyhow!(
-            "failed to create pipeline: {}",
-            pipeline_channel.unwrap_err()
-        ));
-    };
-    state.put(req_tx);
+    let pipeline = FeatureExtractionPipeline::init();
+    state.put(pipeline.get_sender());
 
     #[allow(clippy::let_underscore_future)]
-    let _handle: task::JoinHandle<()> = task::spawn(async move {
-        let session = create_session(models_dir.join("model.onnx"));
-        let Ok(session) = session else {
-            error!("sb_ai: failed to create session - {}", session.unwrap_err());
-            return;
-        };
-
-        let tokenizer =
-            Tokenizer::from_file(models_dir.join("tokenizer.json")).map_err(anyhow::Error::msg);
-        let Ok(mut tokenizer) = tokenizer else {
-            error!(
-                "sb_ai: failed to create tokenizer - {}",
-                tokenizer.unwrap_err()
-            );
-            return;
-        };
-
-        // TODO: move this responsability to pipeline
-        // model's default max length is 128. Increase it to 512.
-        let truncation = tokenizer.get_truncation_mut().unwrap();
-        truncation.max_length = 512;
-
-        loop {
-            let req = req_rx.recv().await;
-            if req.is_none() {
-                break;
-            }
-            let req = req.unwrap();
-
-            // TODO: Use Pipeline trait with Enum to get it dynamically
-            let result = FeatureExtractionPipeline::run(&session, &tokenizer, &req.input);
-            if req.sender.send(result).is_err() {
-                error!("sb_ai: failed to send inference results (channel error)");
-            };
-        }
-    });
+    let _handle: task::JoinHandle<()> =
+        task::spawn(async move { pipeline.start_session(&models_dir).await });
 
     Ok(())
 }

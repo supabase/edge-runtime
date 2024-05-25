@@ -1,28 +1,19 @@
-use anyhow::anyhow;
-use anyhow::{bail, Error};
-use deno_core::error::AnyError;
-use deno_core::op2;
-use deno_core::OpState;
-use log::error;
-use ndarray::{Array1, Array2, ArrayView3, Axis, Ix3};
+use anyhow::Error;
+use ndarray::{Array1, Axis, Ix3};
 use ndarray_linalg::norm::{normalize, NormalizeAxis};
-use once_cell::sync::Lazy;
-use ort::{inputs, GraphOptimizationLevel, Session};
-use std::cell::RefCell;
-use std::path::{Path, PathBuf};
-use std::rc::Rc;
+use ort::{inputs, Session};
 use std::sync::Arc;
 use tokenizers::Tokenizer;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use tokio::sync::Mutex;
-use tokio::task;
 
 use crate::tensor_ops::mean_pool;
 
-use super::{InitPipelineOpts, Pipeline, PipelineInput, PipelineRequest};
+use super::{Pipeline, PipelineInput, PipelineRequest};
 
 pub type FeatureExtractionResult = Vec<f32>;
 
+#[derive(Debug)]
 pub(crate) struct FeatureExtractionPipelineInput {
     pub prompt: String,
     pub mean_pool: bool,
@@ -30,6 +21,7 @@ pub(crate) struct FeatureExtractionPipelineInput {
 }
 impl PipelineInput for FeatureExtractionPipelineInput {}
 
+#[derive(Debug)]
 pub struct FeatureExtractionPipeline {
     sender:
         UnboundedSender<PipelineRequest<FeatureExtractionPipelineInput, FeatureExtractionResult>>,

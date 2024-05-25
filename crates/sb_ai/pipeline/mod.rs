@@ -1,35 +1,16 @@
+pub mod auto_pipeline;
 pub mod feature_extraction;
 
-use anyhow::anyhow;
-use anyhow::{bail, Error};
-use deno_core::error::AnyError;
-use deno_core::op2;
-use deno_core::OpState;
+use anyhow::Error;
 use log::error;
-use ndarray::{Array1, Array2, ArrayView3, Axis, Ix3};
-use ndarray_linalg::norm::{normalize, NormalizeAxis};
-use once_cell::sync::Lazy;
-use ort::{inputs, GraphOptimizationLevel, Session};
-use std::cell::RefCell;
-use std::path::{Path, PathBuf};
-use std::rc::Rc;
+use ort::Session;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokenizers::Tokenizer;
-use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::Mutex;
-use tokio::task;
 
 use crate::session::create_session;
-
-use self::feature_extraction::FeatureExtractionPipeline;
-
-enum PipelineType {
-    FeatureExtraction,
-}
-
-struct InitPipelineOpts {
-    model_path: String,
-}
 
 pub(crate) trait PipelineInput: Send + Sync {}
 pub(crate) struct PipelineRequest<I: PipelineInput, R> {
@@ -37,11 +18,7 @@ pub(crate) struct PipelineRequest<I: PipelineInput, R> {
     pub sender: UnboundedSender<Result<R, Error>>,
 }
 
-pub(crate) trait Pipeline<I, R>: Sync + Send
-where
-    I: PipelineInput + Send,
-    R: Send,
-{
+pub(crate) trait Pipeline<I: PipelineInput, R> {
     fn get_sender(&self) -> UnboundedSender<PipelineRequest<I, R>>;
 
     fn get_receiver(&self) -> Arc<Mutex<UnboundedReceiver<PipelineRequest<I, R>>>>;

@@ -2,8 +2,7 @@ mod pipeline;
 mod session;
 pub(crate) mod tensor_ops;
 
-use crate::pipeline::feature_extraction::FeatureExtractionPipeline;
-use crate::pipeline::Pipeline;
+use crate::pipeline::auto_pipeline::init_feature_extraction;
 use crate::session::create_session;
 use crate::tensor_ops::mean_pool;
 
@@ -13,14 +12,14 @@ use deno_core::error::AnyError;
 use deno_core::OpState;
 use deno_core::{op2, V8CrossThreadTaskSpawner, V8TaskSpawner};
 use log::error;
-use ndarray::{Array1, Array2, ArrayView3, Axis, Ix3};
+use ndarray::{Array1, Axis, Ix3};
 use ndarray_linalg::norm::{normalize, NormalizeAxis};
 use once_cell::sync::Lazy;
-use ort::{inputs, GraphOptimizationLevel, Session};
+use ort::inputs;
 use pipeline::feature_extraction::{FeatureExtractionPipelineInput, FeatureExtractionResult};
 use pipeline::PipelineRequest;
 use std::cell::RefCell;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
 use tokenizers::Tokenizer;
@@ -191,42 +190,6 @@ fn init_gte(state: &mut OpState) -> Result<(), Error> {
     Ok(())
 }
 
-fn init_model(state: &mut OpState, task: String, name: Option<String>) -> Result<(), Error> {
-    static ONNX_ENV_INIT: Lazy<Option<ort::Error>> = Lazy::new(|| {
-        // Create the ONNX Runtime environment, for all sessions created in this process.
-        // TODO: Add CUDA execution provider
-        if let Err(err) = ort::init().with_name("SB_AI_ONNX").commit() {
-            error!("sb_ai: failed to create environment - {}", err);
-            return Some(err);
-        }
-
-        None
-    });
-
-    if let Some(err) = &*ONNX_ENV_INIT {
-        return Err(anyhow!("failed to create onnx environment: {err}"));
-    }
-
-    let models_dir = std::env::var("SB_AI_MODELS_DIR").unwrap_or("/etc/sb_ai/models".to_string());
-
-    let models_dir = match name {
-        Some(name) => Path::new(&models_dir).join(&name),
-        None => Path::new(&models_dir).join("defaults").join(&task),
-    };
-
-    println!("{}", models_dir.to_str().unwrap_or(""));
-
-    // TODO: Use Pipeline trait with Enum to get it dynamically
-    let pipeline = FeatureExtractionPipeline::init();
-    state.put(pipeline.get_sender());
-
-    #[allow(clippy::let_underscore_future)]
-    let _handle: task::JoinHandle<()> =
-        task::spawn(async move { pipeline.start_session(&models_dir).await });
-
-    Ok(())
-}
-
 async fn run_gte(
     state: Rc<RefCell<OpState>>,
     prompt: String,
@@ -326,7 +289,10 @@ pub fn op_sb_ai_init_pipeline(
 ) -> Result<(), AnyError> {
     let name = Option::from(name).filter(|name| !name.is_empty());
 
-    init_model(state, task, name)
+    match task.trim() {
+        "feature-extraction" => init_feature_extraction(state, task, name),
+        _ => return Err(anyhow!("Not supported pipeline task: {task}")),
+    }
 }
 
 #[op2(async)]

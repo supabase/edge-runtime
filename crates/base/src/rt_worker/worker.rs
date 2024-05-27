@@ -12,7 +12,7 @@ use event_worker::events::{
 use futures_util::FutureExt;
 use log::{debug, error};
 use sb_core::{MetricSource, RuntimeMetricSource, WorkerMetricSource};
-use sb_workers::context::{UserWorkerMsgs, WorkerContextInitOpts};
+use sb_workers::context::{UserWorkerMsgs, WorkerContextInitOpts, WorkerExit, WorkerExitStatus};
 use std::any::Any;
 use std::future::{pending, Future};
 use std::pin::Pin;
@@ -94,6 +94,7 @@ impl Worker {
             UnboundedReceiver<DuplexStreamEntry>,
         ),
         booter_signal: Sender<Result<MetricSource, Error>>,
+        exit: WorkerExit,
         termination_token: Option<TerminationToken>,
         inspector: Option<Inspector>,
     ) {
@@ -269,13 +270,19 @@ impl Worker {
                                 )
                                 .await;
 
-                            let found_unexpected_error = result.is_err()
-                                || matches!(
-                                    result.as_ref(),
-                                    Ok(WorkerEvents::UncaughtException(_))
-                                );
+                            let maybe_uncaught_exception_event = match result.as_ref() {
+                                Ok(WorkerEvents::UncaughtException(ev)) => Some(ev.clone()),
+                                Err(err) => Some(UncaughtExceptionEvent {
+                                    cpu_time_used: 0,
+                                    exception: err.to_string()
+                                }),
 
-                            if found_unexpected_error {
+                                _ => None
+                            };
+
+                            if let Some(ev) = maybe_uncaught_exception_event {
+                                exit.set(WorkerExitStatus::WithUncaughtException(ev)).await;
+
                                 if let Some(token) = supervise_cancel_token.as_ref() {
                                     token.cancel();
                                 }

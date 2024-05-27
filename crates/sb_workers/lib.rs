@@ -499,10 +499,7 @@ pub async fn op_user_worker_fetch_send(
                 }
 
                 None => {
-                    return Err(custom_error(
-                        "InvalidWorkerResponse",
-                        "user worker failed to respond",
-                    ));
+                    return Err(custom_error("InvalidWorkerResponse", err.to_string()));
                 }
             }
         }

@@ -429,15 +429,17 @@ impl WorkerPool {
             )
             .await
             {
-                Ok((_, worker_request_msg_tx)) => {
+                Ok(ctx) => {
                     let profile = UserWorkerProfile {
-                        worker_request_msg_tx,
+                        worker_request_msg_tx: ctx.msg_tx,
                         timing_tx_pair: (req_start_timing_tx, req_end_timing_tx),
                         service_path,
                         permit: permit.map(Arc::new),
                         status: status.clone(),
+                        exit: ctx.exit,
                         cancel,
                     };
+
                     if worker_pool_msgs_tx
                         .send(UserWorkerMsgs::Created(uuid, profile))
                         .is_err()
@@ -486,6 +488,7 @@ impl WorkerPool {
             Some(worker) => {
                 let policy = self.policy.supervisor_policy;
                 let profile = worker.clone();
+                let exit = worker.exit.clone();
                 let cancel = worker.cancel.clone();
                 let (req_start_tx, req_end_tx) = profile.timing_tx_pair.clone();
 
@@ -493,7 +496,10 @@ impl WorkerPool {
                 let request_handler = async move {
                     if !policy.is_per_worker() {
                         if cancel.is_cancelled() {
-                            bail!(WorkerError::RequestCancelledBySupervisor);
+                            bail!(exit
+                                .error()
+                                .await
+                                .unwrap_or(anyhow!(WorkerError::RequestCancelledBySupervisor)))
                         }
 
                         let fence = Arc::new(Notify::const_new());
@@ -518,7 +524,10 @@ impl WorkerPool {
                         tokio::select! {
                             _ = fence.notified() => {}
                             _ = cancel.cancelled() => {
-                                bail!(WorkerError::RequestCancelledBySupervisor);
+                                bail!(exit
+                                    .error()
+                                    .await
+                                    .unwrap_or(anyhow!(WorkerError::RequestCancelledBySupervisor)))
                             }
                         }
                     }
@@ -527,6 +536,7 @@ impl WorkerPool {
                         profile.worker_request_msg_tx,
                         req,
                         cancel,
+                        exit,
                         conn_token,
                     )
                     .await;

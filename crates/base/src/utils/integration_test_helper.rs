@@ -246,7 +246,7 @@ impl TestBedBuilder {
         };
 
         let main_termination_token = TerminationToken::new();
-        let (_, main_worker_msg_tx) = create_worker(
+        let ctx = create_worker(
             (main_worker_init_opts, main_termination_token.clone()),
             None,
             None,
@@ -257,7 +257,7 @@ impl TestBedBuilder {
         TestBed {
             pool_termination_token,
             main_termination_token,
-            main_worker_msg_tx,
+            main_worker_msg_tx: ctx.msg_tx,
         }
     }
 }
@@ -327,7 +327,7 @@ pub async fn create_test_user_worker<Opt: Into<CreateTestUserWorkerArgs>>(
     });
 
     Ok({
-        let (_, sender) = create_worker(
+        let ctx = create_worker(
             opts.with_policy(policy)
                 .with_termination_token(termination_token.clone()),
             None,
@@ -336,7 +336,7 @@ pub async fn create_test_user_worker<Opt: Into<CreateTestUserWorkerArgs>>(
         .await?;
 
         (
-            sender,
+            ctx.msg_tx,
             RequestScope {
                 policy,
                 req_start_tx,

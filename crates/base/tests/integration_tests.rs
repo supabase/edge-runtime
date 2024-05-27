@@ -216,7 +216,7 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
         maybe_jsx_import_source_config: None,
     };
 
-    let (_, worker_req_tx) = create_worker((opts, main_termination_token.clone()), None, None)
+    let ctx = create_worker((opts, main_termination_token.clone()), None, None)
         .await
         .unwrap();
 
@@ -235,7 +235,7 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
         conn_token: Some(conn_token.clone()),
     };
 
-    let _ = worker_req_tx.send(msg);
+    let _ = ctx.msg_tx.send(msg);
 
     let res = res_rx.await.unwrap().unwrap();
     assert!(res.status().as_u16() == 200);
@@ -476,7 +476,7 @@ async fn test_main_worker_with_jsx_function() {
 //            worker_pool_tx: user_worker_msgs_tx,
 //        }),
 //    };
-//    let worker_req_tx = create_worker(opts).await.unwrap();
+//    let ctx = create_worker(opts).await.unwrap();
 //    let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
 //
 //    let req = Request::builder()
@@ -486,7 +486,7 @@ async fn test_main_worker_with_jsx_function() {
 //        .unwrap();
 //
 //    let msg = WorkerRequestMsg { req, res_tx };
-//    let _ = worker_req_tx.send(msg);
+//    let _ = ctx.msg_tx.send(msg);
 //
 //    let res = res_rx.await.unwrap().unwrap();
 //    assert!(res.status().as_u16() == 500);

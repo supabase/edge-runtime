@@ -25,7 +25,7 @@ use sb_core::{MetricSource, SharedMetricSource};
 use sb_graph::{DecoratorType, EszipPayloadKind};
 use sb_workers::context::{
     EventWorkerRuntimeOpts, MainWorkerRuntimeOpts, Timing, UserWorkerMsgs, WorkerContextInitOpts,
-    WorkerKind, WorkerRequestMsg, WorkerRuntimeOpts,
+    WorkerExit, WorkerKind, WorkerRequestMsg, WorkerRuntimeOpts,
 };
 use sb_workers::errors::WorkerError;
 use std::future::pending;
@@ -553,11 +553,18 @@ impl CreateWorkerArgs {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct WorkerCtx {
+    pub metric: MetricSource,
+    pub msg_tx: mpsc::UnboundedSender<WorkerRequestMsg>,
+    pub exit: WorkerExit,
+}
+
 pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
     init_opts: Opt,
     inspector: Option<Inspector>,
     maybe_request_idle_timeout: Option<u64>,
-) -> Result<(MetricSource, mpsc::UnboundedSender<WorkerRequestMsg>), Error> {
+) -> Result<WorkerCtx, Error> {
     let (duplex_stream_tx, duplex_stream_rx) = mpsc::unbounded_channel::<DuplexStreamEntry>();
     let (worker_boot_result_tx, worker_boot_result_rx) =
         oneshot::channel::<Result<MetricSource, Error>>();
@@ -566,6 +573,7 @@ pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
         init_opts.into();
 
     let worker_kind = worker_init_opts.conf.to_worker_kind();
+    let exit = WorkerExit::default();
     let mut worker = Worker::new(&worker_init_opts)?;
 
     if worker_kind.is_user_worker() {
@@ -584,6 +592,7 @@ pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
             worker_init_opts,
             (duplex_stream_tx.clone(), duplex_stream_rx),
             worker_boot_result_tx,
+            exit.clone(),
             maybe_termination_token.clone(),
             inspector,
         );
@@ -629,6 +638,7 @@ pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
 
                 bail!(err)
             }
+
             Ok(metric) => {
                 let elapsed = worker_struct_ref
                     .worker_boot_start_time
@@ -643,7 +653,11 @@ pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
                     worker_struct_ref.event_metadata.clone(),
                 );
 
-                Ok((metric, worker_req_tx))
+                Ok(WorkerCtx {
+                    metric,
+                    msg_tx: worker_req_tx,
+                    exit,
+                })
             }
         }
     } else {
@@ -655,6 +669,7 @@ pub async fn send_user_worker_request(
     worker_request_msg_tx: mpsc::UnboundedSender<WorkerRequestMsg>,
     req: Request<Body>,
     cancel: CancellationToken,
+    exit: WorkerExit,
     conn_token: Option<CancellationToken>,
 ) -> Result<Response<Body>, Error> {
     let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
@@ -669,7 +684,13 @@ pub async fn send_user_worker_request(
 
     // wait for the response back from the worker
     let res = tokio::select! {
-        () = cancel.cancelled() => bail!(WorkerError::RequestCancelledBySupervisor),
+        () = cancel.cancelled() => {
+            bail!(exit
+                .error()
+                .await
+                .unwrap_or(anyhow!(WorkerError::RequestCancelledBySupervisor)))
+        }
+
         res = res_rx => res,
     }??;
 
@@ -699,7 +720,7 @@ pub async fn create_main_worker(
         }
     }
 
-    let (_, sender) = create_worker(
+    let ctx = create_worker(
         (
             WorkerContextInitOpts {
                 service_path,
@@ -724,7 +745,7 @@ pub async fn create_main_worker(
     .await
     .map_err(|err| anyhow!("main worker boot error: {}", err))?;
 
-    Ok(sender)
+    Ok(ctx.msg_tx)
 }
 
 pub async fn create_events_worker(
@@ -734,7 +755,7 @@ pub async fn create_events_worker(
     maybe_entrypoint: Option<String>,
     maybe_decorator: Option<DecoratorType>,
     termination_token: Option<TerminationToken>,
-) -> Result<(MetricSource, mpsc::UnboundedSender<WorkerEventWithMetadata>), Error> {
+) -> Result<(WorkerCtx, mpsc::UnboundedSender<WorkerEventWithMetadata>), Error> {
     let (events_tx, events_rx) = mpsc::unbounded_channel::<WorkerEventWithMetadata>();
 
     let mut service_path = events_worker_path.clone();
@@ -748,7 +769,7 @@ pub async fn create_events_worker(
         }
     }
 
-    let (metric, _) = create_worker(
+    let ctx = create_worker(
         (
             WorkerContextInitOpts {
                 service_path,
@@ -773,7 +794,7 @@ pub async fn create_events_worker(
     .await
     .map_err(|err| anyhow!("events worker boot error: {}", err))?;
 
-    Ok((metric, events_tx))
+    Ok((ctx, events_tx))
 }
 
 pub async fn create_user_worker_pool(

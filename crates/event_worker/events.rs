@@ -33,7 +33,7 @@ pub struct ShutdownEvent {
     pub memory_used: WorkerMemoryUsed,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct UncaughtExceptionEvent {
     pub exception: String,
     pub cpu_time_used: usize,

@@ -1,8 +1,8 @@
-use anyhow::Error;
+use anyhow::{anyhow, Error};
 use deno_config::JsxImportSourceConfig;
 use deno_core::FastString;
 use enum_as_inner::EnumAsInner;
-use event_worker::events::WorkerEventWithMetadata;
+use event_worker::events::{UncaughtExceptionEvent, WorkerEventWithMetadata};
 use hyper::{Body, Request, Response};
 use sb_core::util::sync::AtomicFlag;
 use sb_core::{MetricSource, SharedMetricSource};
@@ -10,11 +10,41 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicUsize;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::mpsc::unbounded_channel;
-use tokio::sync::{mpsc, oneshot, Notify, OwnedSemaphorePermit};
+use tokio::sync::{mpsc, oneshot, Mutex, Notify, OwnedSemaphorePermit};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use sb_graph::{DecoratorType, EszipPayloadKind};
+
+#[derive(Debug, Clone)]
+pub enum WorkerExitStatus {
+    Normal,
+    WithUncaughtException(UncaughtExceptionEvent),
+}
+
+impl Default for WorkerExitStatus {
+    fn default() -> Self {
+        Self::Normal
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct WorkerExit(Arc<Mutex<WorkerExitStatus>>);
+
+impl WorkerExit {
+    pub async fn error(&self) -> Option<anyhow::Error> {
+        match &*self.0.lock().await {
+            WorkerExitStatus::Normal => None,
+            WorkerExitStatus::WithUncaughtException(UncaughtExceptionEvent {
+                exception, ..
+            }) => Some(anyhow!("{exception}")),
+        }
+    }
+
+    pub async fn set(&self, exit_status: WorkerExitStatus) {
+        *self.0.lock().await = exit_status;
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct UserWorkerRuntimeOpts {
@@ -72,6 +102,7 @@ pub struct UserWorkerProfile {
     pub permit: Option<Arc<OwnedSemaphorePermit>>,
     pub cancel: CancellationToken,
     pub status: TimingStatus,
+    pub exit: WorkerExit,
 }
 
 #[derive(Debug, Clone)]

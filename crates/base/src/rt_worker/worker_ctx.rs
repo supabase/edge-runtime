@@ -692,10 +692,22 @@ pub async fn send_user_worker_request(
         }
 
         res = res_rx => res,
-    }??;
+    }?;
 
-    // send the response back to the caller
-    Ok(res)
+    match res {
+        Ok(v) => {
+            // send the response back to the caller
+            Ok(v)
+        }
+
+        Err(err) => {
+            if let Some(actual_error) = exit.error().await {
+                return Err(actual_error);
+            }
+
+            Err(err.into())
+        }
+    }
 }
 
 // Todo: Fix

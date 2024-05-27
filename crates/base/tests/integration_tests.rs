@@ -21,7 +21,7 @@ use base::{
 };
 use deno_core::serde_json;
 use futures_util::{future::BoxFuture, Future, FutureExt, SinkExt, StreamExt};
-use http::{Method, Request, StatusCode};
+use http::{Method, Request, Response as HttpResponse, StatusCode};
 use http_utils::utils::get_upgrade_type;
 use hyper::{body::to_bytes, Body};
 use reqwest::{
@@ -31,7 +31,9 @@ use reqwest::{
 };
 use reqwest::{Certificate, Client, RequestBuilder};
 use sb_core::SharedMetricSource;
-use sb_workers::context::{MainWorkerRuntimeOpts, WorkerContextInitOpts, WorkerRuntimeOpts};
+use sb_workers::context::{
+    MainWorkerRuntimeOpts, WorkerContextInitOpts, WorkerRequestMsg, WorkerRuntimeOpts,
+};
 use serde::Deserialize;
 use serial_test::serial;
 use tokio::{
@@ -45,7 +47,7 @@ use tokio_rustls::{
     rustls::{pki_types::ServerName, ClientConfig, RootCertStore},
     TlsConnector,
 };
-use tokio_util::compat::TokioAsyncReadCompatExt;
+use tokio_util::{compat::TokioAsyncReadCompatExt, sync::CancellationToken};
 use tungstenite::Message;
 use urlencoding::encode;
 
@@ -168,18 +170,6 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_cli() {
 #[tokio::test]
 #[serial]
 async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
-    use std::collections::HashMap;
-
-    use base::rt_worker::worker_ctx::{create_user_worker_pool, create_worker, TerminationToken};
-    use http::{Request, Response};
-    use hyper::Body;
-
-    use sb_workers::context::{
-        MainWorkerRuntimeOpts, WorkerContextInitOpts, WorkerRequestMsg, WorkerRuntimeOpts,
-    };
-    use tokio::sync::oneshot;
-    use tokio_util::sync::CancellationToken;
-
     let pool_termination_token = TerminationToken::new();
     let main_termination_token = TerminationToken::new();
 
@@ -220,7 +210,7 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
         .await
         .unwrap();
 
-    let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
+    let (res_tx, res_rx) = oneshot::channel::<Result<HttpResponse<Body>, hyper::Error>>();
 
     let req = Request::builder()
         .uri("/slow_resp")
@@ -463,41 +453,72 @@ async fn test_main_worker_with_jsx_function() {
     }
 }
 
-//#[tokio::test]
-//async fn test_main_worker_user_worker_mod_evaluate_exception() {
-//    // create a user worker pool
-//    let user_worker_msgs_tx = create_user_worker_pool().await.unwrap();
-//    let opts = EdgeContextInitOpts {
-//        service_path: "./test_cases/main".into(),
-//        no_module_cache: false,
-//        import_map_path: None,
-//        env_vars: HashMap::new(),
-//        conf: EdgeContextOpts::MainWorker(EdgeMainRuntimeOpts {
-//            worker_pool_tx: user_worker_msgs_tx,
-//        }),
-//    };
-//    let ctx = create_worker(opts).await.unwrap();
-//    let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
-//
-//    let req = Request::builder()
-//        .uri("/boot_err_user_worker")
-//        .method("GET")
-//        .body(Body::empty())
-//        .unwrap();
-//
-//    let msg = WorkerRequestMsg { req, res_tx };
-//    let _ = ctx.msg_tx.send(msg);
-//
-//    let res = res_rx.await.unwrap().unwrap();
-//    assert!(res.status().as_u16() == 500);
-//
-//    let body_bytes = hyper::body::to_bytes(res.into_body()).await.unwrap();
-//
-//    assert_eq!(
-//        body_bytes,
-//        "{\\"msg\\":\\"InvalidWorkerResponse: user worker not available\\"}"
-//    );
-//}
+#[tokio::test]
+async fn test_main_worker_user_worker_mod_evaluate_exception() {
+    let pool_termination_token = TerminationToken::new();
+    let main_termination_token = TerminationToken::new();
+
+    // create a user worker pool
+    let (_, worker_pool_tx) = create_user_worker_pool(
+        test_user_worker_pool_policy(),
+        None,
+        Some(pool_termination_token.clone()),
+        vec![],
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+
+    let opts = WorkerContextInitOpts {
+        service_path: "./test_cases/main".into(),
+        no_module_cache: false,
+        import_map_path: None,
+        env_vars: HashMap::new(),
+        events_rx: None,
+        timing: None,
+        maybe_eszip: None,
+        maybe_entrypoint: None,
+        maybe_decorator: None,
+        maybe_module_code: None,
+        conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
+            worker_pool_tx,
+            shared_metric_src: None,
+            event_worker_metric_src: None,
+        }),
+        static_patterns: vec![],
+        maybe_jsx_import_source_config: None,
+    };
+
+    let ctx = create_worker((opts, main_termination_token.clone()), None, None)
+        .await
+        .unwrap();
+
+    let (res_tx, res_rx) = oneshot::channel::<Result<HttpResponse<Body>, hyper::Error>>();
+
+    let req = Request::builder()
+        .uri("/boot_err_user_worker")
+        .method("GET")
+        .body(Body::empty())
+        .unwrap();
+
+    let conn_token = CancellationToken::new();
+    let msg = WorkerRequestMsg {
+        req,
+        res_tx,
+        conn_token: Some(conn_token.clone()),
+    };
+
+    let _ = ctx.msg_tx.send(msg);
+
+    let res = res_rx.await.unwrap().unwrap();
+    assert!(res.status().as_u16() == 500);
+
+    let body_bytes = to_bytes(res.into_body()).await.unwrap();
+
+    assert!(body_bytes.starts_with(b"{\"msg\":\"InvalidWorkerResponse"));
+}
 
 async fn test_main_worker_post_request_with_transfer_encoding(maybe_tls: Option<Tls>) {
     let chunks: Vec<Result<_, std::io::Error>> = vec![Ok("{\"name\":"), Ok("\"bar\"}")];
@@ -975,6 +996,64 @@ async fn req_failure_case_wall_clock_reached() {
         buf == "{\"msg\":\"InvalidWorkerResponse: user worker failed to respond\"}"
             || buf
                 == "{\"msg\":\"WorkerRequestCancelled: request has been cancelled by supervisor\"}"
+    );
+
+    tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
+}
+
+#[tokio::test]
+#[serial]
+async fn req_failture_case_memory_limit_1() {
+    let tb = TestBedBuilder::new("./test_cases/main")
+        .with_oneshot_policy(100000)
+        .build()
+        .await;
+
+    let mut res = tb
+        .request(|| {
+            Request::builder()
+                .uri("/array-alloc-sync")
+                .method("GET")
+                .body(Body::empty())
+                .context("can't make request")
+        })
+        .await
+        .unwrap();
+
+    let buf = to_bytes(res.body_mut()).await.unwrap();
+
+    assert_eq!(
+        buf,
+        "{\"msg\":\"WorkerRequestCancelled: request has been cancelled by supervisor\"}"
+    );
+
+    tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
+}
+
+#[tokio::test]
+#[serial]
+async fn req_failture_case_memory_limit_2() {
+    let tb = TestBedBuilder::new("./test_cases/main")
+        .with_oneshot_policy(100000)
+        .build()
+        .await;
+
+    let mut res = tb
+        .request(|| {
+            Request::builder()
+                .uri("/array-alloc")
+                .method("GET")
+                .body(Body::empty())
+                .context("can't make request")
+        })
+        .await
+        .unwrap();
+
+    let buf = to_bytes(res.body_mut()).await.unwrap();
+
+    assert_eq!(
+        buf,
+        "{\"msg\":\"WorkerRequestCancelled: request has been cancelled by supervisor\"}"
     );
 
     tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;

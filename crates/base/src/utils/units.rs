@@ -1,3 +1,5 @@
+use num_traits::NumCast;
+
 // bytes size for 1 kibibyte
 pub const KIB: u64 = 1_024;
 // bytes size for 1 mebibyte
@@ -35,4 +37,19 @@ pub fn human_elapsed(elapsed: u64) -> String {
     let minutes = seconds / 60;
     let seconds_remainder = seconds % 60;
     format!("{}m{}s", minutes, seconds_remainder)
+}
+
+pub fn percentage_value<T, U>(value: U, percent: T) -> Option<U>
+where
+    T: NumCast + Ord,
+    U: NumCast,
+{
+    let percent = std::cmp::min(percent, T::from(100)?).to_f64()?;
+    let p = percent / 100.0f64;
+
+    if p.is_normal() {
+        U::from(value.to_f64()? * p)
+    } else {
+        None
+    }
 }

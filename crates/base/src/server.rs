@@ -398,7 +398,7 @@ impl Server {
             static_patterns,
             inspector.clone(),
             jsx_config.clone(),
-            flags.request_idle_timeout_ms,
+            flags,
         )
         .await?;
 

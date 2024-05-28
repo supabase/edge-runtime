@@ -1,5 +1,6 @@
 use crate::deno_runtime::DenoRuntime;
 use crate::inspector_server::Inspector;
+use crate::server::ServerFlags;
 use crate::timeout::{self, CancelOnWriteTimeout, ReadTimeoutStream};
 use crate::utils::send_event_if_event_worker_available;
 use crate::utils::units::bytes_to_display;
@@ -816,7 +817,7 @@ pub async fn create_user_worker_pool(
     static_patterns: Vec<String>,
     inspector: Option<Inspector>,
     jsx: Option<JsxImportSourceConfig>,
-    request_idle_timeout: Option<u64>,
+    flags: ServerFlags,
 ) -> Result<(SharedMetricSource, mpsc::UnboundedSender<UserWorkerMsgs>), Error> {
     let metric_src = SharedMetricSource::default();
     let (user_worker_msgs_tx, mut user_worker_msgs_rx) =
@@ -835,7 +836,7 @@ pub async fn create_user_worker_pool(
                 worker_event_sender,
                 user_worker_msgs_tx_clone,
                 inspector,
-                request_idle_timeout,
+                flags,
             );
 
             // Note: Keep this loop non-blocking. Spawn a task to run blocking calls.

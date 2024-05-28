@@ -217,7 +217,10 @@ impl TestBedBuilder {
                     vec![],
                     None,
                     None,
-                    self.request_idle_timeout,
+                    ServerFlags {
+                        request_idle_timeout_ms: self.request_idle_timeout,
+                        ..Default::default()
+                    },
                 )
                 .await
                 .unwrap(),

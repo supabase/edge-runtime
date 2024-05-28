@@ -211,8 +211,8 @@ pub struct WorkerPool {
     pub user_workers: HashMap<Uuid, UserWorkerProfile>,
     pub active_workers: HashMap<String, ActiveWorkerRegistry>,
     pub worker_pool_msgs_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
+    pub flags: ServerFlags,
     pub maybe_inspector: Option<Inspector>,
-    pub maybe_request_idle_timeout: Option<u64>,
 
     // TODO: refactor this out of worker pool
     pub worker_event_sender: Option<mpsc::UnboundedSender<WorkerEventWithMetadata>>,
@@ -225,7 +225,7 @@ impl WorkerPool {
         worker_event_sender: Option<UnboundedSender<WorkerEventWithMetadata>>,
         worker_pool_msgs_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
         inspector: Option<Inspector>,
-        request_idle_timeout: Option<u64>,
+        flags: ServerFlags,
     ) -> Self {
         Self {
             policy,
@@ -234,8 +234,8 @@ impl WorkerPool {
             user_workers: HashMap::new(),
             active_workers: HashMap::new(),
             maybe_inspector: inspector,
-            maybe_request_idle_timeout: request_idle_timeout,
             worker_pool_msgs_tx,
+            flags,
         }
     }
 
@@ -253,7 +253,7 @@ impl WorkerPool {
 
         let is_oneshot_policy = self.policy.supervisor_policy.is_oneshot();
         let inspector = self.maybe_inspector.clone();
-        let request_idle_timeout = self.maybe_request_idle_timeout;
+        let request_idle_timeout = self.flags.request_idle_timeout_ms;
 
         let force_create = worker_options
             .conf

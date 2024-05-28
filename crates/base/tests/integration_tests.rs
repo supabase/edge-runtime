@@ -181,7 +181,7 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
         vec![],
         None,
         None,
-        None,
+        ServerFlags::default(),
     )
     .await
     .unwrap();
@@ -340,7 +340,7 @@ async fn test_main_worker_boot_error() {
         vec![],
         None,
         None,
-        None,
+        ServerFlags::default(),
     )
     .await
     .unwrap();
@@ -466,7 +466,7 @@ async fn test_main_worker_user_worker_mod_evaluate_exception() {
         vec![],
         None,
         None,
-        None,
+        ServerFlags::default(),
     )
     .await
     .unwrap();

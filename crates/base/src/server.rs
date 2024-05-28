@@ -246,6 +246,7 @@ pub struct ServerFlags {
     pub no_module_cache: bool,
     pub allow_main_inspector: bool,
     pub tcp_nodelay: bool,
+
     pub graceful_exit_deadline_sec: u64,
     pub graceful_exit_keepalive_deadline_ms: Option<u64>,
     pub event_worker_exit_deadline_sec: u64,
@@ -253,6 +254,10 @@ pub struct ServerFlags {
     pub request_idle_timeout_ms: Option<u64>,
     pub request_read_timeout_ms: Option<u64>,
     pub request_buffer_size: Option<u64>,
+
+    pub willterminate_wallclock_pct: Option<u8>,
+    pub willterminate_cpu_pct: Option<u8>,
+    pub willterminate_memory_pct: Option<u8>,
 }
 
 #[derive(Debug)]

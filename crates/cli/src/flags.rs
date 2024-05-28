@@ -232,6 +232,21 @@ fn get_start_command() -> Command {
             .value_parser(value_parser!(u64))
             .default_value("16384"),
         )
+        .arg(
+            arg!(--"dispatch-willterminate-wallclock-ratio" <PERCENTAGE>)
+                .value_parser(value_parser!(u8).range(..=99))
+                .default_value("90")
+        )
+        .arg(
+            arg!(--"dispatch-willterminate-cpu-ratio" <PERCENTAGE>)
+                .value_parser(value_parser!(u8).range(..=99))
+                .default_value("90")
+        )
+        .arg(
+            arg!(--"dispatch-willterminate-memory-ratio" <PERCENTAGE>)
+                .value_parser(value_parser!(u8).range(..=99))
+                .default_value("90")
+        )
 }
 
 fn get_bundle_command() -> Command {

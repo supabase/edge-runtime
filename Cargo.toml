@@ -46,6 +46,7 @@ deno_web = { version = "0.167.0" }
 deno_websocket = { version = "0.141.0" }
 deno_webstorage = { version = "0.131.0" }
 deno_lockfile = { version = "0.18.0" }
+num-traits = "0.2"
 enum-as-inner = "0.6.0"
 serde = { version = "1.0.149", features = ["derive"] }
 hyper = "0.14.26"

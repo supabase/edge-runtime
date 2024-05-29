@@ -4,7 +4,7 @@
 
 import { core, internals, primordials } from "ext:core/mod.js";
 import {
-  op_napi_open,
+  // op_napi_open,
   op_require_as_file_path,
   op_require_break_on_next_statement,
   op_require_init_paths,
@@ -150,7 +150,7 @@ import utilTypes from "node:util/types";
 import util from "node:util";
 import v8 from "node:v8";
 import vm from "node:vm";
-import workerThreads from "node:worker_threads";
+// import workerThreads from "node:worker_threads";
 import wasi from "ext:deno_node/wasi.ts";
 import zlib from "node:zlib";
 
@@ -255,7 +255,7 @@ function setupBuiltinModules() {
     v8,
     vm,
     wasi,
-    worker_threads: workerThreads,
+    // worker_threads: workerThreads, Disabled
     zlib,
   };
   for (const [name, moduleExports] of ObjectEntries(nodeModules)) {
@@ -1103,7 +1103,8 @@ Module._extensions[".node"] = function (module, filename) {
   if (filename.endsWith("fsevents.node")) {
     throw new Error("Using fsevents module is currently not supported");
   }
-  module.exports = op_napi_open(filename, globalThis);
+  throw new Error("Not supported");
+  // module.exports = op_napi_open(filename, globalThis);
 };
 
 function createRequireFromPath(filename) {

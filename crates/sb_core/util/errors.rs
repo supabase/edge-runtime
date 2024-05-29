@@ -1,4 +1,3 @@
-use deno_ast::diagnostics::Diagnostic;
 use deno_ast::ParseDiagnostic;
 use deno_core::error::AnyError;
 use deno_graph::ResolutionError;

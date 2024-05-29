@@ -14,7 +14,7 @@ const {
 const {
 	op_user_worker_fetch_send,
 	op_user_worker_create,
-} = core.ensureFastOps();
+} = ops;
 
 const NO_SUPABASE_TAG_WARN_MSG = `Unable to find the supabase tag from the request instance.\n\
 Invoke \`EdgeRuntime.applySupabaseTag(origReq, newReq)\` if you have cloned the original request.`

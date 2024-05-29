@@ -20,7 +20,7 @@ use crate::NodeResolutionMode;
 use crate::NpmResolverRc;
 use crate::PackageJson;
 use crate::PathClean;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CliCjsAnalysis {

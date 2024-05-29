@@ -338,9 +338,9 @@ impl DenoRuntime {
         let mut stdio = Some(Default::default());
         if is_user_worker {
             stdio = Some(deno_io::Stdio {
-                stdin: deno_io::StdioPipe::File(std::fs::File::create("/dev/null")?),
-                stdout: deno_io::StdioPipe::File(std::fs::File::create("/dev/null")?),
-                stderr: deno_io::StdioPipe::File(std::fs::File::create("/dev/null")?),
+                stdin: deno_io::StdioPipe::file(std::fs::File::create("/dev/null")?),
+                stdout: deno_io::StdioPipe::file(std::fs::File::create("/dev/null")?),
+                stderr: deno_io::StdioPipe::file(std::fs::File::create("/dev/null")?),
             });
         }
 
@@ -451,13 +451,21 @@ impl DenoRuntime {
             get_error_class_fn: Some(&get_error_class_name),
             shared_array_buffer_store: None,
             compiled_wasm_module_store: None,
-            startup_snapshot: Some(snapshot::snapshot()),
+            startup_snapshot: snapshot::snapshot(),
             module_loader: Some(module_loader),
             ..Default::default()
         };
 
         let mut js_runtime = JsRuntime::new(runtime_options);
         let version: Option<&str> = option_env!("GIT_V_TAG");
+
+        {
+            // @andreespirela : We do this because "NODE_DEBUG" is trying to be read during initialization,
+            // But we need the gotham state to be up-to-date
+            let op_state_rc = js_runtime.op_state();
+            let mut op_state = op_state_rc.borrow_mut();
+            op_state.put::<sb_env::EnvVars>(sb_env::EnvVars::new());
+        }
 
         // Bootstrapping stage
         let script = format!(
@@ -546,9 +554,15 @@ impl DenoRuntime {
             op_state.put::<sb_env::EnvVars>(env_vars);
         }
 
-        let main_module_id = js_runtime
-            .load_main_module(&main_module_url, mod_code)
-            .await?;
+        let main_module_id = {
+            if let Some(code) = mod_code {
+                js_runtime
+                    .load_main_es_module_from_code(&main_module_url, code)
+                    .await?
+            } else {
+                js_runtime.load_main_es_module(&main_module_url).await?
+            }
+        };
 
         if is_user_worker {
             drop(rt::SUPERVISOR_RT.spawn({

@@ -3,13 +3,13 @@ use std::env;
 use std::path::PathBuf;
 
 mod supabase_startup_snapshot {
-    use std::borrow::Cow;
     use super::*;
     use deno_core::error::AnyError;
     use deno_core::snapshot::{create_snapshot, CreateSnapshotOptions};
     use deno_core::Extension;
     use deno_fs::OpenOptions;
     use deno_http::DefaultHttpPropertyExtractor;
+    use deno_io::fs::FsError;
     use event_worker::js_interceptors::sb_events_js_interceptors;
     use event_worker::sb_user_event_worker;
     use sb_ai::sb_ai;
@@ -23,10 +23,11 @@ mod supabase_startup_snapshot {
     use sb_env::sb_env;
     use sb_node::deno_node;
     use sb_workers::sb_user_workers;
+    use std::borrow::Cow;
+    use std::io::Write;
     use std::path::Path;
     use std::rc::Rc;
     use std::sync::Arc;
-    use deno_io::fs::FsError;
     use url::Url;
 
     #[derive(Clone)]
@@ -93,7 +94,14 @@ mod supabase_startup_snapshot {
     }
 
     impl deno_fs::FsPermissions for Permissions {
-        fn check_open<'a>(&mut self, _resolved: bool, _read: bool, _write: bool, path: &'a Path, _api_name: &str) -> Result<Cow<'a, Path>, FsError> {
+        fn check_open<'a>(
+            &mut self,
+            _resolved: bool,
+            _read: bool,
+            _write: bool,
+            path: &'a Path,
+            _api_name: &str,
+        ) -> Result<Cow<'a, Path>, FsError> {
             Ok(Cow::Borrowed(path))
         }
 
@@ -137,10 +145,10 @@ mod supabase_startup_snapshot {
 
         fn check<'a>(
             &mut self,
-            resolved: bool,
-            open_options: &OpenOptions,
-            path: &'a Path,
-            api_name: &str,
+            _resolved: bool,
+            _open_options: &OpenOptions,
+            _path: &'a Path,
+            _api_name: &str,
         ) -> Result<std::borrow::Cow<'a, Path>, FsError> {
             unreachable!("snapshotting!")
         }
@@ -179,7 +187,7 @@ mod supabase_startup_snapshot {
     pub fn create_runtime_snapshot(snapshot_path: PathBuf) {
         let user_agent = String::from("supabase");
         let fs = Arc::new(deno_fs::RealFs);
-        let mut extensions: Vec<Extension> = vec![
+        let extensions: Vec<Extension> = vec![
             sb_core_permissions::init_ops_and_esm(false),
             deno_webidl::deno_webidl::init_ops_and_esm(),
             deno_console::deno_console::init_ops_and_esm(),
@@ -220,7 +228,7 @@ mod supabase_startup_snapshot {
             sb_core_runtime::init_ops_and_esm(None),
         ];
 
-        let _ = create_snapshot(
+        let snapshot = create_snapshot(
             CreateSnapshotOptions {
                 cargo_manifest_dir: env!("CARGO_MANIFEST_DIR"),
                 startup_snapshot: None,
@@ -233,6 +241,15 @@ mod supabase_startup_snapshot {
             },
             None,
         );
+
+        let output = snapshot.unwrap();
+
+        let mut snapshot = std::fs::File::create(snapshot_path).unwrap();
+        snapshot.write_all(&output.output).unwrap();
+
+        for path in output.files_loaded_during_snapshot {
+            println!("cargo:rerun-if-changed={}", path.display());
+        }
     }
 }
 
@@ -245,5 +262,5 @@ fn main() {
     // Main snapshot
     let runtime_snapshot_path = o.join("RUNTIME_SNAPSHOT.bin");
 
-    supabase_startup_snapshot::create_runtime_snapshot(runtime_snapshot_path)
+    supabase_startup_snapshot::create_runtime_snapshot(runtime_snapshot_path.clone());
 }

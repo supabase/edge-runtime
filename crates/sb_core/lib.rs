@@ -346,6 +346,22 @@ fn op_set_exit_code(_state: &mut OpState, #[smi] _code: i32) -> Result<(), AnyEr
     Ok(())
 }
 
+#[op2(fast)]
+fn op_set_raw(
+    _state: &mut OpState,
+    _rid: u32,
+    _is_raw: bool,
+    _cbreak: bool,
+) -> Result<(), AnyError> {
+    Ok(())
+}
+
+#[op2]
+#[serde]
+pub fn op_bootstrap_unstable_args(_state: &mut OpState) -> Vec<String> {
+    vec![]
+}
+
 deno_core::extension!(
     sb_core_main_js,
     ops = [
@@ -356,7 +372,9 @@ deno_core::extension!(
         op_set_exit_code,
         op_runtime_metrics,
         op_schedule_mem_check,
-        op_runtime_memory_usage
+        op_runtime_memory_usage,
+        op_set_raw,
+        op_bootstrap_unstable_args
     ],
     esm_entry_point = "ext:sb_core_main_js/js/bootstrap.js",
     esm = [

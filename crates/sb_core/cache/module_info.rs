@@ -9,7 +9,7 @@ use deno_core::error::AnyError;
 use deno_core::serde_json;
 use deno_graph::ModuleInfo;
 use deno_graph::ModuleParser;
-use deno_graph::{DefaultModuleAnalyzer, ParserModuleAnalyzer};
+use deno_graph::ParserModuleAnalyzer;
 use deno_webstorage::rusqlite::params;
 
 use super::cache_db::CacheDB;

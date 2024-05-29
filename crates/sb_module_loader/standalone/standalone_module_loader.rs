@@ -119,7 +119,7 @@ impl ModuleLoader for EmbeddedModuleLoader {
                 deno_core::ModuleType::JavaScript,
                 ModuleSourceCode::String(data_url_text.into()),
                 original_specifier,
-                None
+                None,
             )));
         }
 
@@ -138,7 +138,7 @@ impl ModuleLoader for EmbeddedModuleLoader {
                         ModuleSourceCode::String(code_source.code),
                         original_specifier,
                         &code_source.found_url,
-                        None
+                        None,
                     ),
                 )),
                 Err(err) => deno_core::ModuleLoadResponse::Sync(Err(err)),
@@ -176,7 +176,7 @@ impl ModuleLoader for EmbeddedModuleLoader {
                     ModuleSourceCode::String(code.into()),
                     &original_specifier,
                     &found_specifier,
-                    None
+                    None,
                 ))
             }
             .boxed_local(),

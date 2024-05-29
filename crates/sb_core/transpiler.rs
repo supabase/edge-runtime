@@ -1,10 +1,6 @@
-use deno_ast::{
-    MediaType, ModuleSpecifier, ParseParams, SourceMapOption, SourceTextInfo, TranspileOptions,
-};
+use deno_ast::{MediaType, ParseParams, SourceMapOption, SourceTextInfo};
 use deno_core::error::AnyError;
-use deno_core::{
-    ExtensionFileSource, ExtensionFileSourceCode, ModuleCodeString, ModuleName, SourceMapData,
-};
+use deno_core::{ModuleCodeString, ModuleName, SourceMapData};
 use std::path::Path;
 
 pub fn maybe_transpile_source(

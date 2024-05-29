@@ -110,7 +110,7 @@ impl ModuleGraphBuilder {
                 npm_resolver: Some(graph_npm_resolver),
                 module_analyzer: &analyzer,
                 reporter: None,
-                workspace_members: &vec![],
+                workspace_members: &[],
             },
         )
         .await?;
@@ -251,7 +251,7 @@ impl ModuleGraphBuilder {
                 npm_resolver: Some(&*graph_npm_resolver),
                 module_analyzer: &analyzer,
                 reporter: None,
-                workspace_members: &vec![],
+                workspace_members: &[],
                 passthrough_jsr_specifiers: false,
             },
         )

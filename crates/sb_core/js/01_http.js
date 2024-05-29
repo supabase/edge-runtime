@@ -71,7 +71,7 @@ import {
   readableStreamForRid,
   ReadableStreamPrototype,
 } from "ext:deno_web/06_streams.js";
-import { serve } from "ext:deno_http/00_serve.js";
+import { serve } from "ext:deno_http/00_serve.ts";
 import { SymbolDispose } from "ext:deno_web/00_infra.js";
 
 const connErrorSymbol = Symbol("connError");

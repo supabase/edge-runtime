@@ -1,7 +1,6 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
 use crate::cache::common::FastInsecureHasher;
-use deno_ast::CjsAnalysis;
 use deno_core::error::AnyError;
 use deno_core::serde_json;
 use deno_webstorage::rusqlite::params;

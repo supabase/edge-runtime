@@ -76,7 +76,7 @@ impl FileSystem for DenoCompileFileSystem {
         &self,
         path: &Path,
         options: OpenOptions,
-        access_check: Option<AccessCheckCb>,
+        _access_check: Option<AccessCheckCb>,
     ) -> FsResult<Rc<dyn File>> {
         if self.0.is_path_within(path) {
             Ok(self.0.open_file(path)?)
@@ -88,7 +88,7 @@ impl FileSystem for DenoCompileFileSystem {
         &'a self,
         path: PathBuf,
         options: OpenOptions,
-        access_check: Option<AccessCheckCb<'a>>,
+        _access_check: Option<AccessCheckCb<'a>>,
     ) -> FsResult<Rc<dyn File>> {
         if self.0.is_path_within(&path) {
             Ok(self.0.open_file(&path)?)

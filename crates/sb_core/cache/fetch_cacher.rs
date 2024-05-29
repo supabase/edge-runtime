@@ -9,9 +9,7 @@ use crate::util::fs::canonicalize_path_maybe_not_exists;
 use deno_ast::{MediaType, ModuleSpecifier};
 use deno_core::futures;
 use deno_core::futures::FutureExt;
-use deno_core::url::Url;
 use deno_graph::source::{CacheInfo, LoadFuture, LoadOptions, LoadResponse, Loader};
-use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -123,7 +121,7 @@ impl Loader for FetchCacher {
 
     fn load(&self, specifier: &ModuleSpecifier, options: LoadOptions) -> LoadFuture {
         use deno_graph::source::CacheSetting as LoaderCacheSetting;
-        let cache_setting = options.cache_setting.clone();
+        let cache_setting = options.cache_setting;
 
         let path = specifier.path();
 

@@ -3,7 +3,7 @@ use std::{borrow::Cow, cell::RefCell, pin::Pin, rc::Rc, task::Poll};
 use anyhow::{bail, Context};
 use deno_core::{
     error::{custom_error, AnyError},
-    op2, ByteString, Op, OpDecl, OpState, RcRef, Resource, ResourceId,
+    op2, ByteString, OpDecl, OpState, RcRef, Resource, ResourceId,
 };
 use deno_http::{HttpRequestReader, HttpStreamReadResource};
 use deno_websocket::ws_create_server_stream;
@@ -388,7 +388,7 @@ impl Resource for HttpUpgradeRawResponseFenceResource {
 
 fn sb_http_middleware(decl: OpDecl) -> OpDecl {
     match decl.name {
-        "op_http_upgrade_websocket" => op_http_upgrade_websocket2(),
+        "op_http_upgrade_websocket" => decl.with_implementation_from(&op_http_upgrade_websocket2()),
         _ => decl,
     }
 }

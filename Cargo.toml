@@ -79,8 +79,8 @@ httparse = "1.8"
 http = "0.2"
 faster-hex = "0.9.0"
 # DEBUG
-[patch.crates-io]
-deno_core = { path = "/Users/andrespirela/Documents/workspace/supabase/deno_core/core" }
+# [patch.crates-io]
+# deno_core = { path = "/Users/andrespirela/Documents/workspace/supabase/deno_core/core" }
 
 [profile.release]
 lto = true

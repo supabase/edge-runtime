@@ -29,6 +29,8 @@ import {
 	readOnly,
 	writable,
 } from 'ext:sb_core_main_js/js/fieldUtils.js';
+import * as imageData from "ext:deno_web/16_image_data.js";
+import * as broadcastChannel from "ext:deno_broadcast_channel/01_broadcast_channel.js";
 
 import {
 	Navigator,
@@ -340,8 +342,8 @@ function warnOnDeprecatedApi(apiName, stack, ...suggestions) {
 ObjectAssign(internals, { warnOnDeprecatedApi });
 
 function runtimeStart(target) {
-	core.setMacrotaskCallback(timers.handleTimerMacrotask);
-	core.setMacrotaskCallback(promiseRejectMacrotaskCallback);
+/*	core.setMacrotaskCallback(timers.handleTimerMacrotask);
+	core.setMacrotaskCallback(promiseRejectMacrotaskCallback);*/
 	core.setWasmStreamingCallback(fetch.handleWasmStreaming);
 
 	ops.op_set_format_exception_callback(formatException);

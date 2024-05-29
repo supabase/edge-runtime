@@ -103,11 +103,8 @@ impl NpmModuleLoader {
 
         let code = if self.cjs_resolutions.contains(specifier) {
             // translate cjs to esm if it's cjs and inject node globals
-            self.node_code_translator.translate_cjs_to_esm(
-                specifier,
-                Some(code),
-                permissions,
-            )?
+            self.node_code_translator
+                .translate_cjs_to_esm(specifier, Some(code), permissions)?
         } else {
             // esm and json code is untouched
             code

@@ -1,7 +1,7 @@
 import { primordials, core } from "ext:core/mod.js";
 const { SymbolAsyncIterator } = primordials;
 
-const { op_event_accept } = core.ensureFastOps()
+const { op_event_accept } = core.ops;
 
 class SupabaseEventListener {
 	async nextEvent() {

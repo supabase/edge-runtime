@@ -9,7 +9,6 @@ use deno_core::ModuleSpecifier;
 use deno_graph::MediaType;
 use deno_graph::Module;
 use deno_graph::ModuleGraph;
-use std::hash::Hash;
 use std::sync::Arc;
 
 pub struct Emitter {

@@ -63,7 +63,7 @@ impl deno_fs::FileSystem for StaticFs {
         &self,
         path: &Path,
         _options: OpenOptions,
-        access_check: Option<AccessCheckCb>,
+        _access_check: Option<AccessCheckCb>,
     ) -> FsResult<Rc<dyn File>> {
         if self.vfs.is_path_within(path) {
             Ok(self.vfs.open_file(path)?)
@@ -75,8 +75,8 @@ impl deno_fs::FileSystem for StaticFs {
     async fn open_async<'a>(
         &'a self,
         path: PathBuf,
-        options: OpenOptions,
-        access_check: Option<AccessCheckCb<'a>>,
+        _options: OpenOptions,
+        _access_check: Option<AccessCheckCb<'a>>,
     ) -> FsResult<Rc<dyn File>> {
         if self.vfs.is_path_within(&path) {
             Ok(self.vfs.open_file(&path)?)
@@ -285,7 +285,7 @@ impl deno_fs::FileSystem for StaticFs {
     fn read_file_sync(
         &self,
         path: &Path,
-        access_check: Option<AccessCheckCb>,
+        _access_check: Option<AccessCheckCb>,
     ) -> FsResult<Vec<u8>> {
         let is_npm = self.is_valid_npm_package(path);
         if is_npm {

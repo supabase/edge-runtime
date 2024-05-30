@@ -233,7 +233,7 @@ fn get_start_command() -> Command {
             .default_value("16384"),
         )
         .arg(
-            arg!(--"dispatch-willterminate-wallclock-ratio" <PERCENTAGE>)
+            arg!(--"dispatch-willterminate-wall-clock-ratio" <PERCENTAGE>)
                 .value_parser(value_parser!(u8).range(..=99))
                 .default_value("90")
         )

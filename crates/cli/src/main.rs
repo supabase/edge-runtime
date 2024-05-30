@@ -135,8 +135,8 @@ fn main() -> Result<(), anyhow::Error> {
                 let maybe_request_read_timeout =
                     sub_matches.get_one::<u64>("request-read-timeout").cloned();
 
-                let maybe_willterminate_wallclock_pct = sub_matches
-                    .get_one::<u8>("dispatch-willterminate-wallclock-ratio")
+                let maybe_willterminate_wall_clock_pct = sub_matches
+                    .get_one::<u8>("dispatch-willterminate-wall-clock-ratio")
                     .cloned();
                 let maybe_willterminate_cpu_pct = sub_matches
                     .get_one::<u8>("dispatch-willterminate-cpu-ratio")
@@ -184,7 +184,7 @@ fn main() -> Result<(), anyhow::Error> {
                     request_idle_timeout_ms: maybe_request_idle_timeout,
                     request_read_timeout_ms: maybe_request_read_timeout,
 
-                    willterminate_wallclock_pct: maybe_willterminate_wallclock_pct,
+                    willterminate_wall_clock_pct: maybe_willterminate_wall_clock_pct,
                     willterminate_cpu_pct: maybe_willterminate_cpu_pct,
                     willterminate_memory_pct: maybe_willterminate_memory_pct,
                 };

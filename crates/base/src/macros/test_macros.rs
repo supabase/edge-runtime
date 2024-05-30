@@ -1,6 +1,38 @@
 #[macro_export]
-macro_rules! integration_test {
-    ($main_file:expr, $port:expr, $url:expr, $policy:expr, $import_map:expr, $req_builder:expr, $tls:expr, ($($function:tt)+) $(, $($token:tt)+)?) => {
+macro_rules! integration_test_listen_fut {
+    ($port:expr, $tls:expr, $main_file:expr, $policy:expr, $import_map:expr, $flag:expr, $tx:expr, $token:expr) => {{
+        use futures_util::FutureExt;
+
+        let tls: Option<base::server::Tls> = $tls.clone();
+
+        base::commands::start_server(
+            "0.0.0.0",
+            $port,
+            tls,
+            String::from($main_file),
+            None,
+            None,
+            $policy,
+            $import_map,
+            $flag,
+            Some($tx.clone()),
+            $crate::server::WorkerEntrypoints {
+                main: None,
+                events: None,
+            },
+            $token.clone(),
+            vec![],
+            None,
+            Some("https://esm.sh/preact".to_string()),
+            Some("jsx-runtime".to_string()),
+        )
+        .boxed()
+    }};
+}
+
+#[macro_export]
+macro_rules! integration_test_with_server_flag {
+    ($flag:expr, $main_file:expr, $port:expr, $url:expr, $policy:expr, $import_map:expr, $req_builder:expr, $tls:expr, ($($function:tt)+) $(, $($token:tt)+)?) => {
         use futures_util::FutureExt;
         use $crate::macros::test_macros::__private;
 
@@ -11,39 +43,29 @@ macro_rules! integration_test {
         let schema = if tls.is_some() { "https" } else { "http" };
         let signal = tokio::spawn(async move {
             while let Some(base::server::ServerHealth::Listening(event_rx, metric_src)) = rx.recv().await {
-                integration_test!(@req event_rx, metric_src, schema, $port, $url, req_builder, ($($function)+));
+                $crate::integration_test_with_server_flag!(@req event_rx, metric_src, schema, $port, $url, req_builder, ($($function)+));
             }
             None
         });
 
-        let token = integration_test!(@term $(, $($token)+)?);
-        let mut listen_fut = base::commands::start_server(
-            "0.0.0.0",
+        let token = $crate::integration_test_with_server_flag!(@term $(, $($token)+)?);
+        let mut listen_fut = $crate::integration_test_listen_fut!(
             $port,
             tls,
-            String::from($main_file),
-            None,
-            None,
+            $main_file,
             $policy,
             $import_map,
-            $crate::server::ServerFlags::default(),
-            Some(tx.clone()),
-            $crate::server::WorkerEntrypoints {
-                main: None,
-                events: None,
-            },
-            token.clone(),
-            vec![],
-            None
-        )
-        .boxed();
+            $flag,
+            tx,
+            token
+        );
 
         tokio::select! {
             resp = signal => {
                 if let Ok(maybe_response_from_server) = resp {
                     // then, after checking the response... (2)
                     let resp = maybe_response_from_server.unwrap();
-                    integration_test!(@resp resp, ($($function)+)).await;
+                    $crate::integration_test_with_server_flag!(@resp resp, ($($function)+)).await;
                 } else {
                     panic!("Request thread had a heart attack");
                 }
@@ -62,7 +84,7 @@ macro_rules! integration_test {
                 let _ = listen_fut.await;
             });
 
-            integration_test!(@term_cleanup $($($token)+)?, token, join_fut);
+            $crate::integration_test_with_server_flag!(@term_cleanup $($($token)+)?, token, join_fut);
         }
     };
 
@@ -133,6 +155,24 @@ macro_rules! integration_test {
 
     (@resp $var:ident, $resp:expr) => {
         __private::infer_resp_closure_signature($resp, $var)
+    };
+}
+
+#[macro_export]
+macro_rules! integration_test {
+    ($main_file:expr, $port:expr, $url:expr, $policy:expr, $import_map:expr, $req_builder:expr, $tls:expr, ($($function:tt)+) $(, $($token:tt)+)?) => {
+        $crate::integration_test_with_server_flag!(
+            $crate::server::ServerFlags::default(),
+            $main_file,
+            $port,
+            $url,
+            $policy,
+            $import_map,
+            $req_builder,
+            $tls,
+            ($($function)+)
+            $(,$($token)+)?
+        )
     };
 }
 

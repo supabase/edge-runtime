@@ -12,7 +12,7 @@ use event_worker::events::{
 use futures_util::FutureExt;
 use log::{debug, error};
 use sb_core::{MetricSource, RuntimeMetricSource, WorkerMetricSource};
-use sb_workers::context::{UserWorkerMsgs, WorkerContextInitOpts};
+use sb_workers::context::{UserWorkerMsgs, WorkerContextInitOpts, WorkerExit, WorkerExitStatus};
 use std::any::Any;
 use std::future::{pending, Future};
 use std::pin::Pin;
@@ -94,6 +94,7 @@ impl Worker {
             UnboundedReceiver<DuplexStreamEntry>,
         ),
         booter_signal: Sender<Result<MetricSource, Error>>,
+        exit: WorkerExit,
         termination_token: Option<TerminationToken>,
         inspector: Option<Inspector>,
     ) {
@@ -232,10 +233,30 @@ impl Worker {
                             pending().boxed()
                         };
 
+                        let _guard = scopeguard::guard((), |_| {
+                            worker_key.and_then(|worker_key_unwrapped| {
+                                pool_msg_tx.map(|tx| {
+                                    if let Err(err) = tx.send(UserWorkerMsgs::Shutdown(worker_key_unwrapped)) {
+                                        error!(
+                                            "failed to send the shutdown signal to user worker pool: {:?}",
+                                            err
+                                        );
+                                    }
+                                })
+                            });
+                        });
+
                         let result = unsafe {
                             let mut runtime = scopeguard::guard(new_runtime, |mut runtime| {
                                 runtime.js_runtime.v8_isolate().enter();
                             });
+
+                            let supervise_cancel_token =
+                                scopeguard::guard_on_unwind(supervise_cancel_token, |token| {
+                                    if let Some(token) = token {
+                                        token.cancel();
+                                    }
+                                });
 
                             runtime.js_runtime.v8_isolate().exit();
 
@@ -249,14 +270,20 @@ impl Worker {
                                 )
                                 .await;
 
-                            let found_unexpected_error = result.is_err()
-                                || matches!(
-                                    result.as_ref(),
-                                    Ok(WorkerEvents::UncaughtException(_))
-                                );
+                            let maybe_uncaught_exception_event = match result.as_ref() {
+                                Ok(WorkerEvents::UncaughtException(ev)) => Some(ev.clone()),
+                                Err(err) => Some(UncaughtExceptionEvent {
+                                    cpu_time_used: 0,
+                                    exception: err.to_string()
+                                }),
 
-                            if found_unexpected_error {
-                                if let Some(token) = supervise_cancel_token {
+                                _ => None
+                            };
+
+                            if let Some(ev) = maybe_uncaught_exception_event {
+                                exit.set(WorkerExitStatus::WithUncaughtException(ev)).await;
+
+                                if let Some(token) = supervise_cancel_token.as_ref() {
                                     token.cancel();
                                 }
                             }
@@ -309,17 +336,6 @@ impl Worker {
                     }
                     Err(err) => error!("unexpected worker error {}", err),
                 };
-
-                worker_key.and_then(|worker_key_unwrapped| {
-                    pool_msg_tx.map(|tx| {
-                        if let Err(err) = tx.send(UserWorkerMsgs::Shutdown(worker_key_unwrapped)) {
-                            error!(
-                                "failed to send the shutdown signal to user worker pool: {:?}",
-                                err
-                            );
-                        }
-                    })
-                });
             })
         });
     }

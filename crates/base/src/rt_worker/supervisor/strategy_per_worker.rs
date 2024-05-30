@@ -38,6 +38,10 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
     let (cpu_timer, mut cpu_alarms_rx) = cpu_timer.unzip();
     let (soft_limit_ms, hard_limit_ms) = cpu_timer_param.limits();
 
+    let _guard = scopeguard::guard(is_retired, |v| {
+        v.raise();
+    });
+
     #[cfg(debug_assertions)]
     let mut current_thread_id = Option::<ThreadId>::None;
 
@@ -133,16 +137,14 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
                                 error!("CPU time hard limit reached. isolate: {:?}", key);
                                 return (ShutdownReason::CPUTime, cpu_usage_ms);
                             } else if cpu_usage_ms >= soft_limit_ms as i64 && !cpu_time_soft_limit_reached {
-                                    // retire worker
-                                    is_retired.raise();
-                                    error!("CPU time soft limit reached. isolate: {:?}", key);
-                                    cpu_time_soft_limit_reached = true;
+                                error!("CPU time soft limit reached. isolate: {:?}", key);
+                                cpu_time_soft_limit_reached = true;
 
-                                    if req_ack_count == demand.load(Ordering::Acquire) {
-                                        terminate_fn();
-                                        error!("early termination due to the last request being completed. isolate: {:?}", key);
-                                        return (ShutdownReason::EarlyDrop, cpu_usage_ms);
-                                    }
+                                if req_ack_count == demand.load(Ordering::Acquire) {
+                                    terminate_fn();
+                                    error!("early termination due to the last request being completed. isolate: {:?}", key);
+                                    return (ShutdownReason::EarlyDrop, cpu_usage_ms);
+                                }
                             }
                         }
                     }
@@ -152,8 +154,6 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
             Some(_) = wait_cpu_alarm(cpu_alarms_rx.as_mut()) => {
                 if is_worker_entered {
                     if !cpu_time_soft_limit_reached {
-                        // retire worker
-                        is_retired.raise();
                         error!("CPU time soft limit reached. isolate: {:?}", key);
                         cpu_time_soft_limit_reached = true;
 
@@ -195,8 +195,6 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
                     // first tick completes immediately
                     wall_clock_alerts += 1;
                 } else if wall_clock_alerts == 1 {
-                    // retire worker
-                    is_retired.raise();
                     error!("wall clock duration warning. isolate: {:?}", key);
                     wall_clock_alerts += 1;
                 } else {

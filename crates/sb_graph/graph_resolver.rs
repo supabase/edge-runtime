@@ -49,9 +49,10 @@ fn resolve_package_json_dep(
         if specifier.starts_with(bare_specifier) {
             let path = &specifier[bare_specifier.len()..];
             if path.is_empty() || path.starts_with('/') {
-                let req = req_result.as_ref().map_err(|_err| {
-                    anyhow!("Parsing version constraints in the application-level package.json is more strict at the moment.")
-                })?;
+                let req = req_result
+                    .as_ref()
+                    .map_err(|_err| anyhow!("Parsing version constraints in the application-level package.json is more strict at the moment."))?;
+
                 return Ok(Some(ModuleSpecifier::parse(&format!("npm:{req}{path}"))?));
             }
         }
@@ -165,6 +166,11 @@ impl CliGraphResolver {
         }
     }
 
+    pub fn set_jsx_import_source(&mut self, config: JsxImportSourceConfig) {
+        self.maybe_jsx_import_source_module = Some(config.module);
+        self.maybe_default_jsx_import_source = config.default_specifier;
+    }
+
     pub fn as_graph_resolver(&self) -> &dyn Resolver {
         self
     }
@@ -234,7 +240,9 @@ impl Resolver for CliGraphResolver {
         if let Some(vendor_specifier) = &self.maybe_vendor_specifier {
             if let Ok(specifier) = &result {
                 if specifier.as_str().starts_with(vendor_specifier.as_str()) {
-                    return Err(ResolveError::Other(anyhow!("Importing from the vendor directory is not permitted. Use a remote specifier instead or disable vendoring.")));
+                    return Err(ResolveError::Other(anyhow!(
+                        "Importing from the vendor directory is not permitted. Use a remote specifier instead or disable vendoring."
+                    )));
                 }
             }
         }

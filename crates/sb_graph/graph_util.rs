@@ -105,12 +105,12 @@ impl ModuleGraphBuilder {
                 executor: Default::default(),
                 file_system: &fs,
                 jsr_url_provider: &CliJsrUrlProvider,
-                passthrough_jsr_specifiers: false,
                 resolver: Some(graph_resolver),
                 npm_resolver: Some(graph_npm_resolver),
                 module_analyzer: &analyzer,
                 reporter: None,
                 workspace_members: &[],
+                passthrough_jsr_specifiers: false,
             },
         )
         .await?;
@@ -339,7 +339,12 @@ pub async fn create_eszip_from_graph_raw(
     let parser_arc = emitter.clone().parsed_source_cache().unwrap();
     let parser = parser_arc.as_capturing_parser();
 
-    eszip::EszipV2::from_graph(graph, &parser, Default::default(), emitter.emit_options())
+    eszip::EszipV2::from_graph(
+        graph,
+        &parser,
+        emitter.transpile_options(),
+        emitter.emit_options(),
+    )
 }
 
 pub async fn create_graph(
@@ -374,14 +379,4 @@ pub async fn create_graph(
 
     let create_module_graph_task = builder.create_graph_and_maybe_check(vec![module_specifier]);
     create_module_graph_task.await.unwrap()
-}
-
-pub async fn create_graph_from_specifiers(
-    specifiers: Vec<ModuleSpecifier>,
-    _is_dynamic: bool,
-    maybe_emitter_factory: Arc<EmitterFactory>,
-) -> Result<ModuleGraph, AnyError> {
-    let builder = ModuleGraphBuilder::new(maybe_emitter_factory, false);
-    let create_module_graph_task = builder.create_graph_and_maybe_check(specifiers);
-    create_module_graph_task.await
 }

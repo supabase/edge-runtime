@@ -1,6 +1,7 @@
 console.log('main function started');
 
 Deno.serve(async (req: Request) => {
+  console.log(req.url);
   const url = new URL(req.url);
   const { pathname } = url;
   const path_parts = pathname.split("/");

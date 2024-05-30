@@ -378,7 +378,10 @@ impl ManagedCliNpmResolver {
             Ok(nv) => NpmPackageReqResolution::Ok(nv),
             Err(err) => {
                 if self.api.mark_force_reload() {
-                    log::debug!("Restarting npm specifier resolution to check for new registry information. Error: {:#}", err);
+                    log::debug!(
+                        "Restarting npm specifier resolution to check for new registry information. Error: {:#}",
+                        err
+                    );
                     NpmPackageReqResolution::ReloadRegistryInfo(err.into())
                 } else {
                     NpmPackageReqResolution::Err(err.into())

@@ -42,6 +42,10 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
     let (cpu_timer, mut cpu_alarms_rx) = cpu_timer.unzip();
     let (_, hard_limit_ms) = cpu_timer_param.limits();
 
+    let _guard = scopeguard::guard(is_retired, |v| {
+        v.raise();
+    });
+
     #[cfg(debug_assertions)]
     let mut current_thread_id = Option::<ThreadId>::None;
 
@@ -195,8 +199,6 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
             }
 
             Some(reason) => {
-                is_retired.raise();
-
                 let data_ptr_mut = Box::into_raw(Box::new(IsolateInterruptData {
                     should_terminate: true,
                     isolate_memory_usage_tx: Some(isolate_memory_usage_tx),

@@ -10,9 +10,12 @@ use std::{
 };
 
 use anyhow::{bail, Context, Error};
-use base::rt_worker::{
-    worker_ctx::{create_user_worker_pool, create_worker, CreateWorkerArgs, TerminationToken},
-    worker_pool::{SupervisorPolicy, WorkerPoolPolicy},
+use base::{
+    rt_worker::{
+        worker_ctx::{create_user_worker_pool, create_worker, CreateWorkerArgs, TerminationToken},
+        worker_pool::{SupervisorPolicy, WorkerPoolPolicy},
+    },
+    server::ServerFlags,
 };
 use futures_util::{future::BoxFuture, Future, FutureExt};
 use http::{Request, Response};
@@ -129,6 +132,7 @@ pub struct TestBedBuilder {
     main_service_path: PathBuf,
     worker_pool_policy: Option<WorkerPoolPolicy>,
     main_worker_init_opts: Option<WorkerContextInitOpts>,
+    request_idle_timeout: Option<u64>,
 }
 
 impl TestBedBuilder {
@@ -140,6 +144,7 @@ impl TestBedBuilder {
             main_service_path: main_service_path.into(),
             worker_pool_policy: None,
             main_worker_init_opts: None,
+            request_idle_timeout: None,
         }
     }
 
@@ -152,7 +157,10 @@ impl TestBedBuilder {
         self.worker_pool_policy = Some(WorkerPoolPolicy::new(
             SupervisorPolicy::oneshot(),
             1,
-            Some(request_wait_timeout_ms),
+            ServerFlags {
+                request_wait_timeout_ms: Some(request_wait_timeout_ms),
+                ..Default::default()
+            },
         ));
 
         self
@@ -162,7 +170,10 @@ impl TestBedBuilder {
         self.worker_pool_policy = Some(WorkerPoolPolicy::new(
             SupervisorPolicy::PerWorker,
             1,
-            Some(request_wait_timeout_ms),
+            ServerFlags {
+                request_wait_timeout_ms: Some(request_wait_timeout_ms),
+                ..Default::default()
+            },
         ));
 
         self
@@ -172,7 +183,10 @@ impl TestBedBuilder {
         self.worker_pool_policy = Some(WorkerPoolPolicy::new(
             SupervisorPolicy::PerRequest { oneshot: false },
             1,
-            Some(request_wait_timeout_ms),
+            ServerFlags {
+                request_wait_timeout_ms: Some(request_wait_timeout_ms),
+                ..Default::default()
+            },
         ));
 
         self
@@ -183,6 +197,11 @@ impl TestBedBuilder {
         main_worker_init_opts: WorkerContextInitOpts,
     ) -> Self {
         self.main_worker_init_opts = Some(main_worker_init_opts);
+        self
+    }
+
+    pub fn with_request_idle_timeout(mut self, request_idle_timeout: u64) -> Self {
+        self.request_idle_timeout = Some(request_idle_timeout);
         self
     }
 
@@ -197,6 +216,8 @@ impl TestBedBuilder {
                     Some(token.clone()),
                     vec![],
                     None,
+                    None,
+                    self.request_idle_timeout,
                 )
                 .await
                 .unwrap(),
@@ -221,11 +242,13 @@ impl TestBedBuilder {
                 event_worker_metric_src: None,
             }),
             static_patterns: vec![],
+            maybe_jsx_import_source_config: None,
         };
 
         let main_termination_token = TerminationToken::new();
-        let (_, main_worker_msg_tx) = create_worker(
+        let ctx = create_worker(
             (main_worker_init_opts, main_termination_token.clone()),
+            None,
             None,
         )
         .await
@@ -234,7 +257,7 @@ impl TestBedBuilder {
         TestBed {
             pool_termination_token,
             main_termination_token,
-            main_worker_msg_tx,
+            main_worker_msg_tx: ctx.msg_tx,
         }
     }
 }
@@ -304,15 +327,16 @@ pub async fn create_test_user_worker<Opt: Into<CreateTestUserWorkerArgs>>(
     });
 
     Ok({
-        let (_, sender) = create_worker(
+        let ctx = create_worker(
             opts.with_policy(policy)
                 .with_termination_token(termination_token.clone()),
+            None,
             None,
         )
         .await?;
 
         (
-            sender,
+            ctx.msg_tx,
             RequestScope {
                 policy,
                 req_start_tx,
@@ -325,7 +349,14 @@ pub async fn create_test_user_worker<Opt: Into<CreateTestUserWorkerArgs>>(
 }
 
 pub fn test_user_worker_pool_policy() -> WorkerPoolPolicy {
-    WorkerPoolPolicy::new(SupervisorPolicy::oneshot(), 1, 4 * 1000 * 3600)
+    WorkerPoolPolicy::new(
+        SupervisorPolicy::oneshot(),
+        1,
+        ServerFlags {
+            request_wait_timeout_ms: Some(4 * 1000 * 3600),
+            ..Default::default()
+        },
+    )
 }
 
 pub fn test_user_runtime_opts() -> UserWorkerRuntimeOpts {

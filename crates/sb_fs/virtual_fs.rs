@@ -96,22 +96,22 @@ impl VfsBuilder {
                     if target.is_file() {
                         // this may change behavior, so warn the user about it
                         log::warn!(
-              "Symlink target is outside '{}'. Inlining symlink at '{}' to '{}' as file.",
-              self.root_path.display(),
-              path.display(),
-              target.display(),
-            );
+                            "Symlink target is outside '{}'. Inlining symlink at '{}' to '{}' as file.",
+                            self.root_path.display(),
+                            path.display(),
+                            target.display(),
+                        );
                         // inline the symlink and make the target file
                         let file_bytes = std::fs::read(&target)
                             .with_context(|| format!("Reading {}", path.display()))?;
                         self.add_file(&path, file_bytes)?;
                     } else {
                         log::warn!(
-              "Symlink target is outside '{}'. Excluding symlink at '{}' with target '{}'.",
-              self.root_path.display(),
-              path.display(),
-              target.display(),
-            );
+                            "Symlink target is outside '{}'. Excluding symlink at '{}' with target '{}'.",
+                            self.root_path.display(),
+                            path.display(),
+                            target.display(),
+                        );
                     }
                 }
             }
@@ -527,7 +527,11 @@ impl FileBackedVfsFile {
                 if offset >= 0 {
                     *current_pos += offset as u64;
                 } else if -offset as u64 > *current_pos {
-                    return Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "An attempt was made to move the file pointer before the beginning of the file.").into());
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::PermissionDenied,
+                        "An attempt was made to move the file pointer before the beginning of the file.",
+                    )
+                    .into());
                 } else {
                     *current_pos -= -offset as u64;
                 }

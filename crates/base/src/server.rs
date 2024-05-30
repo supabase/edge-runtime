@@ -5,6 +5,7 @@ use crate::rt_worker::worker_ctx::{
 use crate::rt_worker::worker_pool::WorkerPoolPolicy;
 use crate::InspectorOption;
 use anyhow::{anyhow, bail, Context, Error};
+use deno_config::JsxImportSourceConfig;
 use event_worker::events::WorkerEventWithMetadata;
 use futures_util::future::{poll_fn, BoxFuture};
 use futures_util::{FutureExt, Stream};
@@ -37,6 +38,7 @@ use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::TlsAcceptor;
 use tokio_util::sync::CancellationToken;
+use url::Url;
 
 mod signal {
     pub use tokio::signal::ctrl_c;
@@ -244,6 +246,9 @@ pub struct ServerFlags {
     pub tcp_nodelay: bool,
     pub graceful_exit_deadline_sec: u64,
     pub graceful_exit_keepalive_deadline_ms: Option<u64>,
+    pub request_wait_timeout_ms: Option<u64>,
+    pub request_idle_timeout_ms: Option<u64>,
+    pub request_read_timeout_ms: Option<u64>,
 }
 
 #[derive(Debug)]
@@ -343,6 +348,8 @@ impl Server {
         termination_token: Option<TerminationToken>,
         static_patterns: Vec<String>,
         inspector: Option<Inspector>,
+        jsx_specifier: Option<String>,
+        jsx_module: Option<String>,
     ) -> Result<Self, Error> {
         let mut worker_events_tx: Option<mpsc::UnboundedSender<WorkerEventWithMetadata>> = None;
         let maybe_events_entrypoint = entrypoints.events;
@@ -355,7 +362,7 @@ impl Server {
             let events_path = Path::new(&events_service_path);
             let events_path_buf = events_path.to_path_buf();
 
-            let (event_worker_metric, sender) = create_events_worker(
+            let (ctx, sender) = create_events_worker(
                 events_path_buf,
                 import_map_path.clone(),
                 flags.no_module_cache,
@@ -366,10 +373,17 @@ impl Server {
             .await?;
 
             worker_events_tx = Some(sender);
-            Some(event_worker_metric)
+            Some(ctx.metric)
         } else {
             None
         };
+
+        let jsx_config = jsx_module.map(|jsx_mod| JsxImportSourceConfig {
+            default_specifier: jsx_specifier,
+            default_types_specifier: None,
+            module: jsx_mod,
+            base_url: Url::from_file_path(std::env::current_dir().unwrap()).unwrap(),
+        });
 
         // Create a user worker pool
         let (shared_metric_src, worker_pool_tx) = create_user_worker_pool(
@@ -378,6 +392,8 @@ impl Server {
             Some(termination_tokens.pool.clone()),
             static_patterns,
             inspector.clone(),
+            jsx_config.clone(),
+            flags.request_idle_timeout_ms,
         )
         .await?;
 
@@ -403,6 +419,7 @@ impl Server {
             } else {
                 None
             },
+            jsx_config,
         )
         .await?;
 
@@ -467,11 +484,13 @@ impl Server {
 
         let ServerFlags {
             tcp_nodelay,
+            request_read_timeout_ms,
             mut graceful_exit_deadline_sec,
             mut graceful_exit_keepalive_deadline_ms,
             ..
         } = flags;
 
+        let request_read_timeout_dur = request_read_timeout_ms.map(Duration::from_millis);
         let mut terminate_signal_fut = get_termination_signal();
 
         loop {
@@ -487,7 +506,14 @@ impl Server {
                                 let _ = stream.set_nodelay(true);
                             }
 
-                            accept_stream(stream, main_worker_req_tx, event_tx, metric_src, graceful_exit_token.clone())
+                            accept_stream(
+                                stream,
+                                main_worker_req_tx,
+                                event_tx,
+                                metric_src,
+                                graceful_exit_token.clone(),
+                                request_read_timeout_dur
+                            )
                         }
                         Err(e) => error!("socket error: {}", e)
                     }
@@ -507,7 +533,14 @@ impl Server {
                                 let _ = stream.get_ref().0.set_nodelay(true);
                             }
 
-                            accept_stream(stream, main_worker_req_tx, event_tx, metric_src, graceful_exit_token.clone());
+                            accept_stream(
+                                stream,
+                                main_worker_req_tx,
+                                event_tx,
+                                metric_src,
+                                graceful_exit_token.clone(),
+                                request_read_timeout_dur
+                            )
                         }
                         Err(e) => error!("socket error: {}", e)
                     }
@@ -675,6 +708,7 @@ fn accept_stream<I>(
     event_tx: Option<UnboundedSender<ServerEvent>>,
     metric_src: SharedMetricSource,
     graceful_exit_token: CancellationToken,
+    maybe_req_read_timeout_dur: Option<Duration>,
 ) where
     I: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
@@ -682,14 +716,21 @@ fn accept_stream<I>(
     tokio::task::spawn({
         async move {
             let (service, cancel) = WorkerService::new(metric_src.clone(), req_tx);
+            let (io, maybe_timeout_tx) = if let Some(timeout_dur) = maybe_req_read_timeout_dur {
+                crate::timeout::Stream::with_timeout(io, timeout_dur)
+            } else {
+                crate::timeout::Stream::with_bypass(io)
+            };
 
             let _guard = cancel.drop_guard();
             let _active_io_count_guard = scopeguard::guard(metric_src, |it| {
                 it.decl_active_io();
             });
 
-            let conn_fut = Http::new().serve_connection(io, service).with_upgrades();
             let mut shutting_down = false;
+            let conn_fut = Http::new()
+                .serve_connection(io, crate::timeout::Service::new(service, maybe_timeout_tx))
+                .with_upgrades();
 
             pin!(conn_fut);
 

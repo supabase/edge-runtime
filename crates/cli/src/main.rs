@@ -1,3 +1,6 @@
+mod flags;
+
+#[cfg(not(feature = "tracing"))]
 mod logger;
 
 use anyhow::{anyhow, bail, Error};
@@ -6,9 +9,9 @@ use base::deno_runtime::MAYBE_DENO_VERSION;
 use base::rt_worker::worker_pool::{SupervisorPolicy, WorkerPoolPolicy};
 use base::server::{ServerFlags, Tls, WorkerEntrypoints};
 use base::{DecoratorType, InspectorOption};
-use clap::builder::{BoolishValueParser, FalseyValueParser, TypedValueParser};
-use clap::{arg, crate_version, value_parser, ArgAction, ArgGroup, ArgMatches, Command};
+use clap::ArgMatches;
 use deno_core::url::Url;
+use flags::get_cli;
 use log::warn;
 use sb_graph::emitter::EmitterFactory;
 use sb_graph::import_map::load_import_map;
@@ -20,185 +23,6 @@ use std::io::Write;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
-
-fn cli() -> Command {
-    Command::new("edge-runtime")
-        .about("A server based on Deno runtime, capable of running JavaScript, TypeScript, and WASM services")
-        .version(format!(
-            "{}\ndeno {} ({}, {})",
-            crate_version!(),
-            env!("DENO_VERSION"),
-            env!("PROFILE"),
-            env!("TARGET")
-        ))
-        .arg_required_else_help(true)
-        .arg(
-            arg!(-v --verbose "Use verbose output")
-                .conflicts_with("quiet")
-                .global(true)
-                .action(ArgAction::SetTrue),
-        )
-        .arg(
-            arg!(-q --quiet "Do not print any log messages")
-                .conflicts_with("verbose")
-                .global(true)
-                .action(ArgAction::SetTrue),
-        )
-        .arg(
-            arg!(--"log-source" "Include source file and line in log messages")
-                .global(true)
-                .action(ArgAction::SetTrue),
-        )
-        .subcommand(
-            Command::new("start")
-                .about("Start the server")
-                .arg(arg!(-i --ip <HOST> "Host IP address to listen on").default_value("0.0.0.0"))
-                .arg(
-                    arg!(-p --port <PORT> "Port to listen on")
-                        .env("EDGE_RUNTIME_PORT")
-                        .default_value("9000")
-                        .value_parser(value_parser!(u16))
-                )
-                .arg(
-                    arg!(--tls [PORT])
-                        .env("EDGE_RUNTIME_TLS")
-                        .num_args(0..=1)
-                        .default_missing_value("443")
-                        .value_parser(value_parser!(u16))
-                        .requires("key")
-                        .requires("cert")
-                )
-                .arg(
-                    arg!(--key <Path> "Path to PEM-encoded key to be used to TLS")
-                        .env("EDGE_RUNTIME_TLS_KEY_PATH")
-                        .value_parser(value_parser!(PathBuf))
-                )
-                .arg(
-                    arg!(--cert <Path> "Path to PEM-encoded X.509 certificate to be used to TLS")
-                        .env("EDGE_RUNTIME_TLS_CERT_PATH")
-                        .value_parser(value_parser!(PathBuf))
-                )
-                .arg(arg!(--"main-service" <DIR> "Path to main service directory or eszip").default_value("examples/main"))
-                .arg(arg!(--"disable-module-cache" "Disable using module cache").default_value("false").value_parser(FalseyValueParser::new()))
-                .arg(arg!(--"import-map" <Path> "Path to import map file"))
-                .arg(arg!(--"event-worker" <Path> "Path to event worker directory"))
-                .arg(arg!(--"main-entrypoint" <Path> "Path to entrypoint in main service (only for eszips)"))
-                .arg(arg!(--"events-entrypoint" <Path> "Path to entrypoint in events worker (only for eszips)"))
-                .arg(
-                    arg!(--"policy" <POLICY> "Policy to enforce in the worker pool")
-                        .default_value("per_worker")
-                        .value_parser(["per_worker", "per_request", "oneshot"])
-                )
-                .arg(
-                    arg!(--"decorator" <TYPE> "Type of decorator to use on the main worker and event worker. If not specified, the decorator feature is disabled.")
-                        .value_parser(["tc39", "typescript", "typescript_with_metadata"])
-                )
-                .arg(
-                    arg!(--"graceful-exit-timeout" [SECONDS])
-                        .help(
-                            concat!(
-                                "Maximum time in seconds that can wait for workers before terminating forcibly. ",
-                                "If providing zero value, the runtime will not try a graceful exit."
-                            )
-                        )
-                        // NOTE(Nyannyacha): Default timeout value follows the
-                        // value[1] defined in moby.
-                        //
-                        // [1]: https://github.com/moby/moby/blob/master/daemon/config/config.go#L45-L47
-                        .default_value("15")
-                        .value_parser(
-                            value_parser!(u64)
-                                .range(..u64::MAX)
-                        )
-                )
-                .arg(
-                    arg!(
-                        --"experimental-graceful-exit-keepalive-deadline-ratio"
-                        <PERCENTAGE>
-                    )
-                        .help(
-                            concat!(
-                                "(Experimental) Maximum period of time that incoming requests can be processed over a pre-established ",
-                                "keep-alive HTTP connection. ",
-                                "This is specified as a percentage of the `--graceful-exit-timeout` value. ",
-                                "The percentage cannot be greater than 95."
-                            )
-                        )
-                        .value_parser(
-                            value_parser!(u64)
-                                .range(..=95)
-                        )
-                )
-                .arg(
-                    arg!(--"max-parallelism" <COUNT> "Maximum count of workers that can exist in the worker pool simultaneously")
-                        .value_parser(
-                            // NOTE: Acceptable bounds were chosen arbitrarily.
-                            value_parser!(u32)
-                                .range(1..9999)
-                                .map(|it| -> usize { it as usize })
-                        )
-                )
-                .arg(
-                    arg!(--"request-wait-timeout" <MILLISECONDS> "Maximum time in milliseconds that can wait to establish a connection with a worker")
-                        .value_parser(value_parser!(u64))
-                )
-                .arg(
-                    arg!(--"inspect" [HOST_AND_PORT] "Activate inspector on host:port (default: 127.0.0.1:9229)")
-                        .num_args(0..=1)
-                        .value_parser(value_parser!(SocketAddr))
-                        .require_equals(true)
-                        .default_missing_value("127.0.0.1:9229")
-                )
-                .arg(
-                    arg!(--"inspect-brk" [HOST_AND_PORT] "Activate inspector on host:port, wait for debugger to connect and break at the start of user script")
-                        .num_args(0..=1)
-                        .value_parser(value_parser!(SocketAddr))
-                        .require_equals(true)
-                        .default_missing_value("127.0.0.1:9229")
-                )
-                .arg(
-                    arg!(--"inspect-wait" [HOST_AND_PORT] "Activate inspector on host:port and wait for debugger to connect before running user code")
-                        .num_args(0..=1)
-                        .value_parser(value_parser!(SocketAddr))
-                        .require_equals(true)
-                        .default_missing_value("127.0.0.1:9229")
-                )
-                .group(
-                    ArgGroup::new("inspector")
-                        .args(["inspect", "inspect-brk", "inspect-wait"])
-                )
-                .arg(
-                    arg!(--"inspect-main" "Allow creating inspector for main worker")
-                        .requires("inspector")
-                        .action(ArgAction::SetTrue)
-                )
-                .arg(arg!(--"static" <Path> "Glob pattern for static files to be included"))
-                .arg(arg!(--"tcp-nodelay" [BOOL] "Disables Nagle's algorithm")
-                    .num_args(0..=1)
-                    .value_parser(BoolishValueParser::new())
-                    .require_equals(true)
-                    .default_value("true")
-                    .default_missing_value("true")
-                )
-        )
-        .subcommand(
-            Command::new("bundle")
-                .about("Creates an 'eszip' file that can be executed by the EdgeRuntime. Such file contains all the modules in contained in a single binary.")
-                .arg(arg!(--"output" <DIR> "Path to output eszip file").default_value("bin.eszip"))
-                .arg(arg!(--"entrypoint" <Path> "Path to entrypoint to bundle as an eszip").required(true))
-                .arg(arg!(--"static" <Path> "Glob pattern for static files to be included"))
-                .arg(arg!(--"import-map" <Path> "Path to import map file"))
-                .arg(
-                    arg!(--"decorator" <TYPE> "Type of decorator to use when bundling. If not specified, the decorator feature is disabled.")
-                        .value_parser(["tc39", "typescript", "typescript_with_metadata"])
-                )
-        ).subcommand(
-        Command::new("unbundle")
-            .about("Unbundles an .eszip file into the specified directory")
-            .arg(arg!(--"output" <DIR> "Path to extract the ESZIP content").default_value("./"))
-            .arg(arg!(--"eszip" <DIR> "Path of eszip to extract").required(true))
-    )
-}
 
 fn main() -> Result<(), anyhow::Error> {
     MAYBE_DENO_VERSION.get_or_init(|| env!("DENO_VERSION").to_string());
@@ -212,12 +36,25 @@ fn main() -> Result<(), anyhow::Error> {
     // TODO: Tokio runtime shouldn't be needed here (Address later)
     let local = tokio::task::LocalSet::new();
     let res: Result<(), Error> = local.block_on(&runtime, async {
-        let matches = cli().get_matches();
+        let matches = get_cli().get_matches();
 
         if !matches.get_flag("quiet") {
-            let verbose = matches.get_flag("verbose");
-            let include_source = matches.get_flag("log-source");
-            logger::init(verbose, include_source);
+            #[cfg(feature = "tracing")]
+            {
+                use tracing_subscriber::EnvFilter;
+
+                tracing_subscriber::fmt()
+                    .with_env_filter(EnvFilter::from_default_env())
+                    .with_thread_names(true)
+                    .init()
+            }
+
+            #[cfg(not(feature = "tracing"))]
+            {
+                let verbose = matches.get_flag("verbose");
+                let include_source = matches.get_flag("log-source");
+                logger::init(verbose, include_source);
+            }
         }
 
         #[allow(clippy::single_match)]
@@ -300,12 +137,19 @@ fn main() -> Result<(), anyhow::Error> {
                     sub_matches.get_one::<usize>("max-parallelism").cloned();
                 let maybe_request_wait_timeout =
                     sub_matches.get_one::<u64>("request-wait-timeout").cloned();
+                let maybe_request_idle_timeout =
+                    sub_matches.get_one::<u64>("request-idle-timeout").cloned();
+                let maybe_request_read_timeout =
+                    sub_matches.get_one::<u64>("request-read-timeout").cloned();
                 let static_patterns =
                     if let Some(val_ref) = sub_matches.get_many::<String>("static") {
                         val_ref.map(|s| s.as_str()).collect::<Vec<&str>>()
                     } else {
                         vec![]
                     };
+
+                let jsx_specifier = sub_matches.get_one::<String>("jsx-specifier").cloned();
+                let jsx_module = sub_matches.get_one::<String>("jsx-module").cloned();
 
                 let static_patterns: Vec<String> =
                     static_patterns.into_iter().map(|s| s.to_string()).collect();
@@ -317,22 +161,23 @@ fn main() -> Result<(), anyhow::Error> {
                         .or(sub_matches.get_one::<SocketAddr>("inspect-wait")),
                 );
 
-                let maybe_inspector_option = if inspector.is_some()
-                    && !maybe_supervisor_policy
-                        .as_ref()
-                        .map(SupervisorPolicy::is_oneshot)
-                        .unwrap_or(false)
-                {
-                    bail!(
-                        "specifying `oneshot` policy is required to enable the inspector feature"
-                    );
-                } else if let Some((key, addr)) = inspector {
+                let maybe_inspector_option = if let Some((key, addr)) = inspector {
                     Some(get_inspector_option(key.as_str(), addr).unwrap())
                 } else {
                     None
                 };
 
                 let tcp_nodelay = sub_matches.get_one::<bool>("tcp-nodelay").copied().unwrap();
+                let flags = ServerFlags {
+                    no_module_cache,
+                    allow_main_inspector,
+                    tcp_nodelay,
+                    graceful_exit_deadline_sec,
+                    graceful_exit_keepalive_deadline_ms,
+                    request_wait_timeout_ms: maybe_request_wait_timeout,
+                    request_idle_timeout_ms: maybe_request_idle_timeout,
+                    request_read_timeout_ms: maybe_request_read_timeout,
+                };
 
                 start_server(
                     ip.as_str(),
@@ -363,16 +208,10 @@ fn main() -> Result<(), anyhow::Error> {
                         } else {
                             maybe_max_parallelism
                         },
-                        maybe_request_wait_timeout,
+                        flags,
                     )),
                     import_map_path,
-                    ServerFlags {
-                        no_module_cache,
-                        allow_main_inspector,
-                        tcp_nodelay,
-                        graceful_exit_deadline_sec,
-                        graceful_exit_keepalive_deadline_ms,
-                    },
+                    flags,
                     None,
                     WorkerEntrypoints {
                         main: maybe_main_entrypoint,
@@ -381,6 +220,8 @@ fn main() -> Result<(), anyhow::Error> {
                     None,
                     static_patterns,
                     maybe_inspector_option,
+                    jsx_specifier,
+                    jsx_module,
                 )
                 .await?;
             }

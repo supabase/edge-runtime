@@ -12,9 +12,6 @@ for await (const data of eventManager) {
 					console.log(data.event.msg);
 				}
 				break;
-			case 'UncaughtException':
-				console.error(data.event.exception);
-				break;
 			default:
 				console.log(data);
 		}

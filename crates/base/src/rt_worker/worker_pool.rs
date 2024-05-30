@@ -1,5 +1,6 @@
 use crate::inspector_server::Inspector;
 use crate::rt_worker::worker_ctx::{create_worker, send_user_worker_request};
+use crate::server::ServerFlags;
 use anyhow::{anyhow, bail, Context, Error};
 use enum_as_inner::EnumAsInner;
 use event_worker::events::WorkerEventWithMetadata;
@@ -88,15 +89,15 @@ impl WorkerPoolPolicy {
     pub fn new(
         supervisor: impl Into<Option<SupervisorPolicy>>,
         max_parallelism: impl Into<Option<usize>>,
-        request_wait_timeout_ms: impl Into<Option<u64>>,
+        server_flags: ServerFlags,
     ) -> Self {
         let default = Self::default();
 
         Self {
             supervisor_policy: supervisor.into().unwrap_or(default.supervisor_policy),
             max_parallelism: max_parallelism.into().unwrap_or(default.max_parallelism),
-            request_wait_timeout_ms: request_wait_timeout_ms
-                .into()
+            request_wait_timeout_ms: server_flags
+                .request_wait_timeout_ms
                 .unwrap_or(default.request_wait_timeout_ms),
         }
     }
@@ -211,6 +212,7 @@ pub struct WorkerPool {
     pub active_workers: HashMap<String, ActiveWorkerRegistry>,
     pub worker_pool_msgs_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
     pub maybe_inspector: Option<Inspector>,
+    pub maybe_request_idle_timeout: Option<u64>,
 
     // TODO: refactor this out of worker pool
     pub worker_event_sender: Option<mpsc::UnboundedSender<WorkerEventWithMetadata>>,
@@ -223,6 +225,7 @@ impl WorkerPool {
         worker_event_sender: Option<UnboundedSender<WorkerEventWithMetadata>>,
         worker_pool_msgs_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
         inspector: Option<Inspector>,
+        request_idle_timeout: Option<u64>,
     ) -> Self {
         Self {
             policy,
@@ -231,6 +234,7 @@ impl WorkerPool {
             user_workers: HashMap::new(),
             active_workers: HashMap::new(),
             maybe_inspector: inspector,
+            maybe_request_idle_timeout: request_idle_timeout,
             worker_pool_msgs_tx,
         }
     }
@@ -249,6 +253,7 @@ impl WorkerPool {
 
         let is_oneshot_policy = self.policy.supervisor_policy.is_oneshot();
         let inspector = self.maybe_inspector.clone();
+        let request_idle_timeout = self.maybe_request_idle_timeout;
 
         let force_create = worker_options
             .conf
@@ -353,6 +358,7 @@ impl WorkerPool {
                         maybe_module_code,
                         maybe_entrypoint,
                         maybe_decorator,
+                        maybe_jsx_import_source_config,
                         ..
                     } = worker_options;
 
@@ -371,6 +377,7 @@ impl WorkerPool {
                                 maybe_entrypoint,
                                 maybe_decorator,
                                 static_patterns: vec![],
+                                maybe_jsx_import_source_config,
                             },
                             tx,
                         ))
@@ -418,18 +425,21 @@ impl WorkerPool {
             match create_worker(
                 (worker_options, supervisor_policy, termination_token.clone()),
                 inspector,
+                request_idle_timeout,
             )
             .await
             {
-                Ok((_, worker_request_msg_tx)) => {
+                Ok(ctx) => {
                     let profile = UserWorkerProfile {
-                        worker_request_msg_tx,
+                        worker_request_msg_tx: ctx.msg_tx,
                         timing_tx_pair: (req_start_timing_tx, req_end_timing_tx),
                         service_path,
                         permit: permit.map(Arc::new),
                         status: status.clone(),
+                        exit: ctx.exit,
                         cancel,
                     };
+
                     if worker_pool_msgs_tx
                         .send(UserWorkerMsgs::Created(uuid, profile))
                         .is_err()
@@ -478,6 +488,7 @@ impl WorkerPool {
             Some(worker) => {
                 let policy = self.policy.supervisor_policy;
                 let profile = worker.clone();
+                let exit = worker.exit.clone();
                 let cancel = worker.cancel.clone();
                 let (req_start_tx, req_end_tx) = profile.timing_tx_pair.clone();
 
@@ -485,7 +496,10 @@ impl WorkerPool {
                 let request_handler = async move {
                     if !policy.is_per_worker() {
                         if cancel.is_cancelled() {
-                            bail!(WorkerError::RequestCancelledBySupervisor);
+                            bail!(exit
+                                .error()
+                                .await
+                                .unwrap_or(anyhow!(WorkerError::RequestCancelledBySupervisor)))
                         }
 
                         let fence = Arc::new(Notify::const_new());
@@ -510,7 +524,10 @@ impl WorkerPool {
                         tokio::select! {
                             _ = fence.notified() => {}
                             _ = cancel.cancelled() => {
-                                bail!(WorkerError::RequestCancelledBySupervisor);
+                                bail!(exit
+                                    .error()
+                                    .await
+                                    .unwrap_or(anyhow!(WorkerError::RequestCancelledBySupervisor)))
                             }
                         }
                     }
@@ -519,6 +536,7 @@ impl WorkerPool {
                         profile.worker_request_msg_tx,
                         req,
                         cancel,
+                        exit,
                         conn_token,
                     )
                     .await;

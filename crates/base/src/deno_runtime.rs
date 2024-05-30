@@ -221,6 +221,7 @@ impl DenoRuntime {
             maybe_decorator,
             maybe_module_code,
             static_patterns,
+            maybe_jsx_import_source_config,
             ..
         } = opts;
 
@@ -229,8 +230,15 @@ impl DenoRuntime {
 
         let is_user_worker = conf.is_user_worker();
 
-        // TODO: check for other potential main paths (eg: index.js, index.tsx)
+        let potential_exts = vec!["ts", "tsx", "js", "jsx"];
         let mut main_module_url = base_url.join("index.ts")?;
+        for potential_ext in potential_exts {
+            main_module_url = base_url.join(format!("index.{}", potential_ext).as_str())?;
+            if main_module_url.to_file_path().unwrap().exists() {
+                break;
+            }
+        }
+
         let is_some_entry_point = maybe_entrypoint.is_some();
         if is_some_entry_point {
             main_module_url = Url::parse(&maybe_entrypoint.unwrap())?;
@@ -264,6 +272,12 @@ impl DenoRuntime {
             emitter_factory.set_file_fetcher_allow_remote(allow_remote_modules);
             emitter_factory.set_file_fetcher_cache_strategy(cache_strategy);
             emitter_factory.set_decorator_type(maybe_decorator);
+
+            if let Some(jsx_import_source_config) = maybe_jsx_import_source_config.clone() {
+                emitter_factory
+                    .set_jsx_import_source(jsx_import_source_config)
+                    .await;
+            }
 
             let maybe_import_map = load_import_map(import_map_path.clone())?;
 
@@ -641,8 +655,14 @@ impl DenoRuntime {
             self.js_runtime.v8_isolate().enter();
 
             if inspector.is_some() {
+                let is_terminated = self.is_terminated.clone();
+                let mut this = scopeguard::guard_on_unwind(&mut *self, |this| {
+                    this.js_runtime.v8_isolate().exit();
+                    is_terminated.raise();
+                });
+
                 {
-                    let _guard = scopeguard::guard(self.is_found_inspector_session.clone(), |v| {
+                    let _guard = scopeguard::guard(this.is_found_inspector_session.clone(), |v| {
                         v.raise();
                     });
 
@@ -651,12 +671,12 @@ impl DenoRuntime {
                     // before the inspector session is connected if the function doesn't
                     // have a long execution time. Should we wait for an inspector
                     // session to connect with the V8?
-                    self.wait_for_inspector_session();
+                    this.wait_for_inspector_session();
                 }
 
-                if self.is_termination_requested.is_raised() {
-                    self.js_runtime.v8_isolate().exit();
-                    self.is_terminated.raise();
+                if this.is_termination_requested.is_raised() {
+                    this.js_runtime.v8_isolate().exit();
+                    is_terminated.raise();
                     return (Ok(()), 0i64);
                 }
             }
@@ -900,6 +920,7 @@ extern "C" fn mem_check_gc_prologue_callback_fn(
 mod test {
     use crate::deno_runtime::DenoRuntime;
     use crate::rt_worker::worker::DuplexStreamEntry;
+    use deno_config::JsxImportSourceConfig;
     use deno_core::{FastString, ModuleCodeString, PollEventLoopOptions};
     use sb_graph::emitter::EmitterFactory;
     use sb_graph::{generate_binary_eszip, EszipPayloadKind};
@@ -917,6 +938,7 @@ mod test {
     use std::time::Duration;
     use tokio::sync::mpsc;
     use tokio::time::timeout;
+    use url::Url;
 
     #[tokio::test]
     #[serial]
@@ -945,6 +967,7 @@ mod test {
                     })
                 },
                 static_patterns: vec![],
+                maybe_jsx_import_source_config: None,
             },
             None,
         )
@@ -989,6 +1012,7 @@ mod test {
                     })
                 },
                 static_patterns: vec![],
+                maybe_jsx_import_source_config: None,
             },
             None,
         )
@@ -1055,6 +1079,7 @@ mod test {
                     })
                 },
                 static_patterns: vec![],
+                maybe_jsx_import_source_config: None,
             },
             None,
         )
@@ -1092,6 +1117,7 @@ mod test {
         env_vars: Option<HashMap<String, String>>,
         user_conf: Option<WorkerRuntimeOpts>,
         static_patterns: Vec<String>,
+        maybe_jsx_import_source_config: Option<JsxImportSourceConfig>,
     ) -> DenoRuntime {
         let (worker_pool_tx, _) = mpsc::unbounded_channel::<UserWorkerMsgs>();
 
@@ -1122,6 +1148,7 @@ mod test {
                     }
                 },
                 static_patterns,
+                maybe_jsx_import_source_config,
             },
             None,
         )
@@ -1133,7 +1160,7 @@ mod test {
     #[tokio::test]
     #[serial]
     async fn test_main_runtime_creation() {
-        let mut runtime = create_runtime(None, None, None, vec![]).await;
+        let mut runtime = create_runtime(None, None, None, vec![], None).await;
 
         {
             let scope = &mut runtime.js_runtime.handle_scope();
@@ -1158,6 +1185,7 @@ mod test {
             None,
             Some(WorkerRuntimeOpts::UserWorker(Default::default())),
             vec![],
+            None,
         )
         .await;
 
@@ -1179,7 +1207,7 @@ mod test {
     #[serial]
     async fn test_main_rt_fs() {
         let mut main_rt =
-            create_runtime(None, Some(std::env::vars().collect()), None, vec![]).await;
+            create_runtime(None, Some(std::env::vars().collect()), None, vec![], None).await;
 
         let global_value_deno_read_file_script = main_rt
             .js_runtime
@@ -1198,6 +1226,53 @@ mod test {
         assert_eq!(
             fs_read_result.unwrap().as_str().unwrap(),
             "{\n  \"hello\": \"world\"\n}"
+        );
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_jsx_import_source() {
+        let mut main_rt = create_runtime(
+            Some("./test_cases/jsx-preact"),
+            Some(std::env::vars().collect()),
+            None,
+            vec![],
+            Some(JsxImportSourceConfig {
+                default_specifier: Some("https://esm.sh/preact".to_string()),
+                default_types_specifier: None,
+                module: "jsx-runtime".to_string(),
+                base_url: Url::from_file_path(std::env::current_dir().unwrap()).unwrap(),
+            }),
+        )
+        .await;
+
+        let _main_mod_ev = main_rt.js_runtime.mod_evaluate(main_rt.main_module_id);
+        let _ = main_rt
+            .js_runtime
+            .run_event_loop(PollEventLoopOptions {
+                wait_for_inspector: false,
+                pump_v8_message_loop: true,
+            })
+            .await;
+
+        let global_value_deno_read_file_script = main_rt
+            .js_runtime
+            .execute_script(
+                "<anon>",
+                ModuleCodeString::from(
+                    r#"
+           globalThis.hello;
+        "#
+                    .to_string(),
+                ),
+            )
+            .unwrap();
+
+        let jsx_read_result =
+            main_rt.to_value::<deno_core::serde_json::Value>(&global_value_deno_read_file_script);
+        assert_eq!(
+            jsx_read_result.unwrap().to_string(),
+            r#"{"type":"div","props":{"children":"Hello"},"__k":null,"__":null,"__b":0,"__e":null,"__c":null,"__v":-1,"__i":-1,"__u":0}"#
         );
     }
 
@@ -1234,6 +1309,7 @@ mod test {
             None,
             Some(WorkerRuntimeOpts::UserWorker(Default::default())),
             vec![String::from("./test_cases/**/*.md")],
+            None,
         )
         .await;
 
@@ -1264,6 +1340,7 @@ mod test {
             None,
             Some(WorkerRuntimeOpts::UserWorker(Default::default())),
             vec![],
+            None,
         )
         .await;
 
@@ -1385,12 +1462,13 @@ mod test {
     async fn test_os_env_vars() {
         std::env::set_var("Supa_Test", "Supa_Value");
         let mut main_rt =
-            create_runtime(None, Some(std::env::vars().collect()), None, vec![]).await;
+            create_runtime(None, Some(std::env::vars().collect()), None, vec![], None).await;
         let mut user_rt = create_runtime(
             None,
             None,
             Some(WorkerRuntimeOpts::UserWorker(Default::default())),
             vec![],
+            None,
         )
         .await;
         assert!(!main_rt.env_vars.is_empty());
@@ -1469,6 +1547,7 @@ mod test {
                 ..Default::default()
             })),
             static_patterns.iter().map(|it| String::from(*it)).collect(),
+            None,
         )
         .await
     }

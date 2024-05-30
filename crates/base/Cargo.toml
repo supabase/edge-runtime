@@ -22,6 +22,7 @@ deno_fs.workspace = true
 deno_io = { workspace = true }
 deno_core.workspace = true
 deno_console = { workspace = true }
+deno_config = { workspace = true }
 deno_crypto =  { workspace = true }
 deno_fetch = { workspace = true }
 deno_http =  { workspace = true }
@@ -44,7 +45,7 @@ tokio-rustls = { version = "0.25.0" }
 rustls-pemfile = { version = "2.1.0" }
 futures-util = { workspace = true }
 url.workspace = true
-event_worker ={ version = "0.1.0", path = "../event_worker" }
+event_worker = { version = "0.1.0", path = "../event_worker" }
 sb_workers = { version = "0.1.0", path = "../sb_workers" }
 sb_env = { version = "0.1.0", path = "../sb_env" }
 sb_core = { version = "0.1.0", path = "../sb_core" }
@@ -109,7 +110,7 @@ reqwest.workspace = true
 serde = { workspace = true, features = ["derive"] }
 tokio.workspace = true
 url.workspace = true
-event_worker ={ version = "0.1.0", path = "../event_worker" }
+event_worker = { version = "0.1.0", path = "../event_worker" }
 deno_broadcast_channel.workspace = true
 deno_core.workspace = true
 deno_canvas.workspace = true

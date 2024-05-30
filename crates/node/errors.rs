@@ -147,13 +147,13 @@ pub fn err_package_import_not_defined(
 }
 
 pub fn err_unsupported_dir_import(path: &str, base: &str) -> AnyError {
-    generic_error(format!("[ERR_UNSUPPORTED_DIR_IMPORT] Directory import '{path}' is not supported resolving ES modules imported from {base}"))
+    generic_error(format!(
+        "[ERR_UNSUPPORTED_DIR_IMPORT] Directory import '{path}' is not supported resolving ES modules imported from {base}"
+    ))
 }
 
 pub fn err_unsupported_esm_url_scheme(url: &Url) -> AnyError {
-    let mut msg =
-    "[ERR_UNSUPPORTED_ESM_URL_SCHEME] Only file and data URLS are supported by the default ESM loader"
-      .to_string();
+    let mut msg = "[ERR_UNSUPPORTED_ESM_URL_SCHEME] Only file and data URLS are supported by the default ESM loader".to_string();
 
     if cfg!(window) && url.scheme().len() == 2 {
         msg = format!("{msg}. On Windows, absolute path must be valid file:// URLs");
@@ -181,14 +181,8 @@ mod test {
       format!("[ERR_PACKAGE_PATH_NOT_EXPORTED] Package subpath './jsx-runtime' is not defined for types by \"exports\" in 'test_path{separator_char}package.json'")
     );
         assert_eq!(
-      err_package_path_not_exported(
-        "test_path".to_string(),
-        ".",
-        None,
-        NodeResolutionMode::Types,
-      )
-      .to_string(),
-      format!("[ERR_PACKAGE_PATH_NOT_EXPORTED] No \"exports\" main defined for types in 'test_path{separator_char}package.json'")
-    );
+            err_package_path_not_exported("test_path".to_string(), ".", None, NodeResolutionMode::Types,).to_string(),
+            format!("[ERR_PACKAGE_PATH_NOT_EXPORTED] No \"exports\" main defined for types in 'test_path{separator_char}package.json'")
+        );
     }
 }

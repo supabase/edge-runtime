@@ -52,6 +52,8 @@ import * as WebGPUSurface from 'ext:deno_webgpu/02_surface.js';
 
 import { core, internals, primordials } from 'ext:core/mod.js';
 
+let globalThis_;
+
 const ops = core.ops;
 const {
 	Error,
@@ -399,7 +401,76 @@ const PATCH_DENO_API_LIST = {
 	'memoryUsage': () => ops.op_runtime_memory_usage(),
 };
 
+function dispatchLoadEvent() {
+	globalThis_.dispatchEvent(new Event("load"));
+}
+
+function dispatchWillTerminateEvent(reason) {
+	globalThis_.dispatchEvent(new CustomEvent("willterminate", {
+		detail: { reason }
+	}));
+}
+  
+function dispatchBeforeUnloadEvent() {
+	return globalThis_.dispatchEvent(
+	  new Event("beforeunload", { cancelable: true }),
+	);
+}
+  
+function dispatchUnloadEvent() {
+	globalThis_.dispatchEvent(new Event("unload"));
+}
+
+// Notification that the core received an unhandled promise rejection that is about to
+// terminate the runtime. If we can handle it, attempt to do so.
+function processUnhandledPromiseRejection(promise, reason) {
+	const rejectionEvent = new event.PromiseRejectionEvent(
+		"unhandledrejection",
+		{
+			cancelable: true,
+			promise,
+			reason,
+		},
+	);
+  
+	// Note that the handler may throw, causing a recursive "error" event
+	globalThis_.dispatchEvent(rejectionEvent);
+  
+	// If event was not yet prevented, try handing it off to Node compat layer
+	// (if it was initialized)
+	if (
+		!rejectionEvent.defaultPrevented &&
+		typeof internals.nodeProcessUnhandledRejectionCallback !== "undefined"
+	) {
+	  	internals.nodeProcessUnhandledRejectionCallback(rejectionEvent);
+	}
+  
+	// If event was not prevented (or "unhandledrejection" listeners didn't
+	// throw) we will let Rust side handle it.
+	if (rejectionEvent.defaultPrevented) {
+	  	return true;
+	}
+  
+	return false;
+}
+  
+function processRejectionHandled(promise, reason) {
+	const rejectionHandledEvent = new event.PromiseRejectionEvent(
+		"rejectionhandled",
+		{ promise, reason },
+	);
+  
+	// Note that the handler may throw, causing a recursive "error" event
+	globalThis_.dispatchEvent(rejectionHandledEvent);
+  
+	if (typeof internals.nodeProcessRejectionHandledCallback !== "undefined") {
+	  	internals.nodeProcessRejectionHandledCallback(rejectionHandledEvent);
+	}
+}
+
 globalThis.bootstrapSBEdge = opts => {
+	globalThis_ = globalThis;
+
 	// We should delete this after initialization,
 	// Deleting it during bootstrapping can backfire
 	delete globalThis.__bootstrap;
@@ -409,8 +480,18 @@ globalThis.bootstrapSBEdge = opts => {
 	event.setEventTargetData(globalThis);
 	event.saveGlobalThisReference(globalThis);
 
-	const eventHandlers = ['error', 'load', 'beforeunload', 'unload', 'unhandledrejection'];
+	const eventHandlers = [
+		"error",
+		"load",
+		"beforeunload",
+		"unload",
+		"unhandledrejection",
+	];
+
 	eventHandlers.forEach((handlerName) => event.defineEventHandler(globalThis, handlerName));
+
+	// Nothing listens to this, but it warms up the code paths for event dispatch
+	(new event.EventTarget()).dispatchEvent(new Event("warmup"));
 
 	const {
 		0: target,
@@ -538,3 +619,15 @@ globalThis.bootstrapSBEdge = opts => {
 
 	delete globalThis.bootstrapSBEdge;
 };
+
+globalThis.bootstrap = {
+	dispatchLoadEvent,
+	dispatchWillTerminateEvent,
+	dispatchUnloadEvent,
+	dispatchBeforeUnloadEvent,
+	// dispatchProcessExitEvent,
+	// dispatchProcessBeforeExitEvent,
+};
+
+core.setUnhandledPromiseRejectionHandler(processUnhandledPromiseRejection);
+core.setHandledPromiseRejectionHandler(processRejectionHandled);

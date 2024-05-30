@@ -211,7 +211,7 @@ pub struct WorkerPool {
     pub user_workers: HashMap<Uuid, UserWorkerProfile>,
     pub active_workers: HashMap<String, ActiveWorkerRegistry>,
     pub worker_pool_msgs_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
-    pub flags: ServerFlags,
+    pub flags: Arc<ServerFlags>,
     pub maybe_inspector: Option<Inspector>,
 
     // TODO: refactor this out of worker pool
@@ -234,8 +234,8 @@ impl WorkerPool {
             user_workers: HashMap::new(),
             active_workers: HashMap::new(),
             maybe_inspector: inspector,
+            flags: Arc::new(flags),
             worker_pool_msgs_tx,
-            flags,
         }
     }
 
@@ -253,7 +253,7 @@ impl WorkerPool {
 
         let is_oneshot_policy = self.policy.supervisor_policy.is_oneshot();
         let inspector = self.maybe_inspector.clone();
-        let request_idle_timeout = self.flags.request_idle_timeout_ms;
+        let flags = self.flags.clone();
 
         let force_create = worker_options
             .conf
@@ -425,7 +425,7 @@ impl WorkerPool {
             match create_worker(
                 (worker_options, supervisor_policy, termination_token.clone()),
                 inspector,
-                request_idle_timeout,
+                flags,
             )
             .await
             {

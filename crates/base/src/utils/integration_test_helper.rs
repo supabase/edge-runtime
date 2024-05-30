@@ -252,7 +252,7 @@ impl TestBedBuilder {
         let ctx = create_worker(
             (main_worker_init_opts, main_termination_token.clone()),
             None,
-            None,
+            Arc::default(),
         )
         .await
         .unwrap();
@@ -334,7 +334,7 @@ pub async fn create_test_user_worker<Opt: Into<CreateTestUserWorkerArgs>>(
             opts.with_policy(policy)
                 .with_termination_token(termination_token.clone()),
             None,
-            None,
+            Arc::default(),
         )
         .await?;
 

@@ -3,6 +3,7 @@ use crate::inspector_server::Inspector;
 use crate::rt_worker::supervisor;
 use crate::rt_worker::utils::{get_event_metadata, parse_worker_conf};
 use crate::rt_worker::worker_ctx::create_supervisor;
+use crate::server::ServerFlags;
 use crate::utils::send_event_if_event_worker_available;
 use anyhow::{anyhow, Error};
 use event_worker::events::{
@@ -16,6 +17,7 @@ use sb_workers::context::{UserWorkerMsgs, WorkerContextInitOpts, WorkerExit, Wor
 use std::any::Any;
 use std::future::{pending, Future};
 use std::pin::Pin;
+use std::sync::Arc;
 use tokio::io;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot::{self, Receiver, Sender};
@@ -86,6 +88,7 @@ impl Worker {
         self.supervisor_policy = supervisor_policy.unwrap_or_default();
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn start(
         &self,
         mut opts: WorkerContextInitOpts,
@@ -97,6 +100,7 @@ impl Worker {
         exit: WorkerExit,
         termination_token: Option<TerminationToken>,
         inspector: Option<Inspector>,
+        flags: Arc<ServerFlags>,
     ) {
         let worker_name = self.worker_name.clone();
         let worker_key = self.worker_key;
@@ -126,7 +130,7 @@ impl Worker {
                     .then(unbounded_channel::<CPUUsageMetrics>)
                     .unzip();
 
-                let result = match DenoRuntime::new(opts, inspector).await {
+                let result = match DenoRuntime::new(opts, inspector, flags.clone()).await {
                     Ok(mut new_runtime) => {
                         let metric_src = {
                             let js_runtime = &mut new_runtime.js_runtime;
@@ -172,6 +176,7 @@ impl Worker {
                                 cancel,
                                 timing,
                                 termination_token.clone(),
+                                flags,
                             ) else {
                                 return;
                             };
@@ -182,8 +187,8 @@ impl Worker {
                             pending().boxed()
                         } else if let Some(token) = termination_token.clone() {
                             let is_terminated = new_runtime.is_terminated.clone();
-                            let is_termination_requested =
-                                new_runtime.is_termination_requested.clone();
+                            let termination_request_token =
+                                new_runtime.termination_request_token.clone();
 
                             let (waker, thread_safe_handle) = {
                                 let js_runtime = &mut new_runtime.js_runtime;
@@ -196,16 +201,16 @@ impl Worker {
                             rt::SUPERVISOR_RT
                                 .spawn(async move {
                                     token.inbound.cancelled().await;
-                                    is_termination_requested.raise();
+                                    termination_request_token.cancel();
 
                                     let data_ptr_mut =
-                                        Box::into_raw(Box::new(supervisor::IsolateInterruptData {
+                                        Box::into_raw(Box::new(supervisor::V8HandleTerminationData {
                                             should_terminate: true,
                                             isolate_memory_usage_tx: None,
                                         }));
 
                                     if !thread_safe_handle.request_interrupt(
-                                        supervisor::handle_interrupt,
+                                        supervisor::v8_handle_termination,
                                         data_ptr_mut as *mut std::ffi::c_void,
                                     ) {
                                         drop(unsafe { Box::from_raw(data_ptr_mut) });

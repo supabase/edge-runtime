@@ -73,6 +73,7 @@ sb_fs = { version = "0.1.0", path = "../sb_fs" }
 tls-listener = { version = "0.10", features = ["rustls"] }
 cooked-waker = { version = "5" }
 strum = { version = "0.25", features = ["derive"] }
+arc-swap = { version = "1.7" }
 
 [dev-dependencies]
 tokio-util = { workspace = true, features = ["rt", "compat"] }

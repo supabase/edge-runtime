@@ -9,7 +9,9 @@ use sb_workers::context::{Timing, TimingStatus, UserWorkerMsgs};
 use tokio::time::Instant;
 
 use crate::rt_worker::supervisor::{
-    handle_interrupt, wait_cpu_alarm, CPUUsage, CPUUsageMetrics, IsolateInterruptData, Tokens,
+    create_wall_clock_willterminate_alert, v8_handle_termination,
+    v8_handle_wall_clock_willterminate, wait_cpu_alarm, CPUUsage, CPUUsageMetrics, Tokens,
+    V8HandleTerminationData,
 };
 
 use super::Arguments;
@@ -26,10 +28,12 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
         pool_msg_tx,
         isolate_memory_usage_tx,
         thread_safe_handle,
+        waker,
         tokens: Tokens {
             termination,
             supervise,
         },
+        flags,
         ..
     } = args;
 
@@ -49,7 +53,12 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
     #[cfg(debug_assertions)]
     let mut current_thread_id = Option::<ThreadId>::None;
 
+    let wall_clock_limit_ms = runtime_opts.worker_timeout_ms;
+
+    let is_wall_clock_limit_disabled = wall_clock_limit_ms == 0;
     let mut is_worker_entered = false;
+    let mut is_wall_clock_willterminate_armed = false;
+
     let mut cpu_usage_metrics_rx = cpu_usage_metrics_rx.unwrap();
     let mut cpu_usage_ms = 0i64;
     let mut cpu_usage_accumulated_ms = 0i64;
@@ -58,18 +67,21 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
     let mut req_ack_count = 0usize;
     let mut req_start_ack = false;
 
-    let wall_clock_limit_ms = runtime_opts.worker_timeout_ms;
-    let is_wall_clock_limit_disabled = wall_clock_limit_ms == 0;
-
-    let wall_clock_duration = Duration::from_millis(if wall_clock_limit_ms < 1 {
+    let wall_clock_limit_ms = if wall_clock_limit_ms < 1 {
         1
     } else {
         wall_clock_limit_ms
-    });
+    };
 
+    let wall_clock_duration = Duration::from_millis(wall_clock_limit_ms);
     let wall_clock_duration_alert = tokio::time::sleep(wall_clock_duration);
+    let wall_clock_willterminate_alert = create_wall_clock_willterminate_alert(
+        wall_clock_limit_ms,
+        flags.willterminate_wall_clock_pct,
+    );
 
     tokio::pin!(wall_clock_duration_alert);
+    tokio::pin!(wall_clock_willterminate_alert);
 
     loop {
         tokio::select! {
@@ -176,6 +188,19 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
                 }
             }
 
+            _ = &mut wall_clock_willterminate_alert,
+                if !is_wall_clock_limit_disabled && !is_wall_clock_willterminate_armed
+            => {
+                if thread_safe_handle.request_interrupt(
+                    v8_handle_wall_clock_willterminate,
+                    std::ptr::null_mut()
+                ) {
+                    waker.wake();
+                }
+
+                is_wall_clock_willterminate_armed = true;
+            }
+
             Some(_) = memory_limit_rx.recv() => {
                 error!("memory limit reached for the worker: isolate: {:?}", key);
                 complete_reason = Some(ShutdownReason::Memory);
@@ -199,13 +224,13 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
             }
 
             Some(reason) => {
-                let data_ptr_mut = Box::into_raw(Box::new(IsolateInterruptData {
+                let data_ptr_mut = Box::into_raw(Box::new(V8HandleTerminationData {
                     should_terminate: true,
                     isolate_memory_usage_tx: Some(isolate_memory_usage_tx),
                 }));
 
                 if !thread_safe_handle
-                    .request_interrupt(handle_interrupt, data_ptr_mut as *mut std::ffi::c_void)
+                    .request_interrupt(v8_handle_termination, data_ptr_mut as *mut std::ffi::c_void)
                 {
                     drop(unsafe { Box::from_raw(data_ptr_mut) });
                 }

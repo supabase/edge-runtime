@@ -275,6 +275,7 @@ pub fn create_supervisor(
     cancel: Option<CancellationToken>,
     timing: Option<Timing>,
     termination_token: Option<TerminationToken>,
+    flags: Arc<ServerFlags>,
 ) -> Result<(Option<CPUTimer>, CancellationToken), Error> {
     let (memory_limit_tx, memory_limit_rx) = mpsc::unbounded_channel();
     let (waker, thread_safe_handle) = {
@@ -370,6 +371,7 @@ pub fn create_supervisor(
                 thread_safe_handle,
                 waker: waker.clone(),
                 tokens,
+                flags,
             };
 
             let (reason, cpu_usage_ms) = {
@@ -604,6 +606,7 @@ pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
         init_opts.into();
 
     let worker_kind = worker_init_opts.conf.to_worker_kind();
+    let request_idle_timeout = flags.request_idle_timeout_ms;
     let exit = WorkerExit::default();
     let mut worker = Worker::new(&worker_init_opts)?;
 
@@ -626,6 +629,7 @@ pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
             exit.clone(),
             maybe_termination_token.clone(),
             inspector,
+            flags,
         );
 
         // create an async task waiting for requests for worker

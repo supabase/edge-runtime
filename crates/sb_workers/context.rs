@@ -65,6 +65,10 @@ pub struct UserWorkerRuntimeOpts {
     pub cpu_time_soft_limit_ms: u64,
     pub cpu_time_hard_limit_ms: u64,
 
+    pub willterminate_wall_clock_pct: Option<u8>,
+    pub willterminate_cpu_pct: Option<u8>,
+    pub willterminate_memory_pct: Option<u8>,
+
     pub force_create: bool,
     pub net_access_disabled: bool,
     pub allow_net: Option<Vec<String>>,

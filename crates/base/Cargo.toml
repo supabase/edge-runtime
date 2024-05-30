@@ -83,6 +83,7 @@ strum = { version = "0.25", features = ["derive"] }
 flume = "0.11.0"
 cooked-waker = "5"
 tokio-rustls = "0.25.0"
+arc-swap = "1.7"
 
 [dev-dependencies]
 tokio-util = { workspace = true, features = ["rt", "compat"] }

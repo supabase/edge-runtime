@@ -1,0 +1,18 @@
+/* 
+
+    Copy this file into '.vscode/settings.json' or merge its contents into your existing
+    configurations.
+
+*/
+
+{
+    "rust-analyzer.cargo.features": [
+        "cli/tracing"
+    ],
+    "rust-analyzer.diagnostics.disabled": [
+        "E0308"
+    ],
+    "editor.rulers": [
+        100
+    ]
+}

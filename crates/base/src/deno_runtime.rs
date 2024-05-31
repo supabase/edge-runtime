@@ -1162,7 +1162,7 @@ impl DenoRuntime {
 #[allow(dead_code)]
 struct Scope<'s> {
     context: v8::Local<'s, v8::Context>,
-    scope: v8::HandleScope<'s, ()>,
+    scope: v8::CallbackScope<'s, ()>,
 }
 
 impl<'s> Scope<'s> {
@@ -1186,9 +1186,14 @@ impl<'l> MaybeDenoRuntime<'l> {
             .unwrap()
             .clone();
 
-        let mut scope = match self {
-            MaybeDenoRuntime::DenoRuntime(v) => v8::HandleScope::new(v.js_runtime.v8_isolate()),
-            MaybeDenoRuntime::Isolate(v) => v8::HandleScope::new(&mut **v),
+        let mut scope = unsafe {
+            match self {
+                MaybeDenoRuntime::DenoRuntime(v) => {
+                    v8::CallbackScope::new(v.js_runtime.v8_isolate())
+                }
+
+                MaybeDenoRuntime::Isolate(v) => v8::CallbackScope::new(&mut **v),
+            }
         };
 
         let context = context.to_local_context(&mut scope);
@@ -1237,6 +1242,9 @@ impl<'l> MaybeDenoRuntime<'l> {
         let tc_scope = &mut v8::TryCatch::new(ctx_scope);
 
         let event_fn = v8::Local::new(tc_scope, select_dispatch_fn(dispatch_fns));
+
+        drop(op_state_ref);
+
         let undefined = v8::undefined(tc_scope);
         let fn_args = &*fn_args_fn(tc_scope);
         let fn_ret = event_fn.call(tc_scope, undefined.into(), fn_args);

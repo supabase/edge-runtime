@@ -233,17 +233,17 @@ fn get_start_command() -> Command {
             .default_value("16384"),
         )
         .arg(
-            arg!(--"dispatch-willterminate-wall-clock-ratio" <PERCENTAGE>)
+            arg!(--"dispatch-beforeunload-wall-clock-ratio" <PERCENTAGE>)
                 .value_parser(value_parser!(u8).range(..=99))
                 .default_value("90")
         )
         .arg(
-            arg!(--"dispatch-willterminate-cpu-ratio" <PERCENTAGE>)
+            arg!(--"dispatch-beforeunload-cpu-ratio" <PERCENTAGE>)
                 .value_parser(value_parser!(u8).range(..=99))
                 .default_value("90")
         )
         .arg(
-            arg!(--"dispatch-willterminate-memory-ratio" <PERCENTAGE>)
+            arg!(--"dispatch-beforeunload-memory-ratio" <PERCENTAGE>)
                 .value_parser(value_parser!(u8).range(..=99))
                 .default_value("90")
         )

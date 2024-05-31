@@ -409,16 +409,11 @@ function dispatchLoadEvent() {
 	globalThis_.dispatchEvent(new Event("load"));
 }
 
-function dispatchWillTerminateEvent(reason) {
-	globalThis_.dispatchEvent(new CustomEvent("willterminate", {
-		detail: { reason }
+function dispatchBeforeUnloadEvent(reason) {
+	globalThis_.dispatchEvent(new CustomEvent("beforeunload", {
+		cancelable: true,
+		detail: { reason: reason ?? null }
 	}));
-}
-
-function dispatchBeforeUnloadEvent() {
-	return globalThis_.dispatchEvent(
-		new Event("beforeunload", { cancelable: true }),
-	);
 }
 
 function dispatchUnloadEvent() {
@@ -673,7 +668,6 @@ globalThis.bootstrapSBEdge = opts => {
 
 globalThis.bootstrap = {
 	dispatchLoadEvent,
-	dispatchWillTerminateEvent,
 	dispatchUnloadEvent,
 	dispatchBeforeUnloadEvent,
 	// dispatchProcessExitEvent,

@@ -228,34 +228,6 @@ impl GlobalMainContext {
 
 struct DispatchEventFunctions {
     dispatch_load_event_fn_global: v8::Global<v8::Function>,
-    dispatch_willterminate_event_fn_global: v8::Global<v8::Function>,
-    dispatch_beforeunload_event_fn_global: v8::Global<v8::Function>,
-    dispatch_unload_event_fn_global: v8::Global<v8::Function>,
-}
-
-#[derive(IntoStaticStr, Debug, Clone, Copy)]
-#[strum(serialize_all = "snake_case")]
-pub enum WillTerminateReason {
-    CPU,
-    Memory,
-    WallClock,
-}
-
-#[derive(Debug, Clone)]
-struct GlobalMainContext(v8::Global<v8::Context>);
-
-impl GlobalMainContext {
-    fn to_local_context<'s>(
-        &self,
-        scope: &mut v8::HandleScope<'s, ()>,
-    ) -> v8::Local<'s, v8::Context> {
-        v8::Local::new(scope, &self.0)
-    }
-}
-
-struct DispatchEventFunctions {
-    dispatch_load_event_fn_global: v8::Global<v8::Function>,
-    dispatch_willterminate_event_fn_global: v8::Global<v8::Function>,
     dispatch_beforeunload_event_fn_global: v8::Global<v8::Function>,
     dispatch_unload_event_fn_global: v8::Global<v8::Function>,
 }
@@ -286,8 +258,8 @@ pub struct DenoRuntime<RuntimeContext = ()> {
     mem_check: Arc<MemCheck>,
     waker: Arc<AtomicWaker>,
 
-    willterminate_mem_threshold: Arc<ArcSwapOption<u64>>,
-    willterminate_cpu_threshold: Arc<ArcSwapOption<u64>>,
+    beforeunload_mem_threshold: Arc<ArcSwapOption<u64>>,
+    beforeunload_cpu_threshold: Arc<ArcSwapOption<u64>>,
 
     _phantom_runtime_context: PhantomData<RuntimeContext>,
 }
@@ -610,24 +582,24 @@ where
         let mut create_params = None;
         let mut mem_check = MemCheck::default();
 
-        let willterminate_cpu_threshold = ArcSwapOption::<u64>::from_pointee(None);
-        let willterminate_mem_threshold = ArcSwapOption::<u64>::from_pointee(None);
+        let beforeunload_cpu_threshold = ArcSwapOption::<u64>::from_pointee(None);
+        let beforeunload_mem_threshold = ArcSwapOption::<u64>::from_pointee(None);
 
         if conf.is_user_worker() {
             let conf = conf.as_user_worker().unwrap();
             let memory_limit_bytes = mib_to_bytes(conf.memory_limit_mb) as usize;
 
-            willterminate_mem_threshold.store(
+            beforeunload_mem_threshold.store(
                 flags
-                    .willterminate_memory_pct
+                    .beforeunload_memory_pct
                     .and_then(|it| percentage_value(memory_limit_bytes as u64, it))
                     .map(Arc::new),
             );
 
             if conf.cpu_time_hard_limit_ms > 0 {
-                willterminate_cpu_threshold.store(
+                beforeunload_cpu_threshold.store(
                     flags
-                        .willterminate_cpu_pct
+                        .beforeunload_cpu_pct
                         .and_then(|it| percentage_value(conf.cpu_time_hard_limit_ms, it))
                         .map(Arc::new),
                 );
@@ -682,14 +654,6 @@ where
                 .unwrap();
             let dispatch_load_event_fn =
                 v8::Local::<v8::Function>::try_from(dispatch_load_event_fn).unwrap();
-            let dispatch_willterminate_event_fn_str =
-                v8::String::new_external_onebyte_static(scope, b"dispatchWillTerminateEvent")
-                    .unwrap();
-            let dispatch_willterminate_event_fn = bootstrap_ns
-                .get(scope, dispatch_willterminate_event_fn_str.into())
-                .unwrap();
-            let dispatch_willterminate_event_fn =
-                v8::Local::<v8::Function>::try_from(dispatch_willterminate_event_fn).unwrap();
             let dispatch_beforeunload_event_fn_str =
                 v8::String::new_external_onebyte_static(scope, b"dispatchBeforeUnloadEvent")
                     .unwrap();
@@ -707,15 +671,12 @@ where
                 v8::Local::<v8::Function>::try_from(dispatch_unload_event_fn).unwrap();
 
             let dispatch_load_event_fn_global = v8::Global::new(scope, dispatch_load_event_fn);
-            let dispatch_willterminate_event_fn_global =
-                v8::Global::new(scope, dispatch_willterminate_event_fn);
             let dispatch_beforeunload_event_fn_global =
                 v8::Global::new(scope, dispatch_beforeunload_event_fn);
             let dispatch_unload_event_fn_global = v8::Global::new(scope, dispatch_unload_event_fn);
 
             DispatchEventFunctions {
                 dispatch_load_event_fn_global,
-                dispatch_willterminate_event_fn_global,
                 dispatch_beforeunload_event_fn_global,
                 dispatch_unload_event_fn_global,
             }
@@ -901,8 +862,8 @@ where
             mem_check,
             waker: Arc::default(),
 
-            willterminate_cpu_threshold: Arc::new(willterminate_cpu_threshold),
-            willterminate_mem_threshold: Arc::new(willterminate_mem_threshold),
+            beforeunload_cpu_threshold: Arc::new(beforeunload_cpu_threshold),
+            beforeunload_mem_threshold: Arc::new(beforeunload_mem_threshold),
 
             _phantom_runtime_context: PhantomData,
         })
@@ -1044,16 +1005,6 @@ where
                 current_thread_id,
                 &maybe_cpu_usage_metrics_tx,
                 &mut accumulated_cpu_time_ns,
-                || MaybeDenoRuntime::DenoRuntime(&mut this).dispatch_beforeunload_event(),
-            );
-
-            // TODO(Nyannyacha): Here we also need to trigger the event for node platform (i.e;
-            // beforeExit)
-
-            if let Err(err) = with_cpu_metrics_guard(
-                current_thread_id,
-                &maybe_cpu_usage_metrics_tx,
-                &mut accumulated_cpu_time_ns,
                 || MaybeDenoRuntime::DenoRuntime(&mut this).dispatch_unload_event(),
             ) {
                 return (Err(err), get_accumulated_cpu_time_ms!());
@@ -1068,18 +1019,6 @@ where
         }
 
         let mut this = self.get_v8_tls_guard();
-
-        if let Err(err) = with_cpu_metrics_guard(
-            current_thread_id,
-            &maybe_cpu_usage_metrics_tx,
-            &mut accumulated_cpu_time_ns,
-            || MaybeDenoRuntime::DenoRuntime(&mut this).dispatch_beforeunload_event(),
-        ) {
-            return (Err(err), get_accumulated_cpu_time_ms!());
-        }
-
-        // TODO(Nyannyacha): Here we also need to trigger the event for node platform (i.e;
-        // beforeExit)
 
         if let Err(err) = with_cpu_metrics_guard(
             current_thread_id,
@@ -1106,8 +1045,8 @@ where
         let global_waker = self.waker.clone();
         let termination_request_token = self.termination_request_token.clone();
 
-        let willterminate_cpu_threshold = self.willterminate_cpu_threshold.clone();
-        let willterminate_mem_threshold = self.willterminate_mem_threshold.clone();
+        let beforeunload_cpu_threshold = self.beforeunload_cpu_threshold.clone();
+        let beforeunload_mem_threshold = self.beforeunload_mem_threshold.clone();
 
         let mem_check_state = is_user_worker.then(|| self.mem_check_state.clone());
         let mut poll_sem = None::<PollSemaphore>;
@@ -1185,32 +1124,31 @@ where
             if is_user_worker {
                 let mem_state = mem_check_state.as_ref().unwrap();
 
-                if let Some(threshold_ms) = willterminate_cpu_threshold.load().as_deref().copied() {
+                if let Some(threshold_ms) = beforeunload_cpu_threshold.load().as_deref().copied() {
                     let threshold_ns = (threshold_ms as i128) * 1_000_000;
                     let accumulated_cpu_time_ns = *accumulated_cpu_time_ns as i128;
 
                     if accumulated_cpu_time_ns >= threshold_ns {
-                        willterminate_cpu_threshold.store(None);
+                        beforeunload_cpu_threshold.store(None);
 
                         if let Err(err) = MaybeDenoRuntime::DenoRuntime(&mut this)
-                            .dispatch_willterminate_event(WillTerminateReason::CPU)
+                            .dispatch_beforeunload_event(WillTerminateReason::CPU)
                         {
                             return Poll::Ready(Err(err));
                         }
                     }
                 }
 
-                if let Some(threshold_bytes) =
-                    willterminate_mem_threshold.load().as_deref().copied()
+                if let Some(threshold_bytes) = beforeunload_mem_threshold.load().as_deref().copied()
                 {
                     let total_malloced_bytes = total_malloced_bytes as u64;
 
                     if total_malloced_bytes >= threshold_bytes {
-                        willterminate_mem_threshold.store(None);
+                        beforeunload_mem_threshold.store(None);
 
                         if !mem_state.is_exceeded() {
                             if let Err(err) = MaybeDenoRuntime::DenoRuntime(&mut this)
-                                .dispatch_willterminate_event(WillTerminateReason::Memory)
+                                .dispatch_beforeunload_event(WillTerminateReason::Memory)
                             {
                                 return Poll::Ready(Err(err));
                             }
@@ -1453,15 +1391,15 @@ impl<'l> MaybeDenoRuntime<'l> {
         )
     }
 
-    /// Dispatches "willterminate" event to the JavaScript runtime.
-    ///
-    /// Does not poll event loop, and thus not await any of the "willterminate" event handlers.
-    pub fn dispatch_willterminate_event(
+    /// Dispatches "beforeunload" event to the JavaScript runtime. Returns a boolean
+    /// indicating if the event was prevented and thus event loop should continue
+    /// running.
+    pub fn dispatch_beforeunload_event(
         &mut self,
         reason: WillTerminateReason,
-    ) -> Result<(), AnyError> {
+    ) -> Result<bool, AnyError> {
         self.dispatch_event_with_callback(
-            |fns| &fns.dispatch_willterminate_event_fn_global,
+            |fns| &fns.dispatch_beforeunload_event_fn_global,
             move |scope| {
                 vec![v8::String::new_external_onebyte_static(
                     scope,
@@ -1470,17 +1408,6 @@ impl<'l> MaybeDenoRuntime<'l> {
                 .unwrap()
                 .into()]
             },
-            |_| Ok(()),
-        )
-    }
-
-    /// Dispatches "beforeunload" event to the JavaScript runtime. Returns a boolean
-    /// indicating if the event was prevented and thus event loop should continue
-    /// running.
-    pub fn dispatch_beforeunload_event(&mut self) -> Result<bool, AnyError> {
-        self.dispatch_event_with_callback(
-            |fns| &fns.dispatch_beforeunload_event_fn_global,
-            |_| vec![],
             |it| Ok(it.unwrap().is_false()),
         )
     }

@@ -9,9 +9,8 @@ use sb_workers::context::{Timing, TimingStatus, UserWorkerMsgs};
 use tokio::time::Instant;
 
 use crate::rt_worker::supervisor::{
-    create_wall_clock_willterminate_alert, v8_handle_termination,
-    v8_handle_wall_clock_willterminate, wait_cpu_alarm, CPUUsage, CPUUsageMetrics, Tokens,
-    V8HandleTerminationData,
+    create_wall_clock_beforeunload_alert, v8_handle_termination, v8_handle_wall_clock_beforeunload,
+    wait_cpu_alarm, CPUUsage, CPUUsageMetrics, Tokens, V8HandleTerminationData,
 };
 
 use super::Arguments;
@@ -57,7 +56,7 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
 
     let is_wall_clock_limit_disabled = wall_clock_limit_ms == 0;
     let mut is_worker_entered = false;
-    let mut is_wall_clock_willterminate_armed = false;
+    let mut is_wall_clock_beforeunload_armed = false;
 
     let mut cpu_usage_metrics_rx = cpu_usage_metrics_rx.unwrap();
     let mut cpu_usage_ms = 0i64;
@@ -75,13 +74,13 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
 
     let wall_clock_duration = Duration::from_millis(wall_clock_limit_ms);
     let wall_clock_duration_alert = tokio::time::sleep(wall_clock_duration);
-    let wall_clock_willterminate_alert = create_wall_clock_willterminate_alert(
+    let wall_clock_beforeunload_alert = create_wall_clock_beforeunload_alert(
         wall_clock_limit_ms,
-        flags.willterminate_wall_clock_pct,
+        flags.beforeunload_wall_clock_pct,
     );
 
     tokio::pin!(wall_clock_duration_alert);
-    tokio::pin!(wall_clock_willterminate_alert);
+    tokio::pin!(wall_clock_beforeunload_alert);
 
     loop {
         tokio::select! {
@@ -188,17 +187,17 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
                 }
             }
 
-            _ = &mut wall_clock_willterminate_alert,
-                if !is_wall_clock_limit_disabled && !is_wall_clock_willterminate_armed
+            _ = &mut wall_clock_beforeunload_alert,
+                if !is_wall_clock_limit_disabled && !is_wall_clock_beforeunload_armed
             => {
                 if thread_safe_handle.request_interrupt(
-                    v8_handle_wall_clock_willterminate,
+                    v8_handle_wall_clock_beforeunload,
                     std::ptr::null_mut()
                 ) {
                     waker.wake();
                 }
 
-                is_wall_clock_willterminate_armed = true;
+                is_wall_clock_beforeunload_armed = true;
             }
 
             Some(_) = memory_limit_rx.recv() => {

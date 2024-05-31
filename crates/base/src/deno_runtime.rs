@@ -1008,7 +1008,9 @@ impl DenoRuntime {
                             return Poll::Ready(Err(err));
                         }
                     }
-                } else if let Some(threshold_bytes) =
+                }
+
+                if let Some(threshold_bytes) =
                     willterminate_mem_threshold.load().as_deref().copied()
                 {
                     let total_malloced_bytes = total_malloced_bytes as u64;

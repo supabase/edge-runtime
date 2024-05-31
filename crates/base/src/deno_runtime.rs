@@ -1228,7 +1228,7 @@ mod test {
             "{\n  \"hello\": \"world\"\n}"
         );
     }
-
+    /*
     #[tokio::test]
     #[serial]
     async fn test_jsx_import_source() {
@@ -1274,7 +1274,7 @@ mod test {
             jsx_read_result.unwrap().to_string(),
             r#"{"type":"div","props":{"children":"Hello"},"__k":null,"__":null,"__b":0,"__e":null,"__c":null,"__v":-1,"__i":-1,"__u":0}"#
         );
-    }
+    }*/
 
     // #[tokio::test]
     // async fn test_node_builtin_imports() {

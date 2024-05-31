@@ -156,7 +156,7 @@ async fn wait_cpu_alarm(maybe_alarm: Option<&mut UnboundedReceiver<()>>) -> Opti
     }
 }
 
-async fn create_wall_clock_willterminate_alert(wall_clock_limit_ms: u64, pct: Option<u8>) {
+async fn create_wall_clock_beforeunload_alert(wall_clock_limit_ms: u64, pct: Option<u8>) {
     let dur = pct
         .and_then(|it| percentage_value(wall_clock_limit_ms, it))
         .map(Duration::from_millis);
@@ -169,15 +169,15 @@ async fn create_wall_clock_willterminate_alert(wall_clock_limit_ms: u64, pct: Op
     }
 }
 
-extern "C" fn v8_handle_wall_clock_willterminate(
+extern "C" fn v8_handle_wall_clock_beforeunload(
     isolate: &mut v8::Isolate,
     _data: *mut std::ffi::c_void,
 ) {
     if let Err(err) = MaybeDenoRuntime::Isolate(isolate)
-        .dispatch_willterminate_event(WillTerminateReason::WallClock)
+        .dispatch_beforeunload_event(WillTerminateReason::WallClock)
     {
         warn!(
-            "found an error while dispatching the willterminate event: {}",
+            "found an error while dispatching the beforeunload event: {}",
             err
         );
     }

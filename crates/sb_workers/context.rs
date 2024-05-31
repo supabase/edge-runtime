@@ -63,9 +63,9 @@ pub struct UserWorkerRuntimeOpts {
     pub cpu_time_soft_limit_ms: u64,
     pub cpu_time_hard_limit_ms: u64,
 
-    pub willterminate_wall_clock_pct: Option<u8>,
-    pub willterminate_cpu_pct: Option<u8>,
-    pub willterminate_memory_pct: Option<u8>,
+    pub beforeunload_wall_clock_pct: Option<u8>,
+    pub beforeunload_cpu_pct: Option<u8>,
+    pub beforeunload_memory_pct: Option<u8>,
 
     pub force_create: bool,
     pub net_access_disabled: bool,
@@ -84,9 +84,9 @@ impl Default for UserWorkerRuntimeOpts {
             cpu_time_soft_limit_ms: 50,
             cpu_time_hard_limit_ms: 100,
 
-            willterminate_wall_clock_pct: None,
-            willterminate_cpu_pct: None,
-            willterminate_memory_pct: None,
+            beforeunload_wall_clock_pct: None,
+            beforeunload_cpu_pct: None,
+            beforeunload_memory_pct: None,
 
             force_create: false,
             key: None,

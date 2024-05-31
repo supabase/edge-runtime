@@ -252,9 +252,9 @@ pub struct ServerFlags {
     pub request_idle_timeout_ms: Option<u64>,
     pub request_read_timeout_ms: Option<u64>,
 
-    pub willterminate_wall_clock_pct: Option<u8>,
-    pub willterminate_cpu_pct: Option<u8>,
-    pub willterminate_memory_pct: Option<u8>,
+    pub beforeunload_wall_clock_pct: Option<u8>,
+    pub beforeunload_cpu_pct: Option<u8>,
+    pub beforeunload_memory_pct: Option<u8>,
 }
 
 #[derive(Debug)]

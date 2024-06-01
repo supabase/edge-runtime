@@ -26,7 +26,8 @@
         "rust-lang.rust-analyzer",
         "eamodio.gitlens",
         "ms-azuretools.vscode-docker",
-        "ms-vscode.hexeditor"
+        "ms-vscode.hexeditor",
+        "vadimcn.vscode-lldb"
       ]
     }
   }

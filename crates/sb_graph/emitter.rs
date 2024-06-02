@@ -229,6 +229,7 @@ impl EmitterFactory {
             self.emit_cache()?,
             self.parsed_source_cache()?,
             self.emit_options(),
+            self.transpile_options(),
         ));
 
         Ok(emitter)

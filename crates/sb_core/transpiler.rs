@@ -36,6 +36,7 @@ pub fn maybe_transpile_source(
         .transpile(
             &deno_ast::TranspileOptions {
                 imports_not_used_as_values: deno_ast::ImportsNotUsedAsValues::Remove,
+                use_ts_decorators: true,
                 ..Default::default()
             },
             &deno_ast::EmitOptions {

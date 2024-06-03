@@ -8,6 +8,7 @@
     }
   },
   "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
     "ghcr.io/jungaretti/features/make:1": {},
     "ghcr.io/lee-orr/rusty-dev-containers/cargo-make:0": {}
   },
@@ -20,13 +21,17 @@
   "customizations": {
     "vscode": {
       "settings": {
-        "extensions.verifySignature": false
+        "extensions.verifySignature": false,
+        "lldb.launch.preRunCommands": [
+          "script lldb.debugger.HandleCommand('settings set target.source-map /rustc/{} \"{}/lib/rustlib/src/rust\"'.format(os.popen('rustc --version --verbose').read().split('commit-hash: ')[1].split('\\n')[0].strip(), os.popen('rustc --print sysroot').readline().strip()))"
+        ]
       },
       "extensions": [
         "rust-lang.rust-analyzer",
         "eamodio.gitlens",
         "ms-azuretools.vscode-docker",
-        "ms-vscode.hexeditor"
+        "ms-vscode.hexeditor",
+        "vadimcn.vscode-lldb"
       ]
     }
   }

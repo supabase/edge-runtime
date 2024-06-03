@@ -197,6 +197,21 @@ fn get_start_command() -> Command {
                 .default_value("true")
                 .default_missing_value("true"),
         )
+        .arg(
+            arg!(--"dispatch-beforeunload-wall-clock-ratio" <PERCENTAGE>)
+                .value_parser(value_parser!(u8).range(..=99))
+                .default_value("90")
+        )
+        .arg(
+            arg!(--"dispatch-beforeunload-cpu-ratio" <PERCENTAGE>)
+                .value_parser(value_parser!(u8).range(..=99))
+                .default_value("90")
+        )
+        .arg(
+            arg!(--"dispatch-beforeunload-memory-ratio" <PERCENTAGE>)
+                .value_parser(value_parser!(u8).range(..=99))
+                .default_value("90")
+        )
 }
 
 fn get_bundle_command() -> Command {

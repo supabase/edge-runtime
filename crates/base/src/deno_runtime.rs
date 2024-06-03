@@ -2,17 +2,19 @@ use crate::inspector_server::Inspector;
 use crate::rt_worker::rt;
 use crate::rt_worker::supervisor::{CPUUsage, CPUUsageMetrics};
 use crate::rt_worker::worker::DuplexStreamEntry;
-use crate::utils::units::{bytes_to_display, mib_to_bytes};
+use crate::server::ServerFlags;
+use crate::utils::units::{bytes_to_display, mib_to_bytes, percentage_value};
 
 use anyhow::{anyhow, bail, Context, Error};
+use arc_swap::ArcSwapOption;
 use cooked_waker::{IntoWaker, WakeRef};
 use cpu_timer::get_thread_time;
 use ctor::ctor;
-use deno_core::error::AnyError;
+use deno_core::error::{AnyError, JsError};
 use deno_core::url::Url;
-use deno_core::v8::{GCCallbackFlags, GCType, HeapStatistics, Isolate};
+use deno_core::v8::{self, GCCallbackFlags, GCType, HeapStatistics, Isolate};
 use deno_core::{
-    located_script_name, serde_json, serde_v8, JsRuntime, ModuleCodeString, ModuleId,
+    located_script_name, serde_json, serde_v8, JsRuntime, ModuleCodeString, ModuleId, OpState,
     PollEventLoopOptions, RuntimeOptions,
 };
 use deno_http::DefaultHttpPropertyExtractor;
@@ -22,19 +24,25 @@ use deno_tls::rustls::RootCertStore;
 use deno_tls::RootCertStoreProvider;
 use futures_util::future::poll_fn;
 use futures_util::task::AtomicWaker;
-use log::{error, trace};
+use futures_util::Future;
+use log::{debug, error, trace};
 use once_cell::sync::{Lazy, OnceCell};
 use sb_core::http::sb_core_http;
 use sb_core::http_start::sb_core_http_start;
 use sb_core::util::sync::AtomicFlag;
+use scopeguard::ScopeGuard;
 use serde::de::DeserializeOwned;
 use std::borrow::Cow;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::fmt;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::task::Poll;
+use std::thread::ThreadId;
 use std::time::Duration;
+use strum::IntoStaticStr;
 use tokio::sync::{mpsc, Notify};
 use tokio::time::interval;
 use tokio_util::sync::CancellationToken;
@@ -119,13 +127,13 @@ fn get_error_class_name(e: &AnyError) -> &'static str {
 
 #[derive(Default, Clone)]
 struct MemCheckState {
-    drop_token: CancellationToken,
     limit: Option<usize>,
+
     waker: Arc<AtomicWaker>,
     notify: Arc<Notify>,
-
-    #[cfg(debug_assertions)]
     exceeded: Arc<AtomicFlag>,
+
+    drop_token: CancellationToken,
 }
 
 impl Drop for MemCheckState {
@@ -159,7 +167,6 @@ impl MemCheckState {
         if total_bytes >= limit {
             self.notify.notify_waiters();
 
-            #[cfg(debug_assertions)]
             if !self.exceeded.is_raised() {
                 self.exceeded.raise();
             }
@@ -168,11 +175,35 @@ impl MemCheckState {
         total_bytes
     }
 
-    #[allow(dead_code)]
-    #[cfg(debug_assertions)]
     fn is_exceeded(&self) -> bool {
         self.exceeded.is_raised()
     }
+}
+
+#[derive(Debug, Clone)]
+struct GlobalMainContext(v8::Global<v8::Context>);
+
+impl GlobalMainContext {
+    fn to_local_context<'s>(
+        &self,
+        scope: &mut v8::HandleScope<'s, ()>,
+    ) -> v8::Local<'s, v8::Context> {
+        v8::Local::new(scope, &self.0)
+    }
+}
+
+struct DispatchEventFunctions {
+    dispatch_load_event_fn_global: v8::Global<v8::Function>,
+    dispatch_beforeunload_event_fn_global: v8::Global<v8::Function>,
+    dispatch_unload_event_fn_global: v8::Global<v8::Function>,
+}
+
+#[derive(IntoStaticStr, Debug, Clone, Copy)]
+#[strum(serialize_all = "snake_case")]
+pub enum WillTerminateReason {
+    CPU,
+    Memory,
+    WallClock,
 }
 
 pub struct DenoRuntime {
@@ -180,7 +211,8 @@ pub struct DenoRuntime {
     pub env_vars: HashMap<String, String>, // TODO: does this need to be pub?
     pub conf: WorkerRuntimeOpts,
 
-    pub(crate) is_termination_requested: Arc<AtomicFlag>,
+    pub(crate) termination_request_token: CancellationToken,
+
     pub(crate) is_terminated: Arc<AtomicFlag>,
     pub(crate) is_found_inspector_session: Arc<AtomicFlag>,
 
@@ -189,6 +221,9 @@ pub struct DenoRuntime {
 
     mem_check_state: Arc<MemCheckState>,
     waker: Arc<AtomicWaker>,
+
+    beforeunload_mem_threshold: Arc<ArcSwapOption<u64>>,
+    beforeunload_cpu_threshold: Arc<ArcSwapOption<u64>>,
 }
 
 impl Drop for DenoRuntime {
@@ -203,11 +238,10 @@ impl Drop for DenoRuntime {
 }
 
 impl DenoRuntime {
-    #[allow(clippy::unnecessary_literal_unwrap)]
-    #[allow(clippy::arc_with_non_send_sync)]
     pub async fn new(
         opts: WorkerContextInitOpts,
         maybe_inspector: Option<Inspector>,
+        flags: Arc<ServerFlags>,
     ) -> Result<Self, Error> {
         let WorkerContextInitOpts {
             service_path,
@@ -284,6 +318,7 @@ impl DenoRuntime {
             emitter_factory.set_import_map(maybe_import_map);
             maybe_arc_import_map.clone_from(&emitter_factory.maybe_import_map);
 
+            #[allow(clippy::arc_with_non_send_sync)]
             let arc_emitter_factory = Arc::new(emitter_factory);
             let main_module_url_file_path = main_module_url.clone().to_file_path().unwrap();
             let maybe_code = if only_module_code {
@@ -440,18 +475,37 @@ impl DenoRuntime {
         let mut create_params = None;
         let mut mem_check_state = MemCheckState::default();
 
-        if conf.is_user_worker() {
-            let memory_limit =
-                mib_to_bytes(conf.as_user_worker().unwrap().memory_limit_mb) as usize;
+        let beforeunload_cpu_threshold = ArcSwapOption::<u64>::from_pointee(None);
+        let beforeunload_mem_threshold = ArcSwapOption::<u64>::from_pointee(None);
 
-            let allocator = CustomAllocator::new(memory_limit);
+        if conf.is_user_worker() {
+            let conf = conf.as_user_worker().unwrap();
+            let memory_limit_bytes = mib_to_bytes(conf.memory_limit_mb) as usize;
+
+            beforeunload_mem_threshold.store(
+                flags
+                    .beforeunload_memory_pct
+                    .and_then(|it| percentage_value(memory_limit_bytes as u64, it))
+                    .map(Arc::new),
+            );
+
+            if conf.cpu_time_hard_limit_ms > 0 {
+                beforeunload_cpu_threshold.store(
+                    flags
+                        .beforeunload_cpu_pct
+                        .and_then(|it| percentage_value(conf.cpu_time_hard_limit_ms, it))
+                        .map(Arc::new),
+                );
+            }
+
+            let allocator = CustomAllocator::new(memory_limit_bytes);
 
             allocator.set_waker(mem_check_state.waker.clone());
 
-            mem_check_state.limit = Some(memory_limit);
+            mem_check_state.limit = Some(memory_limit_bytes);
             create_params = Some(
-                deno_core::v8::CreateParams::default()
-                    .heap_limits(mib_to_bytes(0) as usize, memory_limit)
+                v8::CreateParams::default()
+                    .heap_limits(mib_to_bytes(0) as usize, memory_limit_bytes)
                     .array_buffer_allocator(allocator.into_v8_allocator()),
             )
         };
@@ -471,6 +525,65 @@ impl DenoRuntime {
         };
 
         let mut js_runtime = JsRuntime::new(runtime_options);
+
+        let dispatch_fns = {
+            let context = js_runtime.main_context();
+            let scope = &mut js_runtime.handle_scope();
+            let context_local = v8::Local::new(scope, context);
+            let global_obj = context_local.global(scope);
+            let bootstrap_str =
+                v8::String::new_external_onebyte_static(scope, b"bootstrap").unwrap();
+            let bootstrap_ns: v8::Local<v8::Object> = global_obj
+                .get(scope, bootstrap_str.into())
+                .unwrap()
+                .try_into()
+                .unwrap();
+
+            let dispatch_load_event_fn_str =
+                v8::String::new_external_onebyte_static(scope, b"dispatchLoadEvent").unwrap();
+            let dispatch_load_event_fn = bootstrap_ns
+                .get(scope, dispatch_load_event_fn_str.into())
+                .unwrap();
+            let dispatch_load_event_fn =
+                v8::Local::<v8::Function>::try_from(dispatch_load_event_fn).unwrap();
+            let dispatch_beforeunload_event_fn_str =
+                v8::String::new_external_onebyte_static(scope, b"dispatchBeforeUnloadEvent")
+                    .unwrap();
+            let dispatch_beforeunload_event_fn = bootstrap_ns
+                .get(scope, dispatch_beforeunload_event_fn_str.into())
+                .unwrap();
+            let dispatch_beforeunload_event_fn =
+                v8::Local::<v8::Function>::try_from(dispatch_beforeunload_event_fn).unwrap();
+            let dispatch_unload_event_fn_str =
+                v8::String::new_external_onebyte_static(scope, b"dispatchUnloadEvent").unwrap();
+            let dispatch_unload_event_fn = bootstrap_ns
+                .get(scope, dispatch_unload_event_fn_str.into())
+                .unwrap();
+            let dispatch_unload_event_fn =
+                v8::Local::<v8::Function>::try_from(dispatch_unload_event_fn).unwrap();
+
+            let dispatch_load_event_fn_global = v8::Global::new(scope, dispatch_load_event_fn);
+            let dispatch_beforeunload_event_fn_global =
+                v8::Global::new(scope, dispatch_beforeunload_event_fn);
+            let dispatch_unload_event_fn_global = v8::Global::new(scope, dispatch_unload_event_fn);
+
+            DispatchEventFunctions {
+                dispatch_load_event_fn_global,
+                dispatch_beforeunload_event_fn_global,
+                dispatch_unload_event_fn_global,
+            }
+        };
+
+        {
+            let main_context = js_runtime.main_context();
+
+            let op_state = js_runtime.op_state();
+            let mut op_state = op_state.borrow_mut();
+
+            op_state.put(dispatch_fns);
+            op_state.put(GlobalMainContext(main_context));
+        }
+
         let version: Option<&str> = option_env!("GIT_V_TAG");
 
         // Bootstrapping stage
@@ -593,7 +706,8 @@ impl DenoRuntime {
             env_vars,
             conf,
 
-            is_termination_requested: Arc::default(),
+            termination_request_token: CancellationToken::new(),
+
             is_terminated: Arc::default(),
             is_found_inspector_session: Arc::default(),
 
@@ -602,6 +716,9 @@ impl DenoRuntime {
 
             mem_check_state,
             waker: Arc::default(),
+
+            beforeunload_cpu_threshold: Arc::new(beforeunload_cpu_threshold),
+            beforeunload_mem_threshold: Arc::new(beforeunload_mem_threshold),
         })
     }
 
@@ -624,27 +741,22 @@ impl DenoRuntime {
             }
         }
 
-        let send_cpu_metrics_fn = |metric: CPUUsageMetrics| {
-            if let Some(cpu_metric_tx) = maybe_cpu_usage_metrics_tx.as_ref() {
-                let _ = cpu_metric_tx.send(metric);
-            }
-        };
+        let _terminate_guard = scopeguard::guard(self.is_terminated.clone(), |v| {
+            v.raise();
+        });
 
         // NOTE: This is unnecessary on the LIFO task scheduler that can't steal
         // the task from the other threads.
         let current_thread_id = std::thread::current().id();
-        let mut current_cpu_time_ns;
         let mut accumulated_cpu_time_ns = 0i64;
 
         let inspector = self.inspector();
-        let mod_result_rx = unsafe {
+        let mut mod_result_rx = unsafe {
             self.js_runtime.v8_isolate().enter();
 
             if inspector.is_some() {
-                let is_terminated = self.is_terminated.clone();
                 let mut this = scopeguard::guard_on_unwind(&mut *self, |this| {
                     this.js_runtime.v8_isolate().exit();
-                    is_terminated.raise();
                 });
 
                 {
@@ -660,9 +772,8 @@ impl DenoRuntime {
                     this.wait_for_inspector_session();
                 }
 
-                if this.is_termination_requested.is_raised() {
+                if this.termination_request_token.is_cancelled() {
                     this.js_runtime.v8_isolate().exit();
-                    is_terminated.raise();
                     return (Ok(()), 0i64);
                 }
             }
@@ -671,30 +782,123 @@ impl DenoRuntime {
                 it.v8_isolate().exit();
             });
 
-            send_cpu_metrics_fn(CPUUsageMetrics::Enter(current_thread_id));
-
-            current_cpu_time_ns = get_current_cpu_time_ns().unwrap();
-
-            let top_level_await_fut = js_runtime.mod_evaluate(self.main_module_id);
-            let cpu_time_after_eval_ns = get_current_cpu_time_ns().unwrap();
-            let diff_cpu_time_ns = cpu_time_after_eval_ns - current_cpu_time_ns;
-
-            accumulated_cpu_time_ns += diff_cpu_time_ns;
-
-            send_cpu_metrics_fn(CPUUsageMetrics::Leave(CPUUsage {
-                accumulated: accumulated_cpu_time_ns,
-                diff: diff_cpu_time_ns,
-            }));
-
-            top_level_await_fut
+            with_cpu_metrics_guard(
+                current_thread_id,
+                &maybe_cpu_usage_metrics_tx,
+                &mut accumulated_cpu_time_ns,
+                || js_runtime.mod_evaluate(self.main_module_id),
+            )
         };
 
-        let is_termination_requested = self.is_termination_requested.clone();
+        macro_rules! get_accumulated_cpu_time_ms {
+            () => {
+                accumulated_cpu_time_ns / 1_000_000
+            };
+        }
+
+        {
+            let event_loop_fut = self.run_event_loop(
+                name.as_deref(),
+                current_thread_id,
+                &maybe_cpu_usage_metrics_tx,
+                &mut accumulated_cpu_time_ns,
+            );
+
+            let mod_result = tokio::select! {
+                // Not using biased mode leads to non-determinism for relatively simple
+                // programs.
+                biased;
+
+                maybe_mod_result = &mut mod_result_rx => {
+                    debug!("received module evaluate {:#?}", maybe_mod_result);
+                    maybe_mod_result
+
+                }
+
+                event_loop_result = event_loop_fut => {
+                    if let Err(err) = event_loop_result {
+                        Err(anyhow!("event loop error while evaluating the module: {}", err))
+                    } else {
+                        mod_result_rx.await
+                    }
+                }
+            };
+
+            if let Err(err) = mod_result {
+                return (Err(err), get_accumulated_cpu_time_ms!());
+            }
+
+            let mut this = self.get_v8_tls_guard();
+
+            if let Err(err) = with_cpu_metrics_guard(
+                current_thread_id,
+                &maybe_cpu_usage_metrics_tx,
+                &mut accumulated_cpu_time_ns,
+                || MaybeDenoRuntime::DenoRuntime(&mut this).dispatch_load_event(),
+            ) {
+                return (Err(err), get_accumulated_cpu_time_ms!());
+            }
+        }
+
+        if let Err(err) = self
+            .run_event_loop(
+                name.as_deref(),
+                current_thread_id,
+                &maybe_cpu_usage_metrics_tx,
+                &mut accumulated_cpu_time_ns,
+            )
+            .await
+        {
+            let mut this = self.get_v8_tls_guard();
+            let _ = with_cpu_metrics_guard(
+                current_thread_id,
+                &maybe_cpu_usage_metrics_tx,
+                &mut accumulated_cpu_time_ns,
+                || MaybeDenoRuntime::DenoRuntime(&mut this).dispatch_unload_event(),
+            );
+
+            // TODO(Nyannyacha): Here we also need to trigger the event for node platform (i.e; exit)
+
+            return (
+                Err(anyhow!("event loop error: {}", err)),
+                get_accumulated_cpu_time_ms!(),
+            );
+        }
+
+        let mut this = self.get_v8_tls_guard();
+
+        if let Err(err) = with_cpu_metrics_guard(
+            current_thread_id,
+            &maybe_cpu_usage_metrics_tx,
+            &mut accumulated_cpu_time_ns,
+            || MaybeDenoRuntime::DenoRuntime(&mut this).dispatch_unload_event(),
+        ) {
+            return (Err(err), get_accumulated_cpu_time_ms!());
+        }
+
+        // TODO(Nyannyacha): Here we also need to trigger the event for node platform (i.e; exit)
+
+        (Ok(()), get_accumulated_cpu_time_ms!())
+    }
+
+    fn run_event_loop<'l>(
+        &'l mut self,
+        name: Option<&'l str>,
+        current_thread_id: ThreadId,
+        maybe_cpu_usage_metrics_tx: &'l Option<mpsc::UnboundedSender<CPUUsageMetrics>>,
+        accumulated_cpu_time_ns: &'l mut i64,
+    ) -> impl Future<Output = Result<(), AnyError>> + 'l {
+        let has_inspector = self.inspector().is_some();
         let is_user_worker = self.conf.is_user_worker();
+        let is_termination_requested = self.termination_request_token.clone();
         let global_waker = self.waker.clone();
+
+        let beforeunload_cpu_threshold = self.beforeunload_cpu_threshold.clone();
+        let beforeunload_mem_threshold = self.beforeunload_mem_threshold.clone();
+
         let mem_check_state = is_user_worker.then(|| self.mem_check_state.clone());
 
-        let poll_result = poll_fn(|cx| unsafe {
+        poll_fn(move |cx| {
             // INVARIANT: Only can steal current task by other threads when LIFO
             // task scheduler heuristic disabled. Turning off the heuristic is
             // unstable now, so it's not considered.
@@ -707,16 +911,16 @@ impl DenoRuntime {
 
             global_waker.register(waker);
 
-            let mut js_runtime = scopeguard::guard(&mut self.js_runtime, |it| {
-                it.v8_isolate().exit();
-            });
+            let mut this = self.get_v8_tls_guard();
 
-            js_runtime.v8_isolate().enter();
-            send_cpu_metrics_fn(CPUUsageMetrics::Enter(thread_id));
+            let js_runtime = &mut this.js_runtime;
+            let cpu_metrics_guard = get_cpu_metrics_guard(
+                thread_id,
+                maybe_cpu_usage_metrics_tx,
+                accumulated_cpu_time_ns,
+            );
 
-            current_cpu_time_ns = get_current_cpu_time_ns().unwrap();
-
-            let wait_for_inspector = if inspector.is_some() {
+            let wait_for_inspector = if has_inspector {
                 let inspector = js_runtime.inspector();
                 let inspector_ref = inspector.borrow();
                 inspector_ref.has_active_sessions() || inspector_ref.has_blocking_sessions()
@@ -744,30 +948,50 @@ impl DenoRuntime {
                     &mut std::task::Context::from_waker(waker.as_ref()),
                     PollEventLoopOptions {
                         wait_for_inspector,
-                        pump_v8_message_loop: true,
+                        ..Default::default()
                     },
                 )
             } else {
                 Poll::Pending
             };
 
-            let cpu_time_after_poll_ns = get_current_cpu_time_ns().unwrap();
-            let diff_cpu_time_ns = if need_pool_event_loop {
-                cpu_time_after_poll_ns - current_cpu_time_ns
-            } else {
-                0
-            };
-
-            accumulated_cpu_time_ns += diff_cpu_time_ns;
-
-            send_cpu_metrics_fn(CPUUsageMetrics::Leave(CPUUsage {
-                accumulated: accumulated_cpu_time_ns,
-                diff: diff_cpu_time_ns,
-            }));
+            drop(cpu_metrics_guard);
 
             if is_user_worker {
                 let mem_state = mem_check_state.as_ref().unwrap();
                 let total_malloced_bytes = mem_state.check(js_runtime.v8_isolate().as_mut());
+
+                if let Some(threshold_ms) = beforeunload_cpu_threshold.load().as_deref().copied() {
+                    let threshold_ns = (threshold_ms as i128) * 1_000_000;
+                    let accumulated_cpu_time_ns = *accumulated_cpu_time_ns as i128;
+
+                    if accumulated_cpu_time_ns >= threshold_ns {
+                        beforeunload_cpu_threshold.store(None);
+
+                        if let Err(err) = MaybeDenoRuntime::DenoRuntime(&mut this)
+                            .dispatch_beforeunload_event(WillTerminateReason::CPU)
+                        {
+                            return Poll::Ready(Err(err));
+                        }
+                    }
+                }
+
+                if let Some(threshold_bytes) = beforeunload_mem_threshold.load().as_deref().copied()
+                {
+                    let total_malloced_bytes = total_malloced_bytes as u64;
+
+                    if total_malloced_bytes >= threshold_bytes {
+                        beforeunload_mem_threshold.store(None);
+
+                        if !this.mem_check_state.is_exceeded() {
+                            if let Err(err) = MaybeDenoRuntime::DenoRuntime(&mut this)
+                                .dispatch_beforeunload_event(WillTerminateReason::Memory)
+                            {
+                                return Poll::Ready(Err(err));
+                            }
+                        }
+                    }
+                }
 
                 mem_state.waker.register(waker);
 
@@ -775,7 +999,7 @@ impl DenoRuntime {
                     "name: {:?}, thread_id: {:?}, accumulated_cpu_time: {}ms, malloced: {}",
                     name.as_ref(),
                     thread_id,
-                    accumulated_cpu_time_ns / 1_000_000,
+                    *accumulated_cpu_time_ns / 1_000_000,
                     bytes_to_display(total_malloced_bytes as u64)
                 );
             }
@@ -787,29 +1011,13 @@ impl DenoRuntime {
             // terminate the runtime.
             if need_pool_event_loop
                 && poll_result.is_pending()
-                && is_termination_requested.is_raised()
+                && is_termination_requested.is_cancelled()
             {
                 return Poll::Ready(Ok(()));
             }
 
             poll_result
         })
-        .await;
-
-        let result = match poll_result {
-            Err(err) => Err(anyhow!("event loop error: {}", err)),
-            Ok(_) => match mod_result_rx.await {
-                Err(e) => {
-                    error!("{}", e.to_string());
-                    Err(e)
-                }
-                Ok(_) => Ok(()),
-            },
-        };
-
-        self.is_terminated.raise();
-
-        (result, accumulated_cpu_time_ns / 1_000_000)
     }
 
     pub fn inspector(&self) -> Option<Inspector> {
@@ -857,21 +1065,260 @@ impl DenoRuntime {
     #[allow(clippy::wrong_self_convention)]
     // TODO: figure out why rustc complains about this
     #[allow(dead_code)]
-    fn to_value<T>(
-        &mut self,
-        global_value: &deno_core::v8::Global<deno_core::v8::Value>,
-    ) -> Result<T, AnyError>
+    fn to_value<T>(&mut self, global_value: &v8::Global<v8::Value>) -> Result<T, AnyError>
     where
         T: DeserializeOwned + 'static,
     {
         let scope = &mut self.js_runtime.handle_scope();
-        let value = deno_core::v8::Local::new(scope, global_value.clone());
+        let value = v8::Local::new(scope, global_value.clone());
         Ok(serde_v8::from_v8(scope, value)?)
+    }
+
+    fn terminate_execution_if_cancelled(
+        &mut self,
+        token: CancellationToken,
+    ) -> ScopeGuard<CancellationToken, impl FnOnce(CancellationToken)> {
+        extern "C" fn interrupt_fn(isolate: &mut v8::Isolate, _: *mut std::ffi::c_void) {
+            let _ = isolate.terminate_execution();
+        }
+
+        let handle = self.js_runtime.v8_isolate().thread_safe_handle();
+        let cancel_task_token = CancellationToken::new();
+        let request_interrupt_fn = move || {
+            let _ = handle.request_interrupt(interrupt_fn, std::ptr::null_mut());
+        };
+
+        drop(rt::SUPERVISOR_RT.spawn({
+            let cancel_task_token = cancel_task_token.clone();
+
+            async move {
+                if token.is_cancelled() {
+                    request_interrupt_fn();
+                } else {
+                    tokio::select! {
+                        _ = token.cancelled_owned() => {
+                            request_interrupt_fn();
+                        }
+
+                        _ = cancel_task_token.cancelled_owned() => {}
+                    }
+                }
+            }
+        }));
+
+        scopeguard::guard(cancel_task_token, |v| {
+            v.cancel();
+        })
+    }
+
+    fn get_v8_tls_guard<'l>(
+        &'l mut self,
+    ) -> scopeguard::ScopeGuard<&'l mut DenoRuntime, impl FnOnce(&'l mut DenoRuntime) + 'l> {
+        let mut guard = scopeguard::guard(self, |v| unsafe {
+            v.js_runtime.v8_isolate().exit();
+        });
+
+        unsafe {
+            guard.js_runtime.v8_isolate().enter();
+        }
+
+        guard
+    }
+}
+
+#[allow(dead_code)]
+struct Scope<'s> {
+    context: v8::Local<'s, v8::Context>,
+    scope: v8::CallbackScope<'s, ()>,
+}
+
+impl<'s> Scope<'s> {
+    fn context_scope<'l>(&'l mut self) -> v8::ContextScope<'l, v8::HandleScope<'s>> {
+        let context = self.context;
+        v8::ContextScope::new(&mut self.scope, context)
+    }
+}
+
+pub enum MaybeDenoRuntime<'l> {
+    DenoRuntime(&'l mut DenoRuntime),
+    Isolate(&'l mut v8::Isolate),
+}
+
+impl<'l> MaybeDenoRuntime<'l> {
+    fn scope(&mut self) -> Scope<'_> {
+        let op_state = self.op_state();
+        let op_state_ref = op_state.borrow();
+        let context = op_state_ref
+            .try_borrow::<GlobalMainContext>()
+            .unwrap()
+            .clone();
+
+        let mut scope = unsafe {
+            match self {
+                MaybeDenoRuntime::DenoRuntime(v) => {
+                    v8::CallbackScope::new(v.js_runtime.v8_isolate())
+                }
+
+                MaybeDenoRuntime::Isolate(v) => v8::CallbackScope::new(&mut **v),
+            }
+        };
+
+        let context = context.to_local_context(&mut scope);
+
+        Scope { context, scope }
+    }
+
+    fn op_state(&mut self) -> Rc<RefCell<OpState>> {
+        match self {
+            MaybeDenoRuntime::DenoRuntime(v) => v.js_runtime.op_state(),
+            MaybeDenoRuntime::Isolate(v) => JsRuntime::op_state_from(v),
+        }
+    }
+
+    fn terminate_execution_if_cancelled(
+        &mut self,
+    ) -> Option<ScopeGuard<CancellationToken, impl FnOnce(CancellationToken)>> {
+        match self {
+            MaybeDenoRuntime::DenoRuntime(v) => {
+                Some(v.terminate_execution_if_cancelled(v.termination_request_token.clone()))
+            }
+
+            MaybeDenoRuntime::Isolate(_) => None,
+        }
+    }
+
+    fn dispatch_event_with_callback<T, U, V, R>(
+        &mut self,
+        select_dispatch_fn: T,
+        fn_args_fn: U,
+        callback_fn: V,
+    ) -> Result<R, AnyError>
+    where
+        T: for<'r> FnOnce(&'r DispatchEventFunctions) -> &v8::Global<v8::Function>,
+        U: for<'r> FnOnce(&mut v8::HandleScope<'r, ()>) -> Vec<v8::Local<'r, v8::Value>>,
+        V: for<'r> FnOnce(Option<v8::Local<'r, v8::Value>>) -> Result<R, AnyError>,
+    {
+        let _guard = self.terminate_execution_if_cancelled();
+
+        let op_state = self.op_state();
+        let op_state_ref = op_state.borrow();
+        let dispatch_fns = op_state_ref.try_borrow::<DispatchEventFunctions>().unwrap();
+
+        let scope = &mut self.scope();
+        let ctx_scope = &mut scope.context_scope();
+        let tc_scope = &mut v8::TryCatch::new(ctx_scope);
+
+        let event_fn = v8::Local::new(tc_scope, select_dispatch_fn(dispatch_fns));
+
+        drop(op_state_ref);
+
+        let undefined = v8::undefined(tc_scope);
+        let fn_args = &*fn_args_fn(tc_scope);
+        let fn_ret = event_fn.call(tc_scope, undefined.into(), fn_args);
+
+        if let Some(ex) = tc_scope.exception() {
+            let err = JsError::from_v8_exception(tc_scope, ex);
+
+            return Err(err.into());
+        }
+
+        callback_fn(fn_ret)
+    }
+
+    /// Dispatches "load" event to the JavaScript runtime.
+    ///
+    /// Does not poll event loop, and thus not await any of the "load" event handlers.
+    pub fn dispatch_load_event(&mut self) -> Result<(), AnyError> {
+        self.dispatch_event_with_callback(
+            |fns| &fns.dispatch_load_event_fn_global,
+            |_| vec![],
+            |_| Ok(()),
+        )
+    }
+
+    /// Dispatches "beforeunload" event to the JavaScript runtime. Returns a boolean
+    /// indicating if the event was prevented and thus event loop should continue
+    /// running.
+    pub fn dispatch_beforeunload_event(
+        &mut self,
+        reason: WillTerminateReason,
+    ) -> Result<bool, AnyError> {
+        self.dispatch_event_with_callback(
+            |fns| &fns.dispatch_beforeunload_event_fn_global,
+            move |scope| {
+                vec![v8::String::new_external_onebyte_static(
+                    scope,
+                    <&'static str>::from(reason).as_bytes(),
+                )
+                .unwrap()
+                .into()]
+            },
+            |it| Ok(it.unwrap().is_false()),
+        )
+    }
+
+    /// Dispatches "unload" event to the JavaScript runtime.
+    ///
+    /// Does not poll event loop, and thus not await any of the "unload" event handlers.
+    pub fn dispatch_unload_event(&mut self) -> Result<(), AnyError> {
+        self.dispatch_event_with_callback(
+            |fns| &fns.dispatch_unload_event_fn_global,
+            |_| vec![],
+            |_| Ok(()),
+        )
     }
 }
 
 fn get_current_cpu_time_ns() -> Result<i64, Error> {
     get_thread_time().context("can't get current thread time")
+}
+
+fn with_cpu_metrics_guard<'l, F, R>(
+    thread_id: ThreadId,
+    maybe_cpu_usage_metrics_tx: &'l Option<mpsc::UnboundedSender<CPUUsageMetrics>>,
+    accumulated_cpu_time_ns: &'l mut i64,
+    work_fn: F,
+) -> R
+where
+    F: FnOnce() -> R,
+{
+    let _cpu_metrics_guard = get_cpu_metrics_guard(
+        thread_id,
+        maybe_cpu_usage_metrics_tx,
+        accumulated_cpu_time_ns,
+    );
+
+    work_fn()
+}
+
+fn get_cpu_metrics_guard<'l>(
+    thread_id: ThreadId,
+    maybe_cpu_usage_metrics_tx: &'l Option<mpsc::UnboundedSender<CPUUsageMetrics>>,
+    accumulated_cpu_time_ns: &'l mut i64,
+) -> scopeguard::ScopeGuard<(), impl FnOnce(()) + 'l> {
+    let send_cpu_metrics_fn = move |metric: CPUUsageMetrics| {
+        if let Some(cpu_metric_tx) = maybe_cpu_usage_metrics_tx.as_ref() {
+            let _ = cpu_metric_tx.send(metric);
+        }
+    };
+
+    send_cpu_metrics_fn(CPUUsageMetrics::Enter(thread_id));
+
+    let current_cpu_time_ns = get_current_cpu_time_ns().unwrap();
+
+    scopeguard::guard((), move |_| {
+        debug_assert_eq!(thread_id, std::thread::current().id());
+
+        let cpu_time_after_drop_ns = get_current_cpu_time_ns().unwrap_or(current_cpu_time_ns);
+        let diff_cpu_time_ns = cpu_time_after_drop_ns - current_cpu_time_ns;
+
+        *accumulated_cpu_time_ns += diff_cpu_time_ns;
+
+        send_cpu_metrics_fn(CPUUsageMetrics::Leave(CPUUsage {
+            accumulated: *accumulated_cpu_time_ns,
+            diff: diff_cpu_time_ns,
+        }));
+    })
 }
 
 fn set_v8_flags() {
@@ -956,6 +1403,7 @@ mod test {
                 maybe_jsx_import_source_config: None,
             },
             None,
+            Arc::default(),
         )
         .await
         .expect("It should not panic");
@@ -1001,6 +1449,7 @@ mod test {
                 maybe_jsx_import_source_config: None,
             },
             None,
+            Arc::default(),
         )
         .await;
 
@@ -1068,6 +1517,7 @@ mod test {
                 maybe_jsx_import_source_config: None,
             },
             None,
+            Arc::default(),
         )
         .await;
 
@@ -1137,6 +1587,7 @@ mod test {
                 maybe_jsx_import_source_config,
             },
             None,
+            Arc::default(),
         )
         .await
         .unwrap()
@@ -1596,10 +2047,10 @@ mod test {
         let wait_fut = async move {
             let (result, _) = user_rt.run(duplex_stream_rx, None, None).await;
 
-            assert_eq!(
-                result.unwrap_err().to_string(),
-                "event loop error: Uncaught Error: execution terminated"
-            );
+            assert!(result
+                .unwrap_err()
+                .to_string()
+                .ends_with("Error: execution terminated"));
 
             callback_rx.recv().await.unwrap();
 

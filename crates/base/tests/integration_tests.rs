@@ -181,7 +181,7 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
         vec![],
         None,
         None,
-        None,
+        ServerFlags::default(),
     )
     .await
     .unwrap();
@@ -206,7 +206,7 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
         maybe_jsx_import_source_config: None,
     };
 
-    let ctx = create_worker((opts, main_termination_token.clone()), None, None)
+    let ctx = create_worker((opts, main_termination_token.clone()), None, Arc::default())
         .await
         .unwrap();
 
@@ -340,7 +340,7 @@ async fn test_main_worker_boot_error() {
         vec![],
         None,
         None,
-        None,
+        ServerFlags::default(),
     )
     .await
     .unwrap();
@@ -365,7 +365,7 @@ async fn test_main_worker_boot_error() {
         maybe_jsx_import_source_config: None,
     };
 
-    let result = create_worker((opts, main_termination_token.clone()), None, None).await;
+    let result = create_worker((opts, main_termination_token.clone()), None, Arc::default()).await;
 
     assert!(result.is_err());
     assert!(result
@@ -466,7 +466,7 @@ async fn test_main_worker_user_worker_mod_evaluate_exception() {
         vec![],
         None,
         None,
-        None,
+        ServerFlags::default(),
     )
     .await
     .unwrap();
@@ -491,7 +491,7 @@ async fn test_main_worker_user_worker_mod_evaluate_exception() {
         maybe_jsx_import_source_config: None,
     };
 
-    let ctx = create_worker((opts, main_termination_token.clone()), None, None)
+    let ctx = create_worker((opts, main_termination_token.clone()), None, Arc::default())
         .await
         .unwrap();
 

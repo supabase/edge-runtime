@@ -1,5 +1,6 @@
 use crate::deno_runtime::DenoRuntime;
 use crate::inspector_server::Inspector;
+use crate::server::ServerFlags;
 use crate::timeout::{self, CancelOnWriteTimeout, ReadTimeoutStream};
 use crate::utils::send_event_if_event_worker_available;
 use crate::utils::units::bytes_to_display;
@@ -259,6 +260,7 @@ pub fn create_supervisor(
     cancel: Option<CancellationToken>,
     timing: Option<Timing>,
     termination_token: Option<TerminationToken>,
+    flags: Arc<ServerFlags>,
 ) -> Result<(Option<CPUTimer>, CancellationToken), Error> {
     let (memory_limit_tx, memory_limit_rx) = mpsc::unbounded_channel::<()>();
     let (waker, thread_safe_handle) = {
@@ -271,7 +273,7 @@ pub fn create_supervisor(
 
     // we assert supervisor is only run for user workers
     let conf = worker_runtime.conf.as_user_worker().unwrap().clone();
-    let is_termination_requested = worker_runtime.is_termination_requested.clone();
+    let termination_request_token = worker_runtime.termination_request_token.clone();
 
     let giveup_process_requests_token = cancel.clone();
     let supervise_cancel_token = CancellationToken::new();
@@ -352,6 +354,7 @@ pub fn create_supervisor(
                 thread_safe_handle,
                 waker: waker.clone(),
                 tokens,
+                flags,
             };
 
             let (reason, cpu_usage_ms) = {
@@ -380,12 +383,13 @@ pub fn create_supervisor(
                         let wait_inspector_disconnect_fut = async move {
                             let ls = tokio::task::LocalSet::new();
                             ls.run_until(async move {
-                                if is_terminated.is_raised() || is_termination_requested.is_raised()
+                                if is_terminated.is_raised()
+                                    || termination_request_token.is_cancelled()
                                 {
                                     return;
                                 }
 
-                                is_termination_requested.raise();
+                                termination_request_token.cancel();
 
                                 if is_found.is_raised() {
                                     return;
@@ -451,7 +455,7 @@ pub fn create_supervisor(
                     .await
                     .unwrap();
             } else {
-                is_termination_requested.raise();
+                termination_request_token.cancel();
             }
 
             // NOTE: If we issue a hard CPU time limit, It's OK because it is
@@ -563,7 +567,7 @@ pub struct WorkerCtx {
 pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
     init_opts: Opt,
     inspector: Option<Inspector>,
-    maybe_request_idle_timeout: Option<u64>,
+    flags: Arc<ServerFlags>,
 ) -> Result<WorkerCtx, Error> {
     let (duplex_stream_tx, duplex_stream_rx) = mpsc::unbounded_channel::<DuplexStreamEntry>();
     let (worker_boot_result_tx, worker_boot_result_rx) =
@@ -573,6 +577,7 @@ pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
         init_opts.into();
 
     let worker_kind = worker_init_opts.conf.to_worker_kind();
+    let request_idle_timeout = flags.request_idle_timeout_ms;
     let exit = WorkerExit::default();
     let mut worker = Worker::new(&worker_init_opts)?;
 
@@ -595,6 +600,7 @@ pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
             exit.clone(),
             maybe_termination_token.clone(),
             inspector,
+            flags,
         );
 
         // create an async task waiting for requests for worker
@@ -611,7 +617,7 @@ pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
                                 worker_kind,
                                 stream_tx_inner,
                                 msg,
-                                maybe_request_idle_timeout,
+                                request_idle_timeout,
                             )
                             .await
                             {
@@ -752,7 +758,7 @@ pub async fn create_main_worker(
             termination_token,
         ),
         inspector,
-        None,
+        Arc::default(),
     )
     .await
     .map_err(|err| anyhow!("main worker boot error: {}", err))?;
@@ -801,7 +807,7 @@ pub async fn create_events_worker(
             termination_token,
         ),
         None,
-        None,
+        Arc::default(),
     )
     .await
     .map_err(|err| anyhow!("events worker boot error: {}", err))?;
@@ -816,7 +822,7 @@ pub async fn create_user_worker_pool(
     static_patterns: Vec<String>,
     inspector: Option<Inspector>,
     jsx: Option<JsxImportSourceConfig>,
-    request_idle_timeout: Option<u64>,
+    flags: ServerFlags,
 ) -> Result<(SharedMetricSource, mpsc::UnboundedSender<UserWorkerMsgs>), Error> {
     let metric_src = SharedMetricSource::default();
     let (user_worker_msgs_tx, mut user_worker_msgs_rx) =
@@ -835,7 +841,7 @@ pub async fn create_user_worker_pool(
                 worker_event_sender,
                 user_worker_msgs_tx_clone,
                 inspector,
-                request_idle_timeout,
+                flags,
             );
 
             // Note: Keep this loop non-blocking. Spawn a task to run blocking calls.

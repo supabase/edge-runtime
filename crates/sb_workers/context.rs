@@ -63,6 +63,10 @@ pub struct UserWorkerRuntimeOpts {
     pub cpu_time_soft_limit_ms: u64,
     pub cpu_time_hard_limit_ms: u64,
 
+    pub beforeunload_wall_clock_pct: Option<u8>,
+    pub beforeunload_cpu_pct: Option<u8>,
+    pub beforeunload_memory_pct: Option<u8>,
+
     pub force_create: bool,
     pub net_access_disabled: bool,
     pub custom_module_root: Option<String>,
@@ -72,11 +76,17 @@ pub struct UserWorkerRuntimeOpts {
 impl Default for UserWorkerRuntimeOpts {
     fn default() -> UserWorkerRuntimeOpts {
         UserWorkerRuntimeOpts {
-            memory_limit_mb: 512,
             worker_timeout_ms: 5 * 60 * 1000,
+
+            memory_limit_mb: 512,
             low_memory_multiplier: 5,
+
             cpu_time_soft_limit_ms: 50,
             cpu_time_hard_limit_ms: 100,
+
+            beforeunload_wall_clock_pct: None,
+            beforeunload_cpu_pct: None,
+            beforeunload_memory_pct: None,
 
             force_create: false,
             key: None,

@@ -147,11 +147,14 @@ pub async fn op_user_worker_create(
             maybe_module_code: maybe_module_code.map(|v| v.into()),
             maybe_decorator,
             conf: WorkerRuntimeOpts::UserWorker(UserWorkerRuntimeOpts {
+                worker_timeout_ms,
+
                 memory_limit_mb,
                 low_memory_multiplier,
-                worker_timeout_ms,
+
                 cpu_time_soft_limit_ms,
                 cpu_time_hard_limit_ms,
+
                 force_create,
                 net_access_disabled,
                 allow_remote_modules,
@@ -161,6 +164,8 @@ pub async fn op_user_worker_create(
                 events_msg_tx: None,
                 cancel: None,
                 service_path: None,
+
+                ..Default::default()
             }),
             static_patterns: vec![],
             maybe_jsx_import_source_config: jsx_import_conf,

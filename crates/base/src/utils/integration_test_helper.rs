@@ -217,7 +217,10 @@ impl TestBedBuilder {
                     vec![],
                     None,
                     None,
-                    self.request_idle_timeout,
+                    ServerFlags {
+                        request_idle_timeout_ms: self.request_idle_timeout,
+                        ..Default::default()
+                    },
                 )
                 .await
                 .unwrap(),
@@ -249,7 +252,7 @@ impl TestBedBuilder {
         let ctx = create_worker(
             (main_worker_init_opts, main_termination_token.clone()),
             None,
-            None,
+            Arc::default(),
         )
         .await
         .unwrap();
@@ -331,7 +334,7 @@ pub async fn create_test_user_worker<Opt: Into<CreateTestUserWorkerArgs>>(
             opts.with_policy(policy)
                 .with_termination_token(termination_token.clone()),
             None,
-            None,
+            Arc::default(),
         )
         .await?;
 

@@ -83,5 +83,8 @@ faster-hex = "0.9.0"
 #[patch.crates-io]
 #deno_core = { path = "/your/path/to/deno_core/core" }
 
+[profile.dind]
+inherits = "dev"
+
 [profile.release]
 lto = true

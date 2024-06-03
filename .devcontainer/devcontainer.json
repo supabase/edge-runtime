@@ -8,6 +8,7 @@
     }
   },
   "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
     "ghcr.io/jungaretti/features/make:1": {},
     "ghcr.io/lee-orr/rusty-dev-containers/cargo-make:0": {}
   },

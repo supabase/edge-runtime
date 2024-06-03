@@ -18,7 +18,7 @@ pub struct MemInfo {
 #[op2]
 #[serde]
 fn op_system_memory_info() -> Option<MemInfo> {
-    let mut mem_info = MemInfo {
+    let mem_info = MemInfo {
         total: 0,
         free: 0,
         available: 0,

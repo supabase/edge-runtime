@@ -938,7 +938,6 @@ mod test {
     use std::time::Duration;
     use tokio::sync::mpsc;
     use tokio::time::timeout;
-    use url::Url;
 
     #[tokio::test]
     #[serial]

@@ -116,7 +116,7 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
 
                         if !cpu_timer_param.is_disabled() {
                             if cpu_usage_ms >= hard_limit_ms as i64 {
-                                error!("CPU time limit reached. isolate: {:?}", key);
+                                error!("CPU time limit reached: isolate: {:?}", key);
                                 complete_reason = Some(ShutdownReason::CPUTime);
                             }
 
@@ -130,7 +130,7 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
 
             Some(_) = wait_cpu_alarm(cpu_alarms_rx.as_mut()) => {
                 if is_worker_entered && req_start_ack {
-                    error!("CPU time limit reached. isolate: {:?}", key);
+                    error!("CPU time limit reached: isolate: {:?}", key);
                     complete_reason = Some(ShutdownReason::CPUTime);
                 }
             }
@@ -171,14 +171,14 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
 
                     continue;
                 } else {
-                    error!("wall clock duraiton reached. isolate: {:?}", key);
+                    error!("wall clock duraiton reached: isolate: {:?}", key);
                     complete_reason = Some(ShutdownReason::WallClockTime);
                 }
             }
 
-            Some(_) = memory_limit_rx.recv() => {
-                error!("memory limit reached for the worker. isolate: {:?}", key);
-                complete_reason = Some(ShutdownReason::Memory);
+            Some(detail) = memory_limit_rx.recv() => {
+                error!("memory limit reached for the worker: isolate: {:?}", key);
+                complete_reason = Some(ShutdownReason::Memory(detail));
             }
         }
 

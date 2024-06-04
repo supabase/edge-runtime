@@ -17,3 +17,4 @@ serde.workspace = true
 anyhow.workspace = true
 tokio.workspace = true
 log.workspace = true
+strum = { workspace = true, features = ["derive"] }

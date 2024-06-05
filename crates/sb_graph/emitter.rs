@@ -170,8 +170,11 @@ impl EmitterFactory {
         })
     }
 
-    pub fn emit_cache(&self) -> Result<EmitCache, AnyError> {
-        Ok(EmitCache::new(self.deno_dir.gen_cache.clone()))
+    pub fn emit_cache(&self, transpile_options: TranspileOptions) -> Result<EmitCache, AnyError> {
+        Ok(EmitCache::new(
+            self.deno_dir.gen_cache.clone(),
+            transpile_options,
+        ))
     }
 
     pub fn parsed_source_cache(&self) -> Result<Arc<ParsedSourceCache>, AnyError> {
@@ -225,11 +228,12 @@ impl EmitterFactory {
     }
 
     pub fn emitter(&self) -> Result<Arc<Emitter>, AnyError> {
+        let transpile_options = self.transpile_options();
         let emitter = Arc::new(Emitter::new(
-            self.emit_cache()?,
+            self.emit_cache(transpile_options.clone())?,
             self.parsed_source_cache()?,
             self.emit_options(),
-            self.transpile_options(),
+            transpile_options,
         ));
 
         Ok(emitter)
@@ -403,11 +407,12 @@ impl EmitterFactory {
     pub fn file_fetcher_loader(&self) -> Box<dyn Loader> {
         let global_cache_struct =
             GlobalHttpCache::new(self.deno_dir.deps_folder_path(), RealDenoCacheEnv);
+
         let parsed_source = self.parsed_source_cache().unwrap();
 
         Box::new(FetchCacher::new(
             self.module_info_cache().unwrap().clone(),
-            self.emit_cache().unwrap(),
+            self.emit_cache(self.transpile_options()).unwrap(),
             Arc::new(self.file_fetcher()),
             HashMap::new(),
             Arc::new(global_cache_struct),

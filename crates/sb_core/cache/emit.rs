@@ -6,6 +6,7 @@ use crate::cache::common::FastInsecureHasher;
 use crate::cache::disk_cache::DiskCache;
 use crate::util::versions_util::deno;
 use deno_ast::ModuleSpecifier;
+use deno_ast::TranspileOptions;
 use deno_core::anyhow::anyhow;
 use deno_core::error::AnyError;
 use deno_core::serde_json;
@@ -23,12 +24,14 @@ struct EmitMetadata {
 pub struct EmitCache {
     disk_cache: DiskCache,
     cli_version: &'static str,
+    transpile_options: TranspileOptions,
 }
 
 impl EmitCache {
-    pub fn new(disk_cache: DiskCache) -> Self {
+    pub fn new(disk_cache: DiskCache, transpile_options: TranspileOptions) -> Self {
         Self {
             disk_cache,
+            transpile_options,
             cli_version: deno(),
         }
     }
@@ -58,7 +61,9 @@ impl EmitCache {
 
         // load and verify the emit is for the meta data
         let emit_bytes = self.disk_cache.get(&emit_filename).ok()?;
-        if meta.emit_hash != compute_emit_hash(&emit_bytes, self.cli_version) {
+        if meta.emit_hash
+            != compute_emit_hash(&emit_bytes, self.cli_version, &self.transpile_options)
+        {
             return None;
         }
 
@@ -104,8 +109,13 @@ impl EmitCache {
         // save the metadata
         let metadata = EmitMetadata {
             source_hash: source_hash.to_string(),
-            emit_hash: compute_emit_hash(code.as_bytes(), self.cli_version),
+            emit_hash: compute_emit_hash(
+                code.as_bytes(),
+                self.cli_version,
+                &self.transpile_options,
+            ),
         };
+
         self.disk_cache
             .set(&meta_filename, &serde_json::to_vec(&metadata)?)?;
 
@@ -126,7 +136,11 @@ impl EmitCache {
     }
 }
 
-fn compute_emit_hash(bytes: &[u8], cli_version: &str) -> String {
+fn compute_emit_hash(
+    bytes: &[u8],
+    cli_version: &str,
+    transpile_options: &TranspileOptions,
+) -> String {
     // it's ok to use an insecure hash here because
     // if someone can change the emit source then they
     // can also change the version hash
@@ -134,6 +148,7 @@ fn compute_emit_hash(bytes: &[u8], cli_version: &str) -> String {
         .write(bytes)
         // emit should not be re-used between cli versions
         .write(cli_version.as_bytes())
+        .write_hashable(transpile_options)
         .finish()
         .to_string()
 }

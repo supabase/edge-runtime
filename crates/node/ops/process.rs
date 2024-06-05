@@ -59,6 +59,4 @@ pub fn op_node_process_kill(
 }
 
 #[op2(fast)]
-pub fn op_process_abort() {
-    std::process::abort();
-}
+pub fn op_process_abort() {}

@@ -17,6 +17,7 @@ pub struct MemInfo {
 
 #[op2]
 #[serde]
+#[allow(unused_mut)] // Cleanest solution
 fn op_system_memory_info() -> Option<MemInfo> {
     let mut mem_info = MemInfo {
         total: 0,

@@ -3,32 +3,23 @@
 // deno-lint-ignore-file no-explicit-any
 
 import { notImplemented } from "ext:deno_node/_utils.ts";
-import {
-  op_vm_create_context,
-  op_vm_create_script,
-  op_vm_is_context,
-  op_vm_script_run_in_context,
-  op_vm_script_run_in_this_context,
-} from "ext:core/ops";
 
 export class Script {
   #inner;
 
   constructor(code: string, _options = {}) {
-    this.#inner = op_vm_create_script(code);
   }
 
   runInThisContext(_options: any) {
-    return op_vm_script_run_in_this_context(this.#inner);
+    notImplemented("Script.prototype.runInThisContext");
   }
 
   runInContext(contextifiedObject: any, _options: any) {
-    return op_vm_script_run_in_context(this.#inner, contextifiedObject);
+    notImplemented("Script.prototype.runInContext");
   }
 
   runInNewContext(contextObject: any, options: any) {
-    const context = createContext(contextObject);
-    return this.runInContext(context, options);
+    notImplemented("Script.prototype.vm");
   }
 
   createCachedData() {
@@ -76,7 +67,7 @@ export function runInThisContext(
 }
 
 export function isContext(maybeContext: any) {
-  return op_vm_is_context(maybeContext);
+  return false;
 }
 
 export function compileFunction(_code: string, _params: any, _options: any) {

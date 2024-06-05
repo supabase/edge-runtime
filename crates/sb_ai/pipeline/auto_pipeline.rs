@@ -1,14 +1,18 @@
+use std::cell::RefCell;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
+use tokio::sync::mpsc::{self, UnboundedSender};
 use tokio::task;
 
-use anyhow::anyhow;
 use anyhow::Error;
+use anyhow::{anyhow, bail};
 use deno_core::OpState;
 use log::error;
 use once_cell::sync::Lazy;
 
-use super::feature_extraction::FeatureExtractionPipeline;
-use super::Pipeline;
+use super::feature_extraction::FeatureExtractionPipelineInput;
+use super::feature_extraction::{FeatureExtractionPipeline, FeatureExtractionResult};
+use super::{Pipeline, PipelineRequest};
 
 pub(crate) fn get_onnx_env() -> Lazy<Option<ort::Error>> {
     Lazy::new(|| {
@@ -53,6 +57,34 @@ pub fn init_feature_extraction(
     Ok(())
 }
 
+pub async fn run_feature_extraction(
+    state: Rc<RefCell<OpState>>,
+    _name: String,
+    input: FeatureExtractionPipelineInput,
+) -> Result<FeatureExtractionResult, Error> {
+    let req_tx;
+    {
+        let op_state = state.borrow();
+        let maybe_req_tx = op_state.try_borrow::<UnboundedSender<
+            PipelineRequest<FeatureExtractionPipelineInput, FeatureExtractionResult>,
+        >>();
+        if maybe_req_tx.is_none() {
+            bail!("Run init model first")
+        }
+        req_tx = maybe_req_tx.unwrap().clone();
+    }
+
+    let (result_tx, mut result_rx) =
+        mpsc::unbounded_channel::<Result<FeatureExtractionResult, Error>>();
+
+    req_tx.send(PipelineRequest {
+        input,
+        sender: result_tx,
+    })?;
+
+    let result = result_rx.recv().await;
+    result.unwrap()
+}
 /*
 use core::panic;
 use std::future::IntoFuture;

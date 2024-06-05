@@ -1,7 +1,4 @@
-const pipe = new Supabase.ai.Pipeline(
-	'feature-extraction',
-	'paraphrase-multilingual-MiniLM-L12-v2',
-);
+const pipe = new Supabase.ai.Pipeline('feature-extraction');
 
 Deno.serve(async (req: Request) => {
 	const params = new URL(req.url).searchParams;

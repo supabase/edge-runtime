@@ -16,6 +16,7 @@ use ndarray::{Array1, Axis, Ix3};
 use ndarray_linalg::norm::{normalize, NormalizeAxis};
 use once_cell::sync::Lazy;
 use ort::inputs;
+use pipeline::auto_pipeline::run_feature_extraction;
 use pipeline::feature_extraction::{FeatureExtractionPipelineInput, FeatureExtractionResult};
 use pipeline::PipelineRequest;
 use std::cell::RefCell;
@@ -219,41 +220,6 @@ async fn run_gte(
     result.unwrap()
 }
 
-async fn run_model(
-    state: Rc<RefCell<OpState>>,
-    _name: String,
-    prompt: String,
-    mean_pool: bool,
-    normalize: bool,
-) -> Result<FeatureExtractionResult, Error> {
-    let req_tx;
-    {
-        let op_state = state.borrow();
-        let maybe_req_tx = op_state.try_borrow::<UnboundedSender<
-            PipelineRequest<FeatureExtractionPipelineInput, FeatureExtractionResult>,
-        >>();
-        if maybe_req_tx.is_none() {
-            bail!("Run init model first")
-        }
-        req_tx = maybe_req_tx.unwrap().clone();
-    }
-
-    let (result_tx, mut result_rx) =
-        mpsc::unbounded_channel::<Result<FeatureExtractionResult, Error>>();
-
-    req_tx.send(PipelineRequest {
-        input: FeatureExtractionPipelineInput {
-            prompt,
-            mean_pool,
-            normalize,
-        },
-        sender: result_tx,
-    })?;
-
-    let result = result_rx.recv().await;
-    result.unwrap()
-}
-
 #[op2]
 #[serde]
 pub fn op_sb_ai_init_model(state: &mut OpState, #[string] name: String) -> Result<(), AnyError> {
@@ -305,5 +271,19 @@ pub async fn op_sb_ai_run_pipeline(
     mean_pool: bool,
     normalize: bool,
 ) -> Result<Vec<f32>, AnyError> {
-    run_model(state, name, prompt, mean_pool, normalize).await
+    match task.trim() {
+        "feature-extraction" => {
+            run_feature_extraction(
+                state,
+                name,
+                FeatureExtractionPipelineInput {
+                    prompt,
+                    normalize,
+                    mean_pool,
+                },
+            )
+            .await
+        }
+        _ => return Err(anyhow!("Not supported pipeline task: {task}")),
+    }
 }

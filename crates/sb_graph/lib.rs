@@ -201,9 +201,17 @@ impl LazyLoadableEszip {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct EszipDataLoc {
+    source_offset: usize,
+    source_length: usize,
+    source_map_offset: usize,
+    source_map_length: usize,
+}
+
 #[derive(Debug, Clone)]
 pub enum EszipDataSectionMetadata {
-    HasOffset { offset: usize, length: usize },
+    HasLocation(EszipDataLoc),
     PendingOrAlreadyLoaded,
 }
 
@@ -212,8 +220,8 @@ pub struct EszipDataSection {
     inner: Arc<Mutex<Cursor<Vec<u8>>>>,
     initial_offset: u64,
     modules: EszipV2Modules,
-    source_offsets_by_specifier: Arc<Mutex<Option<HashMap<String, EszipDataSectionMetadata>>>>,
-    loaded_offsets_by_specifier: Arc<Mutex<HashMap<String, (usize, usize)>>>,
+    locs_by_specifier: Arc<Mutex<Option<HashMap<String, EszipDataSectionMetadata>>>>,
+    loaded_locs_by_specifier: Arc<Mutex<HashMap<String, EszipDataLoc>>>,
 }
 
 impl EszipDataSection {
@@ -222,8 +230,8 @@ impl EszipDataSection {
             inner: Arc::new(Mutex::new(inner)),
             initial_offset,
             modules,
-            source_offsets_by_specifier: Arc::default(),
-            loaded_offsets_by_specifier: Arc::default(),
+            locs_by_specifier: Arc::default(),
+            loaded_locs_by_specifier: Arc::default(),
         }
     }
 
@@ -231,70 +239,82 @@ impl EszipDataSection {
         &self,
         specifier: &str,
     ) -> Result<(), anyhow::Error> {
-        let mut source_offsets_guard = self.source_offsets_by_specifier.lock().await;
-        let source_offsets = source_offsets_guard.get_or_insert_with(|| {
+        let mut locs_guard = self.locs_by_specifier.lock().await;
+        let locs = locs_guard.get_or_insert_with(|| {
             self.modules
                 .0
                 .lock()
                 .unwrap()
                 .iter()
                 .filter_map(|(specifier, m)| {
-                    if let EszipV2Module::Module { source, .. } = m {
-                        match source {
-                            EszipV2SourceSlot::Pending { offset, length, .. } => Some((
-                                specifier.clone(),
-                                EszipDataSectionMetadata::HasOffset {
-                                    offset: *offset,
-                                    length: *length,
-                                },
-                            )),
+                    let mut loc = EszipDataLoc::default();
+                    let (source_slot, source_map_slot) = match m {
+                        EszipV2Module::Module {
+                            source, source_map, ..
+                        } => (source, source_map),
+                        EszipV2Module::Redirect { .. } => return None,
+                    };
 
-                            EszipV2SourceSlot::Ready(_) | EszipV2SourceSlot::Taken => Some((
+                    match source_slot {
+                        EszipV2SourceSlot::Pending { offset, length, .. } => {
+                            loc.source_offset = *offset;
+                            loc.source_length = *length;
+                        }
+
+                        EszipV2SourceSlot::Ready(_) | EszipV2SourceSlot::Taken => {
+                            return Some((
                                 specifier.clone(),
                                 EszipDataSectionMetadata::PendingOrAlreadyLoaded,
-                            )),
+                            ));
                         }
-                    } else {
-                        None
                     }
+
+                    if let EszipV2SourceSlot::Pending { offset, length, .. } = source_map_slot {
+                        loc.source_map_offset = *offset;
+                        loc.source_map_length = *length;
+                    }
+
+                    Some((
+                        specifier.clone(),
+                        EszipDataSectionMetadata::HasLocation(loc),
+                    ))
                 })
                 .collect::<HashMap<_, _>>()
         });
 
-        let Some(metadata) = source_offsets.get_mut(specifier) else {
+        let Some(metadata) = locs.get_mut(specifier) else {
             bail!("given specifier does not exist in the eszip header")
         };
 
-        let (offset, length) = match metadata {
-            metadata @ &mut EszipDataSectionMetadata::HasOffset { offset, length } => {
-                self.loaded_offsets_by_specifier
+        let loc = match metadata {
+            metadata @ &mut EszipDataSectionMetadata::HasLocation(loc) => {
+                self.loaded_locs_by_specifier
                     .lock()
                     .await
-                    .insert(String::from(specifier), (offset, length));
+                    .insert(String::from(specifier), loc);
 
                 *metadata = EszipDataSectionMetadata::PendingOrAlreadyLoaded;
-
-                (offset, length)
+                loc
             }
 
             _ => return Ok(()),
         };
 
-        drop(source_offsets_guard);
+        drop(locs_guard);
 
         let mut inner = self.inner.lock().await;
         let mut io = AllowStdIo::new({
             // NOTE: 4 byte offset in the middle represents the full source length.
-            inner.set_position(self.initial_offset + 4 + offset as u64);
+            inner.set_position(self.initial_offset + 4 + loc.source_offset as u64);
             inner.by_ref()
         });
 
         let source_bytes = {
             let wake_guard = scopeguard::guard(&self.modules, |modules| {
-                Self::wake_module_with_slot(modules, specifier, || EszipV2SourceSlot::Taken);
+                Self::wake_source_slot(modules, specifier, || EszipV2SourceSlot::Taken);
             });
 
-            let mut source_bytes = vec![0u8; length];
+            let mut source_bytes = vec![0u8; loc.source_length];
             io.read_exact(&mut source_bytes).await?;
 
             let expected_hash = &mut [0u8; 32];
@@ -315,9 +335,45 @@ impl EszipDataSection {
             source_bytes
         };
 
-        Self::wake_module_with_slot(&self.modules, specifier, move || {
+        Self::wake_source_slot(&self.modules, specifier, move || {
             EszipV2SourceSlot::Ready(Arc::from(source_bytes))
         });
+
+        let source_map_bytes = 'scope: {
+            if loc.source_map_length == 0 {
+                break 'scope None::<Vec<u8>>;
+            }
+
+            let wake_guard = scopeguard::guard(&self.modules, |modules| {
+                Self::wake_source_map_slot(modules, specifier, || EszipV2SourceSlot::Taken);
+            });
+
+            let mut source_map_bytes = vec![0u8; loc.source_map_length];
+            io.read_exact(&mut source_map_bytes).await?;
+
+            let expected_hash = &mut [0u8; 32];
+            io.read_exact(expected_hash).await?;
+
+            let mut hasher = Sha256::new();
+            hasher.update(&source_map_bytes);
+
+            let actual_hash = hasher.finalize();
+
+            if &*actual_hash != expected_hash {
+                return Err(ParseError::InvalidV2SourceHash(specifier.to_string()))
+                    .context("invalid source hash");
+            }
+
+            let _ = ScopeGuard::into_inner(wake_guard);
+
+            Some(source_map_bytes)
+        };
+
+        if let Some(bytes) = source_map_bytes {
+            Self::wake_source_map_slot(&self.modules, specifier, move || {
+                EszipV2SourceSlot::Ready(Arc::from(bytes))
+            });
+        }
 
         Ok(())
     }
@@ -327,7 +383,7 @@ impl EszipDataSection {
 
         let this = Arc::into_inner(self).unwrap();
         let modules = this.modules;
-        let mut loaded_offsets = Arc::into_inner(this.loaded_offsets_by_specifier)
+        let mut loaded_locs = Arc::into_inner(this.loaded_locs_by_specifier)
             .unwrap()
             .into_inner();
 
@@ -353,9 +409,35 @@ impl EszipDataSection {
                 {
                     Some((*offset, (*length, specifier.clone(), true)))
                 } else {
-                    loaded_offsets
-                        .remove(specifier.as_str())
-                        .map(|(offset, length)| (offset, (length, specifier.clone(), false)))
+                    loaded_locs.remove(specifier.as_str()).map(|loc| {
+                        (
+                            loc.source_offset,
+                            (loc.source_length, specifier.clone(), false),
+                        )
+                    })
+                }
+            })
+            .collect::<HashMap<_, _>>();
+
+        let mut source_map_offsets = modules
+            .0
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|(specifier, m)| {
+                if let EszipV2Module::Module {
+                    source_map: EszipV2SourceSlot::Pending { offset, length, .. },
+                    ..
+                } = m
+                {
+                    Some((*offset, (*length, specifier.clone(), true)))
+                } else {
+                    loaded_locs.remove(specifier.as_str()).map(|loc| {
+                        (
+                            loc.source_map_offset,
+                            (loc.source_map_length, specifier.clone(), false),
+                        )
+                    })
                 }
             })
             .collect::<HashMap<_, _>>();
@@ -392,39 +474,111 @@ impl EszipDataSection {
 
             read += length + 32;
 
-            Self::wake_module_with_slot(&modules, &specifier, move || {
+            Self::wake_source_slot(&modules, &specifier, move || {
                 EszipV2SourceSlot::Ready(Arc::from(source_bytes))
+            });
+        }
+
+        let sources_maps_len = read_u32(&mut io).await? as usize;
+        let mut read = 0;
+
+        while read < sources_maps_len {
+            let (length, specifier, need_load) = source_map_offsets
+                .remove(&read)
+                .ok_or(ParseError::InvalidV2SourceOffset(read))?;
+
+            if !need_load {
+                read += length + 32;
+
+                io.seek(SeekFrom::Current((length + 32) as i64))
+                    .await
+                    .unwrap();
+
+                continue;
+            }
+
+            let mut source_map_bytes = vec![0u8; length];
+            io.read_exact(&mut source_map_bytes).await?;
+
+            let expected_hash = &mut [0u8; 32];
+            io.read_exact(expected_hash).await?;
+
+            let mut hasher = Sha256::new();
+            hasher.update(&source_map_bytes);
+
+            let actual_hash = hasher.finalize();
+
+            if &*actual_hash != expected_hash {
+                return Err(ParseError::InvalidV2SourceHash(specifier));
+            }
+
+            read += length + 32;
+
+            Self::wake_source_map_slot(&modules, &specifier, move || {
+                EszipV2SourceSlot::Ready(Arc::from(source_map_bytes))
             });
         }
 
         Ok(())
     }
 
-    fn wake_module_with_slot<F>(modules: &EszipV2Modules, specifier: &str, slot_fn: F)
-    where
-        F: FnOnce() -> EszipV2SourceSlot,
+    fn wake_module_with_slot<F, G>(
+        modules: &EszipV2Modules,
+        specifier: &str,
+        select_slot_fn: F,
+        new_slot_fn: G,
+    ) where
+        F: for<'r> FnOnce(&'r mut EszipV2Module) -> &'r mut EszipV2SourceSlot,
+        G: FnOnce() -> EszipV2SourceSlot,
     {
         let wakers = {
             let mut modules = modules.0.lock().unwrap();
             let module = modules.get_mut(specifier).expect("module not found");
+            let slot = select_slot_fn(module);
 
-            match module {
-                EszipV2Module::Module { ref mut source, .. } => {
-                    let slot = std::mem::replace(source, slot_fn());
+            let old_slot = std::mem::replace(slot, new_slot_fn());
 
-                    match slot {
-                        EszipV2SourceSlot::Pending { wakers, .. } => wakers,
-                        _ => panic!("already populated source slot"),
-                    }
-                }
-
-                _ => panic!("invalid module type"),
+            match old_slot {
+                EszipV2SourceSlot::Pending { wakers, .. } => wakers,
+                _ => panic!("already populated source slot"),
             }
         };
 
         for w in wakers {
             w.wake();
         }
+    }
+
+    fn wake_source_slot<F>(modules: &EszipV2Modules, specifier: &str, new_slot_fn: F)
+    where
+        F: FnOnce() -> EszipV2SourceSlot,
+    {
+        Self::wake_module_with_slot(
+            modules,
+            specifier,
+            |module| match module {
+                EszipV2Module::Module { ref mut source, .. } => source,
+                _ => panic!("invalid module type"),
+            },
+            new_slot_fn,
+        )
+    }
+
+    fn wake_source_map_slot<F>(modules: &EszipV2Modules, specifier: &str, new_slot_fn: F)
+    where
+        F: FnOnce() -> EszipV2SourceSlot,
+    {
+        Self::wake_module_with_slot(
+            modules,
+            specifier,
+            |module| match module {
+                EszipV2Module::Module {
+                    ref mut source_map, ..
+                } => source_map,
+                _ => panic!("invalid module type"),
+            },
+            new_slot_fn,
+        )
     }
 }
 

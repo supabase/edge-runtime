@@ -21,16 +21,7 @@ pub struct MemInfo {
 fn op_system_memory_info() -> Option<MemInfo> {
     #[cfg(any(target_os = "android", target_os = "linux"))]
     {
-        let mut mem_info = MemInfo {
-            total: 0,
-            free: 0,
-            available: 0,
-            buffers: 0,
-            cached: 0,
-            swap_total: 0,
-            swap_free: 0,
-        };
-
+        let mut mem_info = MemInfo::default();
         let mut info = std::mem::MaybeUninit::uninit();
         // SAFETY: `info` is a valid pointer to a `libc::sysinfo` struct.
         let res = unsafe { libc::sysinfo(info.as_mut_ptr()) };

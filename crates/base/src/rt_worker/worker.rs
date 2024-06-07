@@ -224,6 +224,7 @@ impl Worker {
                                                 total: 0,
                                                 heap: 0,
                                                 external: 0,
+                                                mem_check_captured: 0,
                                             },
                                         },
                                     ));

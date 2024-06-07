@@ -362,6 +362,7 @@ impl DenoRuntime {
             eszip,
             maybe_arc_import_map,
             import_map_path,
+            maybe_inspector.is_some(),
         )
         .await?;
 

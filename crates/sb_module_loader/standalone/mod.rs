@@ -57,6 +57,7 @@ pub async fn create_module_loader_for_eszip(
     mut eszip: eszip::EszipV2,
     metadata: Metadata,
     maybe_import_map: Option<ImportMap>,
+    include_source_map: bool,
 ) -> Result<RuntimeProviders, AnyError> {
     // let main_module = &metadata.entrypoint;
     let current_exe_path = std::env::current_exe().unwrap();
@@ -191,6 +192,7 @@ pub async fn create_module_loader_for_eszip(
     Ok(RuntimeProviders {
         module_loader: Rc::new(EmbeddedModuleLoader {
             shared: module_loader_factory.shared.clone(),
+            include_source_map,
         }),
         npm_resolver: npm_resolver.into_npm_resolver(),
         vfs,
@@ -205,6 +207,7 @@ pub async fn create_module_loader_for_standalone_from_eszip_kind(
     eszip_payload_kind: EszipPayloadKind,
     maybe_import_map_arc: Option<Arc<ImportMap>>,
     maybe_import_map_path: Option<String>,
+    include_source_map: bool,
 ) -> Result<RuntimeProviders, AnyError> {
     let eszip = payload_to_eszip(eszip_payload_kind).await;
 
@@ -233,6 +236,7 @@ pub async fn create_module_loader_for_standalone_from_eszip_kind(
             package_json_deps: None,
         },
         maybe_import_map,
+        include_source_map,
     )
     .await
 }

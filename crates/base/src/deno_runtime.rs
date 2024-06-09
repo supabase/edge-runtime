@@ -1022,10 +1022,7 @@ mod test {
         let main_mod_ev = rt.js_runtime.mod_evaluate(rt.main_module_id);
         let _ = rt
             .js_runtime
-            .run_event_loop(PollEventLoopOptions {
-                wait_for_inspector: false,
-                pump_v8_message_loop: true,
-            })
+            .run_event_loop(PollEventLoopOptions::default())
             .await;
 
         let read_is_even_global = rt
@@ -1089,10 +1086,7 @@ mod test {
         let main_mod_ev = rt.js_runtime.mod_evaluate(rt.main_module_id);
         let _ = rt
             .js_runtime
-            .run_event_loop(PollEventLoopOptions {
-                wait_for_inspector: false,
-                pump_v8_message_loop: true,
-            })
+            .run_event_loop(PollEventLoopOptions::default())
             .await;
 
         let read_is_even_global = rt
@@ -1249,10 +1243,7 @@ mod test {
         let _main_mod_ev = main_rt.js_runtime.mod_evaluate(main_rt.main_module_id);
         let _ = main_rt
             .js_runtime
-            .run_event_loop(PollEventLoopOptions {
-                wait_for_inspector: false,
-                pump_v8_message_loop: true,
-            })
+            .run_event_loop(PollEventLoopOptions::default())
             .await;
 
         let global_value_deno_read_file_script = main_rt

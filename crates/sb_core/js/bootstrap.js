@@ -397,6 +397,7 @@ const PATCH_DENO_API_LIST = {
 	'addSignalListener': MOCK_FN,
 	'removeSignalListener': MOCK_FN,
 
+	// TODO: use a non-hardcoded path
 	'execPath': () => '/bin/edge-runtime',
 	'memoryUsage': () => ops.op_runtime_memory_usage(),
 };

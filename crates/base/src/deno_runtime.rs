@@ -69,6 +69,7 @@ static SUPABASE_UA: Lazy<String> = Lazy::new(|| {
     let deno_version = MAYBE_DENO_VERSION.get().map(|it| &**it).unwrap_or("1.0.0");
     let supabase_version = option_env!("GIT_V_TAG").unwrap_or("0.1.0");
     format!(
+        // TODO: It should be changed to a well-known name for the ecosystem.
         "Deno/{} (variant; SupabaseEdgeRuntime/{})",
         deno_version, supabase_version
     )
@@ -473,8 +474,8 @@ impl DenoRuntime {
         let version: Option<&str> = option_env!("GIT_V_TAG");
 
         {
-            // @andreespirela : We do this because "NODE_DEBUG" is trying to be read during initialization,
-            // But we need the gotham state to be up-to-date
+            // @andreespirela : We do this because "NODE_DEBUG" is trying to be read during
+            // initialization, But we need the gotham state to be up-to-date
             let op_state_rc = js_runtime.op_state();
             let mut op_state = op_state_rc.borrow_mut();
             op_state.put::<sb_env::EnvVars>(sb_env::EnvVars::new());

@@ -441,6 +441,7 @@ globalThis.bootstrapSBEdge = opts => {
 		mainModule: getterOnly(() => ops.op_main_module()),
 		version: getterOnly(() => ({
 			deno:
+				// TODO: It should be changed to a well-known name for the ecosystem.
 				`supabase-edge-runtime-${globalThis.SUPABASE_VERSION} (compatible with Deno v${globalThis.DENO_VERSION})`,
 			v8: '11.6.189.12',
 			typescript: '5.1.6',
@@ -450,6 +451,7 @@ globalThis.bootstrapSBEdge = opts => {
 
 	setNumCpus(1); // explicitly setting no of CPUs to 1 (since we don't allow workers)
 	setUserAgent(
+		// TODO: It should be changed to a well-known name for the ecosystem.
 		`Deno/${globalThis.DENO_VERSION} (variant; SupabaseEdgeRuntime/${globalThis.SUPABASE_VERSION})`,
 	);
 	setLanguage('en');

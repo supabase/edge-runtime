@@ -134,15 +134,15 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
                         if !cpu_timer_param.is_disabled() {
                             if cpu_usage_ms >= hard_limit_ms as i64 {
                                 terminate_fn();
-                                error!("CPU time hard limit reached. isolate: {:?}", key);
+                                error!("CPU time hard limit reached: isolate: {:?}", key);
                                 return (ShutdownReason::CPUTime, cpu_usage_ms);
                             } else if cpu_usage_ms >= soft_limit_ms as i64 && !cpu_time_soft_limit_reached {
-                                error!("CPU time soft limit reached. isolate: {:?}", key);
+                                error!("CPU time soft limit reached: isolate: {:?}", key);
                                 cpu_time_soft_limit_reached = true;
 
                                 if req_ack_count == demand.load(Ordering::Acquire) {
                                     terminate_fn();
-                                    error!("early termination due to the last request being completed. isolate: {:?}", key);
+                                    error!("early termination due to the last request being completed: isolate: {:?}", key);
                                     return (ShutdownReason::EarlyDrop, cpu_usage_ms);
                                 }
                             }
@@ -154,17 +154,17 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
             Some(_) = wait_cpu_alarm(cpu_alarms_rx.as_mut()) => {
                 if is_worker_entered {
                     if !cpu_time_soft_limit_reached {
-                        error!("CPU time soft limit reached. isolate: {:?}", key);
+                        error!("CPU time soft limit reached: isolate: {:?}", key);
                         cpu_time_soft_limit_reached = true;
 
                         if req_ack_count == demand.load(Ordering::Acquire) {
                             terminate_fn();
-                            error!("early termination due to the last request being completed. isolate: {:?}", key);
+                            error!("early termination due to the last request being completed: isolate: {:?}", key);
                             return (ShutdownReason::EarlyDrop, cpu_usage_ms);
                         }
                     } else {
                         terminate_fn();
-                        error!("CPU time hard limit reached. isolate: {:?}", key);
+                        error!("CPU time hard limit reached: isolate: {:?}", key);
                         return (ShutdownReason::CPUTime, cpu_usage_ms);
                     }
                 }
@@ -186,7 +186,7 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
                 }
 
                 terminate_fn();
-                error!("early termination due to the last request being completed. isolate: {:?}", key);
+                error!("early termination due to the last request being completed: isolate: {:?}", key);
                 return (ShutdownReason::EarlyDrop, cpu_usage_ms);
             }
 
@@ -195,24 +195,24 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
                     // first tick completes immediately
                     wall_clock_alerts += 1;
                 } else if wall_clock_alerts == 1 {
-                    error!("wall clock duration warning. isolate: {:?}", key);
+                    error!("wall clock duration warning: isolate: {:?}", key);
                     wall_clock_alerts += 1;
                 } else {
                     let is_in_flight_req_exists = req_ack_count != demand.load(Ordering::Acquire);
 
                     terminate_fn();
 
-                    error!("wall clock duration reached. isolate: {:?} (in_flight_req_exists = {})", key, is_in_flight_req_exists);
+                    error!("wall clock duration reached: isolate: {:?} (in_flight_req_exists = {})", key, is_in_flight_req_exists);
 
                     return (ShutdownReason::WallClockTime, cpu_usage_ms);
                 }
             }
 
             // memory usage
-            Some(_) = memory_limit_rx.recv() => {
+            Some(detail) = memory_limit_rx.recv() => {
                 terminate_fn();
-                error!("memory limit reached for the worker. isolate: {:?}", key);
-                return (ShutdownReason::Memory, cpu_usage_ms);
+                error!("memory limit reached for the worker: isolate: {:?}", key);
+                return (ShutdownReason::Memory(detail), cpu_usage_ms);
             }
         }
     }

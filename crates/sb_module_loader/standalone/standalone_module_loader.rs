@@ -1,6 +1,7 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
 use crate::node::node_module_loader::NpmModuleLoader;
+use base64::Engine;
 use deno_ast::MediaType;
 use deno_core::error::generic_error;
 use deno_core::error::type_error;
@@ -28,6 +29,7 @@ pub struct SharedModuleLoaderState {
 #[derive(Clone)]
 pub struct EmbeddedModuleLoader {
     pub(crate) shared: Arc<SharedModuleLoaderState>,
+    pub(crate) include_source_map: bool,
 }
 
 impl ModuleLoader for EmbeddedModuleLoader {
@@ -101,6 +103,7 @@ impl ModuleLoader for EmbeddedModuleLoader {
         _is_dynamic: bool,
         _requested_module_type: RequestedModuleType,
     ) -> deno_core::ModuleLoadResponse {
+        let include_source_map = self.include_source_map;
         let permissions = sb_node::allow_all();
 
         if original_specifier.scheme() == "data" {
@@ -157,11 +160,36 @@ impl ModuleLoader for EmbeddedModuleLoader {
 
         deno_core::ModuleLoadResponse::Async(
             async move {
-                let code = module.source().await.ok_or_else(|| {
-                    type_error(format!("Module not found: {}", original_specifier))
-                })?;
-                let code = arc_u8_to_arc_str(code)
-                    .map_err(|_| type_error("Module source is not utf-8"))?;
+                let code = module
+                    .source()
+                    .await
+                    .ok_or_else(|| type_error(format!("Module not found: {}", original_specifier)))
+                    .and_then(|it| {
+                        arc_u8_to_arc_str(it).map_err(|_| type_error("Module source is not utf-8"))
+                    })?;
+
+                let source_map = module.source_map().await;
+                let maybe_code_with_source_map = 'scope: {
+                    if !include_source_map {
+                        break 'scope code;
+                    }
+
+                    let Some(source_map) = source_map else {
+                        break 'scope code;
+                    };
+
+                    let mut src = code.to_string();
+
+                    if src.ends_with('\n') {
+                        src.push('\n');
+                    }
+
+                    src.push_str("//# sourceMappingURL=data:application/json;base64,");
+                    base64::prelude::BASE64_STANDARD.encode_string(source_map, &mut src);
+
+                    Arc::from(src)
+                };
+
                 Ok(deno_core::ModuleSource::new_with_redirect(
                     match module.kind {
                         eszip::ModuleKind::JavaScript => ModuleType::JavaScript,
@@ -173,7 +201,7 @@ impl ModuleLoader for EmbeddedModuleLoader {
                             unreachable!();
                         }
                     },
-                    ModuleSourceCode::String(code.into()),
+                    ModuleSourceCode::String(maybe_code_with_source_map.into()),
                     &original_specifier,
                     &found_specifier,
                     None,

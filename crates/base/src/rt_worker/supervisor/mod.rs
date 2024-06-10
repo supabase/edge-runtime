@@ -6,6 +6,7 @@ use std::sync::Arc;
 use cpu_timer::{CPUAlarmVal, CPUTimer};
 use deno_core::v8::IsolateHandle;
 use enum_as_inner::EnumAsInner;
+use event_worker::events::MemoryLimitDetail;
 use futures_util::task::AtomicWaker;
 use log::error;
 use sb_workers::context::{Timing, UserWorkerMsgs, UserWorkerRuntimeOpts};
@@ -126,7 +127,7 @@ pub struct Arguments {
     pub cpu_timer_param: CPUTimerParam,
     pub supervisor_policy: SupervisorPolicy,
     pub timing: Option<Timing>,
-    pub memory_limit_rx: mpsc::UnboundedReceiver<()>,
+    pub memory_limit_rx: mpsc::UnboundedReceiver<MemoryLimitDetail>,
     pub pool_msg_tx: Option<mpsc::UnboundedSender<UserWorkerMsgs>>,
     pub isolate_memory_usage_tx: oneshot::Sender<IsolateMemoryStats>,
     pub thread_safe_handle: IsolateHandle,

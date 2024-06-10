@@ -1,8 +1,8 @@
-let blacklist: string[] = Deno.readTextFileSync("./mnt/data/test_cases/user-worker-san-check/.blacklisted")
+let blocklist: string[] = Deno.readTextFileSync("./mnt/data/test_cases/user-worker-san-check/.blocklisted")
     .trim()
     .split("\n");
 
-for (const api of blacklist) {
+for (const api of blocklist) {
     console.log(api);
     if (Deno[api] === void 0) {
         continue;

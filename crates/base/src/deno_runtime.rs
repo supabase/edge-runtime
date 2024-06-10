@@ -1746,7 +1746,7 @@ mod test {
             "./test_cases/user-worker-san-check",
             None,
             None,
-            &["./test_cases/user-worker-san-check/.blacklisted"],
+            &["./test_cases/user-worker-san-check/.blocklisted"],
         )
         .await;
 

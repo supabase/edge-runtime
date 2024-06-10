@@ -1,3 +1,4 @@
+mod env;
 mod flags;
 
 #[cfg(not(feature = "tracing"))]
@@ -5,12 +6,13 @@ mod logger;
 
 use anyhow::{anyhow, bail, Error};
 use base::commands::start_server;
-use base::deno_runtime::MAYBE_DENO_VERSION;
+
 use base::rt_worker::worker_pool::{SupervisorPolicy, WorkerPoolPolicy};
 use base::server::{ServerFlags, Tls, WorkerEntrypoints};
 use base::{DecoratorType, InspectorOption};
 use clap::ArgMatches;
 use deno_core::url::Url;
+use env::resolve_deno_runtime_env;
 use flags::get_cli;
 use log::warn;
 use sb_graph::emitter::EmitterFactory;
@@ -25,7 +27,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 fn main() -> Result<(), anyhow::Error> {
-    MAYBE_DENO_VERSION.get_or_init(|| env!("DENO_VERSION").to_string());
+    resolve_deno_runtime_env();
 
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()

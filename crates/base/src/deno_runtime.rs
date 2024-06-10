@@ -75,12 +75,6 @@ static SUPABASE_UA: Lazy<String> = Lazy::new(|| {
     )
 });
 
-static SHOULD_DISABLE_DEPRECATED_API_WARNING: Lazy<bool> =
-    Lazy::new(|| std::env::var("DENO_NO_DEPRECATION_WARNINGS").ok().is_some());
-
-static SHOULD_USE_VERBOSE_DEPRECATED_API_WARNING: Lazy<bool> =
-    Lazy::new(|| std::env::var("DENO_VERBOSE_WARNINGS").ok().is_some());
-
 static ALLOC_CHECK_DUR: Lazy<Duration> = Lazy::new(|| {
     std::env::var("EDGE_RUNTIME_ALLOC_CHECK_INT")
         .ok()
@@ -88,6 +82,10 @@ static ALLOC_CHECK_DUR: Lazy<Duration> = Lazy::new(|| {
         .unwrap_or_else(|| Duration::from_millis(DEFAULT_ALLOC_CHECK_INT_MSEC))
 });
 
+// Following static variables are initialized in the cli crate.
+
+pub static SHOULD_DISABLE_DEPRECATED_API_WARNING: OnceCell<bool> = OnceCell::new();
+pub static SHOULD_USE_VERBOSE_DEPRECATED_API_WARNING: OnceCell<bool> = OnceCell::new();
 pub static MAYBE_DENO_VERSION: OnceCell<String> = OnceCell::new();
 
 #[ctor]
@@ -499,10 +497,15 @@ impl DenoRuntime {
                     .map(|it| &**it)
                     .unwrap_or("UNKNOWN"),
                 // 5: shouldDisableDeprecatedApiWarning
-                &*SHOULD_DISABLE_DEPRECATED_API_WARNING,
+                SHOULD_DISABLE_DEPRECATED_API_WARNING
+                    .get()
+                    .copied()
+                    .unwrap_or_default(),
                 // 6: shouldUseVerboseDeprecatedApiWarning
-                &*SHOULD_USE_VERBOSE_DEPRECATED_API_WARNING,
-            ])
+                SHOULD_USE_VERBOSE_DEPRECATED_API_WARNING
+                    .get()
+                    .copied()
+                    .unwrap_or_default(),
         );
 
         if let Some(inspector) = maybe_inspector.clone() {

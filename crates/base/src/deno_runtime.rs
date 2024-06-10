@@ -12,8 +12,8 @@ use deno_core::error::AnyError;
 use deno_core::url::Url;
 use deno_core::v8::{GCCallbackFlags, GCType, HeapStatistics, Isolate};
 use deno_core::{
-    located_script_name, serde_json, serde_v8, JsRuntime, ModuleCodeString, ModuleId,
-    PollEventLoopOptions, RuntimeOptions,
+    located_script_name, serde_json, JsRuntime, ModuleCodeString, ModuleId, PollEventLoopOptions,
+    RuntimeOptions,
 };
 use deno_http::DefaultHttpPropertyExtractor;
 use deno_tls::deno_native_certs::load_native_certs;
@@ -27,7 +27,6 @@ use once_cell::sync::{Lazy, OnceCell};
 use sb_core::http::sb_core_http;
 use sb_core::http_start::sb_core_http_start;
 use sb_core::util::sync::AtomicFlag;
-use serde::de::DeserializeOwned;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ffi::c_void;
@@ -867,21 +866,6 @@ impl DenoRuntime {
             }
         }
     }
-
-    #[allow(clippy::wrong_self_convention)]
-    // TODO: figure out why rustc complains about this
-    #[allow(dead_code)]
-    fn to_value<T>(
-        &mut self,
-        global_value: &deno_core::v8::Global<deno_core::v8::Value>,
-    ) -> Result<T, AnyError>
-    where
-        T: DeserializeOwned + 'static,
-    {
-        let scope = &mut self.js_runtime.handle_scope();
-        let value = deno_core::v8::Local::new(scope, global_value.clone());
-        Ok(serde_v8::from_v8(scope, value)?)
-    }
 }
 
 fn get_current_cpu_time_ns() -> Result<i64, Error> {
@@ -921,13 +905,15 @@ mod test {
     use crate::deno_runtime::DenoRuntime;
     use crate::rt_worker::worker::DuplexStreamEntry;
     use deno_config::JsxImportSourceConfig;
-    use deno_core::{FastString, ModuleCodeString, PollEventLoopOptions};
+    use deno_core::error::AnyError;
+    use deno_core::{serde_v8, v8, FastString, ModuleCodeString, PollEventLoopOptions};
     use sb_graph::emitter::EmitterFactory;
     use sb_graph::{generate_binary_eszip, EszipPayloadKind};
     use sb_workers::context::{
         MainWorkerRuntimeOpts, UserWorkerMsgs, UserWorkerRuntimeOpts, WorkerContextInitOpts,
         WorkerRuntimeOpts,
     };
+    use serde::de::DeserializeOwned;
     use serial_test::serial;
     use std::collections::HashMap;
     use std::fs;
@@ -939,6 +925,17 @@ mod test {
     use tokio::sync::mpsc;
     use tokio::time::timeout;
     use url::Url;
+
+    impl DenoRuntime {
+        fn to_value_mut<T>(&mut self, global_value: &v8::Global<v8::Value>) -> Result<T, AnyError>
+        where
+            T: DeserializeOwned + 'static,
+        {
+            let scope = &mut self.js_runtime.handle_scope();
+            let value = v8::Local::new(scope, global_value.clone());
+            Ok(serde_v8::from_v8(scope, value)?)
+        }
+    }
 
     #[tokio::test]
     #[serial]
@@ -1037,7 +1034,7 @@ mod test {
                 ),
             )
             .unwrap();
-        let read_is_even = rt.to_value::<deno_core::serde_json::Value>(&read_is_even_global);
+        let read_is_even = rt.to_value_mut::<deno_core::serde_json::Value>(&read_is_even_global);
         assert_eq!(read_is_even.unwrap().to_string(), "false");
         std::mem::drop(main_mod_ev);
     }
@@ -1101,7 +1098,7 @@ mod test {
                 ),
             )
             .unwrap();
-        let read_is_even = rt.to_value::<deno_core::serde_json::Value>(&read_is_even_global);
+        let read_is_even = rt.to_value_mut::<deno_core::serde_json::Value>(&read_is_even_global);
         assert_eq!(read_is_even.unwrap().to_string(), "true");
         std::mem::drop(main_mod_ev);
     }
@@ -1159,10 +1156,10 @@ mod test {
         {
             let scope = &mut runtime.js_runtime.handle_scope();
             let context = scope.get_current_context();
-            let inner_scope = &mut deno_core::v8::ContextScope::new(scope, context);
+            let inner_scope = &mut v8::ContextScope::new(scope, context);
             let global = context.global(inner_scope);
-            let edge_runtime_key: deno_core::v8::Local<deno_core::v8::Value> =
-                deno_core::serde_v8::to_v8(inner_scope, "EdgeRuntime").unwrap();
+            let edge_runtime_key: v8::Local<v8::Value> =
+                serde_v8::to_v8(inner_scope, "EdgeRuntime").unwrap();
             assert!(!global
                 .get(inner_scope, edge_runtime_key)
                 .unwrap()
@@ -1186,10 +1183,10 @@ mod test {
         {
             let scope = &mut runtime.js_runtime.handle_scope();
             let context = scope.get_current_context();
-            let inner_scope = &mut deno_core::v8::ContextScope::new(scope, context);
+            let inner_scope = &mut v8::ContextScope::new(scope, context);
             let global = context.global(inner_scope);
-            let edge_runtime_key: deno_core::v8::Local<deno_core::v8::Value> =
-                deno_core::serde_v8::to_v8(inner_scope, "EdgeRuntime").unwrap();
+            let edge_runtime_key: v8::Local<v8::Value> =
+                serde_v8::to_v8(inner_scope, "EdgeRuntime").unwrap();
             assert!(global
                 .get(inner_scope, edge_runtime_key)
                 .unwrap()
@@ -1215,8 +1212,8 @@ mod test {
                 ),
             )
             .unwrap();
-        let fs_read_result =
-            main_rt.to_value::<deno_core::serde_json::Value>(&global_value_deno_read_file_script);
+        let fs_read_result = main_rt
+            .to_value_mut::<deno_core::serde_json::Value>(&global_value_deno_read_file_script);
         assert_eq!(
             fs_read_result.unwrap().as_str().unwrap(),
             "{\n  \"hello\": \"world\"\n}"
@@ -1259,8 +1256,8 @@ mod test {
             )
             .unwrap();
 
-        let jsx_read_result =
-            main_rt.to_value::<deno_core::serde_json::Value>(&global_value_deno_read_file_script);
+        let jsx_read_result = main_rt
+            .to_value_mut::<deno_core::serde_json::Value>(&global_value_deno_read_file_script);
         assert_eq!(
             jsx_read_result.unwrap().to_string(),
             r#"{"type":"div","props":{"children":"Hello"},"__k":null,"__":null,"__b":0,"__e":null,"__c":null,"__v":-1,"__i":-1,"__u":0}"#
@@ -1314,7 +1311,7 @@ mod test {
             )
             .unwrap();
         let serde_deno_env = user_rt
-            .to_value::<deno_core::serde_json::Value>(&user_rt_execute_scripts)
+            .to_value_mut::<deno_core::serde_json::Value>(&user_rt_execute_scripts)
             .unwrap();
 
         assert_eq!(
@@ -1361,7 +1358,7 @@ mod test {
             )
             .unwrap();
         let serde_deno_env = user_rt
-            .to_value::<deno_core::serde_json::Value>(&user_rt_execute_scripts)
+            .to_value_mut::<deno_core::serde_json::Value>(&user_rt_execute_scripts)
             .unwrap();
         assert_eq!(serde_deno_env.get("gid").unwrap().as_i64().unwrap(), 1000);
         assert_eq!(serde_deno_env.get("uid").unwrap().as_i64().unwrap(), 1000);
@@ -1497,7 +1494,7 @@ mod test {
             )
             .unwrap();
         let serde_deno_env =
-            main_rt.to_value::<deno_core::serde_json::Value>(&main_deno_env_get_supa_test);
+            main_rt.to_value_mut::<deno_core::serde_json::Value>(&main_deno_env_get_supa_test);
         assert_eq!(serde_deno_env.unwrap().as_str().unwrap(), "Supa_Value");
 
         // User does not have this env variable because it was not provided
@@ -1516,7 +1513,7 @@ mod test {
             )
             .unwrap();
         let user_serde_deno_env =
-            user_rt.to_value::<deno_core::serde_json::Value>(&user_deno_env_get_supa_test);
+            user_rt.to_value_mut::<deno_core::serde_json::Value>(&user_deno_env_get_supa_test);
         assert!(user_serde_deno_env.unwrap().is_null());
     }
 

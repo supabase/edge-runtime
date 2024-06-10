@@ -391,7 +391,7 @@ const MAKE_HARD_ERR_FN = msg => {
 const DENIED_DENO_FS_API_LIST = ObjectKeys(fsVars)
 	.reduce(
 		(acc, it) => {
-			acc[it] = MAKE_HARD_ERR_FN(`Deno.${acc} is blacklisted`);
+			acc[it] = MAKE_HARD_ERR_FN(`Deno.${it} is blacklisted`);
 			return acc;
 		},
 		{}

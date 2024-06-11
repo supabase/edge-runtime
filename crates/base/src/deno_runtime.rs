@@ -32,6 +32,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::fmt;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::task::Poll;
 use std::time::Duration;
@@ -123,6 +124,7 @@ struct MemCheckState {
     limit: Option<usize>,
     waker: Arc<AtomicWaker>,
     notify: Arc<Notify>,
+    current_bytes: Arc<AtomicUsize>,
 
     #[cfg(debug_assertions)]
     exceeded: Arc<AtomicFlag>,
@@ -155,6 +157,8 @@ impl MemCheckState {
         let total_bytes = malloced_bytes
             .saturating_add(used_heap_bytes)
             .saturating_add(external_bytes);
+
+        self.current_bytes.store(total_bytes, Ordering::Release);
 
         if total_bytes >= limit {
             self.notify.notify_waiters();
@@ -362,6 +366,7 @@ impl DenoRuntime {
             eszip,
             maybe_arc_import_map,
             import_map_path,
+            maybe_inspector.is_some(),
         )
         .await?;
 
@@ -830,19 +835,24 @@ impl DenoRuntime {
         self.maybe_inspector.clone()
     }
 
+    pub fn mem_check_captured_bytes(&self) -> Arc<AtomicUsize> {
+        self.mem_check_state.current_bytes.clone()
+    }
+
     pub fn add_memory_limit_callback<C>(&self, mut cb: C)
     where
         // XXX(Nyannyacha): Should we relax bounds a bit more?
-        C: FnMut() -> bool + Send + 'static,
+        C: FnMut(usize) -> bool + Send + 'static,
     {
         let notify = self.mem_check_state.notify.clone();
         let drop_token = self.mem_check_state.drop_token.clone();
+        let current_bytes = self.mem_check_state.current_bytes.clone();
 
         drop(rt::SUPERVISOR_RT.spawn(async move {
             loop {
                 tokio::select! {
                     _ = notify.notified() => {
-                        if cb() {
+                        if cb(current_bytes.load(Ordering::Acquire)) {
                             break;
                         }
                     }
@@ -1600,7 +1610,7 @@ mod test {
         let waker = user_rt.js_runtime.op_state().borrow().waker.clone();
         let handle = user_rt.js_runtime.v8_isolate().thread_safe_handle();
 
-        user_rt.add_memory_limit_callback(move || {
+        user_rt.add_memory_limit_callback(move |_| {
             handle.terminate_execution();
             waker.wake();
             callback_tx.send(()).unwrap();

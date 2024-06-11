@@ -2,7 +2,6 @@ use crate::deno_runtime::DenoRuntime;
 use crate::inspector_server::Inspector;
 use crate::timeout::{self, CancelOnWriteTimeout, ReadTimeoutStream};
 use crate::utils::send_event_if_event_worker_available;
-use crate::utils::units::bytes_to_display;
 
 use crate::rt_worker::worker::{Worker, WorkerHandler};
 use crate::rt_worker::worker_pool::WorkerPool;
@@ -11,7 +10,8 @@ use cpu_timer::CPUTimer;
 use deno_config::JsxImportSourceConfig;
 use deno_core::{InspectorSessionProxy, LocalInspectorSession};
 use event_worker::events::{
-    BootEvent, ShutdownEvent, WorkerEventWithMetadata, WorkerEvents, WorkerMemoryUsed,
+    BootEvent, MemoryLimitDetail, MemoryLimitDetailMemCheck, MemoryLimitDetailV8, ShutdownEvent,
+    WorkerEventWithMetadata, WorkerEvents, WorkerMemoryUsed,
 };
 use futures_util::pin_mut;
 use http::StatusCode;
@@ -31,6 +31,7 @@ use sb_workers::errors::WorkerError;
 use std::future::pending;
 use std::io::ErrorKind;
 use std::path::PathBuf;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{self, copy_bidirectional};
@@ -260,7 +261,7 @@ pub fn create_supervisor(
     timing: Option<Timing>,
     termination_token: Option<TerminationToken>,
 ) -> Result<(Option<CPUTimer>, CancellationToken), Error> {
-    let (memory_limit_tx, memory_limit_rx) = mpsc::unbounded_channel::<()>();
+    let (memory_limit_tx, memory_limit_rx) = mpsc::unbounded_channel::<MemoryLimitDetail>();
     let (waker, thread_safe_handle) = {
         let js_runtime = &mut worker_runtime.js_runtime;
         (
@@ -271,6 +272,7 @@ pub fn create_supervisor(
 
     // we assert supervisor is only run for user workers
     let conf = worker_runtime.conf.as_user_worker().unwrap().clone();
+    let mem_check_captured_bytes = worker_runtime.mem_check_captured_bytes();
     let is_termination_requested = worker_runtime.is_termination_requested.clone();
 
     let giveup_process_requests_token = cancel.clone();
@@ -292,32 +294,43 @@ pub fn create_supervisor(
         )
     });
 
-    worker_runtime.add_memory_limit_callback({
-        let memory_limit_tx = memory_limit_tx.clone();
-        move || {
-            debug!("Hard memory limit triggered");
+    let send_memory_limit_fn = move |detail: MemoryLimitDetail| {
+        debug!(
+            "memory limit triggered: isolate: {:?}, detail: {}",
+            key, detail
+        );
 
-            if memory_limit_tx.send(()).is_err() {
-                error!("failed to send memory limit reached notification - isolate may already be terminating");
-            }
+        if memory_limit_tx.send(detail).is_err() {
+            error!(
+                "failed to send memory limit reached notification - isolate may already be terminating: kind: {}",
+                <&'static str>::from(&detail)
+            );
+        }
+    };
+
+    worker_runtime.add_memory_limit_callback({
+        let send_fn = send_memory_limit_fn.clone();
+        move |captured| {
+            send_fn(MemoryLimitDetail::MemCheck(MemoryLimitDetailMemCheck {
+                captured,
+            }));
 
             true
         }
     });
 
     worker_runtime.js_runtime.add_near_heap_limit_callback({
-        let memory_limit_tx = memory_limit_tx.clone();
-        move |cur, _| {
-            debug!("Low memory alert triggered: {}", bytes_to_display(cur as u64),);
-
-            if memory_limit_tx.send(()).is_err() {
-                error!("failed to send memory limit reached notification - isolate may already be terminating");
-            }
+        let send_fn = send_memory_limit_fn;
+        move |current, initial| {
+            send_fn(MemoryLimitDetail::V8(MemoryLimitDetailV8 {
+                current,
+                initial,
+            }));
 
             // give an allowance on current limit (until the isolate is
             // terminated) we do this so that oom won't end up killing the
             // edge-runtime process
-            cur * (conf.low_memory_multiplier as usize)
+            current * (conf.low_memory_multiplier as usize)
         }
     });
 
@@ -471,7 +484,9 @@ pub fn create_supervisor(
                     total: v.used_heap_size + v.external_memory,
                     heap: v.used_heap_size,
                     external: v.external_memory,
+                    mem_check_captured: mem_check_captured_bytes.load(Ordering::Acquire),
                 },
+
                 Err(_) => {
                     if !supervise_cancel_token_inner.is_cancelled() {
                         error!("isolate memory usage sender dropped");
@@ -481,6 +496,7 @@ pub fn create_supervisor(
                         total: 0,
                         heap: 0,
                         external: 0,
+                        mem_check_captured: 0,
                     }
                 }
             };

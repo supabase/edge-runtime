@@ -276,16 +276,7 @@ export function machine(): string {
 
 /** Not yet implemented */
 export function setPriority(pid: number, priority?: number) {
-  /* The node API has the 'pid' as the first parameter and as optional.
-       This makes for a problematic implementation in Typescript. */
-  if (priority === undefined) {
-    priority = pid;
-    pid = 0;
-  }
-  validateIntegerRange(pid, "pid");
-  validateIntegerRange(priority, "priority", -20, 19);
-
-  op_node_os_set_priority(pid, priority);
+  throw new Error("Unsupported"); // Same as Deno deploy
 }
 
 /** Returns the operating system's default directory for temporary files as a string. */

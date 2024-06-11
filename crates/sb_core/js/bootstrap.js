@@ -54,6 +54,8 @@ import * as WebGPUSurface from 'ext:deno_webgpu/02_surface.js';
 
 import { core, internals, primordials } from 'ext:core/mod.js';
 
+let globalThis_;
+
 const ops = core.ops;
 const {
 	Error,
@@ -373,11 +375,23 @@ const globalProperties = {
 ObjectDefineProperties(globalThis, globalProperties);
 
 
-const MOCK_FN = () => {/* do nothing */};
+let bootstrapMockFnThrowError = false;
+const MOCK_FN = () => {
+	if (bootstrapMockFnThrowError) {
+		throw new TypeError("called MOCK_FN");
+	}	
+};
+
+const MAKE_HARD_ERR_FN = msg => {
+	return () => {
+		throw new globalThis_.Deno.errors.PermissionDenied(msg);
+	};
+};
+
 const DENIED_DENO_FS_API_LIST = ObjectKeys(fsVars)
 	.reduce(
 		(acc, it) => {
-			acc[it] = false;
+			acc[it] = MAKE_HARD_ERR_FN(`Deno.${it} is blocklisted`);
 			return acc;
 		},
 		{}
@@ -397,11 +411,14 @@ const PATCH_DENO_API_LIST = {
 	'addSignalListener': MOCK_FN,
 	'removeSignalListener': MOCK_FN,
 
+	// TODO: use a non-hardcoded path
 	'execPath': () => '/bin/edge-runtime',
 	'memoryUsage': () => ops.op_runtime_memory_usage(),
 };
 
-globalThis.bootstrapSBEdge = opts => {
+globalThis.bootstrapSBEdge = (opts, extraCtx) => {
+	globalThis_ = globalThis;
+
 	// We should delete this after initialization,
 	// Deleting it during bootstrapping can backfire
 	delete globalThis.__bootstrap;
@@ -426,6 +443,7 @@ globalThis.bootstrapSBEdge = opts => {
 
 	deprecatedApiWarningDisabled = shouldDisableDeprecatedApiWarning;
 	verboseDeprecatedApiWarning = shouldUseVerboseDeprecatedApiWarning;
+	bootstrapMockFnThrowError = extraCtx?.shouldBootstrapMockFnThrowError ?? false;
 
 	runtimeStart(target);
 
@@ -441,6 +459,7 @@ globalThis.bootstrapSBEdge = opts => {
 		mainModule: getterOnly(() => ops.op_main_module()),
 		version: getterOnly(() => ({
 			deno:
+				// TODO: It should be changed to a well-known name for the ecosystem.
 				`supabase-edge-runtime-${globalThis.SUPABASE_VERSION} (compatible with Deno v${globalThis.DENO_VERSION})`,
 			v8: '11.6.189.12',
 			typescript: '5.1.6',
@@ -450,6 +469,7 @@ globalThis.bootstrapSBEdge = opts => {
 
 	setNumCpus(1); // explicitly setting no of CPUs to 1 (since we don't allow workers)
 	setUserAgent(
+		// TODO: It should be changed to a well-known name for the ecosystem.
 		`Deno/${globalThis.DENO_VERSION} (variant; SupabaseEdgeRuntime/${globalThis.SUPABASE_VERSION})`,
 	);
 	setLanguage('en');

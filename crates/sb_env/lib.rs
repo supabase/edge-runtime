@@ -6,6 +6,7 @@ use sb_core::permissions::Permissions;
 use sb_node::NODE_ENV_VAR_ALLOWLIST;
 use std::collections::HashMap;
 
+// NOTE(Nyannyacha): This declaration does not create a unique TypeId and is therefore unsafe.
 pub type EnvVars = HashMap<String, String>;
 
 deno_core::extension!(

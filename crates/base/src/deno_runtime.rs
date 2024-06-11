@@ -12,8 +12,8 @@ use deno_core::error::AnyError;
 use deno_core::url::Url;
 use deno_core::v8::{GCCallbackFlags, GCType, HeapStatistics, Isolate};
 use deno_core::{
-    located_script_name, serde_json, serde_v8, JsRuntime, ModuleCodeString, ModuleId,
-    PollEventLoopOptions, RuntimeOptions,
+    located_script_name, serde_json, JsRuntime, ModuleCodeString, ModuleId, PollEventLoopOptions,
+    RuntimeOptions,
 };
 use deno_http::DefaultHttpPropertyExtractor;
 use deno_tls::deno_native_certs::load_native_certs;
@@ -27,11 +27,12 @@ use once_cell::sync::{Lazy, OnceCell};
 use sb_core::http::sb_core_http;
 use sb_core::http_start::sb_core_http_start;
 use sb_core::util::sync::AtomicFlag;
-use serde::de::DeserializeOwned;
+use serde::Serialize;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::fmt;
+use std::marker::PhantomData;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::task::Poll;
@@ -71,16 +72,11 @@ static SUPABASE_UA: Lazy<String> = Lazy::new(|| {
     let deno_version = MAYBE_DENO_VERSION.get().map(|it| &**it).unwrap_or("1.0.0");
     let supabase_version = option_env!("GIT_V_TAG").unwrap_or("0.1.0");
     format!(
+        // TODO: It should be changed to a well-known name for the ecosystem.
         "Deno/{} (variant; SupabaseEdgeRuntime/{})",
         deno_version, supabase_version
     )
 });
-
-static SHOULD_DISABLE_DEPRECATED_API_WARNING: Lazy<bool> =
-    Lazy::new(|| std::env::var("DENO_NO_DEPRECATION_WARNINGS").ok().is_some());
-
-static SHOULD_USE_VERBOSE_DEPRECATED_API_WARNING: Lazy<bool> =
-    Lazy::new(|| std::env::var("DENO_VERBOSE_WARNINGS").ok().is_some());
 
 static ALLOC_CHECK_DUR: Lazy<Duration> = Lazy::new(|| {
     std::env::var("EDGE_RUNTIME_ALLOC_CHECK_INT")
@@ -89,6 +85,10 @@ static ALLOC_CHECK_DUR: Lazy<Duration> = Lazy::new(|| {
         .unwrap_or_else(|| Duration::from_millis(DEFAULT_ALLOC_CHECK_INT_MSEC))
 });
 
+// Following static variables are initialized in the cli crate.
+
+pub static SHOULD_DISABLE_DEPRECATED_API_WARNING: OnceCell<bool> = OnceCell::new();
+pub static SHOULD_USE_VERBOSE_DEPRECATED_API_WARNING: OnceCell<bool> = OnceCell::new();
 pub static MAYBE_DENO_VERSION: OnceCell<String> = OnceCell::new();
 
 #[ctor]
@@ -179,7 +179,17 @@ impl MemCheckState {
     }
 }
 
-pub struct DenoRuntime {
+pub trait GetRuntimeContext {
+    fn get_runtime_context() -> impl Serialize;
+}
+
+impl GetRuntimeContext for () {
+    fn get_runtime_context() -> impl Serialize {
+        serde_json::json!(null)
+    }
+}
+
+pub struct DenoRuntime<RuntimeContext = ()> {
     pub js_runtime: JsRuntime,
     pub env_vars: HashMap<String, String>, // TODO: does this need to be pub?
     pub conf: WorkerRuntimeOpts,
@@ -193,9 +203,11 @@ pub struct DenoRuntime {
 
     mem_check_state: Arc<MemCheckState>,
     waker: Arc<AtomicWaker>,
+
+    _phantom_runtime_context: PhantomData<RuntimeContext>,
 }
 
-impl Drop for DenoRuntime {
+impl<RuntimeContext> Drop for DenoRuntime<RuntimeContext> {
     fn drop(&mut self) {
         if self.conf.is_user_worker() {
             self.js_runtime.v8_isolate().remove_gc_prologue_callback(
@@ -206,7 +218,10 @@ impl Drop for DenoRuntime {
     }
 }
 
-impl DenoRuntime {
+impl<RuntimeContext> DenoRuntime<RuntimeContext>
+where
+    RuntimeContext: GetRuntimeContext,
+{
     #[allow(clippy::unnecessary_literal_unwrap)]
     #[allow(clippy::arc_with_non_send_sync)]
     pub async fn new(
@@ -479,8 +494,8 @@ impl DenoRuntime {
         let version: Option<&str> = option_env!("GIT_V_TAG");
 
         {
-            // @andreespirela : We do this because "NODE_DEBUG" is trying to be read during initialization,
-            // But we need the gotham state to be up-to-date
+            // @andreespirela : We do this because "NODE_DEBUG" is trying to be read during
+            // initialization, But we need the gotham state to be up-to-date
             let op_state_rc = js_runtime.op_state();
             let mut op_state = op_state_rc.borrow_mut();
             op_state.put::<sb_env::EnvVars>(sb_env::EnvVars::new());
@@ -488,7 +503,7 @@ impl DenoRuntime {
 
         // Bootstrapping stage
         let script = format!(
-            "globalThis.bootstrapSBEdge({})",
+            "globalThis.bootstrapSBEdge({}, {})",
             serde_json::json!([
                 // 0: target
                 env!("TARGET"),
@@ -504,10 +519,17 @@ impl DenoRuntime {
                     .map(|it| &**it)
                     .unwrap_or("UNKNOWN"),
                 // 5: shouldDisableDeprecatedApiWarning
-                &*SHOULD_DISABLE_DEPRECATED_API_WARNING,
+                SHOULD_DISABLE_DEPRECATED_API_WARNING
+                    .get()
+                    .copied()
+                    .unwrap_or_default(),
                 // 6: shouldUseVerboseDeprecatedApiWarning
-                &*SHOULD_USE_VERBOSE_DEPRECATED_API_WARNING,
-            ])
+                SHOULD_USE_VERBOSE_DEPRECATED_API_WARNING
+                    .get()
+                    .copied()
+                    .unwrap_or_default(),
+            ]),
+            serde_json::json!(RuntimeContext::get_runtime_context())
         );
 
         if let Some(inspector) = maybe_inspector.clone() {
@@ -621,6 +643,8 @@ impl DenoRuntime {
 
             mem_check_state,
             waker: Arc::default(),
+
+            _phantom_runtime_context: PhantomData,
         })
     }
 
@@ -877,21 +901,6 @@ impl DenoRuntime {
             }
         }
     }
-
-    #[allow(clippy::wrong_self_convention)]
-    // TODO: figure out why rustc complains about this
-    #[allow(dead_code)]
-    fn to_value<T>(
-        &mut self,
-        global_value: &deno_core::v8::Global<deno_core::v8::Value>,
-    ) -> Result<T, AnyError>
-    where
-        T: DeserializeOwned + 'static,
-    {
-        let scope = &mut self.js_runtime.handle_scope();
-        let value = deno_core::v8::Local::new(scope, global_value.clone());
-        Ok(serde_v8::from_v8(scope, value)?)
-    }
 }
 
 fn get_current_cpu_time_ns() -> Result<i64, Error> {
@@ -931,13 +940,16 @@ mod test {
     use crate::deno_runtime::DenoRuntime;
     use crate::rt_worker::worker::DuplexStreamEntry;
     use deno_config::JsxImportSourceConfig;
-    use deno_core::{FastString, ModuleCodeString, PollEventLoopOptions};
+    use deno_core::error::AnyError;
+    use deno_core::{serde_json, serde_v8, v8, FastString, ModuleCodeString, PollEventLoopOptions};
     use sb_graph::emitter::EmitterFactory;
     use sb_graph::{generate_binary_eszip, EszipPayloadKind};
     use sb_workers::context::{
         MainWorkerRuntimeOpts, UserWorkerMsgs, UserWorkerRuntimeOpts, WorkerContextInitOpts,
         WorkerRuntimeOpts,
     };
+    use serde::de::DeserializeOwned;
+    use serde::Serialize;
     use serial_test::serial;
     use std::collections::HashMap;
     use std::fs;
@@ -948,13 +960,27 @@ mod test {
     use std::time::Duration;
     use tokio::sync::mpsc;
     use tokio::time::timeout;
+    use url::Url;
+
+    use super::GetRuntimeContext;
+
+    impl<RuntimeContext> DenoRuntime<RuntimeContext> {
+        fn to_value_mut<T>(&mut self, global_value: &v8::Global<v8::Value>) -> Result<T, AnyError>
+        where
+            T: DeserializeOwned + 'static,
+        {
+            let scope = &mut self.js_runtime.handle_scope();
+            let value = v8::Local::new(scope, global_value.clone());
+            Ok(serde_v8::from_v8(scope, value)?)
+        }
+    }
 
     #[tokio::test]
     #[serial]
     async fn test_module_code_no_eszip() {
         let (worker_pool_tx, _) = mpsc::unbounded_channel::<UserWorkerMsgs>();
 
-        DenoRuntime::new(
+        DenoRuntime::<()>::new(
             WorkerContextInitOpts {
                 service_path: PathBuf::from("./test_cases/"),
                 no_module_cache: false,
@@ -1001,7 +1027,7 @@ mod test {
 
         let eszip_code = bin_eszip.into_bytes();
 
-        let runtime = DenoRuntime::new(
+        let runtime = DenoRuntime::<()>::new(
             WorkerContextInitOpts {
                 service_path: PathBuf::from("./test_cases/"),
                 no_module_cache: false,
@@ -1031,10 +1057,7 @@ mod test {
         let main_mod_ev = rt.js_runtime.mod_evaluate(rt.main_module_id);
         let _ = rt
             .js_runtime
-            .run_event_loop(PollEventLoopOptions {
-                wait_for_inspector: false,
-                pump_v8_message_loop: true,
-            })
+            .run_event_loop(PollEventLoopOptions::default())
             .await;
 
         let read_is_even_global = rt
@@ -1049,7 +1072,7 @@ mod test {
                 ),
             )
             .unwrap();
-        let read_is_even = rt.to_value::<deno_core::serde_json::Value>(&read_is_even_global);
+        let read_is_even = rt.to_value_mut::<serde_json::Value>(&read_is_even_global);
         assert_eq!(read_is_even.unwrap().to_string(), "false");
         std::mem::drop(main_mod_ev);
     }
@@ -1068,7 +1091,7 @@ mod test {
 
         let eszip_code = binary_eszip.into_bytes();
 
-        let runtime = DenoRuntime::new(
+        let runtime = DenoRuntime::<()>::new(
             WorkerContextInitOpts {
                 service_path,
                 no_module_cache: false,
@@ -1098,10 +1121,7 @@ mod test {
         let main_mod_ev = rt.js_runtime.mod_evaluate(rt.main_module_id);
         let _ = rt
             .js_runtime
-            .run_event_loop(PollEventLoopOptions {
-                wait_for_inspector: false,
-                pump_v8_message_loop: true,
-            })
+            .run_event_loop(PollEventLoopOptions::default())
             .await;
 
         let read_is_even_global = rt
@@ -1116,18 +1136,21 @@ mod test {
                 ),
             )
             .unwrap();
-        let read_is_even = rt.to_value::<deno_core::serde_json::Value>(&read_is_even_global);
+        let read_is_even = rt.to_value_mut::<serde_json::Value>(&read_is_even_global);
         assert_eq!(read_is_even.unwrap().to_string(), "true");
         std::mem::drop(main_mod_ev);
     }
 
-    async fn create_runtime(
+    async fn create_runtime<C>(
         path: Option<&str>,
         env_vars: Option<HashMap<String, String>>,
         user_conf: Option<WorkerRuntimeOpts>,
         static_patterns: Vec<String>,
         maybe_jsx_import_source_config: Option<JsxImportSourceConfig>,
-    ) -> DenoRuntime {
+    ) -> DenoRuntime<C>
+    where
+        C: GetRuntimeContext,
+    {
         let (worker_pool_tx, _) = mpsc::unbounded_channel::<UserWorkerMsgs>();
 
         DenoRuntime::new(
@@ -1169,15 +1192,15 @@ mod test {
     #[tokio::test]
     #[serial]
     async fn test_main_runtime_creation() {
-        let mut runtime = create_runtime(None, None, None, vec![], None).await;
+        let mut runtime = create_runtime::<()>(None, None, None, vec![], None).await;
 
         {
             let scope = &mut runtime.js_runtime.handle_scope();
             let context = scope.get_current_context();
-            let inner_scope = &mut deno_core::v8::ContextScope::new(scope, context);
+            let inner_scope = &mut v8::ContextScope::new(scope, context);
             let global = context.global(inner_scope);
-            let edge_runtime_key: deno_core::v8::Local<deno_core::v8::Value> =
-                deno_core::serde_v8::to_v8(inner_scope, "EdgeRuntime").unwrap();
+            let edge_runtime_key: v8::Local<v8::Value> =
+                serde_v8::to_v8(inner_scope, "EdgeRuntime").unwrap();
             assert!(!global
                 .get(inner_scope, edge_runtime_key)
                 .unwrap()
@@ -1189,7 +1212,7 @@ mod test {
     #[tokio::test]
     #[serial]
     async fn test_user_runtime_creation() {
-        let mut runtime = create_runtime(
+        let mut runtime = create_runtime::<()>(
             None,
             None,
             Some(WorkerRuntimeOpts::UserWorker(Default::default())),
@@ -1201,10 +1224,10 @@ mod test {
         {
             let scope = &mut runtime.js_runtime.handle_scope();
             let context = scope.get_current_context();
-            let inner_scope = &mut deno_core::v8::ContextScope::new(scope, context);
+            let inner_scope = &mut v8::ContextScope::new(scope, context);
             let global = context.global(inner_scope);
-            let edge_runtime_key: deno_core::v8::Local<deno_core::v8::Value> =
-                deno_core::serde_v8::to_v8(inner_scope, "EdgeRuntime").unwrap();
+            let edge_runtime_key: v8::Local<v8::Value> =
+                serde_v8::to_v8(inner_scope, "EdgeRuntime").unwrap();
             assert!(global
                 .get(inner_scope, edge_runtime_key)
                 .unwrap()
@@ -1216,7 +1239,7 @@ mod test {
     #[serial]
     async fn test_main_rt_fs() {
         let mut main_rt =
-            create_runtime(None, Some(std::env::vars().collect()), None, vec![], None).await;
+            create_runtime::<()>(None, Some(std::env::vars().collect()), None, vec![], None).await;
 
         let global_value_deno_read_file_script = main_rt
             .js_runtime
@@ -1231,17 +1254,17 @@ mod test {
             )
             .unwrap();
         let fs_read_result =
-            main_rt.to_value::<deno_core::serde_json::Value>(&global_value_deno_read_file_script);
+            main_rt.to_value_mut::<serde_json::Value>(&global_value_deno_read_file_script);
         assert_eq!(
             fs_read_result.unwrap().as_str().unwrap(),
             "{\n  \"hello\": \"world\"\n}"
         );
     }
-    /*
+
     #[tokio::test]
     #[serial]
     async fn test_jsx_import_source() {
-        let mut main_rt = create_runtime(
+        let mut main_rt = create_runtime::<()>(
             Some("./test_cases/jsx-preact"),
             Some(std::env::vars().collect()),
             None,
@@ -1258,10 +1281,7 @@ mod test {
         let _main_mod_ev = main_rt.js_runtime.mod_evaluate(main_rt.main_module_id);
         let _ = main_rt
             .js_runtime
-            .run_event_loop(PollEventLoopOptions {
-                wait_for_inspector: false,
-                pump_v8_message_loop: true,
-            })
+            .run_event_loop(PollEventLoopOptions::default())
             .await;
 
         let global_value_deno_read_file_script = main_rt
@@ -1278,12 +1298,12 @@ mod test {
             .unwrap();
 
         let jsx_read_result =
-            main_rt.to_value::<deno_core::serde_json::Value>(&global_value_deno_read_file_script);
+            main_rt.to_value_mut::<serde_json::Value>(&global_value_deno_read_file_script);
         assert_eq!(
             jsx_read_result.unwrap().to_string(),
             r#"{"type":"div","props":{"children":"Hello"},"__k":null,"__":null,"__b":0,"__e":null,"__c":null,"__v":-1,"__i":-1,"__u":0}"#
         );
-    }*/
+    }
 
     // #[tokio::test]
     // async fn test_node_builtin_imports() {
@@ -1313,7 +1333,7 @@ mod test {
     #[tokio::test]
     #[serial]
     async fn test_static_fs() {
-        let mut user_rt = create_runtime(
+        let mut user_rt = create_runtime::<()>(
             None,
             None,
             Some(WorkerRuntimeOpts::UserWorker(Default::default())),
@@ -1332,7 +1352,7 @@ mod test {
             )
             .unwrap();
         let serde_deno_env = user_rt
-            .to_value::<deno_core::serde_json::Value>(&user_rt_execute_scripts)
+            .to_value_mut::<serde_json::Value>(&user_rt_execute_scripts)
             .unwrap();
 
         assert_eq!(
@@ -1344,7 +1364,7 @@ mod test {
     #[tokio::test]
     #[serial]
     async fn test_os_ops() {
-        let mut user_rt = create_runtime(
+        let mut user_rt = create_runtime::<()>(
             None,
             None,
             Some(WorkerRuntimeOpts::UserWorker(Default::default())),
@@ -1379,7 +1399,7 @@ mod test {
             )
             .unwrap();
         let serde_deno_env = user_rt
-            .to_value::<deno_core::serde_json::Value>(&user_rt_execute_scripts)
+            .to_value_mut::<serde_json::Value>(&user_rt_execute_scripts)
             .unwrap();
         assert_eq!(serde_deno_env.get("gid").unwrap().as_i64().unwrap(), 1000);
         assert_eq!(serde_deno_env.get("uid").unwrap().as_i64().unwrap(), 1000);
@@ -1471,8 +1491,9 @@ mod test {
     async fn test_os_env_vars() {
         std::env::set_var("Supa_Test", "Supa_Value");
         let mut main_rt =
-            create_runtime(None, Some(std::env::vars().collect()), None, vec![], None).await;
-        let mut user_rt = create_runtime(
+            create_runtime::<()>(None, Some(std::env::vars().collect()), None, vec![], None).await;
+
+        let mut user_rt = create_runtime::<()>(
             None,
             None,
             Some(WorkerRuntimeOpts::UserWorker(Default::default())),
@@ -1515,7 +1536,7 @@ mod test {
             )
             .unwrap();
         let serde_deno_env =
-            main_rt.to_value::<deno_core::serde_json::Value>(&main_deno_env_get_supa_test);
+            main_rt.to_value_mut::<serde_json::Value>(&main_deno_env_get_supa_test);
         assert_eq!(serde_deno_env.unwrap().as_str().unwrap(), "Supa_Value");
 
         // User does not have this env variable because it was not provided
@@ -1534,17 +1555,30 @@ mod test {
             )
             .unwrap();
         let user_serde_deno_env =
-            user_rt.to_value::<deno_core::serde_json::Value>(&user_deno_env_get_supa_test);
+            user_rt.to_value_mut::<serde_json::Value>(&user_deno_env_get_supa_test);
         assert!(user_serde_deno_env.unwrap().is_null());
     }
 
-    async fn create_basic_user_runtime(
+    async fn create_basic_user_runtime<C, T, U>(
         path: &str,
-        memory_limit_mb: u64,
-        worker_timeout_ms: u64,
+        memory_limit_mb: T,
+        worker_timeout_ms: U,
         static_patterns: &[&str],
-    ) -> DenoRuntime {
-        create_runtime(
+    ) -> DenoRuntime<C>
+    where
+        C: GetRuntimeContext,
+        T: Into<Option<u64>>,
+        U: Into<Option<u64>>,
+    {
+        let default_opt = UserWorkerRuntimeOpts::default();
+        let memory_limit_mb = memory_limit_mb
+            .into()
+            .unwrap_or(default_opt.memory_limit_mb);
+        let worker_timeout_ms = worker_timeout_ms
+            .into()
+            .unwrap_or(default_opt.worker_timeout_ms);
+
+        create_runtime::<C>(
             Some(path),
             None,
             Some(WorkerRuntimeOpts::UserWorker(UserWorkerRuntimeOpts {
@@ -1553,7 +1587,7 @@ mod test {
                 cpu_time_soft_limit_ms: 100,
                 cpu_time_hard_limit_ms: 200,
                 force_create: true,
-                ..Default::default()
+                ..default_opt
             })),
             static_patterns.iter().map(|it| String::from(*it)).collect(),
             None,
@@ -1564,7 +1598,7 @@ mod test {
     #[tokio::test]
     #[serial]
     async fn test_array_buffer_allocation_below_limit() {
-        let mut user_rt =
+        let mut user_rt: DenoRuntime =
             create_basic_user_runtime("./test_cases/array_buffers", 20, 1000, &[]).await;
 
         let (_tx, duplex_stream_rx) = mpsc::unbounded_channel::<DuplexStreamEntry>();
@@ -1579,7 +1613,7 @@ mod test {
     #[tokio::test]
     #[serial]
     async fn test_array_buffer_allocation_above_limit() {
-        let mut user_rt =
+        let mut user_rt: DenoRuntime =
             create_basic_user_runtime("./test_cases/array_buffers", 15, 1000, &[]).await;
 
         let (_tx, duplex_stream_rx) = mpsc::unbounded_channel::<DuplexStreamEntry>();
@@ -1603,7 +1637,7 @@ mod test {
     ) {
         let (_duplex_stream_tx, duplex_stream_rx) = mpsc::unbounded_channel::<DuplexStreamEntry>();
         let (callback_tx, mut callback_rx) = mpsc::unbounded_channel::<()>();
-        let mut user_rt =
+        let mut user_rt: DenoRuntime =
             create_basic_user_runtime(path, memory_limit_mb, worker_timeout_ms, static_patterns)
                 .await;
 
@@ -1693,5 +1727,31 @@ mod test {
             1000,
         )
         .await;
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_user_worker_permission() {
+        struct Ctx;
+
+        impl GetRuntimeContext for Ctx {
+            fn get_runtime_context() -> impl Serialize {
+                serde_json::json!({
+                    "shouldBootstrapMockFnThrowError": true,
+                })
+            }
+        }
+
+        let mut user_rt: DenoRuntime<Ctx> = create_basic_user_runtime(
+            "./test_cases/user-worker-san-check",
+            None,
+            None,
+            &["./test_cases/user-worker-san-check/.blocklisted"],
+        )
+        .await;
+
+        let (_tx, duplex_stream_rx) = mpsc::unbounded_channel();
+
+        user_rt.run(duplex_stream_rx, None, None).await.0.unwrap();
     }
 }

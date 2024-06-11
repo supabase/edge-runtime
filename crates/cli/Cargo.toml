@@ -14,10 +14,11 @@ base = { path = "../base" }
 deno_core = { workspace = true }
 clap = { version = "4.0.29", features = ["cargo", "string", "env"] }
 env_logger = "0.10.0"
-log = { workspace = true }
+log.workspace = true
 sb_graph = { path = "../sb_graph" }
 tokio.workspace = true
 glob.workspace = true
+once_cell.workspace = true
 tracing-subscriber = { version = "0.3", optional = true, features = ["env-filter", "tracing-log"] }
 
 [build-dependencies]

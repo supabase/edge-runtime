@@ -20,7 +20,7 @@ const osCallsVars = {
 	Command: osCalls.command,
 	version: osCalls.version,
 	networkInterfaces: osCalls.networkInterfaces,
-	execPath: () => '/bin/deno', // TODO: use a non-hardcoded path
+	execPath: () => '/bin/deno',
 };
 
 const fsVars = {

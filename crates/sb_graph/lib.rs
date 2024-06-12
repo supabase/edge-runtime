@@ -619,9 +619,13 @@ pub async fn generate_binary_eszip(
     let source_code: Arc<str> = if let Some(code) = maybe_module_code {
         code.as_str().into()
     } else {
-        let entry_content = RealFs.read_file_sync(fs_path.clone().as_path()).unwrap();
+        let entry_content = RealFs
+            .read_file_sync(fs_path.clone().as_path(), None)
+            .unwrap();
+
         String::from_utf8(entry_content.clone())?.into()
     };
+
     let emit_source = emitter_factory.emitter().unwrap().emit_parsed_source(
         &ModuleSpecifier::parse(
             &Url::from_file_path(&fs_path)

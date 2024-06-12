@@ -51,6 +51,7 @@ impl DenoCompileFileSystem {
                     create_new: false,
                     mode: None,
                 },
+                None,
                 old_file_bytes,
             )
             .await

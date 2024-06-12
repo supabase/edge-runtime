@@ -1,42 +1,59 @@
-use deno_ast::{MediaType, ParseParams, SourceTextInfo};
+use deno_ast::{MediaType, ParseParams, SourceMapOption, SourceTextInfo};
 use deno_core::error::AnyError;
-use deno_core::{ExtensionFileSource, ExtensionFileSourceCode};
+use deno_core::{ModuleCodeString, ModuleName, SourceMapData};
 use std::path::Path;
 
 pub fn maybe_transpile_source(
-    source: &mut ExtensionFileSource,
-) -> Result<&mut ExtensionFileSource, AnyError> {
-    let media_type = if source.specifier.starts_with("node:") {
+    name: ModuleName,
+    source: ModuleCodeString,
+) -> Result<(ModuleCodeString, Option<SourceMapData>), AnyError> {
+    // Always transpile `node:` built-in modules, since they might be TypeScript.
+    let media_type = if name.starts_with("node:") {
         MediaType::TypeScript
     } else {
-        MediaType::from_path(Path::new(&source.specifier))
+        MediaType::from_path(Path::new(&name))
     };
 
     match media_type {
         MediaType::TypeScript => {}
-        MediaType::JavaScript => return Ok(source),
-        MediaType::Mjs => return Ok(source),
+        MediaType::JavaScript => return Ok((source, None)),
+        MediaType::Mjs => return Ok((source, None)),
         _ => panic!(
             "Unsupported media type for snapshotting {media_type:?} for file {}",
-            source.specifier
+            name
         ),
     }
-    let code = source.load()?;
 
     let parsed = deno_ast::parse_module(ParseParams {
-        specifier: source.specifier.to_string(),
-        text_info: SourceTextInfo::from_string(code.as_str().to_owned()),
+        specifier: deno_core::url::Url::parse(&name).unwrap(),
+        text_info: SourceTextInfo::from_string(source.as_str().to_owned()),
         media_type,
         capture_tokens: false,
         scope_analysis: false,
         maybe_syntax: None,
     })?;
-    let transpiled_source = parsed.transpile(&deno_ast::EmitOptions {
-        imports_not_used_as_values: deno_ast::ImportsNotUsedAsValues::Remove,
-        inline_source_map: false,
-        ..Default::default()
-    })?;
+    let transpiled_source = parsed
+        .transpile(
+            &deno_ast::TranspileOptions {
+                imports_not_used_as_values: deno_ast::ImportsNotUsedAsValues::Remove,
+                use_ts_decorators: true,
+                ..Default::default()
+            },
+            &deno_ast::EmitOptions {
+                inline_sources: false,
+                source_map: if cfg!(debug_assertions) {
+                    SourceMapOption::Separate
+                } else {
+                    SourceMapOption::None
+                },
+                ..Default::default()
+            },
+        )?
+        .into_source();
 
-    source.code = ExtensionFileSourceCode::Computed(transpiled_source.text.into());
-    Ok(source)
+    let maybe_source_map: Option<SourceMapData> = transpiled_source
+        .source_map
+        .map(|sm| sm.into_bytes().into());
+
+    Ok((transpiled_source.text.into(), maybe_source_map))
 }

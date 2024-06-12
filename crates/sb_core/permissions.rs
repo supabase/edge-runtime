@@ -1,6 +1,7 @@
 use deno_core::error::{custom_error, AnyError};
 use deno_core::url::Url;
 use deno_fs::OpenOptions;
+use std::borrow::Cow;
 use std::path::Path;
 
 pub struct Permissions {
@@ -109,6 +110,17 @@ impl deno_websocket::WebSocketPermissions for Permissions {
 /// Some sort of permission before main is boostrapped should be put in place
 
 impl deno_fs::FsPermissions for Permissions {
+    fn check_open<'a>(
+        &mut self,
+        _resolved: bool,
+        _read: bool,
+        _write: bool,
+        path: &'a Path,
+        _api_name: &str,
+    ) -> Result<Cow<'a, Path>, deno_io::fs::FsError> {
+        Ok(Cow::Borrowed(path))
+    }
+
     fn check_read(&mut self, _path: &Path, _api_name: &str) -> Result<(), AnyError> {
         Ok(())
     }
@@ -147,13 +159,20 @@ impl deno_fs::FsPermissions for Permissions {
         Ok(())
     }
 
-    fn check(
+    fn check<'a>(
         &mut self,
-        _open_options: &OpenOptions,
-        _path: &Path,
-        _api_name: &str,
-    ) -> Result<(), AnyError> {
-        Ok(())
+        resolved: bool,
+        open_options: &OpenOptions,
+        path: &'a Path,
+        api_name: &str,
+    ) -> Result<Cow<'a, Path>, deno_io::fs::FsError> {
+        self.check_open(
+            resolved,
+            open_options.read,
+            open_options.write || open_options.append,
+            path,
+            api_name,
+        )
     }
 }
 

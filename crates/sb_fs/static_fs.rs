@@ -1,6 +1,6 @@
 use crate::{EszipStaticFiles, FileBackedVfs};
 use deno_core::normalize_path;
-use deno_fs::{FsDirEntry, FsFileType, OpenOptions};
+use deno_fs::{AccessCheckCb, FsDirEntry, FsFileType, OpenOptions};
 use deno_io::fs::{File, FsError, FsResult, FsStat};
 use deno_npm::resolution::ValidSerializedNpmResolutionSnapshot;
 use std::fmt::Debug;
@@ -59,7 +59,12 @@ impl deno_fs::FileSystem for StaticFs {
         Err(FsError::NotSupported)
     }
 
-    fn open_sync(&self, path: &Path, _options: OpenOptions) -> FsResult<Rc<dyn File>> {
+    fn open_sync(
+        &self,
+        path: &Path,
+        _options: OpenOptions,
+        _access_check: Option<AccessCheckCb>,
+    ) -> FsResult<Rc<dyn File>> {
         if self.vfs.is_path_within(path) {
             Ok(self.vfs.open_file(path)?)
         } else {
@@ -67,7 +72,12 @@ impl deno_fs::FileSystem for StaticFs {
         }
     }
 
-    async fn open_async(&self, path: PathBuf, _options: OpenOptions) -> FsResult<Rc<dyn File>> {
+    async fn open_async<'a>(
+        &'a self,
+        path: PathBuf,
+        _options: OpenOptions,
+        _access_check: Option<AccessCheckCb<'a>>,
+    ) -> FsResult<Rc<dyn File>> {
         if self.vfs.is_path_within(&path) {
             Ok(self.vfs.open_file(&path)?)
         } else {
@@ -272,11 +282,15 @@ impl deno_fs::FileSystem for StaticFs {
         Err(FsError::NotSupported)
     }
 
-    fn read_file_sync(&self, path: &Path) -> FsResult<Vec<u8>> {
+    fn read_file_sync(
+        &self,
+        path: &Path,
+        _access_check: Option<AccessCheckCb>,
+    ) -> FsResult<Vec<u8>> {
         let is_npm = self.is_valid_npm_package(path);
         if is_npm {
             let options = OpenOptions::read();
-            let file = self.open_sync(path, options)?;
+            let file = self.open_sync(path, options, None)?;
             let buf = file.read_all_sync()?;
             Ok(buf)
         } else {
@@ -296,7 +310,11 @@ impl deno_fs::FileSystem for StaticFs {
         }
     }
 
-    async fn read_file_async(&self, path: PathBuf) -> FsResult<Vec<u8>> {
-        self.read_file_sync(path.as_path())
+    async fn read_file_async<'a>(
+        &'a self,
+        path: PathBuf,
+        access_check: Option<AccessCheckCb<'a>>,
+    ) -> FsResult<Vec<u8>> {
+        self.read_file_sync(path.as_path(), access_check)
     }
 }

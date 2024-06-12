@@ -4,7 +4,6 @@ use deno_core::op2;
 use deno_core::AsyncRefCell;
 use deno_core::AsyncResult;
 use deno_core::CancelHandle;
-use deno_core::Op;
 use deno_core::OpState;
 use deno_core::Resource;
 use deno_core::ResourceId;
@@ -159,16 +158,17 @@ pub fn op_net_unsupported(_state: &mut OpState) -> Result<(), AnyError> {
 deno_core::extension!(
     sb_core_net,
     middleware = |op| match op.name {
-        "op_net_listen_tcp" => op_net_listen::DECL,
-        "op_net_accept_tcp" => op_net_accept::DECL,
+        "op_net_listen_tcp" => op.with_implementation_from(&op_net_listen()),
+        "op_net_accept_tcp" => op.with_implementation_from(&op_net_accept()),
 
         // disable listening on TLS, UDP and Unix sockets
-        "op_net_listen_tls" => op_net_unsupported::DECL,
-        "op_net_listen_udp" => op_net_unsupported::DECL,
-        "op_node_unstable_net_listen_udp" => op_net_unsupported::DECL,
-        "op_net_listen_unix" => op_net_unsupported::DECL,
-        "op_net_listen_unixpacket" => op_net_unsupported::DECL,
-        "op_node_unstable_net_listen_unixpacket" => op_net_unsupported::DECL,
+        "op_net_listen_tls" => op.with_implementation_from(&op_net_unsupported()),
+        "op_net_listen_udp" => op.with_implementation_from(&op_net_unsupported()),
+        "op_node_unstable_net_listen_udp" => op.with_implementation_from(&op_net_unsupported()),
+        "op_net_listen_unix" => op.with_implementation_from(&op_net_unsupported()),
+        "op_net_listen_unixpacket" => op.with_implementation_from(&op_net_unsupported()),
+        "op_node_unstable_net_listen_unixpacket" =>
+            op.with_implementation_from(&op_net_unsupported()),
         _ => op,
     }
 );

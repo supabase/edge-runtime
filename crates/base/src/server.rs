@@ -380,6 +380,7 @@ impl Server {
 
         let jsx_config = jsx_module.map(|jsx_mod| JsxImportSourceConfig {
             default_specifier: jsx_specifier,
+            default_types_specifier: None,
             module: jsx_mod,
             base_url: Url::from_file_path(std::env::current_dir().unwrap()).unwrap(),
         });

@@ -1,7 +1,7 @@
 use crate::graph_resolver::{CliGraphResolver, CliGraphResolverOptions};
 use crate::jsx_util::{get_jsx_emit_opts, get_rt_from_jsx};
 use crate::DecoratorType;
-use deno_ast::EmitOptions;
+use deno_ast::{EmitOptions, SourceMapOption, TranspileOptions};
 use deno_config::JsxImportSourceConfig;
 use deno_core::error::AnyError;
 use deno_core::parking_lot::Mutex;
@@ -170,8 +170,11 @@ impl EmitterFactory {
         })
     }
 
-    pub fn emit_cache(&self) -> Result<EmitCache, AnyError> {
-        Ok(EmitCache::new(self.deno_dir.gen_cache.clone()))
+    pub fn emit_cache(&self, transpile_options: TranspileOptions) -> Result<EmitCache, AnyError> {
+        Ok(EmitCache::new(
+            self.deno_dir.gen_cache.clone(),
+            transpile_options,
+        ))
     }
 
     pub fn parsed_source_cache(&self) -> Result<Arc<ParsedSourceCache>, AnyError> {
@@ -180,6 +183,14 @@ impl EmitterFactory {
     }
 
     pub fn emit_options(&self) -> EmitOptions {
+        EmitOptions {
+            inline_sources: true,
+            source_map: SourceMapOption::Inline,
+            ..Default::default()
+        }
+    }
+
+    pub fn transpile_options(&self) -> TranspileOptions {
         let (specifier, module) = if let Some(jsx_config) = self.jsx_import_source_config.clone() {
             (jsx_config.default_specifier, jsx_config.module)
         } else {
@@ -191,7 +202,7 @@ impl EmitterFactory {
         let (transform_jsx, jsx_automatic, jsx_development, precompile_jsx) =
             get_jsx_emit_opts(jsx_module.as_str());
 
-        EmitOptions {
+        TranspileOptions {
             use_decorators_proposal: self
                 .maybe_decorator
                 .map(DecoratorType::is_use_decorators_proposal)
@@ -207,9 +218,6 @@ impl EmitterFactory {
                 .map(DecoratorType::is_emit_metadata)
                 .unwrap_or_default(),
 
-            inline_source_map: true,
-            inline_sources: true,
-            source_map: true,
             jsx_import_source: specifier,
             transform_jsx,
             jsx_automatic,
@@ -220,10 +228,12 @@ impl EmitterFactory {
     }
 
     pub fn emitter(&self) -> Result<Arc<Emitter>, AnyError> {
+        let transpile_options = self.transpile_options();
         let emitter = Arc::new(Emitter::new(
-            self.emit_cache()?,
+            self.emit_cache(transpile_options.clone())?,
             self.parsed_source_cache()?,
             self.emit_options(),
+            transpile_options,
         ));
 
         Ok(emitter)
@@ -397,11 +407,12 @@ impl EmitterFactory {
     pub fn file_fetcher_loader(&self) -> Box<dyn Loader> {
         let global_cache_struct =
             GlobalHttpCache::new(self.deno_dir.deps_folder_path(), RealDenoCacheEnv);
+
         let parsed_source = self.parsed_source_cache().unwrap();
 
         Box::new(FetchCacher::new(
             self.module_info_cache().unwrap().clone(),
-            self.emit_cache().unwrap(),
+            self.emit_cache(self.transpile_options()).unwrap(),
             Arc::new(self.file_fetcher()),
             HashMap::new(),
             Arc::new(global_cache_struct),

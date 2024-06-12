@@ -3,6 +3,7 @@
 use crate::cache::common::FastInsecureHasher;
 use crate::cache::emit::EmitCache;
 use crate::cache::parsed_source::ParsedSourceCache;
+use deno_ast::TranspileOptions;
 use deno_core::error::AnyError;
 use deno_core::ModuleCodeString;
 use deno_core::ModuleSpecifier;
@@ -15,6 +16,7 @@ pub struct Emitter {
     emit_cache: EmitCache,
     parsed_source_cache: Arc<ParsedSourceCache>,
     emit_options: deno_ast::EmitOptions,
+    transpile_options: TranspileOptions,
     // cached hash of the emit options
     emit_options_hash: u64,
 }
@@ -24,6 +26,7 @@ impl Emitter {
         emit_cache: EmitCache,
         parsed_source_cache: Arc<ParsedSourceCache>,
         emit_options: deno_ast::EmitOptions,
+        transpile_options: TranspileOptions,
     ) -> Self {
         let emit_options_hash = FastInsecureHasher::hash(&emit_options);
         Self {
@@ -31,6 +34,7 @@ impl Emitter {
             parsed_source_cache,
             emit_options,
             emit_options_hash,
+            transpile_options,
         }
     }
 
@@ -76,11 +80,15 @@ impl Emitter {
                 source.clone(),
                 media_type,
             )?;
-            let transpiled_source = parsed_source.transpile(&self.emit_options)?;
-            debug_assert!(transpiled_source.source_map.is_none());
+
+            let transpiled_source =
+                parsed_source.transpile(&self.transpile_options, &self.emit_options)?;
+
+            let source = transpiled_source.into_source();
+            debug_assert!(source.source_map.is_none());
             self.emit_cache
-                .set_emit_code(specifier, source_hash, &transpiled_source.text);
-            Ok(transpiled_source.text.into())
+                .set_emit_code(specifier, source_hash, &source.text.clone());
+            Ok(source.text.into())
         }
     }
 

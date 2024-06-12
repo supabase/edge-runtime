@@ -1,5 +1,7 @@
 use crate::emitter::EmitterFactory;
+use crate::graph_fs::DenoGraphFsAdapter;
 use crate::graph_resolver::CliGraphResolver;
+use crate::jsr::CliJsrUrlProvider;
 use deno_ast::MediaType;
 use deno_core::error::{custom_error, AnyError};
 use deno_core::parking_lot::Mutex;
@@ -90,6 +92,9 @@ impl ModuleGraphBuilder {
             .as_module_analyzer(&parser);
 
         let mut graph = ModuleGraph::new(graph_kind);
+        let fs = Arc::new(deno_fs::RealFs);
+        let fs = DenoGraphFsAdapter(fs.as_ref());
+
         self.build_graph_with_npm_resolution(
             &mut graph,
             roots,
@@ -97,15 +102,15 @@ impl ModuleGraphBuilder {
             deno_graph::BuildOptions {
                 is_dynamic: false,
                 imports: vec![],
-                file_system: None,
+                executor: Default::default(),
+                file_system: &fs,
+                jsr_url_provider: &CliJsrUrlProvider,
                 resolver: Some(graph_resolver),
                 npm_resolver: Some(graph_npm_resolver),
-                module_analyzer: Some(&analyzer),
-                module_parser: Some(&parser),
+                module_analyzer: &analyzer,
                 reporter: None,
-                // todo(dsherret): workspace support
-                workspace_fast_check: false,
-                workspace_members: vec![],
+                workspace_members: &[],
+                passthrough_jsr_specifiers: false,
             },
         )
         .await?;
@@ -229,6 +234,8 @@ impl ModuleGraphBuilder {
             .as_module_analyzer(&parser);
         let graph_kind = deno_graph::GraphKind::CodeOnly;
         let mut graph = ModuleGraph::new(graph_kind);
+        let fs = Arc::new(deno_fs::RealFs);
+        let fs = DenoGraphFsAdapter(fs.as_ref());
 
         self.build_graph_with_npm_resolution(
             &mut graph,
@@ -237,14 +244,15 @@ impl ModuleGraphBuilder {
             deno_graph::BuildOptions {
                 is_dynamic: false,
                 imports: vec![],
-                file_system: None,
+                executor: Default::default(),
+                file_system: &fs,
+                jsr_url_provider: &CliJsrUrlProvider,
                 resolver: Some(&*graph_resolver),
                 npm_resolver: Some(&*graph_npm_resolver),
-                module_analyzer: Some(&analyzer),
-                module_parser: Some(&parser),
+                module_analyzer: &analyzer,
                 reporter: None,
-                workspace_fast_check: false,
-                workspace_members: vec![],
+                workspace_members: &[],
+                passthrough_jsr_specifiers: false,
             },
         )
         .await?;
@@ -272,6 +280,7 @@ pub fn graph_valid(
                 check_js: options.check_js,
                 follow_type_only: options.follow_type_only,
                 follow_dynamic: options.is_vendoring,
+                prefer_fast_check_graph: false,
             },
         )
         .errors()
@@ -330,7 +339,12 @@ pub async fn create_eszip_from_graph_raw(
     let parser_arc = emitter.clone().parsed_source_cache().unwrap();
     let parser = parser_arc.as_capturing_parser();
 
-    eszip::EszipV2::from_graph(graph, &parser, emitter.emit_options())
+    eszip::EszipV2::from_graph(
+        graph,
+        &parser,
+        emitter.transpile_options(),
+        emitter.emit_options(),
+    )
 }
 
 pub async fn create_graph(

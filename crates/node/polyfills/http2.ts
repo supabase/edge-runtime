@@ -31,7 +31,7 @@ import {
 } from "ext:deno_node/internal/stream_base_commons.ts";
 import { FileHandle } from "node:fs/promises";
 import { kStreamBaseField } from "ext:deno_node/internal_binding/stream_wrap.ts";
-import { addTrailers, serveHttpOnConnection } from "ext:deno_http/00_serve.js";
+import { addTrailers, serveHttpOnConnection } from "ext:deno_http/00_serve.ts";
 import { nextTick } from "ext:deno_node/_next_tick.ts";
 import { TextEncoder } from "ext:deno_web/08_text_encoding.js";
 import { Duplex } from "node:stream";
@@ -171,8 +171,8 @@ export class Http2Session extends EventEmitter {
   }
 
   ping(
-    _payload: Buffer | TypedArray | DataView,
-    _callback: () => void,
+      _payload: Buffer | TypedArray | DataView,
+      _callback: () => void,
   ): boolean {
     notImplemented("Http2Session.ping");
     return false;
@@ -210,9 +210,9 @@ export class Http2Session extends EventEmitter {
   }
 
   goaway(
-    _code: number,
-    _lastStreamID: number,
-    _opaqueData: Buffer | TypedArray | DataView,
+      _code: number,
+      _lastStreamID: number,
+      _opaqueData: Buffer | TypedArray | DataView,
   ) {
     warnNotImplemented("Http2Session.goaway");
     if (this[kDenoConnRid]) {
@@ -231,8 +231,8 @@ export class Http2Session extends EventEmitter {
     if (typeof error === "number") {
       code = error;
       error = code !== constants.NGHTTP2_NO_ERROR
-        ? new ERR_HTTP2_SESSION_ERROR(code)
-        : undefined;
+          ? new ERR_HTTP2_SESSION_ERROR(code)
+          : undefined;
     }
     if (code === undefined && error != null) {
       code = constants.NGHTTP2_INTERNAL_ERROR;
@@ -260,7 +260,7 @@ export class Http2Session extends EventEmitter {
       // Don't destroy if the session is not closed or there are pending or open
       // streams.
       if (
-        !this.closed || state.streams.size > 0 || state.pendingStreams.size >
+          !this.closed || state.streams.size > 0 || state.pendingStreams.size >
           0
       ) {
         return;
@@ -312,9 +312,9 @@ function closeSession(session: Http2Session, code?: number, error?: Error) {
 
   // TODO(bartlomieju): handle sockets
   debugHttp2(
-    ">>> closeSession",
-    session[kDenoConnRid],
-    session[kDenoClientRid],
+      ">>> closeSession",
+      session[kDenoConnRid],
+      session[kDenoClientRid],
   );
   console.table(Deno[Deno.internal].core.resources());
   if (session[kDenoConnRid]) {
@@ -333,8 +333,8 @@ export class ServerHttp2Session extends Http2Session {
   }
 
   altsvc(
-    _alt: string,
-    _originOrStream: number | string | URL | { origin: string },
+      _alt: string,
+      _originOrStream: number | string | URL | { origin: string },
   ) {
     notImplemented("ServerHttp2Session.altsvc");
   }
@@ -362,10 +362,10 @@ export class ClientHttp2Session extends Http2Session {
   #refed = true;
 
   constructor(
-    // deno-lint-ignore no-explicit-any
-    socket: any,
-    url: string,
-    options: Record<string, unknown>,
+      // deno-lint-ignore no-explicit-any
+      socket: any,
+      url: string,
+      options: Record<string, unknown>,
   ) {
     super(constants.NGHTTP2_SESSION_CLIENT, options);
     this[kPendingRequestCalls] = null;
@@ -398,7 +398,7 @@ export class ClientHttp2Session extends Http2Session {
       (async () => {
         try {
           const promise = op_http2_poll_client_connection(
-            this[kDenoConnRid],
+              this[kDenoConnRid],
           );
           this[kPollConnPromise] = promise;
           if (!this.#refed) {
@@ -428,8 +428,8 @@ export class ClientHttp2Session extends Http2Session {
   }
 
   request(
-    headers: Http2Headers,
-    options?: Record<string, unknown>,
+      headers: Http2Headers,
+      options?: Record<string, unknown>,
   ): ClientHttp2Stream {
     if (this.destroyed) {
       throw new ERR_HTTP2_INVALID_SESSION();
@@ -460,7 +460,7 @@ export class ClientHttp2Session extends Http2Session {
     }
 
     const connect =
-      headers[constants.HTTP2_HEADER_METHOD] === constants.HTTP2_METHOD_CONNECT;
+        headers[constants.HTTP2_HEADER_METHOD] === constants.HTTP2_METHOD_CONNECT;
 
     if (!connect || headers[constants.HTTP2_HEADER_PROTOCOL] !== undefined) {
       if (getAuthority(headers) === undefined) {
@@ -487,21 +487,21 @@ export class ClientHttp2Session extends Http2Session {
     if (options.endStream === undefined) {
       const method = headers[constants.HTTP2_HEADER_METHOD];
       options.endStream = method === constants.HTTP2_METHOD_DELETE ||
-        method === constants.HTTP2_METHOD_GET ||
-        method === constants.HTTP2_METHOD_HEAD;
+          method === constants.HTTP2_METHOD_GET ||
+          method === constants.HTTP2_METHOD_HEAD;
     } else {
       options.endStream = !!options.endStream;
     }
 
     const stream = new ClientHttp2Stream(
-      options,
-      this,
-      this.#connectPromise,
-      headers,
+        options,
+        this,
+        this.#connectPromise,
+        headers,
     );
     stream[kSentHeaders] = headers;
     stream[kOrigin] = `${headers[constants.HTTP2_HEADER_SCHEME]}://${
-      getAuthority(headers)
+        getAuthority(headers)
     }`;
 
     if (options.endStream) {
@@ -565,10 +565,10 @@ export class Http2Stream extends EventEmitter {
   _response: Response;
 
   constructor(
-    session: Http2Session,
-    headers: Promise<Http2Headers>,
-    controllerPromise: Promise<ReadableStreamDefaultController<Uint8Array>>,
-    readerPromise: Promise<ReadableStream<Uint8Array>>,
+      session: Http2Session,
+      headers: Promise<Http2Headers>,
+      controllerPromise: Promise<ReadableStreamDefaultController<Uint8Array>>,
+      readerPromise: Promise<ReadableStream<Uint8Array>>,
   ) {
     super();
     this.#session = session;
@@ -702,16 +702,16 @@ export class Http2Stream extends EventEmitter {
 }
 
 async function clientHttp2Request(
-  session,
-  sessionConnectPromise,
-  headers,
-  options,
-) {
-  debugHttp2(
-    ">>> waiting for connect promise",
+    session,
     sessionConnectPromise,
     headers,
     options,
+) {
+  debugHttp2(
+      ">>> waiting for connect promise",
+      sessionConnectPromise,
+      headers,
+      options,
   );
   await sessionConnectPromise;
 
@@ -726,16 +726,16 @@ async function clientHttp2Request(
     }
   }
   debugHttp2(
-    "waited for connect promise",
-    !!options.waitForTrailers,
-    pseudoHeaders,
-    reqHeaders,
+      "waited for connect promise",
+      !!options.waitForTrailers,
+      pseudoHeaders,
+      reqHeaders,
   );
 
   return await op_http2_client_request(
-    session[kDenoClientRid],
-    pseudoHeaders,
-    reqHeaders,
+      session[kDenoClientRid],
+      pseudoHeaders,
+      reqHeaders,
   );
 }
 
@@ -746,10 +746,10 @@ export class ClientHttp2Stream extends Duplex {
   #encoding = "utf8";
 
   constructor(
-    options: Record<string, unknown>,
-    session: Http2Session,
-    sessionConnectPromise: Promise<void>,
-    headers: Record<string, string>,
+      options: Record<string, unknown>,
+      session: Http2Session,
+      sessionConnectPromise: Promise<void>,
+      headers: Record<string, string>,
   ) {
     options.allowHalfOpen = true;
     options.decodeString = false;
@@ -774,10 +774,10 @@ export class ClientHttp2Stream extends Duplex {
     this[kDenoRid] = undefined;
 
     this.#requestPromise = clientHttp2Request(
-      session,
-      sessionConnectPromise,
-      headers,
-      options,
+        session,
+        sessionConnectPromise,
+        headers,
+        options,
     );
     debugHttp2(">>> created clienthttp2stream");
     // TODO(bartlomieju): save it so we can unref
@@ -788,12 +788,12 @@ export class ClientHttp2Stream extends Duplex {
       this[kDenoRid] = streamRid;
       this[kInit](streamId);
       debugHttp2(
-        ">>> after request promise",
-        session[kDenoClientRid],
-        this.#rid,
+          ">>> after request promise",
+          session[kDenoClientRid],
+          this.#rid,
       );
       const response = await op_http2_client_get_response(
-        this.#rid,
+          this.#rid,
       );
       debugHttp2(">>> after get response", response);
       const headers = {
@@ -910,25 +910,25 @@ export class ClientHttp2Stream extends Duplex {
     }
 
     this.#requestPromise
-      .then(() => {
-        debugHttp2(">>> _write", this.#rid, data, encoding, callback);
-        return op_http2_client_send_data(
-          this.#rid,
-          data,
-        );
-      })
-      .then(() => {
-        callback?.();
-        debugHttp2(
-          "this.writableFinished",
-          this.pending,
-          this.destroyed,
-          this.writableFinished,
-        );
-      })
-      .catch((e) => {
-        callback?.(e);
-      });
+        .then(() => {
+          debugHttp2(">>> _write", this.#rid, data, encoding, callback);
+          return op_http2_client_send_data(
+              this.#rid,
+              data,
+          );
+        })
+        .then(() => {
+          callback?.();
+          debugHttp2(
+              "this.writableFinished",
+              this.pending,
+              this.destroyed,
+              this.writableFinished,
+          );
+        })
+        .catch((e) => {
+          callback?.(e);
+        });
   }
 
   // TODO(bartlomieju): finish this method
@@ -972,13 +972,13 @@ export class ClientHttp2Stream extends Duplex {
 
     (async () => {
       const [chunk, finished] = await op_http2_client_get_response_body_chunk(
-        this[kDenoResponse].bodyRid,
+          this[kDenoResponse].bodyRid,
       );
 
       debugHttp2(">>> chunk", chunk, finished, this[kDenoResponse].bodyRid);
       if (chunk === null) {
         const trailerList = await op_http2_client_get_response_trailers(
-          this[kDenoResponse].bodyRid,
+            this[kDenoResponse].bodyRid,
         );
         if (trailerList) {
           const trailers = Object.fromEntries(trailerList);
@@ -1033,8 +1033,8 @@ export class ClientHttp2Stream extends Duplex {
     debugHttp2("sending trailers", this.#rid, trailers);
 
     op_http2_client_send_trailers(
-      this.#rid,
-      trailerList,
+        this.#rid,
+        trailerList,
     ).then(() => {
       stream[kMaybeDestroy]();
       core.tryClose(this.#rid);
@@ -1094,8 +1094,8 @@ export class ClientHttp2Stream extends Duplex {
 
     const nameForErrorCode = {};
     if (
-      err == null && code !== constants.NGHTTP2_NO_ERROR &&
-      code !== constants.NGHTTP2_CANCEL
+        err == null && code !== constants.NGHTTP2_NO_ERROR &&
+        code !== constants.NGHTTP2_CANCEL
     ) {
       err = new ERR_HTTP2_STREAM_ERROR(nameForErrorCode[code] || code);
     }
@@ -1108,11 +1108,11 @@ export class ClientHttp2Stream extends Duplex {
 
   [kMaybeDestroy](code = constants.NGHTTP2_NO_ERROR) {
     debugHttp2(
-      ">>> ClientHttp2Stream[kMaybeDestroy]",
-      code,
-      this.writableFinished,
-      this.readable,
-      this.closed,
+        ">>> ClientHttp2Stream[kMaybeDestroy]",
+        code,
+        this.writableFinished,
+        this.readable,
+        this.closed,
     );
     if (code !== constants.NGHTTP2_NO_ERROR) {
       this._destroy();
@@ -1186,15 +1186,15 @@ function closeStream(stream, code, rstStreamStatus = kSubmitRstStream) {
 
   if (rstStreamStatus != kNoRstStream) {
     debugHttp2(
-      ">>> closeStream",
-      !ending,
-      stream.writableFinished,
-      code !== constants.NGHTTP2_NO_ERROR,
-      rstStreamStatus === kForceRstStream,
+        ">>> closeStream",
+        !ending,
+        stream.writableFinished,
+        code !== constants.NGHTTP2_NO_ERROR,
+        rstStreamStatus === kForceRstStream,
     );
     if (
-      !ending || stream.writableFinished ||
-      code !== constants.NGHTTP2_NO_ERROR || rstStreamStatus === kForceRstStream
+        !ending || stream.writableFinished ||
+        code !== constants.NGHTTP2_NO_ERROR || rstStreamStatus === kForceRstStream
     ) {
       finishCloseStream(stream, code);
     } else {
@@ -1209,13 +1209,13 @@ function finishCloseStream(stream, code) {
     stream.push(null);
     stream.once("ready", () => {
       op_http2_client_reset_stream(
-        stream[kDenoRid],
-        code,
+          stream[kDenoRid],
+          code,
       ).then(() => {
         debugHttp2(
-          ">>> finishCloseStream close",
-          stream[kDenoRid],
-          stream[kDenoResponse].bodyRid,
+            ">>> finishCloseStream close",
+            stream[kDenoRid],
+            stream[kDenoResponse].bodyRid,
         );
         core.tryClose(stream[kDenoRid]);
         core.tryClose(stream[kDenoResponse].bodyRid);
@@ -1225,13 +1225,13 @@ function finishCloseStream(stream, code) {
   } else {
     stream.resume();
     op_http2_client_reset_stream(
-      stream[kDenoRid],
-      code,
+        stream[kDenoRid],
+        code,
     ).then(() => {
       debugHttp2(
-        ">>> finishCloseStream close2",
-        stream[kDenoRid],
-        stream[kDenoResponse].bodyRid,
+          ">>> finishCloseStream close2",
+          stream[kDenoRid],
+          stream[kDenoResponse].bodyRid,
       );
       core.tryClose(stream[kDenoRid]);
       core.tryClose(stream[kDenoResponse].bodyRid);
@@ -1240,9 +1240,9 @@ function finishCloseStream(stream, code) {
       });
     }).catch(() => {
       debugHttp2(
-        ">>> finishCloseStream close2 catch",
-        stream[kDenoRid],
-        stream[kDenoResponse].bodyRid,
+          ">>> finishCloseStream close2 catch",
+          stream[kDenoRid],
+          stream[kDenoResponse].bodyRid,
       );
       core.tryClose(stream[kDenoRid]);
       core.tryClose(stream[kDenoResponse].bodyRid);
@@ -1264,11 +1264,11 @@ export class ServerHttp2Stream extends Http2Stream {
   #headersSent: boolean;
 
   constructor(
-    session: Http2Session,
-    headers: Promise<Http2Headers>,
-    controllerPromise: Promise<ReadableStreamDefaultController<Uint8Array>>,
-    reader: ReadableStream<Uint8Array>,
-    body: ReadableStream<Uint8Array>,
+      session: Http2Session,
+      headers: Promise<Http2Headers>,
+      controllerPromise: Promise<ReadableStreamDefaultController<Uint8Array>>,
+      reader: ReadableStream<Uint8Array>,
+      body: ReadableStream<Uint8Array>,
   ) {
     super(session, headers, controllerPromise, Promise.resolve(reader));
     this._deferred = Promise.withResolvers<Response>();
@@ -1296,16 +1296,16 @@ export class ServerHttp2Stream extends Http2Stream {
   }
 
   pushStream(
-    _headers: Record<string, unknown>,
-    _options: Record<string, unknown>,
-    _callback: () => unknown,
+      _headers: Record<string, unknown>,
+      _options: Record<string, unknown>,
+      _callback: () => unknown,
   ) {
     notImplemented("ServerHttp2Stream.pushStream");
   }
 
   respond(
-    headers: Http2Headers,
-    options: Record<string, unknown>,
+      headers: Http2Headers,
+      options: Record<string, unknown>,
   ) {
     this.#headersSent = true;
     const response: ResponseInit = {};
@@ -1321,23 +1321,23 @@ export class ServerHttp2Stream extends Http2Stream {
     } else {
       this.#waitForTrailers = options?.waitForTrailers;
       this._deferred.resolve(
-        this._response = new Response(this.#body, response),
+          this._response = new Response(this.#body, response),
       );
     }
   }
 
   respondWithFD(
-    _fd: number | FileHandle,
-    _headers: Record<string, unknown>,
-    _options: Record<string, unknown>,
+      _fd: number | FileHandle,
+      _headers: Record<string, unknown>,
+      _options: Record<string, unknown>,
   ) {
     notImplemented("ServerHttp2Stream.respondWithFD");
   }
 
   respondWithFile(
-    _path: string | Buffer | URL,
-    _headers: Record<string, unknown>,
-    _options: Record<string, unknown>,
+      _path: string | Buffer | URL,
+      _headers: Record<string, unknown>,
+      _options: Record<string, unknown>,
   ) {
     notImplemented("ServerHttp2Stream.respondWithFile");
   }
@@ -1350,64 +1350,64 @@ export class Http2Server extends Server {
   timeout = 0;
 
   constructor(
-    options: Record<string, unknown>,
-    requestListener: () => unknown,
+      options: Record<string, unknown>,
+      requestListener: () => unknown,
   ) {
     super(options);
     this.#abortController = new AbortController();
     this.on(
-      "connection",
-      (conn: Deno.Conn) => {
-        try {
-          const session = new ServerHttp2Session();
-          this.emit("session", session);
-          this.#server = serveHttpOnConnection(
-            conn,
-            this.#abortController.signal,
-            async (req: Request) => {
-              try {
-                const controllerDeferred = Promise.withResolvers<
-                  ReadableStreamDefaultController<Uint8Array>
-                >();
-                const body = new ReadableStream({
-                  start(controller) {
-                    controllerDeferred.resolve(controller);
-                  },
-                });
-                const headers: Http2Headers = {};
-                for (const [name, value] of req.headers) {
-                  headers[name] = value;
-                }
-                headers[constants.HTTP2_HEADER_PATH] =
-                  new URL(req.url).pathname;
-                const stream = new ServerHttp2Stream(
-                  session,
-                  Promise.resolve(headers),
-                  controllerDeferred.promise,
-                  req.body,
-                  body,
-                );
-                session.emit("stream", stream, headers);
-                this.emit("stream", stream, headers);
-                return await stream._deferred.promise;
-              } catch (e) {
-                console.log(">>> Error in serveHttpOnConnection", e);
-              }
-              return new Response("");
-            },
-            () => {
-              console.log(">>> error");
-            },
-            () => {},
-          );
-        } catch (e) {
-          console.log(">>> Error in Http2Server", e);
-        }
-      },
+        "connection",
+        (conn: Deno.Conn) => {
+          try {
+            const session = new ServerHttp2Session();
+            this.emit("session", session);
+            this.#server = serveHttpOnConnection(
+                conn,
+                this.#abortController.signal,
+                async (req: Request) => {
+                  try {
+                    const controllerDeferred = Promise.withResolvers<
+                        ReadableStreamDefaultController<Uint8Array>
+                        >();
+                    const body = new ReadableStream({
+                      start(controller) {
+                        controllerDeferred.resolve(controller);
+                      },
+                    });
+                    const headers: Http2Headers = {};
+                    for (const [name, value] of req.headers) {
+                      headers[name] = value;
+                    }
+                    headers[constants.HTTP2_HEADER_PATH] =
+                        new URL(req.url).pathname;
+                    const stream = new ServerHttp2Stream(
+                        session,
+                        Promise.resolve(headers),
+                        controllerDeferred.promise,
+                        req.body,
+                        body,
+                    );
+                    session.emit("stream", stream, headers);
+                    this.emit("stream", stream, headers);
+                    return await stream._deferred.promise;
+                  } catch (e) {
+                    console.log(">>> Error in serveHttpOnConnection", e);
+                  }
+                  return new Response("");
+                },
+                () => {
+                  console.log(">>> error");
+                },
+                () => {},
+            );
+          } catch (e) {
+            console.log(">>> Error in Http2Server", e);
+          }
+        },
     );
     this.on(
-      "newListener",
-      (event) => console.log(`Event in newListener: ${event}`),
+        "newListener",
+        (event) => console.log(`Event in newListener: ${event}`),
     );
     this.#options = options;
     if (typeof requestListener === "function") {
@@ -1445,8 +1445,8 @@ export class Http2SecureServer extends Server {
   timeout = 0;
 
   constructor(
-    options: Record<string, unknown>,
-    requestListener: () => unknown,
+      options: Record<string, unknown>,
+      requestListener: () => unknown,
   ) {
     super(options, function () {
       notImplemented("connectionListener");
@@ -1474,8 +1474,8 @@ export class Http2SecureServer extends Server {
 }
 
 export function createServer(
-  options: Record<string, unknown>,
-  onRequestHandler: () => unknown,
+    options: Record<string, unknown>,
+    onRequestHandler: () => unknown,
 ): Http2Server {
   if (typeof options === "function") {
     onRequestHandler = options;
@@ -1485,17 +1485,17 @@ export function createServer(
 }
 
 export function createSecureServer(
-  _options: Record<string, unknown>,
-  _onRequestHandler: () => unknown,
+    _options: Record<string, unknown>,
+    _onRequestHandler: () => unknown,
 ): Http2SecureServer {
   notImplemented("http2.createSecureServer");
   return new Http2SecureServer();
 }
 
 export function connect(
-  authority: string | URL,
-  options: Record<string, unknown>,
-  callback: (session: ClientHttp2Session) => void,
+    authority: string | URL,
+    options: Record<string, unknown>,
+    callback: (session: ClientHttp2Session) => void,
 ): ClientHttp2Session {
   debugHttp2(">>> http2.connect", options);
 
@@ -1591,7 +1591,7 @@ function socketOnClose() {
     const state = session[kState];
     state.streams.forEach((stream) => stream.close(constants.NGHTTP2_CANCEL));
     state.pendingStreams.forEach((stream) =>
-      stream.close(constants.NGHTTP2_CANCEL)
+        stream.close(constants.NGHTTP2_CANCEL)
     );
     session.close();
     session[kMaybeDestroy](err);
@@ -1664,7 +1664,7 @@ export const constants = {
   HTTP2_HEADER_ACCEPT_RANGES: "accept-ranges",
   HTTP2_HEADER_ACCEPT: "accept",
   HTTP2_HEADER_ACCESS_CONTROL_ALLOW_CREDENTIALS:
-    "access-control-allow-credentials",
+      "access-control-allow-credentials",
   HTTP2_HEADER_ACCESS_CONTROL_ALLOW_HEADERS: "access-control-allow-headers",
   HTTP2_HEADER_ACCESS_CONTROL_ALLOW_METHODS: "access-control-allow-methods",
   HTTP2_HEADER_ACCESS_CONTROL_ALLOW_ORIGIN: "access-control-allow-origin",
@@ -1898,7 +1898,7 @@ export function getPackedSettings(_settings: Record<string, unknown>): Buffer {
 }
 
 export function getUnpackedSettings(
-  _buffer: Buffer | TypedArray,
+    _buffer: Buffer | TypedArray,
 ): Record<string, unknown> {
   notImplemented("http2.getUnpackedSettings");
   return {};
@@ -2003,16 +2003,16 @@ export class Http2ServerResponse {
   }
 
   createPushResponse(
-    _headers: Record<string, unknown>,
-    _callback: () => unknown,
+      _headers: Record<string, unknown>,
+      _callback: () => unknown,
   ) {
     notImplemented("Http2ServerResponse.createPushResponse");
   }
 
   end(
-    _data: string | Buffer | Uint8Array,
-    _encoding: string,
-    _callback: () => unknown,
+      _data: string | Buffer | Uint8Array,
+      _encoding: string,
+      _callback: () => unknown,
   ) {
     notImplemented("Http2ServerResponse.end");
   }
@@ -2094,9 +2094,9 @@ export class Http2ServerResponse {
   }
 
   write(
-    _chunk: string | Buffer | Uint8Array,
-    _encoding: string,
-    _callback: () => unknown,
+      _chunk: string | Buffer | Uint8Array,
+      _encoding: string,
+      _callback: () => unknown,
   ) {
     notImplemented("Http2ServerResponse.write");
     return this.write;
@@ -2111,9 +2111,9 @@ export class Http2ServerResponse {
   }
 
   writeHead(
-    _statusCode: number,
-    _statusMessage: string,
-    _headers: Record<string, unknown>,
+      _statusCode: number,
+      _statusMessage: string,
+      _headers: Record<string, unknown>,
   ) {
     notImplemented("Http2ServerResponse.writeHead");
   }

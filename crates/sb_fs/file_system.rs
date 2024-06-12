@@ -1,6 +1,6 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
-use deno_fs::{FileSystem, FsDirEntry, FsFileType, OpenOptions, RealFs};
+use deno_fs::{AccessCheckCb, FileSystem, FsDirEntry, FsFileType, OpenOptions, RealFs};
 use deno_io::fs::{File, FsError, FsResult, FsStat};
 use std::path::Path;
 use std::path::PathBuf;
@@ -47,6 +47,7 @@ impl DenoCompileFileSystem {
                 create_new: false,
                 mode: None,
             },
+            None,
             &old_file_bytes,
         )
     }
@@ -71,18 +72,28 @@ impl FileSystem for DenoCompileFileSystem {
         RealFs.umask(mask)
     }
 
-    fn open_sync(&self, path: &Path, options: OpenOptions) -> FsResult<Rc<dyn File>> {
+    fn open_sync(
+        &self,
+        path: &Path,
+        options: OpenOptions,
+        _access_check: Option<AccessCheckCb>,
+    ) -> FsResult<Rc<dyn File>> {
         if self.0.is_path_within(path) {
             Ok(self.0.open_file(path)?)
         } else {
-            RealFs.open_sync(path, options)
+            RealFs.open_sync(path, options, None)
         }
     }
-    async fn open_async(&self, path: PathBuf, options: OpenOptions) -> FsResult<Rc<dyn File>> {
+    async fn open_async<'a>(
+        &'a self,
+        path: PathBuf,
+        options: OpenOptions,
+        _access_check: Option<AccessCheckCb<'a>>,
+    ) -> FsResult<Rc<dyn File>> {
         if self.0.is_path_within(&path) {
             Ok(self.0.open_file(&path)?)
         } else {
-            RealFs.open_async(path, options).await
+            RealFs.open_async(path, options, None).await
         }
     }
 

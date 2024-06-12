@@ -1,17 +1,14 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
-use std::borrow::Cow;
-
-use deno_ast::CjsAnalysis;
 use deno_ast::MediaType;
 use deno_ast::ModuleSpecifier;
 use deno_core::error::AnyError;
 use deno_fs;
 use sb_core::cache::node::NodeAnalysisCache;
 use sb_core::util::fs::canonicalize_path_maybe_not_exists;
-use sb_node::analyze::CjsAnalysis as ExtNodeCjsAnalysis;
 use sb_node::analyze::CjsCodeAnalyzer;
 use sb_node::analyze::NodeCodeTranslator;
+use sb_node::analyze::{CjsAnalysis as ExtNodeCjsAnalysis, CjsAnalysisExports, CliCjsAnalysis};
 
 pub type CliNodeCodeTranslator = NodeCodeTranslator<CliCjsCodeAnalyzer>;
 
@@ -46,7 +43,7 @@ impl CliCjsCodeAnalyzer {
         &self,
         specifier: &ModuleSpecifier,
         source: &str,
-    ) -> Result<CjsAnalysis, AnyError> {
+    ) -> Result<CliCjsAnalysis, AnyError> {
         let source_hash = NodeAnalysisCache::compute_source_hash(source);
         if let Some(analysis) = self
             .cache
@@ -57,21 +54,29 @@ impl CliCjsCodeAnalyzer {
 
         let media_type = MediaType::from_specifier(specifier);
         if media_type == MediaType::Json {
-            return Ok(CjsAnalysis {
+            return Ok(CliCjsAnalysis::Cjs {
                 exports: vec![],
                 reexports: vec![],
             });
         }
 
-        let parsed_source = deno_ast::parse_script(deno_ast::ParseParams {
-            specifier: specifier.to_string(),
+        let parsed_source = deno_ast::parse_program(deno_ast::ParseParams {
+            specifier: specifier.clone(),
             text_info: deno_ast::SourceTextInfo::new(source.into()),
             media_type,
             capture_tokens: true,
             scope_analysis: false,
             maybe_syntax: None,
         })?;
-        let analysis = parsed_source.analyze_cjs();
+        let analysis = if parsed_source.is_script() {
+            let analysis = parsed_source.analyze_cjs();
+            CliCjsAnalysis::Cjs {
+                exports: analysis.exports,
+                reexports: analysis.reexports,
+            }
+        } else {
+            CliCjsAnalysis::Esm
+        };
         self.cache
             .set_cjs_analysis(specifier.as_str(), &source_hash, &analysis);
 
@@ -83,19 +88,23 @@ impl CjsCodeAnalyzer for CliCjsCodeAnalyzer {
     fn analyze_cjs(
         &self,
         specifier: &ModuleSpecifier,
-        source: Option<&str>,
+        source: Option<String>,
     ) -> Result<ExtNodeCjsAnalysis, AnyError> {
         let source = match source {
-            Some(source) => Cow::Borrowed(source),
-            None => Cow::Owned(
-                self.fs
-                    .read_text_file_sync(&specifier.to_file_path().unwrap())?,
-            ),
+            Some(source) => source,
+            None => self
+                .fs
+                .read_text_file_sync(&specifier.to_file_path().unwrap(), None)?,
         };
         let analysis = self.inner_cjs_analysis(specifier, &source)?;
-        Ok(ExtNodeCjsAnalysis {
-            exports: analysis.exports,
-            reexports: analysis.reexports,
-        })
+        match analysis {
+            CliCjsAnalysis::Esm => Ok(ExtNodeCjsAnalysis::Esm(source)),
+            CliCjsAnalysis::Cjs { exports, reexports } => {
+                Ok(ExtNodeCjsAnalysis::Cjs(CjsAnalysisExports {
+                    exports,
+                    reexports,
+                }))
+            }
+        }
     }
 }

@@ -69,10 +69,8 @@ function registerErrors() {
     core.registerErrorClass("AlreadyExists", AlreadyExists);
     core.registerErrorClass("InvalidData", InvalidData);
     core.registerErrorClass("TimedOut", TimedOut);
-    core.registerErrorClass("Interrupted", core.Interrupted);
     core.registerErrorClass("WriteZero", WriteZero);
     core.registerErrorClass("UnexpectedEof", UnexpectedEof);
-    core.registerErrorClass("BadResource", core.BadResource);
     core.registerErrorClass("Http", Http);
     core.registerErrorClass("Busy", Busy);
     core.registerErrorClass("NotSupported", NotSupported);

@@ -164,7 +164,6 @@ pub fn op_brotli_compress_stream(
         let mut next_in = input.as_ptr();
         let mut available_out = output.len();
         let mut next_out = output.as_mut_ptr();
-        let mut total_out = 0;
 
         if BrotliEncoderCompressStream(
             ctx.inst,
@@ -173,7 +172,7 @@ pub fn op_brotli_compress_stream(
             &mut next_in,
             &mut available_out,
             &mut next_out,
-            &mut total_out,
+            std::ptr::null_mut(),
         ) != 1
         {
             return Err(type_error("Failed to compress"));
@@ -191,7 +190,7 @@ pub fn op_brotli_compress_stream_end(
     #[smi] rid: u32,
     #[buffer] output: &mut [u8],
 ) -> Result<usize, AnyError> {
-    let ctx = state.resource_table.take::<BrotliCompressCtx>(rid)?;
+    let ctx = state.resource_table.get::<BrotliCompressCtx>(rid)?;
 
     // SAFETY: TODO(littledivy)
     unsafe {
@@ -276,7 +275,6 @@ pub fn op_brotli_decompress_stream(
         let mut next_in = input.as_ptr();
         let mut available_out = output.len();
         let mut next_out = output.as_mut_ptr();
-        let mut total_out = 0;
 
         if matches!(
             CBrotliDecoderDecompressStream(
@@ -285,11 +283,12 @@ pub fn op_brotli_decompress_stream(
                 &mut next_in,
                 &mut available_out,
                 &mut next_out,
-                &mut total_out,
+                std::ptr::null_mut(),
             ),
             BrotliDecoderResult::BROTLI_DECODER_RESULT_ERROR
         ) {
-            return Err(type_error("Failed to decompress"));
+            let ec = CBrotliDecoderGetErrorCode(ctx.inst) as i32;
+            return Err(type_error(format!("Failed to decompress, error {ec}")));
         }
 
         // On progress, next_out is advanced and available_out is reduced.
@@ -310,13 +309,15 @@ pub fn op_brotli_decompress_stream_end(
     unsafe {
         let mut available_out = output.len();
         let mut next_out = output.as_mut_ptr();
+        let mut available_in = 0;
+        let mut next_in = [];
         let mut total_out = 0;
 
         if matches!(
             CBrotliDecoderDecompressStream(
                 ctx.inst,
-                &mut 0,
-                std::ptr::null_mut(),
+                &mut available_in,
+                next_in.as_mut_ptr(),
                 &mut available_out,
                 &mut next_out,
                 &mut total_out,

@@ -9,6 +9,7 @@ use deno_core::error::AnyError;
 use deno_core::op2;
 use deno_core::OpState;
 use deno_fs::FileSystemRc;
+use serde::Serialize;
 
 use crate::NodePermissions;
 
@@ -78,3 +79,18 @@ where
     fs.cp_async(path, new_path).await?;
     Ok(())
 }
+
+#[derive(Debug, Serialize)]
+pub struct StatFs {
+    #[serde(rename = "type")]
+    pub typ: u64,
+    pub bsize: u64,
+    pub blocks: u64,
+    pub bfree: u64,
+    pub bavail: u64,
+    pub files: u64,
+    pub ffree: u64,
+}
+
+#[op2(fast)]
+pub fn op_node_statfs(_state: Rc<RefCell<OpState>>, #[string] _path: String, _bigint: bool) {}

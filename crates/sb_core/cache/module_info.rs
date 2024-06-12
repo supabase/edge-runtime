@@ -7,9 +7,9 @@ use deno_ast::MediaType;
 use deno_ast::ModuleSpecifier;
 use deno_core::error::AnyError;
 use deno_core::serde_json;
-use deno_graph::DefaultModuleAnalyzer;
 use deno_graph::ModuleInfo;
 use deno_graph::ModuleParser;
+use deno_graph::ParserModuleAnalyzer;
 use deno_webstorage::rusqlite::params;
 
 use super::cache_db::CacheDB;
@@ -141,7 +141,7 @@ impl<'a> deno_graph::ModuleAnalyzer for ModuleInfoCacheModuleAnalyzer<'a> {
         specifier: &ModuleSpecifier,
         source: Arc<str>,
         media_type: MediaType,
-    ) -> Result<ModuleInfo, deno_ast::Diagnostic> {
+    ) -> Result<ModuleInfo, deno_ast::ParseDiagnostic> {
         // attempt to load from the cache
         let source_hash = ModuleInfoCacheSourceHash::from_source(source.as_bytes());
         match self
@@ -160,7 +160,7 @@ impl<'a> deno_graph::ModuleAnalyzer for ModuleInfoCacheModuleAnalyzer<'a> {
         }
 
         // otherwise, get the module info from the parsed source cache
-        let analyzer = DefaultModuleAnalyzer::new(self.parser);
+        let analyzer = ParserModuleAnalyzer::new(self.parser);
         let module_info = analyzer.analyze(specifier, source, media_type)?;
 
         // then attempt to cache it

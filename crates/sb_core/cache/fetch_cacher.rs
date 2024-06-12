@@ -9,9 +9,7 @@ use crate::util::fs::canonicalize_path_maybe_not_exists;
 use deno_ast::{MediaType, ModuleSpecifier};
 use deno_core::futures;
 use deno_core::futures::FutureExt;
-use deno_core::url::Url;
-use deno_graph::source::{CacheInfo, LoadFuture, LoadResponse, Loader};
-use once_cell::sync::Lazy;
+use deno_graph::source::{CacheInfo, LoadFuture, LoadOptions, LoadResponse, Loader};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -98,29 +96,7 @@ impl FetchCacher {
     }
 }
 
-static DENO_REGISTRY_URL: Lazy<Url> = Lazy::new(|| {
-    let env_var_name = "DENO_REGISTRY_URL";
-    if let Ok(registry_url) = std::env::var(env_var_name) {
-        // ensure there is a trailing slash for the directory
-        let registry_url = format!("{}/", registry_url.trim_end_matches('/'));
-        match Url::parse(&registry_url) {
-            Ok(url) => {
-                return url;
-            }
-            Err(err) => {
-                log::debug!("Invalid {} environment variable: {:#}", env_var_name, err,);
-            }
-        }
-    }
-
-    deno_graph::source::DEFAULT_DENO_REGISTRY_URL.clone()
-});
-
 impl Loader for FetchCacher {
-    fn registry_url(&self) -> &Url {
-        &DENO_REGISTRY_URL
-    }
-
     fn get_cache_info(&self, specifier: &ModuleSpecifier) -> Option<CacheInfo> {
         if !self.cache_info_enabled {
             return None;
@@ -143,13 +119,9 @@ impl Loader for FetchCacher {
         }
     }
 
-    fn load(
-        &mut self,
-        specifier: &ModuleSpecifier,
-        _is_dynamic: bool,
-        cache_setting: deno_graph::source::CacheSetting,
-    ) -> LoadFuture {
+    fn load(&self, specifier: &ModuleSpecifier, options: LoadOptions) -> LoadFuture {
         use deno_graph::source::CacheSetting as LoaderCacheSetting;
+        let cache_setting = options.cache_setting;
 
         let path = specifier.path();
 
@@ -226,7 +198,7 @@ impl Loader for FetchCacher {
     }
 
     fn cache_module_info(
-        &mut self,
+        &self,
         specifier: &ModuleSpecifier,
         source: &Arc<[u8]>,
         module_info: &deno_graph::ModuleInfo,

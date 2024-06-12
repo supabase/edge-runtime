@@ -3,9 +3,9 @@ use std::{borrow::Cow, cell::RefCell, pin::Pin, rc::Rc, task::Poll};
 use anyhow::{bail, Context};
 use deno_core::{
     error::{custom_error, AnyError},
-    op2, ByteString, Op, OpDecl, OpState, RcRef, Resource, ResourceId,
+    op2, ByteString, OpDecl, OpState, RcRef, Resource, ResourceId,
 };
-use deno_http::{HttpRequestReader, HttpStreamResource};
+use deno_http::{HttpRequestReader, HttpStreamReadResource};
 use deno_websocket::ws_create_server_stream;
 use futures::ready;
 use futures::{future::BoxFuture, FutureExt};
@@ -208,7 +208,7 @@ async fn op_http_upgrade_websocket2(
     let stream = state
         .borrow_mut()
         .resource_table
-        .get::<HttpStreamResource>(rid)?;
+        .get::<HttpStreamReadResource>(rid)?;
 
     let mut rd = RcRef::map(&stream, |r| &r.rd).borrow_mut().await;
 
@@ -241,7 +241,9 @@ fn op_http_upgrade_raw2(
     state: &mut OpState,
     #[smi] stream_rid: ResourceId,
 ) -> Result<(ResourceId, ResourceId), AnyError> {
-    let req_stream = state.resource_table.get::<HttpStreamResource>(stream_rid)?;
+    let req_stream = state
+        .resource_table
+        .get::<HttpStreamReadResource>(stream_rid)?;
     let mut req_reader_mut = RcRef::map(&req_stream, |r| &r.rd)
         .try_borrow_mut()
         .with_context(|| "unable to get http stream reader")?;
@@ -386,7 +388,7 @@ impl Resource for HttpUpgradeRawResponseFenceResource {
 
 fn sb_http_middleware(decl: OpDecl) -> OpDecl {
     match decl.name {
-        "op_http_upgrade_websocket" => op_http_upgrade_websocket2::DECL,
+        "op_http_upgrade_websocket" => decl.with_implementation_from(&op_http_upgrade_websocket2()),
         _ => decl,
     }
 }

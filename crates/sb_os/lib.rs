@@ -1,9 +1,10 @@
 use deno_core::op2;
+use serde::Serialize;
 use std::collections::HashMap;
 
 pub type EnvVars = HashMap<String, String>;
 
-#[derive(serde::Serialize)]
+#[derive(Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct MemInfo {
     pub total: u64,
@@ -18,18 +19,9 @@ pub struct MemInfo {
 #[op2]
 #[serde]
 fn op_system_memory_info() -> Option<MemInfo> {
-    let mut mem_info = MemInfo {
-        total: 0,
-        free: 0,
-        available: 0,
-        buffers: 0,
-        cached: 0,
-        swap_total: 0,
-        swap_free: 0,
-    };
-
     #[cfg(any(target_os = "android", target_os = "linux"))]
     {
+        let mut mem_info = MemInfo::default();
         let mut info = std::mem::MaybeUninit::uninit();
         // SAFETY: `info` is a valid pointer to a `libc::sysinfo` struct.
         let res = unsafe { libc::sysinfo(info.as_mut_ptr()) };
@@ -44,9 +36,14 @@ fn op_system_memory_info() -> Option<MemInfo> {
             mem_info.available = mem_info.free;
             mem_info.buffers = info.bufferram * mem_unit;
         }
+
+        Some(mem_info)
     }
 
-    Some(mem_info)
+    #[cfg(not(any(target_os = "android", target_os = "linux")))]
+    {
+        Some(MemInfo::default())
+    }
 }
 
 deno_core::extension!(

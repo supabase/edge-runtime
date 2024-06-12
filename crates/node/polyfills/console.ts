@@ -9,7 +9,7 @@ import {
   nonEnumerable,
 } from "ext:sb_core_main_js/js/fieldUtils.js";
 
-const { core } = globalThis.__bootstrap;
+import { core } from "ext:core/mod.js";
 
 // Don't rely on global `console` because during bootstrapping, it is pointing
 // to native `console` object provided by V8.

@@ -3,7 +3,8 @@ import "ext:deno_http/01_http.js";
 import { core, internals, primordials } from "ext:core/mod.js";
 import { fromInnerResponse, newInnerResponse } from "ext:deno_fetch/23_response.js";
 import { RequestPrototype } from "ext:deno_fetch/23_request.js";
-import { HttpConn, upgradeWebSocket } from "ext:sb_core_main_js/js/01_http.js";
+import { HttpConn } from "ext:sb_core_main_js/js/01_http.js";
+import { upgradeWebSocket } from "ext:deno_http/02_websocket.ts";
 
 const ops = core.ops;
 

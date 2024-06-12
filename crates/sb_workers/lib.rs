@@ -16,7 +16,7 @@ use deno_core::{
     AsyncRefCell, AsyncResult, BufView, ByteString, CancelFuture, CancelHandle, CancelTryFuture,
     JsBuffer, OpState, RcRef, Resource, ResourceId, WriteOutcome,
 };
-use deno_http::{HttpRequestReader, HttpStreamResource};
+use deno_http::{HttpRequestReader, HttpStreamReadResource};
 use errors::WorkerError;
 use http_utils::utils::get_upgrade_type;
 use hyper::body::HttpBody;
@@ -27,7 +27,6 @@ use log::error;
 use sb_core::conn_sync::ConnWatcher;
 use sb_graph::{DecoratorType, EszipPayloadKind};
 use serde::{Deserialize, Serialize};
-use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -124,6 +123,7 @@ pub async fn op_user_worker_create(
             if let Some(jsx_import_source_config) = jsx_import_source_config {
                 Some(JsxImportSourceConfig {
                     default_specifier: jsx_import_source_config.default_specifier,
+                    default_types_specifier: None,
                     module: jsx_import_source_config.module,
                     base_url: {
                         let main = op_state.borrow::<ModuleSpecifier>().to_string();
@@ -215,7 +215,7 @@ pub struct UserWorkerResponse {
 struct UserWorkerRequestResource(Request<Body>);
 
 impl Resource for UserWorkerRequestResource {
-    fn name(&self) -> Cow<str> {
+    fn name(&self) -> std::borrow::Cow<str> {
         "userWorkerRequest".into()
     }
 }
@@ -226,7 +226,7 @@ struct UserWorkerRequestBodyResource {
 }
 
 impl Resource for UserWorkerRequestBodyResource {
-    fn name(&self) -> Cow<str> {
+    fn name(&self) -> std::borrow::Cow<str> {
         "userWorkerRequestBody".into()
     }
 
@@ -289,7 +289,7 @@ struct UserWorkerResponseBodyResource {
 }
 
 impl Resource for UserWorkerResponseBodyResource {
-    fn name(&self) -> Cow<str> {
+    fn name(&self) -> std::borrow::Cow<str> {
         "userWorkerResponseBody".into()
     }
 
@@ -428,7 +428,7 @@ pub async fn op_user_worker_fetch_send(
             let req_stream = state
                 .borrow_mut()
                 .resource_table
-                .get::<HttpStreamResource>(stream_rid)?;
+                .get::<HttpStreamReadResource>(stream_rid)?;
 
             let mut req_reader_mut = RcRef::map(&req_stream, |r| &r.rd).borrow_mut().await;
 

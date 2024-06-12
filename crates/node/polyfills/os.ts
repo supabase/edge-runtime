@@ -138,7 +138,17 @@ export function arch(): string {
 (machine as any)[Symbol.toPrimitive] = (): string => machine();
 
 export function cpus(): CPUCoreInfo[] {
-  return op_cpus();
+  return [{
+    model: "",
+    speed: 0,
+    times: {
+      user: 0,
+      nice: 0,
+      sys: 0,
+      idle: 0,
+      irq: 0
+    }
+  }]
 }
 
 /**
@@ -167,14 +177,13 @@ export function freemem(): number {
 }
 
 /** Not yet implemented */
-export function getPriority(pid = 0): number {
-  validateIntegerRange(pid, "pid");
-  return op_node_os_get_priority(pid);
+export function getPriority(_pid = 0): number {
+  return 0;
 }
 
 /** Returns the string path of the current user's home directory. */
 export function homedir(): string | null {
-  // Note: Node/libuv calls getpwuid() / GetUserProfileDirectory() when the
+/*  // Note: Node/libuv calls getpwuid() / GetUserProfileDirectory() when the
   // environment variable isn't set but that's the (very uncommon) fallback
   // path. IMO, it's okay to punt on that for now.
   switch (osType) {
@@ -188,7 +197,8 @@ export function homedir(): string | null {
       return Deno.env.get("HOME") || null;
     default:
       throw Error("unreachable");
-  }
+  }*/
+  return "/home/deno"
 }
 
 /** Returns the host name of the operating system as a string. */
@@ -266,16 +276,7 @@ export function machine(): string {
 
 /** Not yet implemented */
 export function setPriority(pid: number, priority?: number) {
-  /* The node API has the 'pid' as the first parameter and as optional.
-       This makes for a problematic implementation in Typescript. */
-  if (priority === undefined) {
-    priority = pid;
-    pid = 0;
-  }
-  validateIntegerRange(pid, "pid");
-  validateIntegerRange(priority, "priority", -20, 19);
-
-  op_node_os_set_priority(pid, priority);
+  throw new Error("Unsupported"); // Same as Deno deploy
 }
 
 /** Returns the operating system's default directory for temporary files as a string. */
@@ -338,37 +339,37 @@ export function uptime(): number {
 export function userInfo(
   options: UserInfoOptions = { encoding: "utf-8" },
 ): UserInfo {
-  let uid = Deno.uid();
-  let gid = Deno.gid();
-
-  if (isWindows) {
-    uid = -1;
-    gid = -1;
-  }
-
-  // TODO(@crowlKats): figure out how to do this correctly:
-  //  The value of homedir returned by os.userInfo() is provided by the operating system.
-  //  This differs from the result of os.homedir(), which queries environment
-  //  variables for the home directory before falling back to the operating system response.
-  let _homedir = homedir();
-  if (!_homedir) {
-    throw new ERR_OS_NO_HOMEDIR();
-  }
-  let shell = isWindows ? (Deno.env.get("SHELL") || null) : null;
-  let username = op_node_os_username();
-
-  if (options?.encoding === "buffer") {
-    _homedir = _homedir ? Buffer.from(_homedir) : _homedir;
-    shell = shell ? Buffer.from(shell) : shell;
-    username = Buffer.from(username);
-  }
+  // let uid = Deno.uid();
+  // let gid = Deno.gid();
+  //
+  // if (isWindows) {
+  //   uid = -1;
+  //   gid = -1;
+  // }
+  //
+  // // TODO(@crowlKats): figure out how to do this correctly:
+  // //  The value of homedir returned by os.userInfo() is provided by the operating system.
+  // //  This differs from the result of os.homedir(), which queries environment
+  // //  variables for the home directory before falling back to the operating system response.
+  // let _homedir = homedir();
+  // if (!_homedir) {
+  //   throw new ERR_OS_NO_HOMEDIR();
+  // }
+  // let shell = isWindows ? (Deno.env.get("SHELL") || null) : null;
+  // let username = op_node_os_username();
+  //
+  // if (options?.encoding === "buffer") {
+  //   _homedir = _homedir ? Buffer.from(_homedir) : _homedir;
+  //   shell = shell ? Buffer.from(shell) : shell;
+  //   username = Buffer.from(username);
+  // }
 
   return {
-    uid,
-    gid,
-    homedir: _homedir,
-    shell,
-    username,
+    uid: osCalls.uid(),
+    gid: osCalls.gid(),
+    homedir: homedir(),
+    shell: null,
+    username: "",
   };
 }
 

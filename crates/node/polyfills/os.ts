@@ -138,7 +138,7 @@ export function arch(): string {
 (machine as any)[Symbol.toPrimitive] = (): string => machine();
 
 export function cpus(): CPUCoreInfo[] {
-  return {
+  return [{
     model: "",
     speed: 0,
     times: {
@@ -148,7 +148,7 @@ export function cpus(): CPUCoreInfo[] {
       idle: 0,
       irq: 0
     }
-  }
+  }]
 }
 
 /**
@@ -365,9 +365,9 @@ export function userInfo(
   // }
 
   return {
-    uid: 1000,
-    gid: 1000,
-    homedir: _homedir,
+    uid: osCalls.uid(),
+    gid: osCalls.gid(),
+    homedir: homedir(),
     shell: null,
     username: "",
   };

@@ -198,7 +198,7 @@ export function homedir(): string | null {
     default:
       throw Error("unreachable");
   }*/
-  return "/src"
+  return "/home/deno"
 }
 
 /** Returns the host name of the operating system as a string. */

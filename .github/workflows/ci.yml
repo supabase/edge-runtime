@@ -18,12 +18,11 @@ jobs:
     name: "cargo fmt"
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v3
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: stable
           components: rustfmt
-      - uses: actions/checkout@v3
       - run: ./scripts/fmt.sh
 
   cargo-clippy:
@@ -34,7 +33,6 @@ jobs:
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: stable
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - run: ./scripts/clippy.sh
@@ -58,6 +56,5 @@ jobs:
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: stable
       - uses: Swatinem/rust-cache@v2
       - run: ./scripts/test.sh

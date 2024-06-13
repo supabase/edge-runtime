@@ -5,6 +5,7 @@ use crate::rt_worker::utils::{get_event_metadata, parse_worker_conf};
 use crate::rt_worker::worker_ctx::create_supervisor;
 use crate::utils::send_event_if_event_worker_available;
 use anyhow::{anyhow, Error};
+use base_mem_check::MemCheckState;
 use event_worker::events::{
     EventLoopCompletedEvent, EventMetadata, ShutdownEvent, ShutdownReason, UncaughtExceptionEvent,
     WorkerEventWithMetadata, WorkerEvents, WorkerMemoryUsed,
@@ -224,7 +225,7 @@ impl Worker {
                                                 total: 0,
                                                 heap: 0,
                                                 external: 0,
-                                                mem_check_captured: 0,
+                                                mem_check_captured: MemCheckState::default(),
                                             },
                                         },
                                     ));

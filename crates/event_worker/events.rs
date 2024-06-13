@@ -1,3 +1,4 @@
+use base_mem_check::MemCheckState;
 use serde::{Deserialize, Serialize};
 use strum::IntoStaticStr;
 use uuid::Uuid;
@@ -16,12 +17,12 @@ pub struct WorkerMemoryUsed {
     pub total: usize,
     pub heap: usize,
     pub external: usize,
-    pub mem_check_captured: usize,
+    pub mem_check_captured: MemCheckState,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 pub struct MemoryLimitDetailMemCheck {
-    pub captured: usize,
+    pub captured: MemCheckState,
 }
 
 impl std::fmt::Display for MemoryLimitDetailMemCheck {
@@ -145,7 +146,7 @@ pub struct WorkerEventWithMetadata {
 
 #[derive(Serialize, Deserialize)]
 pub enum RawEvent {
-    Event(WorkerEventWithMetadata),
+    Event(Box<WorkerEventWithMetadata>),
     Done,
 }
 

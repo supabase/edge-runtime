@@ -3,6 +3,7 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
+use base_mem_check::WorkerHeapStatistics;
 use deno_core::error::AnyError;
 use deno_core::v8;
 use deno_core::OpState;
@@ -159,23 +160,23 @@ impl RuntimeMetricSource {
 
         extern "C" fn interrupt_fn(isolate: &mut v8::Isolate, data: *mut std::ffi::c_void) {
             let arg = unsafe { Box::<InterruptData>::from_raw(data as *mut _) };
-            let mut v8_heap_stats = v8::HeapStatistics::default();
-            let mut worker_heap_stats = WorkerHeapStatistics::default();
+            let mut v8_stats = v8::HeapStatistics::default();
+            let mut worker_stats = WorkerHeapStatistics::default();
 
-            isolate.get_heap_statistics(&mut v8_heap_stats);
+            isolate.get_heap_statistics(&mut v8_stats);
 
-            worker_heap_stats.total_heap_size = v8_heap_stats.total_heap_size();
-            worker_heap_stats.total_heap_executable = v8_heap_stats.total_heap_size_executable();
-            worker_heap_stats.total_physical_size = v8_heap_stats.total_physical_size();
-            worker_heap_stats.total_available_size = v8_heap_stats.total_available_size();
-            worker_heap_stats.total_global_handles_size = v8_heap_stats.total_global_handles_size();
-            worker_heap_stats.used_global_handles_size = v8_heap_stats.used_global_handles_size();
-            worker_heap_stats.used_heap_size = v8_heap_stats.used_heap_size();
-            worker_heap_stats.malloced_memory = v8_heap_stats.malloced_memory();
-            worker_heap_stats.external_memory = v8_heap_stats.external_memory();
-            worker_heap_stats.peak_malloced_memory = v8_heap_stats.peak_malloced_memory();
+            worker_stats.total_heap_size = v8_stats.total_heap_size();
+            worker_stats.total_heap_size_executable = v8_stats.total_heap_size_executable();
+            worker_stats.total_physical_size = v8_stats.total_physical_size();
+            worker_stats.total_available_size = v8_stats.total_available_size();
+            worker_stats.total_global_handles_size = v8_stats.total_global_handles_size();
+            worker_stats.used_global_handles_size = v8_stats.used_global_handles_size();
+            worker_stats.used_heap_size = v8_stats.used_heap_size();
+            worker_stats.malloced_memory = v8_stats.malloced_memory();
+            worker_stats.external_memory = v8_stats.external_memory();
+            worker_stats.peak_malloced_memory = v8_stats.peak_malloced_memory();
 
-            if let Err(err) = arg.heap_tx.send(worker_heap_stats) {
+            if let Err(err) = arg.heap_tx.send(worker_stats) {
                 error!("failed to send worker heap statistics: {:?}", err);
             }
         }
@@ -213,21 +214,6 @@ impl RuntimeMetricSource {
             event_worker_heap_stats: request_heap_statistics_fn(self.event.as_mut()).await,
         }
     }
-}
-
-#[derive(Debug, Serialize, Default)]
-#[serde(rename_all = "camelCase")]
-struct WorkerHeapStatistics {
-    total_heap_size: usize,
-    total_heap_executable: usize,
-    total_physical_size: usize,
-    total_available_size: usize,
-    total_global_handles_size: usize,
-    used_global_handles_size: usize,
-    used_heap_size: usize,
-    malloced_memory: usize,
-    external_memory: usize,
-    peak_malloced_memory: usize,
 }
 
 #[derive(Debug, Serialize, Default)]

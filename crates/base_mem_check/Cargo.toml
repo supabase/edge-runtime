@@ -1,0 +1,8 @@
+[package]
+name = "base_mem_check"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+deno_core.workspace = true
+serde.workspace = true

@@ -366,6 +366,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "async-tungstenite",
+ "base_mem_check",
  "bytes",
  "cityhash",
  "cooked-waker",
@@ -481,6 +482,14 @@ name = "base64ct"
 version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8c3c1a368f70d6cf7302d78f8f7093da241fb8e8807c05cc9e51a125895a6d5b"
+
+[[package]]
+name = "base_mem_check"
+version = "0.1.0"
+dependencies = [
+ "deno_core",
+ "serde",
+]
 
 [[package]]
 name = "better_scoped_tls"
@@ -2032,6 +2041,7 @@ name = "event_worker"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base_mem_check",
  "deno_core",
  "log",
  "serde",
@@ -4825,6 +4835,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64 0.21.7",
+ "base_mem_check",
  "bytes",
  "cache_control",
  "chrono",

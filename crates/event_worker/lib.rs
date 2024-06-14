@@ -27,7 +27,7 @@ async fn op_event_accept(state: Rc<RefCell<OpState>>) -> Result<RawEvent, Error>
     op_state.put::<mpsc::UnboundedReceiver<WorkerEventWithMetadata>>(rx);
 
     match data {
-        Some(event) => Ok(RawEvent::Event(event)),
+        Some(event) => Ok(RawEvent::Event(Box::new(event))),
         None => Ok(RawEvent::Done),
     }
 }

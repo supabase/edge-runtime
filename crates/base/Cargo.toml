@@ -6,6 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+base_mem_check = { version = "0.1.0", path = "../base_mem_check" }
 http_utils = { version = "0.1.0", path = "../http_utils" }
 async-trait.workspace = true
 thiserror.workspace = true

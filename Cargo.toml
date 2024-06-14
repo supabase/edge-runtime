@@ -1,6 +1,7 @@
 [workspace]
 members = [
   "./crates/base",
+  "./crates/base_mem_check",
   "./crates/cli",
   "./crates/sb_workers",
   "./crates/sb_env",

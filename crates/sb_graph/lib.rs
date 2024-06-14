@@ -287,7 +287,7 @@ impl EszipDataSection {
         };
 
         let loc = match metadata {
-            metadata @ &mut EszipDataSectionMetadata::HasLocation(loc) => {
+            &mut EszipDataSectionMetadata::HasLocation(loc) => {
                 self.loaded_locs_by_specifier
                     .lock()
                     .await

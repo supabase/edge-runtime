@@ -11,8 +11,8 @@ use cpu_timer::CPUTimer;
 use deno_config::JsxImportSourceConfig;
 use deno_core::{InspectorSessionProxy, LocalInspectorSession};
 use event_worker::events::{
-    BootEvent, MemoryLimitDetail, MemoryLimitDetailMemCheck, MemoryLimitDetailV8, ShutdownEvent,
-    WorkerEventWithMetadata, WorkerEvents, WorkerMemoryUsed,
+    BootEvent, MemoryLimitDetail, ShutdownEvent, WorkerEventWithMetadata, WorkerEvents,
+    WorkerMemoryUsed,
 };
 use futures_util::pin_mut;
 use http::StatusCode;
@@ -296,7 +296,7 @@ pub fn create_supervisor(
 
     let send_memory_limit_fn = move |detail: MemoryLimitDetail| {
         debug!(
-            "memory limit triggered: isolate: {:?}, detail: {}",
+            "memory limit triggered: isolate: {:?}, detail: {:?}",
             key, detail
         );
 
@@ -310,22 +310,16 @@ pub fn create_supervisor(
 
     worker_runtime.add_memory_limit_callback({
         let send_fn = send_memory_limit_fn.clone();
-        move |captured| {
-            send_fn(MemoryLimitDetail::MemCheck(MemoryLimitDetailMemCheck {
-                captured,
-            }));
-
+        move |_| {
+            send_fn(MemoryLimitDetail::MemCheck);
             true
         }
     });
 
     worker_runtime.js_runtime.add_near_heap_limit_callback({
         let send_fn = send_memory_limit_fn;
-        move |current, initial| {
-            send_fn(MemoryLimitDetail::V8(MemoryLimitDetailV8 {
-                current,
-                initial,
-            }));
+        move |current, _| {
+            send_fn(MemoryLimitDetail::V8);
 
             // give an allowance on current limit (until the isolate is
             // terminated) we do this so that oom won't end up killing the

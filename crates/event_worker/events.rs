@@ -20,50 +20,13 @@ pub struct WorkerMemoryUsed {
     pub mem_check_captured: MemCheckState,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
-pub struct MemoryLimitDetailMemCheck {
-    pub captured: MemCheckState,
-}
-
-impl std::fmt::Display for MemoryLimitDetailMemCheck {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MemoryLimitDetailMemCheck")
-            .field("captured", &self.captured)
-            .finish()
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
-pub struct MemoryLimitDetailV8 {
-    pub current: usize,
-    pub initial: usize,
-}
-
-impl std::fmt::Display for MemoryLimitDetailV8 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MemoryLimitDetailV8")
-            .field("current", &self.current)
-            .field("initial", &self.initial)
-            .finish()
-    }
-}
-
 #[derive(Serialize, Deserialize, IntoStaticStr, Debug, Clone, Copy)]
 #[serde(tag = "limited_by")]
 #[serde(rename_all = "snake_case")]
 #[strum(serialize_all = "snake_case")]
 pub enum MemoryLimitDetail {
-    MemCheck(MemoryLimitDetailMemCheck),
-    V8(MemoryLimitDetailV8),
-}
-
-impl std::fmt::Display for MemoryLimitDetail {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::MemCheck(arg) => std::fmt::Display::fmt(arg, f),
-            Self::V8(arg) => std::fmt::Display::fmt(arg, f),
-        }
-    }
+    MemCheck,
+    V8,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

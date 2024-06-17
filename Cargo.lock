@@ -2045,7 +2045,6 @@ dependencies = [
  "deno_core",
  "log",
  "serde",
- "strum",
  "tokio",
  "uuid",
 ]

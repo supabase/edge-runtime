@@ -28,6 +28,7 @@ use sb_core::conn_sync::DenoRuntimeDropToken;
 use sb_core::http::sb_core_http;
 use sb_core::http_start::sb_core_http_start;
 use sb_core::util::sync::AtomicFlag;
+use sb_fs::static_fs::StaticFs;
 use serde::Serialize;
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -57,9 +58,7 @@ use sb_env::sb_env as sb_env_op;
 use sb_fs::file_system::DenoCompileFileSystem;
 use sb_graph::emitter::EmitterFactory;
 use sb_graph::import_map::load_import_map;
-use sb_graph::{
-    generate_binary_eszip, include_glob_patterns_in_eszip, EszipPayloadKind, STATIC_FS_PREFIX,
-};
+use sb_graph::{generate_binary_eszip, include_glob_patterns_in_eszip, EszipPayloadKind};
 use sb_module_loader::standalone::create_module_loader_for_standalone_from_eszip_kind;
 use sb_module_loader::RuntimeProviders;
 use sb_node::deno_node;
@@ -243,6 +242,8 @@ where
             ..
         } = opts;
 
+        // TODO(Nyannyacha): Make sure `service_path` is an absolute path first.
+
         let drop_token = CancellationToken::default();
 
         let base_dir_path = std::env::current_dir().map(|p| p.join(&service_path))?;
@@ -324,9 +325,9 @@ where
             include_glob_patterns_in_eszip(
                 static_patterns.iter().map(|s| s.as_str()).collect(),
                 &mut eszip,
-                Some(STATIC_FS_PREFIX.to_string()),
+                &base_dir_path,
             )
-            .await;
+            .await?;
 
             EszipPayloadKind::Eszip(eszip)
         };
@@ -345,6 +346,7 @@ where
             )
         })()
         .unwrap_or_else(|| vec!["mozilla".to_string()]);
+
         for store in ca_stores.iter() {
             match store.as_str() {
                 "mozilla" => {
@@ -371,6 +373,7 @@ where
             Arc::new(ValueRootCertStoreProvider::new(root_cert_store.clone()));
 
         let mut stdio = Some(Default::default());
+
         if is_user_worker {
             stdio = Some(deno_io::Stdio {
                 stdin: deno_io::StdioPipe::file(std::fs::File::create("/dev/null")?),
@@ -381,6 +384,7 @@ where
 
         let rt_provider = create_module_loader_for_standalone_from_eszip_kind(
             eszip,
+            base_dir_path.clone(),
             maybe_arc_import_map,
             import_map_path,
             maybe_inspector.is_some(),
@@ -399,8 +403,9 @@ where
 
         let op_fs = {
             if is_user_worker {
-                Arc::new(sb_fs::static_fs::StaticFs::new(
+                Arc::new(StaticFs::new(
                     static_files,
+                    base_dir_path,
                     vfs_path,
                     vfs,
                     npm_snapshot,
@@ -1351,7 +1356,8 @@ mod test {
             .execute_script(
                 "<anon>",
                 ModuleCodeString::from(
-                    r#"Deno.readTextFileSync("./mnt/data/test_cases/content.md")"#.to_string(),
+                    // NOTE: Base path is `./test_cases/main`.
+                    r#"Deno.readTextFileSync("../content.md")"#.to_string(),
                 ),
             )
             .unwrap();

@@ -3,10 +3,9 @@ use crate::errors::EszipError;
 use crate::graph_util::{create_eszip_from_graph_raw, create_graph};
 use anyhow::{bail, Context};
 use deno_ast::MediaType;
-use deno_core::error::AnyError;
 use deno_core::futures::io::{AllowStdIo, BufReader};
 use deno_core::url::Url;
-use deno_core::{serde_json, FastString, JsBuffer, ModuleSpecifier};
+use deno_core::{FastString, JsBuffer, ModuleSpecifier};
 use deno_fs::{FileSystem, RealFs};
 use deno_npm::NpmSystemInfo;
 use eszip::v2::{EszipV2Module, EszipV2Modules, EszipV2SourceSlot};
@@ -44,8 +43,6 @@ pub mod graph_util;
 pub mod import_map;
 pub mod jsr;
 pub mod jsx_util;
-
-pub const STATIC_FS_PREFIX: &str = "mnt/data";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -606,40 +603,44 @@ pub async fn payload_to_eszip(eszip_payload_kind: EszipPayloadKind) -> LazyLoada
     }
 }
 
-pub async fn generate_binary_eszip(
-    file: PathBuf,
+pub async fn generate_binary_eszip<P>(
+    file: P,
     emitter_factory: Arc<EmitterFactory>,
     maybe_module_code: Option<FastString>,
     maybe_import_map_url: Option<String>,
-) -> Result<EszipV2, AnyError> {
-    let graph = create_graph(file.clone(), emitter_factory.clone(), &maybe_module_code).await;
+) -> Result<EszipV2, anyhow::Error>
+where
+    P: AsRef<Path>,
+{
+    let file = file.as_ref();
+    let graph = create_graph(
+        file.to_path_buf(),
+        emitter_factory.clone(),
+        &maybe_module_code,
+    )
+    .await;
+
     let mut eszip = create_eszip_from_graph_raw(graph, Some(emitter_factory.clone())).await?;
 
-    let fs_path = file.clone();
     let source_code: Arc<str> = if let Some(code) = maybe_module_code {
         code.as_str().into()
     } else {
-        let entry_content = RealFs
-            .read_file_sync(fs_path.clone().as_path(), None)
-            .unwrap();
-
-        String::from_utf8(entry_content.clone())?.into()
+        String::from_utf8(RealFs.read_file_sync(file, None)?)?.into()
     };
 
     let emit_source = emitter_factory.emitter().unwrap().emit_parsed_source(
         &ModuleSpecifier::parse(
-            &Url::from_file_path(&fs_path)
+            &Url::from_file_path(file)
                 .map(|it| Cow::Owned(it.to_string()))
                 .ok()
                 .unwrap_or("http://localhost".into()),
         )
         .unwrap(),
-        MediaType::from_path(fs_path.clone().as_path()),
+        MediaType::from_path(file),
         &source_code,
     )?;
 
     let bin_code: Arc<[u8]> = emit_source.as_bytes().into();
-
     let npm_res = emitter_factory.npm_resolution().await;
     let resolver = emitter_factory.npm_resolver().await;
 
@@ -712,35 +713,40 @@ pub async fn generate_binary_eszip(
     Ok(eszip)
 }
 
-pub async fn include_glob_patterns_in_eszip(
+pub async fn include_glob_patterns_in_eszip<P>(
     patterns: Vec<&str>,
     eszip: &mut EszipV2,
-    prefix: Option<String>,
-) {
-    let mut static_files: Vec<String> = vec![];
+    base_dir: P,
+) -> Result<(), anyhow::Error>
+where
+    P: AsRef<Path>,
+{
+    let cwd = std::env::current_dir();
+    let base_dir = base_dir.as_ref();
+    let mut specifiers: Vec<String> = vec![];
+
     for pattern in patterns {
         for entry in glob(pattern).expect("Failed to read pattern") {
             match entry {
                 Ok(path) => {
-                    let mod_path = path.to_str().unwrap().to_string();
-                    let mod_path = if let Some(file_prefix) = prefix.clone() {
-                        PathBuf::from(file_prefix)
-                            .join(PathBuf::from(mod_path))
-                            .to_str()
-                            .unwrap()
-                            .to_string()
-                    } else {
-                        mod_path
+                    let path = cwd.as_ref().unwrap().join(path);
+                    let (path, rel) = match pathdiff::diff_paths(&path, base_dir) {
+                        Some(rel) => (path, rel.to_string_lossy().to_string()),
+                        None => (path.clone(), path.to_string_lossy().to_string()),
                     };
 
                     if path.exists() {
-                        let content = std::fs::read(path).unwrap();
-                        let arc_slice: Arc<[u8]> = Arc::from(content.into_boxed_slice());
-                        eszip.add_opaque_data(mod_path.clone(), arc_slice);
-                    }
+                        let specifier = format!("static:{}", rel.as_str());
 
-                    static_files.push(mod_path);
+                        eszip.add_opaque_data(
+                            specifier.clone(),
+                            Arc::from(std::fs::read(path).unwrap().into_boxed_slice()),
+                        );
+
+                        specifiers.push(specifier);
+                    }
                 }
+
                 Err(_) => {
                     error!("Error reading pattern {} for static files", pattern)
                 }
@@ -748,11 +754,18 @@ pub async fn include_glob_patterns_in_eszip(
         }
     }
 
-    if !static_files.is_empty() {
-        let file_specifiers_as_bytes = serde_json::to_vec(&static_files).unwrap();
-        let arc_slice: Arc<[u8]> = Arc::from(file_specifiers_as_bytes.into_boxed_slice());
-        eszip.add_opaque_data(String::from(STATIC_FILES_ESZIP_KEY), arc_slice);
+    if !specifiers.is_empty() {
+        eszip.add_opaque_data(
+            String::from(STATIC_FILES_ESZIP_KEY),
+            Arc::from(
+                rkyv::to_bytes::<_, 1024>(&specifiers)
+                    .with_context(|| "cannot serialize accessible paths for static files")?
+                    .into_boxed_slice(),
+            ),
+        );
     }
+
+    Ok(())
 }
 
 fn extract_file_specifiers(eszip: &EszipV2) -> Vec<String> {

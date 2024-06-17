@@ -10,6 +10,7 @@ use deno_core::url::Url;
 use deno_core::{FastString, ModuleSpecifier};
 use deno_tls::rustls::RootCertStore;
 use deno_tls::RootCertStoreProvider;
+use futures_util::future::OptionFuture;
 use import_map::{parse_from_json, ImportMap};
 use sb_core::cache::caches::Caches;
 use sb_core::cache::deno_dir::DenoDirProvider;
@@ -30,6 +31,7 @@ use sb_npm::{
     create_managed_npm_resolver, CliNpmResolverManagedCreateOptions,
     CliNpmResolverManagedPackageJsonInstallerOption, CliNpmResolverManagedSnapshotOption,
 };
+use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -54,12 +56,16 @@ impl RootCertStoreProvider for StandaloneRootCertStoreProvider {
     }
 }
 
-pub async fn create_module_loader_for_eszip(
+pub async fn create_module_loader_for_eszip<P>(
     mut eszip: LazyLoadableEszip,
+    base_dir_path: P,
     metadata: Metadata,
     maybe_import_map: Option<ImportMap>,
     include_source_map: bool,
-) -> Result<RuntimeProviders, AnyError> {
+) -> Result<RuntimeProviders, AnyError>
+where
+    P: AsRef<Path>,
+{
     let current_exe_path = std::env::current_exe().unwrap();
     let current_exe_name = current_exe_path.file_name().unwrap().to_string_lossy();
     let deno_dir_provider = Arc::new(DenoDirProvider::new(None));
@@ -83,33 +89,28 @@ pub async fn create_module_loader_for_eszip(
     let npm_cache_dir = NpmCacheDir::new(root_path.clone());
     let npm_global_cache_dir = npm_cache_dir.get_cache_location();
 
-    let entry_module_source_fs = if let Some(module) = eszip.ensure_module(SOURCE_CODE_ESZIP_KEY) {
-        if let Some(src) = module.take_source().await {
-            Some(FastString::from(String::from_utf8(src.to_vec())?))
-        } else {
-            None
-        }
-    } else {
-        None
-    };
+    let entry_module_source = OptionFuture::<_>::from(
+        eszip
+            .ensure_module(SOURCE_CODE_ESZIP_KEY)
+            .map(|it| async move { it.take_source().await }),
+    )
+    .await
+    .flatten()
+    .map(|it| String::from_utf8_lossy(it.as_ref()).into_owned())
+    .map(FastString::from);
 
     let snapshot = eszip.take_npm_snapshot();
-    let static_files = extract_static_files_from_eszip(&eszip).await;
+    let static_files = extract_static_files_from_eszip(&eszip, base_dir_path).await;
     let vfs_root_dir_path = npm_cache_dir.registry_folder(&npm_registry_url);
 
     let (fs, vfs) = {
-        let vfs_data = if eszip.specifiers().iter().any(|it| it == VFS_ESZIP_KEY) {
-            Some(
-                eszip
-                    .ensure_module(VFS_ESZIP_KEY)
-                    .unwrap()
-                    .take_source()
-                    .await
-                    .unwrap(),
-            )
-        } else {
-            None
-        };
+        let vfs_data = OptionFuture::<_>::from(
+            eszip
+                .ensure_module(VFS_ESZIP_KEY)
+                .map(|it| async move { it.source().await }),
+        )
+        .await
+        .flatten();
 
         let vfs = load_npm_vfs(
             Arc::new(eszip.clone()),
@@ -196,19 +197,23 @@ pub async fn create_module_loader_for_eszip(
         }),
         npm_resolver: npm_resolver.into_npm_resolver(),
         vfs,
-        module_code: entry_module_source_fs,
+        module_code: entry_module_source,
         static_files,
         npm_snapshot: snapshot,
         vfs_path: vfs_root_dir_path,
     })
 }
 
-pub async fn create_module_loader_for_standalone_from_eszip_kind(
+pub async fn create_module_loader_for_standalone_from_eszip_kind<P>(
     eszip_payload_kind: EszipPayloadKind,
+    base_dir_path: P,
     maybe_import_map_arc: Option<Arc<ImportMap>>,
     maybe_import_map_path: Option<String>,
     include_source_map: bool,
-) -> Result<RuntimeProviders, AnyError> {
+) -> Result<RuntimeProviders, AnyError>
+where
+    P: AsRef<Path>,
+{
     let mut maybe_import_map = None;
     let eszip = match eszip_migrate::try_migrate_if_needed(
         payload_to_eszip(eszip_payload_kind).await,
@@ -237,6 +242,7 @@ pub async fn create_module_loader_for_standalone_from_eszip_kind(
 
     create_module_loader_for_eszip(
         eszip,
+        base_dir_path,
         Metadata {
             ca_stores: None,
             ca_data: None,

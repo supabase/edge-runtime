@@ -751,8 +751,8 @@ impl deno_io::fs::File for FileBackedVfsFile {
 
 #[derive(Debug)]
 pub struct FileBackedVfs {
-    eszip: Arc<dyn AsyncEszipDataRead + 'static>,
-    fs_root: VfsRoot,
+    pub(crate) eszip: Arc<dyn AsyncEszipDataRead + 'static>,
+    pub(crate) fs_root: VfsRoot,
 }
 
 impl FileBackedVfs {

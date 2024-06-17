@@ -1,6 +1,5 @@
 use base_mem_check::MemCheckState;
 use serde::{Deserialize, Serialize};
-use strum::IntoStaticStr;
 use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -20,20 +19,11 @@ pub struct WorkerMemoryUsed {
     pub mem_check_captured: MemCheckState,
 }
 
-#[derive(Serialize, Deserialize, IntoStaticStr, Debug, Clone, Copy)]
-#[serde(tag = "limited_by")]
-#[serde(rename_all = "snake_case")]
-#[strum(serialize_all = "snake_case")]
-pub enum MemoryLimitDetail {
-    MemCheck,
-    V8,
-}
-
 #[derive(Serialize, Deserialize, Debug)]
 pub enum ShutdownReason {
     WallClockTime,
     CPUTime,
-    Memory(MemoryLimitDetail),
+    Memory,
     EarlyDrop,
     TerminationRequested,
 }

@@ -176,9 +176,9 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
                 }
             }
 
-            Some(detail) = memory_limit_rx.recv() => {
+            Some(_) = memory_limit_rx.recv() => {
                 error!("memory limit reached for the worker: isolate: {:?}", key);
-                complete_reason = Some(ShutdownReason::Memory(detail));
+                complete_reason = Some(ShutdownReason::Memory);
             }
         }
 

@@ -1,3 +1,5 @@
+// --static "examples/**/*.md"
+
 import isEven from "npm:is-even";
 import { sum } from "./some-import.ts";
 
@@ -7,7 +9,7 @@ globalThis.isTenEven = isEven(10);
 console.log(Deno.version);
 let val = sum(1, 2);
 console.log(Deno.cwd())
-console.log(Deno.readFileSync('mnt/data/examples/postgres-on-the-edge/README.md'));
+console.log(Deno.readFileSync('../postgres-on-the-edge/README.md'));
 
 Deno.serve(async () => {
     return new Response(

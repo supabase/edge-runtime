@@ -30,4 +30,5 @@ once_cell.workspace = true
 deno_io.workspace = true
 thiserror.workspace = true
 async-trait.workspace = true
+url.workspace = true
 rkyv = { workspace = true, features = ["validation"] }

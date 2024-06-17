@@ -99,6 +99,8 @@ mod v0 {
         .await
         .flatten();
 
+        //STATIC_FILES_ESZIP_KEY
+
         let v1_dir = if let Some(data) = vfs_mod_data {
             let mut count = 0;
             let v0_dir = serde_json::from_slice::<Option<Directory>>(data.as_ref())
@@ -171,7 +173,7 @@ mod v0 {
             Arc::from(v1_vfs_data.into_boxed_slice()),
         );
 
-        static BLACKLIST: Lazy<HashSet<&str>> =
+        static BLOCKLIST: Lazy<HashSet<&str>> =
             Lazy::new(|| HashSet::from([SUPABASE_ESZIP_VERSION_KEY, VFS_ESZIP_KEY]));
 
         let specifiers = v0_eszip.specifiers();
@@ -179,7 +181,7 @@ mod v0 {
         let mut v1_modules = v1_eszip.modules.0.lock().unwrap();
 
         for specifier in specifiers {
-            if BLACKLIST.contains(specifier.as_str()) {
+            if BLOCKLIST.contains(specifier.as_str()) {
                 continue;
             }
 

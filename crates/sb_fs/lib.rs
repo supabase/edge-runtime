@@ -1,9 +1,9 @@
 use crate::virtual_fs::{FileBackedVfs, VfsBuilder, VfsRoot, VirtualDirectory};
 use anyhow::{bail, Context};
-use deno_core::error::AnyError;
-use deno_core::{normalize_path, serde_json};
+use deno_core::normalize_path;
 use deno_npm::NpmSystemInfo;
 use eszip::EszipV2;
+use log::warn;
 use sb_eszip_shared::{AsyncEszipDataRead, STATIC_FILES_ESZIP_KEY};
 use sb_npm::cache::NpmCache;
 use sb_npm::registry::CliNpmRegistryApi;
@@ -12,6 +12,7 @@ use sb_npm::{CliNpmResolver, InnerCliNpmResolverRef};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use url::Url;
 
 pub mod file_system;
 mod rt;
@@ -25,34 +26,48 @@ pub struct VfsOpts {
     pub npm_resolution: Arc<NpmResolution>,
 }
 
-pub type EszipStaticFiles = HashMap<String, Vec<u8>>;
+pub type EszipStaticFiles = HashMap<PathBuf, String>;
 
 pub trait LazyEszipV2: std::ops::Deref<Target = EszipV2> + AsyncEszipDataRead {}
 
 impl<T> LazyEszipV2 for T where T: std::ops::Deref<Target = EszipV2> + AsyncEszipDataRead {}
 
-pub async fn extract_static_files_from_eszip(eszip: &dyn LazyEszipV2) -> EszipStaticFiles {
-    let mut files: EszipStaticFiles = HashMap::new();
+pub async fn extract_static_files_from_eszip<P>(
+    eszip: &dyn LazyEszipV2,
+    mapped_base_dir_path: P,
+) -> EszipStaticFiles
+where
+    P: AsRef<Path>,
+{
+    let mut files = EszipStaticFiles::default();
 
-    if eszip
-        .specifiers()
-        .iter()
-        .any(|it| it == STATIC_FILES_ESZIP_KEY)
-    {
-        let eszip_static_files = eszip.ensure_module(STATIC_FILES_ESZIP_KEY).unwrap();
-        let data = eszip_static_files.take_source().await.unwrap();
-        let data = data.to_vec();
-        let data: Vec<String> = serde_json::from_slice(data.as_slice()).unwrap();
-        for static_specifier in data {
-            let file_mod = eszip.ensure_module(static_specifier.as_str()).unwrap();
-            files.insert(
-                normalize_path(PathBuf::from(static_specifier))
-                    .to_str()
-                    .unwrap()
-                    .to_string(),
-                file_mod.take_source().await.unwrap().to_vec(),
-            );
+    let Some(eszip_static_files) = eszip.ensure_module(STATIC_FILES_ESZIP_KEY) else {
+        return files;
+    };
+
+    let data = eszip_static_files.source().await.unwrap();
+    let archived = match rkyv::check_archived_root::<Vec<String>>(&data) {
+        Ok(vec) => vec,
+        Err(err) => {
+            warn!("failed to deserialize specifiers for static files: {}", err);
+            return files;
         }
+    };
+
+    for specifier in archived.as_ref() {
+        let specifier = specifier.as_str();
+        let path = match Url::parse(specifier) {
+            Ok(v) => PathBuf::from(v.path()),
+            Err(err) => {
+                warn!("could not parse the specifier for static file: {}", err);
+                continue;
+            }
+        };
+
+        files.insert(
+            normalize_path(mapped_base_dir_path.as_ref().join(path)),
+            specifier.to_string(),
+        );
     }
 
     files
@@ -62,7 +77,7 @@ pub fn load_npm_vfs(
     eszip: Arc<dyn AsyncEszipDataRead + 'static>,
     root_dir_path: PathBuf,
     vfs_data_slice: Option<&[u8]>,
-) -> Result<FileBackedVfs, AnyError> {
+) -> Result<FileBackedVfs, anyhow::Error> {
     let dir = match vfs_data_slice
         .map(rkyv::check_archived_root::<Option<VirtualDirectory>>)
         .transpose()
@@ -108,7 +123,7 @@ pub fn load_npm_vfs(
 pub fn build_vfs<'scope, F>(
     opts: VfsOpts,
     add_content_callback_fn: F,
-) -> Result<VfsBuilder<'scope>, AnyError>
+) -> Result<VfsBuilder<'scope>, anyhow::Error>
 where
     F: (for<'r> FnMut(&'r Path, &'r str, Vec<u8>) -> String) + 'scope,
 {

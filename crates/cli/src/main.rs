@@ -17,9 +17,7 @@ use flags::get_cli;
 use log::warn;
 use sb_graph::emitter::EmitterFactory;
 use sb_graph::import_map::load_import_map;
-use sb_graph::{
-    extract_from_file, generate_binary_eszip, include_glob_patterns_in_eszip, STATIC_FS_PREFIX,
-};
+use sb_graph::{extract_from_file, generate_binary_eszip, include_glob_patterns_in_eszip};
 use std::fs::File;
 use std::io::Write;
 use std::net::SocketAddr;
@@ -244,15 +242,21 @@ fn main() -> Result<(), anyhow::Error> {
                         vec![]
                     };
 
-                let entry_point_path = sub_matches
+                let entrypoint_script_path = sub_matches
                     .get_one::<String>("entrypoint")
                     .cloned()
                     .unwrap();
 
-                let path = PathBuf::from(entry_point_path.as_str());
-                if !path.exists() {
-                    bail!("entrypoint path does not exist ({})", path.display());
+                let entrypoint_script_path = PathBuf::from(entrypoint_script_path.as_str());
+                if !entrypoint_script_path.is_file() {
+                    bail!(
+                        "entrypoint path does not exist ({})",
+                        entrypoint_script_path.display()
+                    );
                 }
+
+                let entrypoint_script_path = entrypoint_script_path.canonicalize().unwrap();
+                let entrypoint_dir_path = entrypoint_script_path.parent().unwrap();
 
                 let mut emitter_factory = EmitterFactory::new();
                 let maybe_import_map = load_import_map(import_map_path.clone())
@@ -272,19 +276,15 @@ fn main() -> Result<(), anyhow::Error> {
                 emitter_factory.set_import_map(maybe_import_map.clone());
 
                 let mut eszip = generate_binary_eszip(
-                    path.canonicalize().unwrap(),
+                    &entrypoint_script_path,
                     Arc::new(emitter_factory),
                     None,
                     maybe_import_map_url,
                 )
                 .await?;
 
-                include_glob_patterns_in_eszip(
-                    static_patterns,
-                    &mut eszip,
-                    Some(STATIC_FS_PREFIX.to_string()),
-                )
-                .await;
+                include_glob_patterns_in_eszip(static_patterns, &mut eszip, entrypoint_dir_path)
+                    .await?;
 
                 let bin = eszip.into_bytes();
 

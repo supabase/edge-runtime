@@ -208,11 +208,10 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
                 }
             }
 
-            // memory usage
-            Some(detail) = memory_limit_rx.recv() => {
+            Some(_) = memory_limit_rx.recv() => {
                 terminate_fn();
                 error!("memory limit reached for the worker: isolate: {:?}", key);
-                return (ShutdownReason::Memory(detail), cpu_usage_ms);
+                return (ShutdownReason::Memory, cpu_usage_ms);
             }
         }
     }

@@ -11,8 +11,7 @@ use cpu_timer::CPUTimer;
 use deno_config::JsxImportSourceConfig;
 use deno_core::{InspectorSessionProxy, LocalInspectorSession};
 use event_worker::events::{
-    BootEvent, MemoryLimitDetail, ShutdownEvent, WorkerEventWithMetadata, WorkerEvents,
-    WorkerMemoryUsed,
+    BootEvent, ShutdownEvent, WorkerEventWithMetadata, WorkerEvents, WorkerMemoryUsed,
 };
 use futures_util::pin_mut;
 use http::StatusCode;
@@ -261,7 +260,7 @@ pub fn create_supervisor(
     timing: Option<Timing>,
     termination_token: Option<TerminationToken>,
 ) -> Result<(Option<CPUTimer>, CancellationToken), Error> {
-    let (memory_limit_tx, memory_limit_rx) = mpsc::unbounded_channel::<MemoryLimitDetail>();
+    let (memory_limit_tx, memory_limit_rx) = mpsc::unbounded_channel();
     let (waker, thread_safe_handle) = {
         let js_runtime = &mut worker_runtime.js_runtime;
         (
@@ -294,16 +293,13 @@ pub fn create_supervisor(
         )
     });
 
-    let send_memory_limit_fn = move |detail: MemoryLimitDetail| {
-        debug!(
-            "memory limit triggered: isolate: {:?}, detail: {:?}",
-            key, detail
-        );
+    let send_memory_limit_fn = move |kind: &'static str| {
+        debug!("memory limit triggered: isolate: {:?}, kind: {}", key, kind);
 
-        if memory_limit_tx.send(detail).is_err() {
+        if memory_limit_tx.send(()).is_err() {
             error!(
-                "failed to send memory limit reached notification - isolate may already be terminating: kind: {}",
-                <&'static str>::from(&detail)
+                "failed to send memory limit reached notification(isolate may already be terminating): isolate: {:?}, kind: {}",
+                key, kind
             );
         }
     };
@@ -311,7 +307,7 @@ pub fn create_supervisor(
     worker_runtime.add_memory_limit_callback({
         let send_fn = send_memory_limit_fn.clone();
         move |_| {
-            send_fn(MemoryLimitDetail::MemCheck);
+            send_fn("mem_check");
             true
         }
     });
@@ -319,7 +315,7 @@ pub fn create_supervisor(
     worker_runtime.js_runtime.add_near_heap_limit_callback({
         let send_fn = send_memory_limit_fn;
         move |current, _| {
-            send_fn(MemoryLimitDetail::V8);
+            send_fn("v8");
 
             // give an allowance on current limit (until the isolate is
             // terminated) we do this so that oom won't end up killing the

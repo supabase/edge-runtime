@@ -1,4 +1,12 @@
+/* Using default: Gte-small */
 const pipe = new Supabase.ai.Pipeline('feature-extraction');
+
+/* Using custom model
+const pipe = new Supabase.ai.Pipeline(
+	'feature-extraction',
+	'paraphrase-multilingual-MiniLM-L12-v2',
+);
+*/
 
 Deno.serve(async (req: Request) => {
 	const params = new URL(req.url).searchParams;

@@ -239,3 +239,80 @@ mod v1 {
         Symlink(Symlink),
     }
 }
+
+#[cfg(test)]
+mod test {
+    use std::path::PathBuf;
+    use tokio::fs;
+
+    use crate::{extract_eszip, EszipPayloadKind, ExtractEszipPayload};
+
+    const MIGRATE_TEST_DIR: &str = "../base/test_cases/eszip-migration";
+
+    async fn test_extract_eszip(orig: PathBuf, target: PathBuf) {
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let (_orig_buf, target_buf) = {
+            (
+                fs::read(orig).await.unwrap(),
+                fs::read(target).await.unwrap(),
+            )
+        };
+
+        let payload = ExtractEszipPayload {
+            data: EszipPayloadKind::VecKind(target_buf),
+            folder: tmp_dir.path().to_path_buf(),
+        };
+
+        assert!(extract_eszip(payload).await);
+
+        // TODO(Nyannyacha): It seems to be returning a buffer for the transpiled source rather than
+        // the original source. Fix that issue and uncomment below.
+
+        // let tmp_file_buf = fs::read(tmp_dir.path().join("index.ts")).await.unwrap();
+        // assert_eq!(orig_buf, tmp_file_buf);
+    }
+
+    #[tokio::test]
+    async fn test_extract_v0() {
+        test_extract_eszip(
+            PathBuf::from(format!("{}/npm-supabase-js/index.ts", MIGRATE_TEST_DIR)),
+            PathBuf::from(format!("{}/npm-supabase-js/v0.eszip", MIGRATE_TEST_DIR)),
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn test_extract_v1() {
+        test_extract_eszip(
+            PathBuf::from(format!("{}/npm-supabase-js/index.ts", MIGRATE_TEST_DIR)),
+            PathBuf::from(format!("{}/npm-supabase-js/v1.eszip", MIGRATE_TEST_DIR)),
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    #[should_panic]
+    async fn test_extract_v0_corrupted() {
+        test_extract_eszip(
+            PathBuf::from(format!("{}/npm-supabase-js/index.ts", MIGRATE_TEST_DIR)),
+            PathBuf::from(format!(
+                "{}/npm-supabase-js/v0_corrupted.eszip",
+                MIGRATE_TEST_DIR
+            )),
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    #[should_panic]
+    async fn test_extract_v1_corrupted() {
+        test_extract_eszip(
+            PathBuf::from(format!("{}/npm-supabase-js/index.ts", MIGRATE_TEST_DIR)),
+            PathBuf::from(format!(
+                "{}/npm-supabase-js/v1_corrupted.eszip",
+                MIGRATE_TEST_DIR
+            )),
+        )
+        .await;
+    }
+}

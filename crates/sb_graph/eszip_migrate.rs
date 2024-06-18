@@ -1,4 +1,4 @@
-use log::warn;
+use log::{error, warn};
 
 use crate::{errors::EszipError, LazyLoadableEszip};
 
@@ -19,14 +19,14 @@ pub async fn try_migrate_if_needed(
                 match result {
                     Ok(migrated) => Ok(migrated),
                     Err(err) => {
-                        warn!("{err}");
+                        error!("{:?}", err);
                         Err(eszip)
                     }
                 }
             }
 
             None => {
-                warn!("failed to migrate (found unexpected error)");
+                error!("failed to migrate (found unexpected error)");
                 Err(eszip)
             }
         }

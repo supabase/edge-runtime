@@ -305,12 +305,12 @@ fn main() -> Result<(), anyhow::Error> {
                 let output_path = PathBuf::from(output_path.as_str());
                 let eszip_path = PathBuf::from(eszip_path.as_str());
 
-                extract_from_file(eszip_path, output_path.clone()).await;
-
-                println!(
-                    "Eszip extracted successfully inside path {}",
-                    output_path.to_str().unwrap()
-                );
+                if extract_from_file(eszip_path, output_path.clone()).await {
+                    println!(
+                        "Eszip extracted successfully inside path {}",
+                        output_path.to_str().unwrap()
+                    );
+                }
             }
             _ => {
                 // unrecognized command

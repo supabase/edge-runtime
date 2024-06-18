@@ -13,7 +13,7 @@ use eszip::{EszipV2, Module, ModuleKind, ParseError};
 use futures::future::OptionFuture;
 use futures::{AsyncReadExt, AsyncSeekExt};
 use glob::glob;
-use log::{error, warn};
+use log::error;
 use sb_eszip_shared::{
     AsyncEszipDataRead, SOURCE_CODE_ESZIP_KEY, STATIC_FILES_ESZIP_KEY, SUPABASE_ESZIP_VERSION,
     SUPABASE_ESZIP_VERSION_KEY, VFS_ESZIP_KEY,
@@ -834,14 +834,14 @@ async fn extract_modules(
     }
 }
 
-pub async fn extract_eszip(payload: ExtractEszipPayload) {
+pub async fn extract_eszip(payload: ExtractEszipPayload) -> bool {
     let output_folder = payload.folder;
     let mut eszip =
         match eszip_migrate::try_migrate_if_needed(payload_to_eszip(payload.data).await).await {
             Ok(v) => v,
             Err(_old) => {
-                warn!("eszip migration failed (give up extract job)");
-                return;
+                error!("eszip migration failed (give up extract job)");
+                return false;
             }
         };
 
@@ -854,18 +854,20 @@ pub async fn extract_eszip(payload: ExtractEszipPayload) {
     let file_specifiers = extract_file_specifiers(&eszip);
     if let Some(lowest_path) = sb_core::util::path::find_lowest_path(&file_specifiers) {
         extract_modules(&eszip, &file_specifiers, &lowest_path, &output_folder).await;
+        true
     } else {
         panic!("Path seems to be invalid");
     }
 }
 
-pub async fn extract_from_file(eszip_file: PathBuf, output_path: PathBuf) {
+pub async fn extract_from_file(eszip_file: PathBuf, output_path: PathBuf) -> bool {
     let eszip_content = fs::read(eszip_file).expect("File does not exist");
+
     extract_eszip(ExtractEszipPayload {
         data: EszipPayloadKind::VecKind(eszip_content),
         folder: output_path,
     })
-    .await;
+    .await
 }
 
 #[cfg(test)]
@@ -887,12 +889,16 @@ mod test {
             None,
         )
         .await;
+
         let eszip = eszip.unwrap();
-        extract_eszip(ExtractEszipPayload {
-            data: EszipPayloadKind::Eszip(eszip),
-            folder: PathBuf::from("../base/test_cases/extracted-npm/"),
-        })
-        .await;
+
+        assert!(
+            extract_eszip(ExtractEszipPayload {
+                data: EszipPayloadKind::Eszip(eszip),
+                folder: PathBuf::from("../base/test_cases/extracted-npm/"),
+            })
+            .await
+        );
 
         assert!(PathBuf::from("../base/test_cases/extracted-npm/hello.js").exists());
         remove_dir_all(PathBuf::from("../base/test_cases/extracted-npm/")).unwrap();

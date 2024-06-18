@@ -15,7 +15,7 @@ WAT sample
 */
 let wasm;
 
-let buf = Deno.readFileSync("../../grow.wasm") as Uint8Array;
+let buf = Deno.readFileSync("grow.wasm") as Uint8Array;
 let mod = new WebAssembly.Module(buf);
 let imports = { wbg: {} };
 let instance = new WebAssembly.Instance(mod, imports);

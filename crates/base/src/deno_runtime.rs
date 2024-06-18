@@ -1357,7 +1357,7 @@ mod test {
                 "<anon>",
                 ModuleCodeString::from(
                     // NOTE: Base path is `./test_cases/main`.
-                    r#"Deno.readTextFileSync("../content.md")"#.to_string(),
+                    r#"Deno.readTextFileSync("content.md")"#.to_string(),
                 ),
             )
             .unwrap();

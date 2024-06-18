@@ -83,6 +83,7 @@ tracing = "0.1"
 tracing-subscriber = "0.3"
 sha2 = "0.10"
 rkyv = "0.7"
+tempfile = "3"
 
 [patch.crates-io]
 # TODO(Nyannyacha): Patch below is temporary. Clean the line in the Deno 1.44 update.

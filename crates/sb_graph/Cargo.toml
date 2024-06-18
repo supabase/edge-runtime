@@ -39,3 +39,6 @@ thiserror.workspace = true
 rkyv = { workspace = true, features = ["validation"] }
 hashlink = { version = "0.8" }
 pathdiff = { version = "0.2" }
+
+[dev-dependencies]
+tempfile.workspace = true

@@ -18,22 +18,16 @@ jobs:
     name: "cargo fmt"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          components: rustfmt
+      - uses: actions/checkout@v4
+      - run: rustup show
       - run: ./scripts/fmt.sh
 
   cargo-clippy:
     name: "cargo clippy"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          components: clippy
+      - uses: actions/checkout@v4
+      - run: rustup show
       - uses: Swatinem/rust-cache@v2
       - run: ./scripts/clippy.sh
 
@@ -52,9 +46,7 @@ jobs:
           sudo apt-get remove --purge -y man-db
           sudo apt-get remove 'clang-13*' 'clang-14*' 'clang-15*' 'llvm-13*' 'llvm-14*' 'llvm-15*' 'lld-13*' 'lld-14*' 'lld-15*'
 
-      - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
+      - uses: actions/checkout@v4
+      - run: rustup show
       - uses: Swatinem/rust-cache@v2
       - run: ./scripts/test.sh

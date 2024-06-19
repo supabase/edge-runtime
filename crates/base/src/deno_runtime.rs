@@ -158,15 +158,15 @@ impl MemCheck {
         let heap_stats = WorkerHeapStatistics::from(&stats);
         let mut state = self.state.write().unwrap();
 
-        state.current = heap_stats;
+        if !state.exceeded {
+            state.current = heap_stats;
 
-        if total_bytes >= limit {
-            if !state.exceeded {
+            if total_bytes >= limit {
                 state.exceeded = true;
-            }
 
-            drop(state);
-            self.notify.notify_waiters();
+                drop(state);
+                self.notify.notify_waiters();
+            }
         }
 
         total_bytes

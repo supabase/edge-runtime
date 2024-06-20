@@ -948,6 +948,7 @@ extern "C" fn mem_check_gc_prologue_callback_fn(
 mod test {
     use crate::deno_runtime::DenoRuntime;
     use crate::rt_worker::worker::DuplexStreamEntry;
+    use anyhow::Context;
     use deno_config::JsxImportSourceConfig;
     use deno_core::error::AnyError;
     use deno_core::{serde_json, serde_v8, v8, FastString, ModuleCodeString, PollEventLoopOptions};
@@ -964,7 +965,8 @@ mod test {
     use std::fs;
     use std::fs::File;
     use std::io::Write;
-    use std::path::PathBuf;
+    use std::marker::PhantomData;
+    use std::path::{Path, PathBuf};
     use std::sync::Arc;
     use std::time::Duration;
     use tokio::sync::mpsc;
@@ -981,6 +983,150 @@ mod test {
             let scope = &mut self.js_runtime.handle_scope();
             let value = v8::Local::new(scope, global_value.clone());
             Ok(serde_v8::from_v8(scope, value)?)
+        }
+    }
+
+    #[derive(Debug, Default)]
+    struct RuntimeBuilder<C = ()> {
+        path: Option<String>,
+        eszip: Option<EszipPayloadKind>,
+        env_vars: Option<HashMap<String, String>>,
+        worker_runtime_conf: Option<WorkerRuntimeOpts>,
+        static_patterns: Vec<String>,
+        jsx_import_source_config: Option<JsxImportSourceConfig>,
+        _phantom_context: PhantomData<C>,
+    }
+
+    impl RuntimeBuilder {
+        fn new() -> Self {
+            Self::default()
+        }
+    }
+
+    impl<C> RuntimeBuilder<C> {
+        fn set_context<C2>(self) -> RuntimeBuilder<C2>
+        where
+            C2: GetRuntimeContext,
+        {
+            RuntimeBuilder {
+                path: self.path,
+                eszip: self.eszip,
+                env_vars: self.env_vars,
+                worker_runtime_conf: self.worker_runtime_conf,
+                static_patterns: self.static_patterns,
+                jsx_import_source_config: self.jsx_import_source_config,
+                _phantom_context: PhantomData,
+            }
+        }
+    }
+
+    impl<C> RuntimeBuilder<C>
+    where
+        C: GetRuntimeContext,
+    {
+        async fn build(self) -> DenoRuntime<C> {
+            let RuntimeBuilder {
+                path,
+                eszip,
+                env_vars,
+                worker_runtime_conf,
+                static_patterns,
+                jsx_import_source_config,
+                _phantom_context,
+            } = self;
+
+            let (worker_pool_tx, _) = mpsc::unbounded_channel::<UserWorkerMsgs>();
+
+            DenoRuntime::new(
+                WorkerContextInitOpts {
+                    maybe_eszip: eszip,
+                    service_path: path
+                        .map(PathBuf::from)
+                        .unwrap_or(PathBuf::from("./test_cases/main")),
+
+                    conf: {
+                        if let Some(conf) = worker_runtime_conf {
+                            conf
+                        } else {
+                            WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
+                                worker_pool_tx,
+                                shared_metric_src: None,
+                                event_worker_metric_src: None,
+                            })
+                        }
+                    },
+
+                    maybe_entrypoint: None,
+                    maybe_decorator: None,
+                    maybe_module_code: None,
+
+                    no_module_cache: false,
+                    env_vars: env_vars.unwrap_or_default(),
+
+                    static_patterns,
+                    maybe_jsx_import_source_config: jsx_import_source_config,
+
+                    events_rx: None,
+                    timing: None,
+
+                    import_map_path: None,
+                },
+                None,
+            )
+            .await
+            .unwrap()
+        }
+    }
+
+    impl<C> RuntimeBuilder<C> {
+        fn set_path(mut self, path: &str) -> Self {
+            let _ = self.path.insert(path.to_string());
+            self
+        }
+
+        async fn set_eszip<P>(mut self, path: P) -> Result<Self, anyhow::Error>
+        where
+            P: AsRef<Path>,
+        {
+            let _ = self.eszip.insert(EszipPayloadKind::VecKind(
+                tokio::fs::read(path)
+                    .await
+                    .context("cannot read eszip binary")?,
+            ));
+
+            Ok(self)
+        }
+
+        fn set_env_vars(mut self, vars: HashMap<String, String>) -> Self {
+            let _ = self.env_vars.insert(vars);
+            self
+        }
+
+        fn set_std_env(self) -> Self {
+            self.set_env_vars(std::env::vars().collect())
+        }
+
+        fn set_worker_runtime_conf(mut self, conf: WorkerRuntimeOpts) -> Self {
+            let _ = self.worker_runtime_conf.insert(conf);
+            self
+        }
+
+        fn set_jsx_import_source_config(mut self, config: JsxImportSourceConfig) -> Self {
+            let _ = self.jsx_import_source_config.insert(config);
+            self
+        }
+
+        fn add_static_pattern(mut self, pat: &str) -> Self {
+            self.static_patterns.push(pat.to_string());
+            self
+        }
+
+        fn extend_static_patterns<I>(mut self, iter: I) -> Self
+        where
+            I: IntoIterator<Item = String>,
+        {
+            self.static_patterns.extend(iter);
+            self
         }
     }
 
@@ -1150,58 +1296,11 @@ mod test {
         std::mem::drop(main_mod_ev);
     }
 
-    async fn create_runtime<C>(
-        path: Option<&str>,
-        env_vars: Option<HashMap<String, String>>,
-        user_conf: Option<WorkerRuntimeOpts>,
-        static_patterns: Vec<String>,
-        maybe_jsx_import_source_config: Option<JsxImportSourceConfig>,
-    ) -> DenoRuntime<C>
-    where
-        C: GetRuntimeContext,
-    {
-        let (worker_pool_tx, _) = mpsc::unbounded_channel::<UserWorkerMsgs>();
-
-        DenoRuntime::new(
-            WorkerContextInitOpts {
-                service_path: path
-                    .map(PathBuf::from)
-                    .unwrap_or(PathBuf::from("./test_cases/main")),
-
-                no_module_cache: false,
-                import_map_path: None,
-                env_vars: env_vars.unwrap_or_default(),
-                events_rx: None,
-                timing: None,
-                maybe_eszip: None,
-                maybe_entrypoint: None,
-                maybe_decorator: None,
-                maybe_module_code: None,
-                conf: {
-                    if let Some(uc) = user_conf {
-                        uc
-                    } else {
-                        WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
-                            worker_pool_tx,
-                            shared_metric_src: None,
-                            event_worker_metric_src: None,
-                        })
-                    }
-                },
-                static_patterns,
-                maybe_jsx_import_source_config,
-            },
-            None,
-        )
-        .await
-        .unwrap()
-    }
-
     // Main Runtime should have access to `EdgeRuntime`
     #[tokio::test]
     #[serial]
     async fn test_main_runtime_creation() {
-        let mut runtime = create_runtime::<()>(None, None, None, vec![], None).await;
+        let mut runtime = RuntimeBuilder::new().build().await;
 
         {
             let scope = &mut runtime.js_runtime.handle_scope();
@@ -1221,14 +1320,10 @@ mod test {
     #[tokio::test]
     #[serial]
     async fn test_user_runtime_creation() {
-        let mut runtime = create_runtime::<()>(
-            None,
-            None,
-            Some(WorkerRuntimeOpts::UserWorker(Default::default())),
-            vec![],
-            None,
-        )
-        .await;
+        let mut runtime = RuntimeBuilder::new()
+            .set_worker_runtime_conf(WorkerRuntimeOpts::UserWorker(Default::default()))
+            .build()
+            .await;
 
         {
             let scope = &mut runtime.js_runtime.handle_scope();
@@ -1247,8 +1342,7 @@ mod test {
     #[tokio::test]
     #[serial]
     async fn test_main_rt_fs() {
-        let mut main_rt =
-            create_runtime::<()>(None, Some(std::env::vars().collect()), None, vec![], None).await;
+        let mut main_rt = RuntimeBuilder::new().set_std_env().build().await;
 
         let global_value_deno_read_file_script = main_rt
             .js_runtime
@@ -1262,6 +1356,7 @@ mod test {
                 ),
             )
             .unwrap();
+
         let fs_read_result =
             main_rt.to_value_mut::<serde_json::Value>(&global_value_deno_read_file_script);
         assert_eq!(
@@ -1273,19 +1368,17 @@ mod test {
     #[tokio::test]
     #[serial]
     async fn test_jsx_import_source() {
-        let mut main_rt = create_runtime::<()>(
-            Some("./test_cases/jsx-preact"),
-            Some(std::env::vars().collect()),
-            None,
-            vec![],
-            Some(JsxImportSourceConfig {
+        let mut main_rt = RuntimeBuilder::new()
+            .set_std_env()
+            .set_path("./test_cases/jsx-preact")
+            .set_jsx_import_source_config(JsxImportSourceConfig {
                 default_specifier: Some("https://esm.sh/preact".to_string()),
                 default_types_specifier: None,
                 module: "jsx-runtime".to_string(),
                 base_url: Url::from_file_path(std::env::current_dir().unwrap()).unwrap(),
-            }),
-        )
-        .await;
+            })
+            .build()
+            .await;
 
         let _main_mod_ev = main_rt.js_runtime.mod_evaluate(main_rt.main_module_id);
         let _ = main_rt
@@ -1342,14 +1435,11 @@ mod test {
     #[tokio::test]
     #[serial]
     async fn test_static_fs() {
-        let mut user_rt = create_runtime::<()>(
-            None,
-            None,
-            Some(WorkerRuntimeOpts::UserWorker(Default::default())),
-            vec![String::from("./test_cases/**/*.md")],
-            None,
-        )
-        .await;
+        let mut user_rt = RuntimeBuilder::new()
+            .set_worker_runtime_conf(WorkerRuntimeOpts::UserWorker(Default::default()))
+            .add_static_pattern("./test_cases/**/*.md")
+            .build()
+            .await;
 
         let user_rt_execute_scripts = user_rt
             .js_runtime
@@ -1374,14 +1464,10 @@ mod test {
     #[tokio::test]
     #[serial]
     async fn test_os_ops() {
-        let mut user_rt = create_runtime::<()>(
-            None,
-            None,
-            Some(WorkerRuntimeOpts::UserWorker(Default::default())),
-            vec![],
-            None,
-        )
-        .await;
+        let mut user_rt = RuntimeBuilder::new()
+            .set_worker_runtime_conf(WorkerRuntimeOpts::UserWorker(Default::default()))
+            .build()
+            .await;
 
         let user_rt_execute_scripts = user_rt
             .js_runtime
@@ -1500,17 +1586,13 @@ mod test {
     #[serial]
     async fn test_os_env_vars() {
         std::env::set_var("Supa_Test", "Supa_Value");
-        let mut main_rt =
-            create_runtime::<()>(None, Some(std::env::vars().collect()), None, vec![], None).await;
 
-        let mut user_rt = create_runtime::<()>(
-            None,
-            None,
-            Some(WorkerRuntimeOpts::UserWorker(Default::default())),
-            vec![],
-            None,
-        )
-        .await;
+        let mut main_rt = RuntimeBuilder::new().set_std_env().build().await;
+        let mut user_rt = RuntimeBuilder::new()
+            .set_worker_runtime_conf(WorkerRuntimeOpts::UserWorker(Default::default()))
+            .build()
+            .await;
+
         assert!(!main_rt.env_vars.is_empty());
         assert!(user_rt.env_vars.is_empty());
 
@@ -1569,14 +1651,13 @@ mod test {
         assert!(user_serde_deno_env.unwrap().is_null());
     }
 
-    async fn create_basic_user_runtime<C, T, U>(
+    fn create_basic_user_runtime_builder<T, U>(
         path: &str,
         memory_limit_mb: T,
         worker_timeout_ms: U,
         static_patterns: &[&str],
-    ) -> DenoRuntime<C>
+    ) -> RuntimeBuilder
     where
-        C: GetRuntimeContext,
         T: Into<Option<u64>>,
         U: Into<Option<u64>>,
     {
@@ -1588,28 +1669,26 @@ mod test {
             .into()
             .unwrap_or(default_opt.worker_timeout_ms);
 
-        create_runtime::<C>(
-            Some(path),
-            None,
-            Some(WorkerRuntimeOpts::UserWorker(UserWorkerRuntimeOpts {
+        RuntimeBuilder::new()
+            .set_path(path)
+            .set_worker_runtime_conf(WorkerRuntimeOpts::UserWorker(UserWorkerRuntimeOpts {
                 memory_limit_mb,
                 worker_timeout_ms,
                 cpu_time_soft_limit_ms: 100,
                 cpu_time_hard_limit_ms: 200,
                 force_create: true,
                 ..default_opt
-            })),
-            static_patterns.iter().map(|it| String::from(*it)).collect(),
-            None,
-        )
-        .await
+            }))
+            .extend_static_patterns(static_patterns.iter().map(|it| String::from(*it)))
     }
 
     #[tokio::test]
     #[serial]
     async fn test_array_buffer_allocation_below_limit() {
-        let mut user_rt: DenoRuntime =
-            create_basic_user_runtime("./test_cases/array_buffers", 20, 1000, &[]).await;
+        let mut user_rt =
+            create_basic_user_runtime_builder("./test_cases/array_buffers", 20, 1000, &[])
+                .build()
+                .await;
 
         let (_tx, duplex_stream_rx) = mpsc::unbounded_channel::<DuplexStreamEntry>();
         let (result, _) = user_rt.run(duplex_stream_rx, None, None).await;
@@ -1623,8 +1702,10 @@ mod test {
     #[tokio::test]
     #[serial]
     async fn test_array_buffer_allocation_above_limit() {
-        let mut user_rt: DenoRuntime =
-            create_basic_user_runtime("./test_cases/array_buffers", 15, 1000, &[]).await;
+        let mut user_rt =
+            create_basic_user_runtime_builder("./test_cases/array_buffers", 15, 1000, &[])
+                .build()
+                .await;
 
         let (_tx, duplex_stream_rx) = mpsc::unbounded_channel::<DuplexStreamEntry>();
         let (result, _) = user_rt.run(duplex_stream_rx, None, None).await;
@@ -1647,9 +1728,14 @@ mod test {
     ) {
         let (_duplex_stream_tx, duplex_stream_rx) = mpsc::unbounded_channel::<DuplexStreamEntry>();
         let (callback_tx, mut callback_rx) = mpsc::unbounded_channel::<()>();
-        let mut user_rt: DenoRuntime =
-            create_basic_user_runtime(path, memory_limit_mb, worker_timeout_ms, static_patterns)
-                .await;
+        let mut user_rt = create_basic_user_runtime_builder(
+            path,
+            memory_limit_mb,
+            worker_timeout_ms,
+            static_patterns,
+        )
+        .build()
+        .await;
 
         let waker = user_rt.js_runtime.op_state().borrow().waker.clone();
         let handle = user_rt.js_runtime.v8_isolate().thread_safe_handle();
@@ -1751,13 +1837,21 @@ mod test {
             }
         }
 
-        let mut user_rt: DenoRuntime<Ctx> = create_basic_user_runtime(
+        let mut user_rt = create_basic_user_runtime_builder(
             "./test_cases/user-worker-san-check",
             None,
             None,
             &["./test_cases/user-worker-san-check/.blocklisted"],
         )
+        .set_context::<Ctx>()
+        .build()
         .await;
+
+        let (_tx, duplex_stream_rx) = mpsc::unbounded_channel();
+
+        user_rt.run(duplex_stream_rx, None, None).await.0.unwrap();
+    }
+
 
         let (_tx, duplex_stream_rx) = mpsc::unbounded_channel();
 

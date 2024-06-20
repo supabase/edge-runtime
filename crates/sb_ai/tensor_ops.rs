@@ -1,9 +1,4 @@
-use ndarray::{Array1, Array2, ArrayView3, Axis, Ix3};
-use ndarray_linalg::norm::{normalize, NormalizeAxis};
-use once_cell::sync::Lazy;
-use ort::{inputs, GraphOptimizationLevel, Session};
-use std::cell::RefCell;
-use std::path::{Path, PathBuf};
+use ndarray::{Array2, ArrayView3, Axis};
 
 pub(crate) fn mean_pool(
     last_hidden_states: ArrayView3<f32>,

@@ -17,14 +17,13 @@ use ndarray_linalg::norm::{normalize, NormalizeAxis};
 use once_cell::sync::Lazy;
 use ort::inputs;
 use pipeline::auto_pipeline::run_feature_extraction;
-use pipeline::feature_extraction::{FeatureExtractionPipelineInput, FeatureExtractionResult};
-use pipeline::PipelineRequest;
+use pipeline::feature_extraction::FeatureExtractionPipelineInput;
 use std::cell::RefCell;
 use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
 use tokenizers::Tokenizer;
-use tokio::sync::mpsc::{self, UnboundedSender};
+use tokio::sync::mpsc::{self};
 use tokio::task;
 
 use tracing::trace_span;
@@ -257,7 +256,7 @@ pub fn op_sb_ai_init_pipeline(
 
     match task.trim() {
         "feature-extraction" => init_feature_extraction(state, task, name),
-        _ => return Err(anyhow!("Not supported pipeline task: {task}")),
+        _ => Err(anyhow!("Not supported pipeline task: {task}")),
     }
 }
 
@@ -284,6 +283,6 @@ pub async fn op_sb_ai_run_pipeline(
             )
             .await
         }
-        _ => return Err(anyhow!("Not supported pipeline task: {task}")),
+        _ => Err(anyhow!("Not supported pipeline task: {task}")),
     }
 }

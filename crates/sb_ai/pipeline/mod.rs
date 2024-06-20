@@ -4,7 +4,7 @@ pub mod feature_extraction;
 use anyhow::Error;
 use log::error;
 use ort::Session;
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::Arc;
 use tokenizers::Tokenizer;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
@@ -25,7 +25,7 @@ pub(crate) trait Pipeline<I: PipelineInput, R> {
 
     fn run(&self, session: &Session, tokenizer: &Tokenizer, input: &I) -> Result<R, Error>;
 
-    async fn start_session(&self, model_dir: &PathBuf) {
+    async fn start_session(&self, model_dir: &Path) {
         let req_rx = self.get_receiver();
 
         let session = create_session(model_dir.join("model.onnx"));

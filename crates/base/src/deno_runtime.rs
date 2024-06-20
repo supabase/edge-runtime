@@ -1852,6 +1852,18 @@ mod test {
         user_rt.run(duplex_stream_rx, None, None).await.0.unwrap();
     }
 
+    #[tokio::test]
+    #[serial]
+    #[should_panic]
+    async fn test_load_corrupted_eszip_v1() {
+        let mut user_rt = RuntimeBuilder::new()
+            .set_path("./test_cases/eszip-migration/npm-supabase-js")
+            .set_eszip("./test_cases/eszip-migration/npm-supabase-js/v1_corrupted.eszip")
+            .await
+            .unwrap()
+            .set_worker_runtime_conf(WorkerRuntimeOpts::UserWorker(Default::default()))
+            .build()
+            .await;
 
         let (_tx, duplex_stream_rx) = mpsc::unbounded_channel();
 

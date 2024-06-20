@@ -1,4 +1,4 @@
-use std::{path::PathBuf, usize};
+use std::path::PathBuf;
 
 use anyhow::Error;
 use ort::{GraphOptimizationLevel, Session};

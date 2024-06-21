@@ -2048,7 +2048,7 @@ checksum = "d817e038c30374a4bcb22f94d0a8a0e216958d4c3dcde369b1439fec4bdda6e6"
 [[package]]
 name = "eszip"
 version = "0.68.2"
-source = "git+https://github.com/nyannyacha/eszip?branch=fix-pub-vis-0-68-2#7c3dd25d990339a25515bab84bd1edbbd4f40cad"
+source = "git+https://github.com/supabase/eszip?branch=fix-pub-vis-0-68-2#7c3dd25d990339a25515bab84bd1edbbd4f40cad"
 dependencies = [
  "anyhow",
  "base64 0.21.7",
@@ -2107,6 +2107,12 @@ checksum = "a2a2b11eda1d40935b26cf18f6833c526845ae8c41e58d09af6adeb6f0269183"
 dependencies = [
  "serde",
 ]
+
+[[package]]
+name = "fastrand"
+version = "2.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9fc0510504f03c51ada170672ac806f1f105a88aa97a5281117e1ddc3368e51a"
 
 [[package]]
 name = "fastwebsockets"
@@ -5003,6 +5009,7 @@ dependencies = [
  "serde",
  "thiserror",
  "tokio",
+ "url",
 ]
 
 [[package]]
@@ -5025,6 +5032,7 @@ dependencies = [
  "import_map 0.18.0",
  "log",
  "once_cell",
+ "pathdiff",
  "rkyv",
  "sb_core",
  "sb_eszip_shared",
@@ -5034,6 +5042,7 @@ dependencies = [
  "scopeguard",
  "serde",
  "sha2",
+ "tempfile",
  "thiserror",
  "tokio",
  "urlencoding",
@@ -5052,6 +5061,7 @@ dependencies = [
  "deno_semver",
  "deno_tls",
  "eszip",
+ "futures-util",
  "import_map 0.18.0",
  "log",
  "monch",
@@ -6203,6 +6213,18 @@ dependencies = [
  "filetime",
  "libc",
  "xattr",
+]
+
+[[package]]
+name = "tempfile"
+version = "3.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "85b77fafb263dd9d05cbeac119526425676db3784113aa9295c88498cbf8bff1"
+dependencies = [
+ "cfg-if 1.0.0",
+ "fastrand",
+ "rustix",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

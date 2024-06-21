@@ -83,7 +83,7 @@ class UserWorker {
 			throw responsePromiseResult.reason;
 		}
 
-		const result = responsePromiseResult;
+		const result = responsePromiseResult.value;
 		const response = {
 			headers: result.headers,
 			status: result.status,

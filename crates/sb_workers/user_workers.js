@@ -1,16 +1,11 @@
 import { primordials, core } from "ext:core/mod.js";
-import { readableStreamForRid, writableStreamForRid } from 'ext:deno_web/06_streams.js';
-import { getSupabaseTag } from 'ext:sb_core_main_js/js/http.js';
+import { readableStreamForRid, writableStreamForRid } from "ext:deno_web/06_streams.js";
+import { getSupabaseTag } from "ext:sb_core_main_js/js/http.js";
 
 const ops = core.ops;
-const {
-	InterruptedPrototype,
-} = core;
-const { 
-	TypeError,
-	ObjectPrototypeIsPrototypeOf,
-	StringPrototypeIncludes,
-} = primordials;
+
+const { TypeError } = primordials;
+
 const {
 	op_user_worker_fetch_send,
 	op_user_worker_create,
@@ -33,11 +28,11 @@ class UserWorker {
 		this.key = key;
 	}
 
-	async fetch(req, opts = {}) {
-		const tag = getSupabaseTag(req);
+	async fetch(request, options = {}) {
+		const tag = getSupabaseTag(request);
 		
-		const { method, url, headers, body, bodyUsed } = req;
-		const { signal } = opts;
+		const { method, url, headers, body, bodyUsed } = request;
+		const { signal } = options;
 
 		signal?.throwIfAborted();
 
@@ -60,13 +55,14 @@ class UserWorker {
 		);
 
 		// stream the request body
-		let reqBodyPromise = null;
+		let requestBodyPromise = null;
+
 		if (hasBody) {
 			let writableStream = writableStreamForRid(requestBodyRid);
-			reqBodyPromise = body.pipeTo(writableStream, { signal });
+			requestBodyPromise = body.pipeTo(writableStream, { signal });
 		}
 
-		const resPromise = op_user_worker_fetch_send(
+		const responsePromise = op_user_worker_fetch_send(
 			this.key,
 			requestRid,
 			requestBodyRid,
@@ -74,48 +70,41 @@ class UserWorker {
 			tag.watcherRid
 		);
 
-		let [sent, res] = await Promise.allSettled([reqBodyPromise, resPromise]);
-		
-		if (sent.status === "rejected") {
-			if (res.status === "fulfilled") {
-				res = res.value;
-			} else {
-				if (
-					ObjectPrototypeIsPrototypeOf(InterruptedPrototype, sent.reason) ||
-					StringPrototypeIncludes(sent.reason.message, "operation canceled")
-				) {
-					throw res.reason;
-				} else {
-					throw sent.reason;
-				}
-			}
-		} else if (res.status === "rejected") {
-			throw res.reason;
-		} else {
-			res = res.value;
+		const [requestBodyPromiseResult, responsePromiseResult] = await Promise.allSettled([
+			requestBodyPromise,
+			responsePromise
+		]);
+
+		if (requestBodyPromiseResult.status === "rejected") {
+			// console.warn(requestBodyPromiseResult.reason);
 		}
 
+		if (responsePromiseResult.status === "rejected") {
+			throw responsePromiseResult.reason;
+		}
+
+		const result = responsePromiseResult;
 		const response = {
-			headers: res.headers,
-			status: res.status,
-			statusText: res.statusText,
+			headers: result.headers,
+			status: result.status,
+			statusText: result.statusText,
 			body: null,
 		};
 
 		// TODO: add a test
-		if (nullBodyStatus(res.status) || redirectStatus(res.status)) {
-			core.close(res.bodyRid);
+		if (nullBodyStatus(result.status) || redirectStatus(result.status)) {
+			core.tryClose(result.bodyRid);
 		} else {
-			if (req.method === 'HEAD' || req.method === 'CONNECT') {
-				response.body = null;
-				core.close(res.bodyRid);
+			if (request.method === "HEAD" || request.method === "CONNECT") {
+				core.tryClose(result.bodyRid);
 			} else {
-				const bodyStream = readableStreamForRid(res.bodyRid);
+				const stream = readableStreamForRid(result.bodyRid);
 
-				signal?.addEventListener('abort', () => {
-					core.tryClose(res.bodyRid);
+				signal?.addEventListener("abort", () => {
+					core.tryClose(result.bodyRid);
 				});
-				response.body = bodyStream;
+				
+				response.body = stream;
 			}
 		}
 
@@ -148,8 +137,8 @@ class UserWorker {
 
 		const { servicePath, maybeEszip } = readyOptions;
 
-		if (!maybeEszip && (!servicePath || servicePath === '')) {
-			throw new TypeError('service path must be defined');
+		if (!maybeEszip && (!servicePath || servicePath === "")) {
+			throw new TypeError("service path must be defined");
 		}
 
 		const key = await op_user_worker_create(readyOptions);
@@ -159,4 +148,5 @@ class UserWorker {
 }
 
 const SUPABASE_USER_WORKERS = UserWorker;
+
 export { SUPABASE_USER_WORKERS };

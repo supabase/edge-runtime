@@ -88,7 +88,7 @@ tempfile = "3"
 [patch.crates-io]
 # TODO(Nyannyacha): Patch below is temporary. Clean the line in the Deno 1.44 update.
 deno_core = { git = "https://github.com/supabase/deno_core", branch = "278-supabase" }
-eszip = { git = "https://github.com/nyannyacha/eszip", branch = "fix-pub-vis-0-68-2" }
+eszip = { git = "https://github.com/supabase/eszip", branch = "fix-pub-vis-0-68-2" }
 
 [profile.dind]
 inherits = "dev"

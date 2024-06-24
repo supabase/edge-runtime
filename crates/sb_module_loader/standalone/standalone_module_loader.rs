@@ -14,6 +14,7 @@ use deno_core::{ModuleSpecifier, RequestedModuleType};
 use deno_semver::npm::NpmPackageReqReference;
 use eszip::deno_graph;
 use std::sync::Arc;
+use tracing::instrument;
 
 use crate::node::cli_node_resolver::CliNodeResolver;
 use crate::util::arc_u8_to_arc_str;
@@ -33,6 +34,7 @@ pub struct EmbeddedModuleLoader {
 }
 
 impl ModuleLoader for EmbeddedModuleLoader {
+    #[instrument(level = "debug", skip(self))]
     fn resolve(
         &self,
         specifier: &str,
@@ -96,6 +98,7 @@ impl ModuleLoader for EmbeddedModuleLoader {
         Ok(specifier)
     }
 
+    #[instrument(level = "debug", skip_all, fields(specifier = original_specifier.as_str()))]
     fn load(
         &self,
         original_specifier: &ModuleSpecifier,

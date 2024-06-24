@@ -714,6 +714,7 @@ async fn test_file_upload_real_multipart_bytes() {
     test_oak_file_upload(
         Cow::Borrowed("./test_cases/main"),
         (9.98 * MB as f32) as usize, // < 10MB (in binary)
+        None,
         |resp| async {
             let res = resp.unwrap();
 
@@ -731,16 +732,21 @@ async fn test_file_upload_real_multipart_bytes() {
 #[tokio::test]
 #[serial]
 async fn test_file_upload_size_exceed() {
-    test_oak_file_upload(Cow::Borrowed("./test_cases/main"), 10 * MB, |resp| async {
-        let res = resp.unwrap();
+    test_oak_file_upload(
+        Cow::Borrowed("./test_cases/main"),
+        10 * MB,
+        None,
+        |resp| async {
+            let res = resp.unwrap();
 
-        assert_eq!(res.status().as_u16(), 500);
+            assert_eq!(res.status().as_u16(), 500);
 
-        let res = res.text().await;
+            let res = res.text().await;
 
-        assert!(res.is_ok());
-        assert_eq!(res.unwrap(), "Error!");
-    })
+            assert!(res.is_ok());
+            assert_eq!(res.unwrap(), "Error!");
+        },
+    )
     .await;
 }
 
@@ -1166,6 +1172,7 @@ async fn req_failure_case_op_cancel_from_server_due_to_cpu_resource_limit() {
     test_oak_file_upload(
         Cow::Borrowed("./test_cases/main_small_cpu_time"),
         48 * MB,
+        None,
         |resp| async {
             let res = resp.unwrap();
 
@@ -1183,8 +1190,40 @@ async fn req_failure_case_op_cancel_from_server_due_to_cpu_resource_limit() {
     .await;
 }
 
-async fn test_oak_file_upload<F, R>(main_service: Cow<'static, str>, bytes: usize, resp_callback: F)
-where
+#[tokio::test]
+#[serial]
+async fn req_failure_case_op_cancel_from_server_due_to_cpu_resource_limit_2() {
+    test_oak_file_upload(
+        Cow::Borrowed("./test_cases/main_small_cpu_time"),
+        1024 * 64,
+        Some("image/png"),
+        |resp| async {
+            let res = resp.unwrap();
+
+            assert_eq!(res.status().as_u16(), 500);
+
+            let res = res.json::<ErrorResponsePayload>().await;
+
+            assert!(res.is_ok());
+
+            let msg = res.unwrap().msg;
+
+            assert!(!msg.starts_with("TypeError: request body receiver not connected"));
+            assert_eq!(
+                msg,
+                "WorkerRequestCancelled: request has been cancelled by supervisor"
+            );
+        },
+    )
+    .await;
+}
+
+async fn test_oak_file_upload<F, R>(
+    main_service: Cow<'static, str>,
+    bytes: usize,
+    mime: Option<&str>,
+    resp_callback: F,
+) where
     F: FnOnce(Result<Response, reqwest::Error>) -> R,
     R: Future<Output = ()>,
 {
@@ -1199,7 +1238,7 @@ where
                 "meow",
                 Part::bytes(vec![0u8; bytes])
                     .file_name("meow.bin")
-                    .mime_str("application/octet-stream")
+                    .mime_str(mime.unwrap_or("application/octet-stream"))
                     .unwrap(),
             ),
         )

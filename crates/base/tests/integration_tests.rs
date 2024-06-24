@@ -2074,6 +2074,31 @@ async fn test_request_idle_timeout_websocket_node_secure() {
     test_request_idle_timeout_websocket_deno(new_localhost_tls(true), true).await;
 }
 
+#[tokio::test]
+#[serial]
+async fn test_should_not_hang_when_forced_redirection_for_specifiers() {
+    let (tx, rx) = oneshot::channel::<()>();
+
+    integration_test!(
+        "./test_cases/main",
+        NON_SECURE_PORT,
+        "concurrent-redirect",
+        None,
+        None,
+        None,
+        None,
+        (|resp| async {
+            assert_eq!(resp.unwrap().status().as_u16(), 200);
+            tx.send(()).unwrap();
+        }),
+        TerminationToken::new()
+    );
+
+    if timeout(Duration::from_secs(10), rx).await.is_err() {
+        panic!("failed to check within 10 seconds");
+    }
+}
+
 trait AsyncReadWrite: AsyncRead + AsyncWrite + Send + Unpin {}
 
 impl<T> AsyncReadWrite for T where T: AsyncRead + AsyncWrite + Send + Unpin {}

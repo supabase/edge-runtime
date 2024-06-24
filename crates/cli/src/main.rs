@@ -39,21 +39,27 @@ fn main() -> Result<(), anyhow::Error> {
     let local = tokio::task::LocalSet::new();
     let res: Result<(), Error> = local.block_on(&runtime, async {
         let matches = get_cli().get_matches();
+        let verbose = matches.get_flag("verbose");
 
         if !matches.get_flag("quiet") {
             #[cfg(feature = "tracing")]
             {
+                use tracing_subscriber::fmt::format::FmtSpan;
                 use tracing_subscriber::EnvFilter;
 
                 tracing_subscriber::fmt()
                     .with_env_filter(EnvFilter::from_default_env())
                     .with_thread_names(true)
+                    .with_span_events(if verbose {
+                        FmtSpan::FULL
+                    } else {
+                        FmtSpan::NONE
+                    })
                     .init()
             }
 
             #[cfg(not(feature = "tracing"))]
             {
-                let verbose = matches.get_flag("verbose");
                 let include_source = matches.get_flag("log-source");
                 logger::init(verbose, include_source);
             }

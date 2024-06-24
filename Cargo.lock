@@ -4955,6 +4955,7 @@ dependencies = [
  "sb_npm",
  "serde",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

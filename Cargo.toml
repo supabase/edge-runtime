@@ -81,9 +81,9 @@ http = "0.2"
 faster-hex = "0.9.0"
 tracing = "0.1"
 
-# DEBUG
-# [patch.crates-io]
-# deno_core = { path = "/Users/andrespirela/Documents/workspace/supabase/deno_core/core" }
+[patch.crates-io]
+# TODO(Nyannyacha): Patch below is temporary. Clean the line in the Deno 1.44 update.
+deno_core = { git = "https://github.com/supabase/deno_core", branch = "278-supabase" }
 
 [profile.dind]
 inherits = "dev"

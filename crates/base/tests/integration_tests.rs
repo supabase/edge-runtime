@@ -1195,7 +1195,7 @@ async fn req_failure_case_op_cancel_from_server_due_to_cpu_resource_limit() {
 async fn req_failure_case_op_cancel_from_server_due_to_cpu_resource_limit_2() {
     test_oak_file_upload(
         Cow::Borrowed("./test_cases/main_small_cpu_time"),
-        1024 * 64,
+        10 * MB,
         Some("image/png"),
         |resp| async {
             let res = resp.unwrap();

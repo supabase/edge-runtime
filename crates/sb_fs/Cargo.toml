@@ -34,4 +34,16 @@ thiserror.workspace = true
 async-trait.workspace = true
 eszip.workspace = true
 url.workspace = true
+hyper_v014.workspace = true
+tempfile.workspace = true
+enum-as-inner.workspace = true
+tracing.workspace = true
 rkyv = { workspace = true, features = ["validation"] }
+
+normalize-path = "0.2"
+memmap2 = "0.9"
+aws-sdk-s3 = "1.2"
+aws-config = "1.2"
+aws-credential-types = "1.2"
+aws-smithy-runtime = "1.7"
+aws-smithy-runtime-api = "1.7"

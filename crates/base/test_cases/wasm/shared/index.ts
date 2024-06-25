@@ -101,11 +101,10 @@ export function use_grow() {
 
 export default function init() {
     // 20985134 bytes ~= 21M (in file system)
-    let buf = Deno.readFileSync("./mnt/data/test_cases/meow_20mib.wasm") as Uint8Array;
+    let buf = Deno.readFileSync(import.meta.dirname + "/20mib.wasm") as Uint8Array;
     let mod = new WebAssembly.Module(buf);
     let imports = { wbg: {} };
     let instance = new WebAssembly.Instance(mod, imports);
 
     wasm = instance.exports;
 }
-

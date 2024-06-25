@@ -4,12 +4,13 @@ use crate::node::cli_node_resolver::CliNodeResolver;
 use crate::node::node_module_loader::{CjsResolutionStore, NpmModuleLoader};
 use crate::standalone::standalone_module_loader::{EmbeddedModuleLoader, SharedModuleLoaderState};
 use crate::RuntimeProviders;
-use anyhow::Context;
+use anyhow::{bail, Context};
 use deno_core::error::AnyError;
 use deno_core::url::Url;
 use deno_core::{FastString, ModuleSpecifier};
 use deno_tls::rustls::RootCertStore;
 use deno_tls::RootCertStoreProvider;
+use futures_util::future::OptionFuture;
 use import_map::{parse_from_json, ImportMap};
 use sb_core::cache::caches::Caches;
 use sb_core::cache::deno_dir::DenoDirProvider;
@@ -17,10 +18,11 @@ use sb_core::cache::node::NodeAnalysisCache;
 use sb_core::cache::CacheSetting;
 use sb_core::cert::{get_root_cert_store, CaData};
 use sb_core::util::http_util::HttpClient;
+use sb_eszip_shared::{AsyncEszipDataRead, SOURCE_CODE_ESZIP_KEY, VFS_ESZIP_KEY};
 use sb_fs::file_system::DenoCompileFileSystem;
 use sb_fs::{extract_static_files_from_eszip, load_npm_vfs};
 use sb_graph::graph_resolver::MappedSpecifierResolver;
-use sb_graph::{payload_to_eszip, EszipPayloadKind, SOURCE_CODE_ESZIP_KEY, VFS_ESZIP_KEY};
+use sb_graph::{eszip_migrate, payload_to_eszip, EszipPayloadKind, LazyLoadableEszip};
 use sb_node::analyze::NodeCodeTranslator;
 use sb_node::NodeResolver;
 use sb_npm::cache_dir::NpmCacheDir;
@@ -29,6 +31,7 @@ use sb_npm::{
     create_managed_npm_resolver, CliNpmResolverManagedCreateOptions,
     CliNpmResolverManagedPackageJsonInstallerOption, CliNpmResolverManagedSnapshotOption,
 };
+use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -53,13 +56,16 @@ impl RootCertStoreProvider for StandaloneRootCertStoreProvider {
     }
 }
 
-pub async fn create_module_loader_for_eszip(
-    mut eszip: eszip::EszipV2,
+pub async fn create_module_loader_for_eszip<P>(
+    mut eszip: LazyLoadableEszip,
+    base_dir_path: P,
     metadata: Metadata,
     maybe_import_map: Option<ImportMap>,
     include_source_map: bool,
-) -> Result<RuntimeProviders, AnyError> {
-    // let main_module = &metadata.entrypoint;
+) -> Result<RuntimeProviders, AnyError>
+where
+    P: AsRef<Path>,
+{
     let current_exe_path = std::env::current_exe().unwrap();
     let current_exe_name = current_exe_path.file_name().unwrap().to_string_lossy();
     let deno_dir_provider = Arc::new(DenoDirProvider::new(None));
@@ -68,6 +74,7 @@ pub async fn create_module_loader_for_eszip(
         ca_data: metadata.ca_data.map(CaData::Bytes),
         cell: Default::default(),
     });
+
     let http_client = Arc::new(HttpClient::new(
         Some(root_cert_store_provider.clone()),
         metadata.unsafely_ignore_certificate_errors.clone(),
@@ -78,47 +85,39 @@ pub async fn create_module_loader_for_eszip(
     let root_path = std::env::temp_dir()
         .join(format!("sb-compile-{}", current_exe_name))
         .join("node_modules");
+
     let npm_cache_dir = NpmCacheDir::new(root_path.clone());
     let npm_global_cache_dir = npm_cache_dir.get_cache_location();
 
-    let code_fs = if let Some(module) = eszip.get_module(SOURCE_CODE_ESZIP_KEY) {
-        if let Some(code) = module.take_source().await {
-            Some(FastString::from(String::from_utf8(code.to_vec())?))
-        } else {
-            None
-        }
-    } else {
-        None
-    };
+    let entry_module_source = OptionFuture::<_>::from(
+        eszip
+            .ensure_module(SOURCE_CODE_ESZIP_KEY)
+            .map(|it| async move { it.take_source().await }),
+    )
+    .await
+    .flatten()
+    .map(|it| String::from_utf8_lossy(it.as_ref()).into_owned())
+    .map(FastString::from);
 
     let snapshot = eszip.take_npm_snapshot();
-    let static_files = extract_static_files_from_eszip(&eszip).await;
+    let static_files = extract_static_files_from_eszip(&eszip, base_dir_path).await;
     let vfs_root_dir_path = npm_cache_dir.registry_folder(&npm_registry_url);
 
     let (fs, vfs) = {
-        let key = String::from(VFS_ESZIP_KEY);
-        let vfs_data: Option<Vec<u8>> = if eszip.specifiers().contains(&key) {
-            Some(
-                eszip
-                    .get_module(VFS_ESZIP_KEY)
-                    .unwrap()
-                    .take_source()
-                    .await
-                    .unwrap()
-                    .to_vec(),
-            )
-        } else {
-            None
-        };
+        let vfs_data = OptionFuture::<_>::from(
+            eszip
+                .ensure_module(VFS_ESZIP_KEY)
+                .map(|it| async move { it.source().await }),
+        )
+        .await
+        .flatten();
 
-        let vfs_data: Option<&[u8]> = if let Some(data) = &vfs_data {
-            Some(data)
-        } else {
-            None
-        };
-
-        let vfs =
-            load_npm_vfs(vfs_root_dir_path.clone(), vfs_data).context("Failed to load npm vfs.")?;
+        let vfs = load_npm_vfs(
+            Arc::new(eszip.clone()),
+            vfs_root_dir_path.clone(),
+            vfs_data.as_deref(),
+        )
+        .context("Failed to load npm vfs.")?;
 
         let fs = DenoCompileFileSystem::new(vfs);
         let fs_backed_vfs = fs.file_backed_vfs().clone();
@@ -152,6 +151,7 @@ pub async fn create_module_loader_for_eszip(
         fs.clone(),
         npm_resolver.clone().into_npm_resolver(),
     ));
+
     let cjs_resolutions = Arc::new(CjsResolutionStore::default());
     let cache_db = Caches::new(deno_dir_provider.clone());
     let node_analysis_cache = NodeAnalysisCache::new(cache_db.node_analysis_db());
@@ -162,6 +162,7 @@ pub async fn create_module_loader_for_eszip(
         node_resolver.clone(),
         npm_resolver.clone().into_npm_resolver(),
     ));
+
     let maybe_import_map = maybe_import_map
         .map(|import_map| Some(Arc::new(import_map)))
         .unwrap_or_else(|| None);
@@ -196,29 +197,41 @@ pub async fn create_module_loader_for_eszip(
         }),
         npm_resolver: npm_resolver.into_npm_resolver(),
         vfs,
-        module_code: code_fs,
+        module_code: entry_module_source,
         static_files,
         npm_snapshot: snapshot,
         vfs_path: vfs_root_dir_path,
     })
 }
 
-pub async fn create_module_loader_for_standalone_from_eszip_kind(
+pub async fn create_module_loader_for_standalone_from_eszip_kind<P>(
     eszip_payload_kind: EszipPayloadKind,
+    base_dir_path: P,
     maybe_import_map_arc: Option<Arc<ImportMap>>,
     maybe_import_map_path: Option<String>,
     include_source_map: bool,
-) -> Result<RuntimeProviders, AnyError> {
-    let eszip = payload_to_eszip(eszip_payload_kind).await;
-
-    let mut maybe_import_map: Option<ImportMap> = None;
+) -> Result<RuntimeProviders, AnyError>
+where
+    P: AsRef<Path>,
+{
+    let mut maybe_import_map = None;
+    let eszip = match eszip_migrate::try_migrate_if_needed(
+        payload_to_eszip(eszip_payload_kind).await,
+    )
+    .await
+    {
+        Ok(v) => v,
+        Err(_old) => {
+            bail!("eszip migration failed");
+        }
+    };
 
     if let Some(import_map) = maybe_import_map_arc {
         let clone_import_map = (*import_map).clone();
         maybe_import_map = Some(clone_import_map);
     } else if let Some(import_map_path) = maybe_import_map_path {
         let import_map_url = Url::parse(import_map_path.as_str())?;
-        if let Some(import_map_module) = eszip.get_import_map(import_map_url.as_str()) {
+        if let Some(import_map_module) = eszip.ensure_import_map(import_map_url.as_str()) {
             if let Some(source) = import_map_module.source().await {
                 let source = std::str::from_utf8(&source)?.to_string();
                 let result = parse_from_json(&import_map_url, &source)?;
@@ -229,6 +242,7 @@ pub async fn create_module_loader_for_standalone_from_eszip_kind(
 
     create_module_loader_for_eszip(
         eszip,
+        base_dir_path,
         Metadata {
             ca_stores: None,
             ca_data: None,

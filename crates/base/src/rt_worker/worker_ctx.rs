@@ -42,7 +42,6 @@ use tokio_rustls::server::TlsStream;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-use super::rt;
 use super::supervisor::{self, CPUTimerParam, CPUUsageMetrics};
 use super::worker::DuplexStreamEntry;
 use super::worker_pool::{SupervisorPolicy, WorkerPoolPolicy};
@@ -333,7 +332,7 @@ pub fn create_supervisor(
         cpu_timer_param.get_cpu_timer(supervisor_policy).unzip();
 
     drop({
-        let _rt_guard = rt::SUPERVISOR_RT.enter();
+        let _rt_guard = base_rt::SUPERVISOR_RT.enter();
         let maybe_cpu_timer_inner = maybe_cpu_timer.clone();
         let supervise_cancel_token_inner = supervise_cancel_token.clone();
 
@@ -378,7 +377,7 @@ pub fn create_supervisor(
                 use deno_core::futures::channel::mpsc;
                 use deno_core::serde_json::Value;
 
-                rt::SUPERVISOR_RT
+                base_rt::SUPERVISOR_RT
                     .spawn_blocking(move || {
                         let wait_inspector_disconnect_fut = async move {
                             let ls = tokio::task::LocalSet::new();
@@ -449,7 +448,7 @@ pub fn create_supervisor(
                             .await;
                         };
 
-                        rt::SUPERVISOR_RT.block_on(wait_inspector_disconnect_fut);
+                        base_rt::SUPERVISOR_RT.block_on(wait_inspector_disconnect_fut);
                     })
                     .await
                     .unwrap();

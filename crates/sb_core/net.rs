@@ -17,6 +17,10 @@ use std::sync::atomic::Ordering;
 use tokio::io;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
+use tracing::span;
+use tracing::Level;
+
+use crate::conn_sync::DenoRuntimeDropToken;
 
 pub struct TokioDuplexResource {
     id: usize,
@@ -95,10 +99,18 @@ pub async fn op_net_accept(
     // we do not want to keep the op_state locked,
     // so we take the channel receiver from it and release op state.
     // we need to add it back later after processing a message.
-    let rx = {
+    let (rx, runtime_token) = {
         let mut op_state = state.borrow_mut();
-        op_state
-            .try_take::<mpsc::UnboundedReceiver<(io::DuplexStream, Option<CancellationToken>)>>()
+
+        (
+            op_state
+                .try_take::<mpsc::UnboundedReceiver<(io::DuplexStream, Option<CancellationToken>)>>(
+                ),
+            op_state
+                .try_borrow::<DenoRuntimeDropToken>()
+                .cloned()
+                .unwrap(),
+        )
     };
 
     if rx.is_none() {
@@ -131,6 +143,23 @@ pub async fn op_net_accept(
     let rid = op_state.resource_table.add(resource);
 
     if let Some(token) = conn_token {
+        // connection token should only last as long as the worker is alive.
+        drop(base_rt::SUPERVISOR_RT.spawn({
+            let token = token.clone();
+            async move {
+                let _lt_track = span!(Level::DEBUG, "lt_track", id);
+                tokio::select! {
+                    _ = runtime_token.0.cancelled_owned() => {
+                        if !token.is_cancelled() {
+                            token.cancel();
+                        }
+                    }
+
+                    _ = token.cancelled() => {}
+                }
+            }
+        }));
+
         let _ = op_state
             .borrow_mut::<HashMap<usize, CancellationToken>>()
             .insert(id, token);

@@ -14,3 +14,6 @@ impl ConnWatcher {
         self.0.clone()
     }
 }
+
+#[derive(Clone)]
+pub struct DenoRuntimeDropToken(pub CancellationToken);

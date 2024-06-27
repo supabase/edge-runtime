@@ -26,6 +26,7 @@ serde.workspace = true
 bytes.workspace = true
 deno_tls.workspace = true
 thiserror.workspace = true
+base_rt = { version = "0.1.0", path = "../base_rt" }
 base_mem_check = { version = "0.1.0", path = "../base_mem_check" }
 sb_node = { version = "0.1.0", path = "../node" }
 deno_crypto.workspace = true

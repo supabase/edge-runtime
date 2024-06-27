@@ -1,5 +1,4 @@
 use crate::inspector_server::Inspector;
-use crate::rt_worker::rt;
 use crate::rt_worker::supervisor::{CPUUsage, CPUUsageMetrics};
 use crate::rt_worker::worker::DuplexStreamEntry;
 use crate::utils::units::{bytes_to_display, mib_to_bytes};
@@ -600,7 +599,7 @@ where
         };
 
         if is_user_worker {
-            drop(rt::SUPERVISOR_RT.spawn({
+            drop(base_rt::SUPERVISOR_RT.spawn({
                 let drop_token = mem_check.drop_token.clone();
                 let waker = mem_check.waker.clone();
 
@@ -866,7 +865,7 @@ where
         let drop_token = self.mem_check.drop_token.clone();
         let state = self.mem_check_state();
 
-        drop(rt::SUPERVISOR_RT.spawn(async move {
+        drop(base_rt::SUPERVISOR_RT.spawn(async move {
             loop {
                 tokio::select! {
                     _ = notify.notified() => {

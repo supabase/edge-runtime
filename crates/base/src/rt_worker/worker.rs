@@ -24,7 +24,6 @@ use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-use super::rt;
 use super::supervisor::CPUUsageMetrics;
 use super::worker_ctx::TerminationToken;
 use super::worker_pool::SupervisorPolicy;
@@ -115,9 +114,9 @@ impl Worker {
 
         let cancel = self.cancel.clone();
         let rt = if worker_kind.is_user_worker() {
-            &rt::USER_WORKER_RT
+            &base_rt::USER_WORKER_RT
         } else {
-            &rt::PRIMARY_WORKER_RT
+            &base_rt::PRIMARY_WORKER_RT
         };
 
         let _worker_handle = rt.spawn_pinned(move || {
@@ -194,7 +193,7 @@ impl Worker {
                                 )
                             };
 
-                            rt::SUPERVISOR_RT
+                            base_rt::SUPERVISOR_RT
                                 .spawn(async move {
                                     token.inbound.cancelled().await;
                                     is_termination_requested.raise();

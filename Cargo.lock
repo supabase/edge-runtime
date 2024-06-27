@@ -367,6 +367,7 @@ dependencies = [
  "async-trait",
  "async-tungstenite",
  "base_mem_check",
+ "base_rt",
  "bytes",
  "cityhash",
  "cooked-waker",
@@ -489,6 +490,15 @@ version = "0.1.0"
 dependencies = [
  "deno_core",
  "serde",
+]
+
+[[package]]
+name = "base_rt"
+version = "0.1.0"
+dependencies = [
+ "once_cell",
+ "tokio",
+ "tokio-util",
 ]
 
 [[package]]
@@ -4826,6 +4836,7 @@ dependencies = [
  "anyhow",
  "base64 0.21.7",
  "base_mem_check",
+ "base_rt",
  "bytes",
  "cache_control",
  "chrono",

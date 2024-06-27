@@ -145,9 +145,14 @@ pub async fn op_net_accept(
         drop(base_rt::SUPERVISOR_RT.spawn({
             let token = token.clone();
             async move {
-                runtime_token.0.cancelled_owned().await;
-                if !token.is_cancelled() {
-                    token.cancel();
+                tokio::select! {
+                    _ = runtime_token.0.cancelled_owned() => {
+                        if !token.is_cancelled() {
+                            token.cancel();
+                        }
+                    }
+
+                    _ = token.cancelled() => {}
                 }
             }
         }));

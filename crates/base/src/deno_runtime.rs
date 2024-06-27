@@ -24,6 +24,7 @@ use futures_util::future::poll_fn;
 use futures_util::task::AtomicWaker;
 use log::{error, trace};
 use once_cell::sync::{Lazy, OnceCell};
+use sb_core::conn_sync::DenoRuntimeDropToken;
 use sb_core::http::sb_core_http;
 use sb_core::http_start::sb_core_http_start;
 use sb_core::util::sync::AtomicFlag;
@@ -183,6 +184,7 @@ impl GetRuntimeContext for () {
 }
 
 pub struct DenoRuntime<RuntimeContext = ()> {
+    pub drop_token: CancellationToken,
     pub js_runtime: JsRuntime,
     pub env_vars: HashMap<String, String>, // TODO: does this need to be pub?
     pub conf: WorkerRuntimeOpts,
@@ -202,6 +204,8 @@ pub struct DenoRuntime<RuntimeContext = ()> {
 
 impl<RuntimeContext> Drop for DenoRuntime<RuntimeContext> {
     fn drop(&mut self) {
+        self.drop_token.cancel();
+
         if self.conf.is_user_worker() {
             self.js_runtime.v8_isolate().remove_gc_prologue_callback(
                 mem_check_gc_prologue_callback_fn,
@@ -237,6 +241,8 @@ where
             ..
         } = opts;
 
+        let drop_token = CancellationToken::default();
+
         let base_dir_path = std::env::current_dir().map(|p| p.join(&service_path))?;
         let base_url = Url::from_directory_path(&base_dir_path).unwrap();
 
@@ -244,6 +250,7 @@ where
 
         let potential_exts = vec!["ts", "tsx", "js", "jsx"];
         let mut main_module_url = base_url.join("index.ts")?;
+
         for potential_ext in potential_exts {
             main_module_url = base_url.join(format!("index.{}", potential_ext).as_str())?;
             if main_module_url.to_file_path().unwrap().exists() {
@@ -586,6 +593,7 @@ where
             }
 
             op_state.put::<sb_env::EnvVars>(env_vars);
+            op_state.put(DenoRuntimeDropToken(drop_token.clone()))
         }
 
         let main_module_id = {
@@ -623,6 +631,7 @@ where
         }
 
         Ok(Self {
+            drop_token,
             js_runtime,
             env_vars,
             conf,

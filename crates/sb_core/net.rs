@@ -17,6 +17,8 @@ use std::sync::atomic::Ordering;
 use tokio::io;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
+use tracing::span;
+use tracing::Level;
 
 use crate::conn_sync::DenoRuntimeDropToken;
 
@@ -145,6 +147,7 @@ pub async fn op_net_accept(
         drop(base_rt::SUPERVISOR_RT.spawn({
             let token = token.clone();
             async move {
+                let _lt_track = span!(Level::DEBUG, "lt_track", id);
                 tokio::select! {
                     _ = runtime_token.0.cancelled_owned() => {
                         if !token.is_cancelled() {

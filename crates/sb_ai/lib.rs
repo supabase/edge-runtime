@@ -1,23 +1,38 @@
+mod pipeline;
+mod session;
+pub(crate) mod tensor_ops;
+
+use crate::pipeline::auto_pipeline::init_feature_extraction;
+use crate::session::create_session;
+use crate::tensor_ops::mean_pool;
+
 use anyhow::anyhow;
 use anyhow::{bail, Error};
 use deno_core::error::AnyError;
 use deno_core::op2;
 use deno_core::OpState;
 use log::error;
-use ndarray::{Array1, Array2, ArrayView3, Axis, Ix3};
+use ndarray::{Array1, Axis, Ix3};
 use ndarray_linalg::norm::{normalize, NormalizeAxis};
 use once_cell::sync::Lazy;
-use ort::{inputs, GraphOptimizationLevel, Session};
+use ort::inputs;
+use pipeline::auto_pipeline::run_feature_extraction;
+use pipeline::feature_extraction::FeatureExtractionPipelineInput;
 use std::cell::RefCell;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::rc::Rc;
 use tokenizers::Tokenizer;
-use tokio::sync::mpsc;
+use tokio::sync::mpsc::{self};
 use tokio::task;
 
 deno_core::extension!(
     sb_ai,
-    ops = [op_sb_ai_run_model, op_sb_ai_init_model],
+    ops = [
+        op_sb_ai_run_model,
+        op_sb_ai_init_model,
+        op_sb_ai_run_pipeline,
+        op_sb_ai_init_pipeline
+    ],
     esm_entry_point = "ext:sb_ai/ai.js",
     esm = ["ai.js",]
 );
@@ -27,23 +42,6 @@ struct GteModelRequest {
     mean_pool: bool,
     normalize: bool,
     result_tx: mpsc::UnboundedSender<Result<Vec<f32>, Error>>,
-}
-
-fn create_session(model_file_path: PathBuf) -> Result<Session, Error> {
-    let session = Session::builder()?
-        .with_optimization_level(GraphOptimizationLevel::Level3)?
-        .with_intra_threads(1)?
-        .commit_from_file(model_file_path)?;
-
-    Ok(session)
-}
-
-fn mean_pool(last_hidden_states: ArrayView3<f32>, attention_mask: ArrayView3<i64>) -> Array2<f32> {
-    let masked_hidden_states = last_hidden_states.into_owned() * &attention_mask.mapv(|x| x as f32);
-    let sum_hidden_states = masked_hidden_states.sum_axis(Axis(1));
-    let sum_attention_mask = attention_mask.mapv(|x| x as f32).sum_axis(Axis(1));
-
-    sum_hidden_states / sum_attention_mask
 }
 
 fn init_gte(state: &mut OpState) -> Result<(), Error> {
@@ -216,5 +214,47 @@ pub async fn op_sb_ai_run_model(
         run_gte(state, prompt, mean_pool, normalize).await
     } else {
         bail!("model not supported")
+    }
+}
+
+#[op2]
+#[serde]
+pub fn op_sb_ai_init_pipeline(
+    state: &mut OpState,
+    #[string] task: String,
+    #[string] name: String,
+) -> Result<(), AnyError> {
+    let name = Option::from(name).filter(|name| !name.is_empty());
+
+    match task.trim() {
+        "feature-extraction" => init_feature_extraction(state, task, name),
+        _ => Err(anyhow!("Not supported pipeline task: {task}")),
+    }
+}
+
+#[op2(async)]
+#[serde]
+pub async fn op_sb_ai_run_pipeline(
+    state: Rc<RefCell<OpState>>,
+    #[string] task: String,
+    #[string] name: String,
+    #[string] prompt: String,
+    mean_pool: bool,
+    normalize: bool,
+) -> Result<Vec<f32>, AnyError> {
+    match task.trim() {
+        "feature-extraction" => {
+            run_feature_extraction(
+                state,
+                name,
+                FeatureExtractionPipelineInput {
+                    prompt,
+                    normalize,
+                    mean_pool,
+                },
+            )
+            .await
+        }
+        _ => Err(anyhow!("Not supported pipeline task: {task}")),
     }
 }

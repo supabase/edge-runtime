@@ -19,8 +19,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,id=${TARGETPLATFORM} --m
     mv /usr/src/edge-runtime/target/${PROFILE}/edge-runtime /root
 
 RUN ./scripts/install_onnx.sh $ONNXRUNTIME_VERSION $TARGETPLATFORM /root/libonnxruntime.so
-RUN ./scripts/download_models.sh
-
+RUN ./scripts/download_models.sh "Supabase/gte-small" "feature-extraction"
 
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y libssl-dev && rm -rf /var/lib/apt/lists/*

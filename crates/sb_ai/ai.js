@@ -103,4 +103,25 @@ class Session {
 	}
 }
 
-export default { Session };
+class Pipeline {
+  task;
+	model;
+
+	constructor(task, model = undefined) {
+    this.task = task;
+		this.model = model;
+
+    core.ops.op_sb_ai_init_pipeline(task, model);
+	}
+
+  async run(prompt, opts = {}) {
+    const mean_pool = opts.mean_pool ?? true;
+    const normalize = opts.normalize ?? true;
+
+    const result = await core.ops.op_sb_ai_run_pipeline(this.task, this.model, prompt, mean_pool, normalize);
+
+    return result;
+  }
+}
+
+export default { Session, Pipeline};

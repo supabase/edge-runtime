@@ -80,6 +80,7 @@ reqwest = { workspace = true, features = ["multipart"] }
 serial_test = { version = "3.0.0" }
 async-tungstenite = { version = "0.25.0", default-features = false }
 tungstenite = { version = "0.21.0", default-features = false, features = ["handshake"] }
+tracing-subscriber = { workspace = true, features = ["env-filter", "tracing-log"] }
 
 [build-dependencies]
 sb_core = { version = "0.1.0", path = "../sb_core" }

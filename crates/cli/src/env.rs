@@ -28,4 +28,9 @@ pub(super) fn resolve_deno_runtime_env() {
         "DENO_VERBOSE_WARNINGS",
         &deno_runtime::SHOULD_USE_VERBOSE_DEPRECATED_API_WARNING,
     );
+
+    resolve_boolish_env(
+        "EDGE_RUNTIME_INCLUDE_MALLOCED_MEMORY_ON_MEMCHECK",
+        &deno_runtime::SHOULD_INCLUDE_MALLOCED_MEMORY_ON_MEMCHECK,
+    );
 }

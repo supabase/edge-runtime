@@ -19,7 +19,7 @@ sb_graph = { path = "../sb_graph" }
 tokio.workspace = true
 glob.workspace = true
 once_cell.workspace = true
-tracing-subscriber = { version = "0.3", optional = true, features = ["env-filter", "tracing-log"] }
+tracing-subscriber = { workspace = true, optional = true, features = ["env-filter", "tracing-log"] }
 
 [build-dependencies]
 dotenv-build = { version = "0.1.1" }

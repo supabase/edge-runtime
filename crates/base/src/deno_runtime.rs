@@ -89,6 +89,7 @@ static ALLOC_CHECK_DUR: Lazy<Duration> = Lazy::new(|| {
 
 pub static SHOULD_DISABLE_DEPRECATED_API_WARNING: OnceCell<bool> = OnceCell::new();
 pub static SHOULD_USE_VERBOSE_DEPRECATED_API_WARNING: OnceCell<bool> = OnceCell::new();
+pub static SHOULD_INCLUDE_MALLOCED_MEMORY_ON_MEMCHECK: OnceCell<bool> = OnceCell::new();
 pub static MAYBE_DENO_VERSION: OnceCell<String> = OnceCell::new();
 
 #[ctor]
@@ -144,7 +145,15 @@ impl MemCheck {
         isolate.get_heap_statistics(&mut stats);
 
         // NOTE: https://stackoverflow.com/questions/41541843/nodejs-v8-getheapstatistics-method
-        let malloced_bytes = stats.malloced_memory();
+        let malloced_bytes = if SHOULD_INCLUDE_MALLOCED_MEMORY_ON_MEMCHECK
+            .get()
+            .copied()
+            .unwrap_or_default()
+        {
+            stats.malloced_memory()
+        } else {
+            0
+        };
 
         // XXX(Nyannyacha): Should we instead apply a size that reflects the
         // committed heap? (but it can be bloated)

@@ -37,7 +37,7 @@ use std::marker::PhantomData;
 use std::sync::{Arc, RwLock};
 use std::task::Poll;
 use std::time::Duration;
-use tokio::sync::{mpsc, Notify};
+use tokio::sync::mpsc;
 use tokio::time::interval;
 use tokio_util::sync::CancellationToken;
 
@@ -121,17 +121,10 @@ fn get_error_class_name(e: &AnyError) -> &'static str {
 
 #[derive(Default)]
 struct MemCheck {
-    drop_token: CancellationToken,
+    exceeded_token: CancellationToken,
     limit: Option<usize>,
     waker: Arc<AtomicWaker>,
-    notify: Arc<Notify>,
     state: Arc<RwLock<MemCheckState>>,
-}
-
-impl Drop for MemCheck {
-    fn drop(&mut self) {
-        self.drop_token.cancel();
-    }
 }
 
 impl MemCheck {
@@ -174,7 +167,7 @@ impl MemCheck {
                 state.exceeded = true;
 
                 drop(state);
-                self.notify.notify_waiters();
+                self.exceeded_token.cancel();
             }
         }
 
@@ -617,7 +610,7 @@ where
 
         if is_user_worker {
             drop(base_rt::SUPERVISOR_RT.spawn({
-                let drop_token = mem_check.drop_token.clone();
+                let drop_token = drop_token.clone();
                 let waker = mem_check.waker.clone();
 
                 async move {
@@ -874,34 +867,27 @@ where
         self.mem_check.state.clone()
     }
 
-    pub fn add_memory_limit_callback<C>(&self, mut cb: C)
+    pub fn add_memory_limit_callback<C>(&self, cb: C)
     where
         // XXX(Nyannyacha): Should we relax bounds a bit more?
-        C: FnMut(MemCheckState) -> bool + Send + 'static,
+        C: FnOnce(MemCheckState) + Send + 'static,
     {
-        let notify = self.mem_check.notify.clone();
-        let drop_token = self.mem_check.drop_token.clone();
+        let runtime_token = self.drop_token.clone();
+        let exceeded_token = self.mem_check.exceeded_token.clone();
         let state = self.mem_check_state();
 
         drop(base_rt::SUPERVISOR_RT.spawn(async move {
-            loop {
-                tokio::select! {
-                    _ = notify.notified() => {
-                        let state = tokio::task::spawn_blocking({
-                            let state = state.clone();
-                            move || {
-                                *state.read().unwrap()
-                            }
-                        }).await.unwrap();
-
-                        if cb(state) {
-                            break;
+            tokio::select! {
+                _ = runtime_token.cancelled_owned() => {}
+                _ = exceeded_token.cancelled_owned() => {
+                    let state = tokio::task::spawn_blocking({
+                        let state = state.clone();
+                        move || {
+                            *state.read().unwrap()
                         }
-                    }
+                    }).await.unwrap();
 
-                    _ = drop_token.cancelled() => {
-                        break;
-                    }
+                    cb(state);
                 }
             }
         }));
@@ -1666,7 +1652,6 @@ mod test {
             handle.terminate_execution();
             waker.wake();
             callback_tx.send(()).unwrap();
-            true
         });
 
         let wait_fut = async move {

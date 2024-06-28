@@ -307,7 +307,6 @@ pub fn create_supervisor(
         let send_fn = send_memory_limit_fn.clone();
         move |_| {
             send_fn("mem_check");
-            true
         }
     });
 

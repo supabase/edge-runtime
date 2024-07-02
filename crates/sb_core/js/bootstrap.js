@@ -555,6 +555,7 @@ globalThis.bootstrapSBEdge = (opts, extraCtx) => {
 	const nodeBootstrap = globalThis.nodeBootstrap;
 	if (nodeBootstrap) {
 		nodeBootstrap({
+			runningOnMainThread: true,
 			usesLocalNodeModulesDir: false,
 			argv: void 0,
 			nodeDebug: Deno.env.get("NODE_DEBUG") ?? ""

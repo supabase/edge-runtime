@@ -37,16 +37,11 @@ function initialize(args) {
       Deno.version,
       nodeDebug,
     );
-
-    // @andreespirela, no we shouldn't be using these worker threads
-    /*
-      internals.__initWorkerThreads(
-        runningOnMainThread,
-        workerId,
-        maybeWorkerMetadata,
-      );
-    */
-
+    internals.__initWorkerThreads(
+      runningOnMainThread,
+      workerId,
+      maybeWorkerMetadata,
+    );
     internals.__setupChildProcessIpcChannel();
     // `Deno[Deno.internal].requireImpl` will be unreachable after this line.
     delete internals.requireImpl;

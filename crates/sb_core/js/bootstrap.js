@@ -554,7 +554,7 @@ globalThis.bootstrapSBEdge = (opts, extraCtx) => {
 
 	const nodeBootstrap = globalThis.nodeBootstrap;
 	if (nodeBootstrap) {
-		nodeBootstrap(false, undefined);
+		nodeBootstrap(false, undefined, true);
 		delete globalThis.nodeBootstrap;
 	}
 

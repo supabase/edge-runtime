@@ -605,7 +605,7 @@ deno_core::extension!(deno_node,
     "node:util/types" = "util/types.ts",
     "node:v8" = "v8.ts",
     "node:vm" = "vm.ts",
-    /*"node:worker_threads" = "worker_threads.ts",*/
+    "node:worker_threads" = "worker_threads.ts",
     "node:zlib" = "zlib.ts",
   ],
   options = {

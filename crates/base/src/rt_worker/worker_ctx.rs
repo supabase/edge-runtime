@@ -599,8 +599,7 @@ pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
     inspector: Option<Inspector>,
 ) -> Result<WorkerCtx, Error> {
     let (duplex_stream_tx, duplex_stream_rx) = mpsc::unbounded_channel::<DuplexStreamEntry>();
-    let (worker_boot_result_tx, worker_boot_result_rx) =
-        oneshot::channel::<Result<MetricSource, Error>>();
+    let (worker_boot_result_tx, worker_boot_result_rx) = oneshot::channel();
 
     let CreateWorkerArgs(worker_init_opts, maybe_supervisor_policy, maybe_termination_token) =
         init_opts.into();

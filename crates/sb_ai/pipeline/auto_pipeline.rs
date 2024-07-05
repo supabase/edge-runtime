@@ -7,25 +7,12 @@ use tokio::task;
 use anyhow::Error;
 use anyhow::{anyhow, bail};
 use deno_core::OpState;
-use log::error;
-use once_cell::sync::Lazy;
+
+use crate::onnx::ensure_onnx_env_init;
 
 use super::feature_extraction::FeatureExtractionPipelineInput;
 use super::feature_extraction::{FeatureExtractionPipeline, FeatureExtractionResult};
 use super::{Pipeline, PipelineRequest};
-
-pub(crate) fn get_onnx_env() -> Lazy<Option<ort::Error>> {
-    Lazy::new(|| {
-        // Create the ONNX Runtime environment, for all sessions created in this process.
-        // TODO: Add CUDA execution provider
-        if let Err(err) = ort::init().with_name("SB_AI_ONNX").commit() {
-            error!("sb_ai: failed to create environment - {}", err);
-            return Some(err);
-        }
-
-        None
-    })
-}
 
 pub(crate) fn get_model_dir(task: String, name: Option<String>) -> PathBuf {
     let models_dir = std::env::var("SB_AI_MODELS_DIR").unwrap_or("/etc/sb_ai/models".to_string());
@@ -41,7 +28,7 @@ pub fn init_feature_extraction(
     task: String,
     name: Option<String>,
 ) -> Result<(), Error> {
-    if let Some(err) = &*get_onnx_env() {
+    if let Some(err) = ensure_onnx_env_init() {
         return Err(anyhow!("failed to create onnx environment: {err}"));
     }
 

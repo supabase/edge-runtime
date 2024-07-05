@@ -1,5 +1,7 @@
+mod onnx;
 mod pipeline;
 mod session;
+
 pub(crate) mod tensor_ops;
 
 use crate::pipeline::auto_pipeline::init_feature_extraction;
@@ -14,7 +16,7 @@ use deno_core::{op2, V8CrossThreadTaskSpawner, V8TaskSpawner};
 use log::error;
 use ndarray::{Array1, Axis, Ix3};
 use ndarray_linalg::norm::{normalize, NormalizeAxis};
-use once_cell::sync::Lazy;
+use onnx::ensure_onnx_env_init;
 use ort::inputs;
 use pipeline::auto_pipeline::run_feature_extraction;
 use pipeline::feature_extraction::FeatureExtractionPipelineInput;
@@ -52,17 +54,7 @@ struct GteModelRequest {
 }
 
 fn init_gte(state: &mut OpState) -> Result<(), Error> {
-    static ONNX_ENV_INIT: Lazy<Option<ort::Error>> = Lazy::new(|| {
-        // Create the ONNX Runtime environment, for all sessions created in this process.
-        if let Err(err) = ort::init().with_name("GTE").commit() {
-            error!("sb_ai: failed to create environment - {}", err);
-            return Some(err);
-        }
-
-        None
-    });
-
-    if let Some(err) = &*ONNX_ENV_INIT {
+    if let Some(err) = ensure_onnx_env_init() {
         return Err(anyhow!("failed to create onnx environment: {err}"));
     }
 

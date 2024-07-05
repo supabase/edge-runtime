@@ -9,10 +9,6 @@ license = "MIT"
 [lib]
 path = "lib.rs"
 
-[[bin]]
-name = "preload-sb-ai-defs"
-path = "preload_defs.rs"
-
 [dependencies]
 deno_core.workspace = true
 
@@ -40,6 +36,12 @@ ndarray = "0.15"
 ndarray-linalg = "0.15"
 rand = "0.8"
 convert_case = "0.6"
-tokenizers = { version = ">=0.13.4", default-features = false, features = [ "onig" ] }
+tokenizers = { version = ">=0.13.4", default-features = false, features = [
+  "onig",
+] }
 
-ort = { git = "https://github.com/pykeio/ort", default-features = false, features = [ "ndarray", "half", "load-dynamic" ] }
+ort = { git = "https://github.com/pykeio/ort", default-features = false, features = [
+  "ndarray",
+  "half",
+  "load-dynamic",
+] }

@@ -38,7 +38,7 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
     let (cpu_timer, mut cpu_alarms_rx) = cpu_timer.unzip();
     let (soft_limit_ms, hard_limit_ms) = cpu_timer_param.limits();
 
-    let _guard = scopeguard::guard(is_retired, |v| {
+    let guard = scopeguard::guard(is_retired, |v| {
         v.raise();
     });
 
@@ -69,6 +69,12 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
             .checked_div(2)
             .unwrap_or(Duration::from_millis(1)),
     );
+
+    let early_retire_fn = || {
+        // we should raise a retire signal because subsequent incoming requests are unlikely to get
+        // enough wall clock time or cpu time
+        guard.raise();
+    };
 
     let terminate_fn = {
         let thread_safe_handle = thread_safe_handle.clone();
@@ -137,6 +143,7 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
                                 error!("CPU time hard limit reached: isolate: {:?}", key);
                                 return (ShutdownReason::CPUTime, cpu_usage_ms);
                             } else if cpu_usage_ms >= soft_limit_ms as i64 && !cpu_time_soft_limit_reached {
+                                early_retire_fn();
                                 error!("CPU time soft limit reached: isolate: {:?}", key);
                                 cpu_time_soft_limit_reached = true;
 
@@ -154,6 +161,7 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
             Some(_) = wait_cpu_alarm(cpu_alarms_rx.as_mut()) => {
                 if is_worker_entered {
                     if !cpu_time_soft_limit_reached {
+                        early_retire_fn();
                         error!("CPU time soft limit reached: isolate: {:?}", key);
                         cpu_time_soft_limit_reached = true;
 
@@ -195,6 +203,7 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
                     // first tick completes immediately
                     wall_clock_alerts += 1;
                 } else if wall_clock_alerts == 1 {
+                    early_retire_fn();
                     error!("wall clock duration warning: isolate: {:?}", key);
                     wall_clock_alerts += 1;
                 } else {

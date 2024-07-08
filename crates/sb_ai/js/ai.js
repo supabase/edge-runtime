@@ -4,6 +4,43 @@ import EventSourceStream from 'ext:sb_ai/js/util/event_source_stream.mjs';
 const core = globalThis.Deno.core;
 
 const parseJSON = async function* (itr) {
+    let buffer = '';
+
+    const decoder = new TextDecoder('utf-8');
+    const reader = itr.getReader();
+
+    while (true) {
+        const { done, value: chunk } = await reader.read();
+
+        if (done) {
+            break;
+        }
+
+        buffer += decoder.decode(chunk);
+
+        const parts = buffer.split('\n');
+
+        buffer = parts.pop() ?? '';
+
+        for (const part of parts) {
+            try {
+                yield JSON.parse(part);
+            } catch (error) {
+                console.warn('invalid json: ', part);
+            }
+        }
+    }
+
+    for (const part of buffer.split('\n').filter((p) => p !== '')) {
+        try {
+            yield JSON.parse(part);
+        } catch (error) {
+            console.warn('invalid json: ', part);
+        }
+    }
+};
+
+const parseJSONOverEventStream = async function* (itr) {
     const decoder = new EventSourceStream();
 
     itr.pipeThrough(decoder);
@@ -48,6 +85,18 @@ class Session {
             const stream = opts.stream ?? false;
             const timeout = opts.timeout ?? 60; // default timeout 60s
 
+            /** @type {'ollama' | 'openaicompatible'} */
+            const mode = opts.mode ?? 'ollama';
+
+            switch (mode) {
+                case 'ollama':
+                case 'openaicompatible':
+                    break;
+
+                default:
+                    throw new TypeError(`invalid mode: ${mode}`);
+            }
+
             const controller = new AbortController();
             const signal = controller.signal;
             setTimeout(
@@ -55,8 +104,16 @@ class Session {
                 timeout * 1000
             );
 
+            const path = mode === 'ollama' ? '/api/generate' : '/v1/chat/completions';
+            const body = mode === 'ollama' ? { prompt } : {
+                messages: [{
+                    role: 'user',
+                    content: prompt
+                }]
+            };
+
             const res = await fetch(
-                new URL('/v1/chat/completions', this.inferenceAPIHost),
+                new URL(path, this.inferenceAPIHost),
                 {
                     method: 'POST',
                     headers: {
@@ -65,7 +122,7 @@ class Session {
                     body: JSON.stringify({
                         model: this.model,
                         stream,
-                        messages: [{ role: 'user', content: prompt }],
+                        ...body
                     }),
                 },
                 { signal }
@@ -75,7 +132,8 @@ class Session {
                 throw new Error('Missing body');
             }
 
-            const itr = parseJSON(res.body);
+            const parseGenFn = mode === 'ollama' ? parseJSON : stream === true ? parseJSONOverEventStream : parseJSON;
+            const itr = parseGenFn(res.body);
 
             if (stream) {
                 return (async function* () {
@@ -83,24 +141,49 @@ class Session {
                         if ('error' in message) {
                             throw new Error(message.error);
                         }
+
                         yield message;
-                        if (message.done) {
-                            return;
+
+                        switch (mode) {
+                            case 'ollama': {
+                                if (message.done) {
+                                    return;
+                                }
+
+                                break;
+                            }
+
+                            case 'openaicompatible': {
+                                const finishReason = message.choices[0].finish_reason;
+
+                                if (!!finishReason) {
+                                    if (finishReason !== 'stop') {
+                                        throw new Error('Expected a completed response.');
+                                    }
+
+                                    return;
+                                }
+
+                                break;
+                            }
+
+                            default:
+                                throw new Error('unreachable');
                         }
                     }
+
                     throw new Error(
                         'Did not receive done or success response in stream.'
                     );
                 })();
             } else {
                 const message = await itr.next();
+                const finish = mode === 'ollama' ? message.value.done : message.value.choices[0].finish_reason === 'stop';
 
-                if (
-                    !message.value.done &&
-                    message.value.choices[0].finish_reason !== 'stop'
-                ) {
+                if (finish !== true) {
                     throw new Error('Expected a completed response.');
                 }
+
                 return message.value;
             }
         }
@@ -113,6 +196,7 @@ class Session {
             mean_pool,
             normalize
         );
+
         return result;
     }
 }

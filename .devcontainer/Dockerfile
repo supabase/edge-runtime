@@ -16,3 +16,5 @@ RUN mkdir -p /etc/sb_ai && cp -r /tmp/models /etc/sb_ai/models
 
 ENV ORT_DYLIB_PATH=/usr/local/bin/libonnxruntime.so
 ENV SB_AI_MODELS_DIR=/etc/sb_ai/models
+
+RUN curl -fsSL https://ollama.com/install.sh | sh

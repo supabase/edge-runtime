@@ -18,8 +18,12 @@ use tokio::task;
 deno_core::extension!(
     sb_ai,
     ops = [op_sb_ai_run_model, op_sb_ai_init_model],
-    esm_entry_point = "ext:sb_ai/ai.js",
-    esm = ["ai.js",]
+    esm_entry_point = "ext:sb_ai/js/ai.js",
+    esm = [
+        "js/ai.js",
+        "js/util/event_stream_parser.mjs",
+        "js/util/event_source_stream.mjs"
+    ]
 );
 
 struct GteModelRequest {

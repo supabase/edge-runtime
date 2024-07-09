@@ -3,31 +3,42 @@ import EventSourceStream from 'ext:sb_ai/js/util/event_source_stream.mjs';
 
 const core = globalThis.Deno.core;
 
-const parseJSON = async function* (itr) {
+/**
+ * @param {ReadableStream<Uint8Array} itr 
+ * @param {AbortSignal} signal
+ */
+const parseJSON = async function* (itr, signal) {
     let buffer = '';
 
     const decoder = new TextDecoder('utf-8');
     const reader = itr.getReader();
 
     while (true) {
-        const { done, value: chunk } = await reader.read();
-
-        if (done) {
-            break;
-        }
-
-        buffer += decoder.decode(chunk);
-
-        const parts = buffer.split('\n');
-
-        buffer = parts.pop() ?? '';
-
-        for (const part of parts) {
-            try {
-                yield JSON.parse(part);
-            } catch (error) {
-                console.warn('invalid json: ', part);
+        try {
+            if (signal.aborted) {
+                reader.cancel(signal.reason);
+                reader.releaseLock();
+                return { error: signal.reason };
             }
+
+            const { done, value } = await reader.read();
+
+            if (done) {
+                break;
+            }
+
+            buffer += decoder.decode(value);
+
+            const parts = buffer.split('\n');
+
+            buffer = parts.pop() ?? '';
+
+            for (const part of parts) {
+                yield JSON.parse(part);
+            }
+
+        } catch (error) {
+            yield { error };
         }
     }
 
@@ -35,12 +46,16 @@ const parseJSON = async function* (itr) {
         try {
             yield JSON.parse(part);
         } catch (error) {
-            console.warn('invalid json: ', part);
+            yield { error };
         }
     }
 };
 
-const parseJSONOverEventStream = async function* (itr) {
+/**
+ * @param {ReadableStream<Uint8Array} itr 
+ * @param {AbortSignal} signal
+ */
+const parseJSONOverEventStream = async function* (itr, signal) {
     const decoder = new EventSourceStream();
 
     itr.pipeThrough(decoder);
@@ -49,16 +64,22 @@ const parseJSONOverEventStream = async function* (itr) {
     const reader = decoder.readable.getReader();
 
     while (true) {
-        const { done, value } = await reader.read();
-
-        if (done) {
-            break;
-        }
-
         try {
+            if (signal.aborted) {
+                reader.cancel(signal.reason);
+                reader.releaseLock();
+                return { error: signal.reason };
+            }
+
+            const { done, value } = await reader.read();
+
+            if (done) {
+                break;
+            }
+
             yield JSON.parse(value.data);
         } catch (error) {
-            console.warn('invalid message event: ', value);
+            yield { error };
         }
     }
 };
@@ -83,7 +104,10 @@ class Session {
     async run(prompt, opts = {}) {
         if (this.is_ollama) {
             const stream = opts.stream ?? false;
-            const timeout = opts.timeout ?? 60; // default timeout 60s
+
+            // default timeout 60s
+            const timeout = typeof opts.timeout === 'number' ? opts.timeout : 60;
+            const timeoutMs = timeout * 1000;
 
             /** @type {'ollama' | 'openaicompatible'} */
             const mode = opts.mode ?? 'ollama';
@@ -97,12 +121,11 @@ class Session {
                     throw new TypeError(`invalid mode: ${mode}`);
             }
 
-            const controller = new AbortController();
-            const signal = controller.signal;
-            setTimeout(
-                () => controller.abort(new Error('Request timeout')),
-                timeout * 1000
-            );
+            const timeoutSignal = AbortSignal.timeout(timeoutMs);
+            const signals = [opts.signal, timeoutSignal]
+                .filter(it => it instanceof AbortSignal);
+
+            const signal = AbortSignal.any(signals);
 
             const path = mode === 'ollama' ? '/api/generate' : '/v1/chat/completions';
             const body = mode === 'ollama' ? { prompt } : {
@@ -133,13 +156,17 @@ class Session {
             }
 
             const parseGenFn = mode === 'ollama' ? parseJSON : stream === true ? parseJSONOverEventStream : parseJSON;
-            const itr = parseGenFn(res.body);
+            const itr = parseGenFn(res.body, signal);
 
             if (stream) {
                 return (async function* () {
                     for await (const message of itr) {
                         if ('error' in message) {
-                            throw new Error(message.error);
+                            if (message.error instanceof Error) {
+                                throw message.error;
+                            } else {
+                                throw new Error(message.error);
+                            }
                         }
 
                         yield message;
@@ -178,6 +205,17 @@ class Session {
                 })();
             } else {
                 const message = await itr.next();
+
+                if (message.value && 'error' in message.value) {
+                    const error = message.value.error;
+
+                    if (error instanceof Error) {
+                        throw error;
+                    } else {
+                        throw new Error(error);
+                    }
+                }
+
                 const finish = mode === 'ollama' ? message.value.done : message.value.choices[0].finish_reason === 'stop';
 
                 if (finish !== true) {

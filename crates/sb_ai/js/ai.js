@@ -86,23 +86,24 @@ const parseJSONOverEventStream = async function* (itr, signal) {
 
 class Session {
     model;
-    is_ollama;
+    is_ext_inference_api;
     inferenceAPIHost;
 
     constructor(model) {
         this.model = model;
-        this.is_ollama = false;
+        this.is_ext_inference_api = false;
 
         if (model === 'gte-small') {
             core.ops.op_sb_ai_init_model(model);
         } else {
             this.inferenceAPIHost = core.ops.op_get_env('AI_INFERENCE_API_HOST');
-            this.is_ollama = !!this.inferenceAPIHost; // only enable ollama if env variable is set
+            this.is_ext_inference_api = !!this.inferenceAPIHost; // only enable external inference API if env variable is set
         }
     }
 
+    /** @param {string | object} prompt Either a String (ollama) or an OpenAI chat completion body object (openaicompatible): https://platform.openai.com/docs/api-reference/chat/create */
     async run(prompt, opts = {}) {
-        if (this.is_ollama) {
+        if (this.is_ext_inference_api) {
             const stream = opts.stream ?? false;
 
             // default timeout 60s
@@ -128,12 +129,7 @@ class Session {
             const signal = AbortSignal.any(signals);
 
             const path = mode === 'ollama' ? '/api/generate' : '/v1/chat/completions';
-            const body = mode === 'ollama' ? { prompt } : {
-                messages: [{
-                    role: 'user',
-                    content: prompt
-                }]
-            };
+            const body = mode === 'ollama' ? { prompt } : prompt
 
             const res = await fetch(
                 new URL(path, this.inferenceAPIHost),

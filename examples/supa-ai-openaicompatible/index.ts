@@ -1,11 +1,12 @@
 // @ts-ignore
 import { STATUS_CODE } from 'https://deno.land/std/http/status.ts';
 
-const session = new Supabase.ai.Session('llama2');
-
 Deno.serve(async (req: Request) => {
   const params = new URL(req.url).searchParams;
-  const prompt = params.get('prompt');
+  const model = params.get('model');
+  const session = new Supabase.ai.Session(model ?? 'llama2');
+  let prompt = params.get('prompt');
+  if (!prompt) throw new Error('prompt missing')
   const stream = params.get('stream') === 'true' ?? false;
   const controller = new AbortController();
   const signal = AbortSignal.any([
@@ -24,12 +25,14 @@ Deno.serve(async (req: Request) => {
   switch (mode) {
     case 'ollama':
     case 'openaicompatible':
+      prompt = JSON.parse(prompt)
       break;
 
     default: {
       mode = 'ollama';
     }
   }
+  console.log({prompt})
 
   if (stream) {
     const output = await session.run(prompt, {
@@ -95,3 +98,22 @@ Deno.serve(async (req: Request) => {
     }
   }
 });
+
+/* To invoke locally:
+Ollama Test: 
+
+curl --get "http://localhost:9998/supa-ai-openaicompatible" \
+--data-urlencode "prompt=write a short rap song about Supabase, the Postgres Developer platform, as sung by Nicki Minaj" \
+--data-urlencode "stream=true" \
+-H "Authorization: $ANON_KEY"
+
+LLamafile OpenAI Compatible Test (need to set AI_INFERENCE_API_HOST=http://localhost:8080)
+
+curl --get "http://localhost:9998/supa-ai-openaicompatible" \
+--data-urlencode "model=LLaMA_CPP" \
+--data-urlencode 'prompt={"messages":[{"role":"user","content":"Tell me a joke about Supabase!"}]}' \
+--data-urlencode "stream=true" \
+--data-urlencode "mode=openaicompatible" \
+-H "Authorization: $ANON_KEY"
+
+*/

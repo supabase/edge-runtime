@@ -34,6 +34,7 @@ use std::collections::HashMap;
 use std::ffi::c_void;
 use std::fmt;
 use std::marker::PhantomData;
+use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 use std::task::Poll;
 use std::time::Duration;
@@ -266,13 +267,23 @@ where
         }
 
         let mut net_access_disabled = false;
+        let mut allow_net = None;
         let mut allow_remote_modules = true;
-
         if is_user_worker {
             let user_conf = conf.as_user_worker().unwrap();
 
             net_access_disabled = user_conf.net_access_disabled;
             allow_remote_modules = user_conf.allow_remote_modules;
+
+            allow_net = match &user_conf.allow_net {
+                Some(allow_net) => Some(
+                    allow_net
+                        .iter()
+                        .map(|s| FromStr::from_str(s.as_str()))
+                        .collect::<Result<Vec<_>, _>>()?,
+                ),
+                None => None,
+            };
         }
 
         let mut maybe_arc_import_map = None;
@@ -413,7 +424,7 @@ where
         let mod_code = module_code;
 
         let extensions = vec![
-            sb_core_permissions::init_ops(net_access_disabled),
+            sb_core_permissions::init_ops(net_access_disabled, allow_net),
             deno_webidl::deno_webidl::init_ops(),
             deno_console::deno_console::init_ops(),
             deno_url::deno_url::init_ops(),

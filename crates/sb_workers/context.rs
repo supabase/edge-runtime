@@ -65,6 +65,7 @@ pub struct UserWorkerRuntimeOpts {
 
     pub force_create: bool,
     pub net_access_disabled: bool,
+    pub allow_net: Option<Vec<String>>,
     pub custom_module_root: Option<String>,
     pub allow_remote_modules: bool,
 }
@@ -84,6 +85,7 @@ impl Default for UserWorkerRuntimeOpts {
             events_msg_tx: None,
             cancel: None,
             net_access_disabled: false,
+            allow_net: None,
             allow_remote_modules: true,
             custom_module_root: None,
             service_path: None,

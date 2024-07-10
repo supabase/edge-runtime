@@ -20,3 +20,12 @@ Deno.serve(async (req: Request) => {
 		},
 	);
 });
+
+/* To invoke locally:
+Ollama Test: 
+
+curl --get "http://localhost:9998/supa-ai-ollama" \
+--data-urlencode "prompt=write a short rap song about Supabase, the Postgres Developer platform, as sung by Nicki Minaj" \
+-H "Authorization: $ANON_KEY"
+
+*/

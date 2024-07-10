@@ -23,11 +23,11 @@ Deno.serve(async (req: Request) => {
   let mode = params.get("mode") ?? 'ollama';
 
   switch (mode) {
-    case 'ollama':
     case 'openaicompatible':
       prompt = JSON.parse(prompt)
       break;
 
+    case 'ollama':
     default: {
       mode = 'ollama';
     }

@@ -147,6 +147,10 @@ class Session {
                 { signal }
             );
 
+            if (!res.ok) {
+                throw new Error(`Failed to fetch inference API host. Status ${res.status}: ${res.statusText}`);
+            }
+
             if (!res.body) {
                 throw new Error('Missing body');
             }

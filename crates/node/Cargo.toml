@@ -25,7 +25,6 @@ deno_fetch.workspace = true
 deno_fs.workspace = true
 deno_media_type.workspace = true
 deno_net.workspace = true
-deno_permissions = { version = "0.9.0" }
 deno_whoami = "0.1.0"
 digest = { version = "0.10.5", features = ["core-api", "std"] }
 dsa = "0.6.1"

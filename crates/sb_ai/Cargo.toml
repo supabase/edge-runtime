@@ -14,7 +14,7 @@ anyhow.workspace = true
 deno_core.workspace = true
 log = { workspace = true }
 serde.workspace = true
-ort = { git = "https://github.com/pykeio/ort", default-features = false, features = [ "ndarray", "half", "load-dynamic" ] }
+ort = { git = "https://github.com/pykeio/ort", default-features = false, features = [ "ndarray", "half", "load-dynamic", "cuda"] }
 ndarray = "0.15"
 ndarray-linalg = "0.15"
 tokenizers = { version = ">=0.13.4", default-features = false, features = [ "onig" ] }

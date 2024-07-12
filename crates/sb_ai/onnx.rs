@@ -19,11 +19,40 @@ fn init_onnx_env() {
         let _ = v.swap(true, Ordering::SeqCst);
     });
 
-    // Create the ONNX Runtime environment, for all sessions created in this process.
-    // TODO: Add CUDA execution provider
-    if let Err(err) = ort::init().with_name("SB_AI_ONNX").commit() {
-        error!("sb_ai: failed to create environment: {}", err);
-        let _ = guard1.insert(Arc::new(err));
+    let _guard3 = guard(std::panic::take_hook(), |v| {
+        std::panic::set_hook(v);
+    });
+
+    std::panic::set_hook(Box::new(|_| {
+        // no op
+    }));
+
+    let result = std::panic::catch_unwind(|| {
+        // Create the ONNX Runtime environment, for all sessions created in this process.
+        // TODO: Add CUDA execution provider
+        ort::init().with_name("SB_AI_ONNX").commit()
+    });
+
+    match result {
+        Err(err) => {
+            // the most common reason that reaches to this arm is a library loading failure.
+            let _ = guard1.insert(Arc::new(ort::Error::CustomError(Box::from(match err
+                .downcast_ref::<&'static str>()
+            {
+                Some(s) => s,
+                None => match err.downcast_ref::<String>() {
+                    Some(s) => &s[..],
+                    None => "unknown error",
+                },
+            }))));
+        }
+
+        Ok(Err(err)) => {
+            error!("sb_ai: failed to create environment: {}", err);
+            let _ = guard1.insert(Arc::new(err));
+        }
+
+        _ => {}
     }
 }
 

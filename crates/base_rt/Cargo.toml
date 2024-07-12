@@ -4,6 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+deno_core.workspace = true
+
+cpu_timer = { version = "0.1.0", path = "../cpu_timer" }
+
 tokio.workspace = true
 once_cell.workspace = true
+tracing.workspace = true
 tokio-util = { workspace = true, features = ["rt"] }

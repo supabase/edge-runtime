@@ -4917,6 +4917,7 @@ name = "sb_ai"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "ctor",
  "deno_core",
  "log",
  "ndarray",
@@ -4924,6 +4925,7 @@ dependencies = [
  "once_cell",
  "ort",
  "rand",
+ "scopeguard",
  "serde",
  "tokenizers",
  "tokio",

@@ -4,7 +4,7 @@
     "dockerfile": "Dockerfile",
     "context": "..",
     "args": {
-      "ONNXRUNTIME_VERSION": "1.17.0",
+      "ONNXRUNTIME_VERSION": "1.17.3",
       "DENO_VERSION": "1.45.2"
     }
   },

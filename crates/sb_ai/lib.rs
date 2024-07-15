@@ -127,8 +127,8 @@ fn init_gte(state: &mut OpState) -> Result<(), Error> {
                 let attention_mask_array = Array1::from_iter(attention_mask.iter().cloned());
                 let attention_mask_array = attention_mask_array.view().insert_axis(Axis(0));
 
-                let token_type_ids_array = Array1::from_iter(token_type_ids.iter().cloned());
-                let token_type_ids_array = token_type_ids_array.view().insert_axis(Axis(0));
+            let embeddings = outputs["last_hidden_state"].try_extract_tensor()?;
+            let embeddings = embeddings.into_dimensionality::<Ix3>()?;
 
                 let outputs = trace_span!("infer_gte").in_scope(|| {
                     session.run(inputs! {

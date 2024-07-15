@@ -5,6 +5,7 @@
     "context": "..",
     "args": {
       "ONNXRUNTIME_VERSION": "1.17.0",
+      "DENO_VERSION": "1.45.2"
     }
   },
   "features": {
@@ -31,7 +32,8 @@
         "eamodio.gitlens",
         "ms-azuretools.vscode-docker",
         "ms-vscode.hexeditor",
-        "vadimcn.vscode-lldb"
+        "vadimcn.vscode-lldb",
+        "denoland.vscode-deno"
       ]
     }
   }

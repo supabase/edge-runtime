@@ -11,7 +11,9 @@ license = "MIT"
 path = "lib.rs"
 
 [dependencies]
-sb_core = { version = "0.1.0", path = "../sb_core" }
 deno_core.workspace = true
+
+sb_core = { version = "0.1.0", path = "../sb_core" }
+
 libc.workspace = true
 serde.workspace = true

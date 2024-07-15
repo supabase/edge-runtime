@@ -110,7 +110,7 @@ impl Pipeline<FeatureExtractionPipelineInput, FeatureExtractionResult>
             "attention_mask" => attention_mask_array,
         }?)?;
 
-        let embeddings = outputs["last_hidden_state"].extract_tensor()?;
+        let embeddings = outputs["last_hidden_state"].try_extract_tensor()?;
         let embeddings = embeddings.into_dimensionality::<Ix3>()?;
 
         let result = if input.mean_pool {

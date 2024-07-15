@@ -2,6 +2,7 @@ FROM mcr.microsoft.com/devcontainers/rust:dev-1-bookworm
 
 ARG TARGETPLATFORM
 ARG ONNXRUNTIME_VERSION
+ARG DENO_VERSION
 
 RUN apt-get update && apt-get install -y build-essential cmake libclang-dev lldb \
     nodejs npm hyperfine
@@ -17,4 +18,9 @@ RUN mkdir -p /etc/sb_ai && cp -r /tmp/models /etc/sb_ai/models
 ENV ORT_DYLIB_PATH=/usr/local/bin/libonnxruntime.so
 ENV SB_AI_MODELS_DIR=/etc/sb_ai/models
 
+# Ollama
 RUN curl -fsSL https://ollama.com/install.sh | sh
+
+# Deno
+RUN curl -fsSL https://deno.land/install.sh | sh
+RUN deno upgrade --version $DENO_VERSION

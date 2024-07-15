@@ -445,7 +445,7 @@ impl Server {
         self.termination_tokens.terminate().await;
     }
 
-    pub async fn listen(&mut self) -> Result<(), Error> {
+    pub async fn listen(&mut self) -> Result<Option<i32>, Error> {
         let addr = SocketAddr::new(IpAddr::V4(self.ip), self.port);
         let non_secure_listener = TcpListener::bind(&addr).await?;
         let mut secure_listener = if let Some(tls) = self.tls.take() {
@@ -462,6 +462,7 @@ impl Server {
         let termination_tokens = &self.termination_tokens;
         let input_termination_token = termination_tokens.input.as_ref();
 
+        let mut ret = None::<i32>;
         let mut can_receive_event = false;
         let mut interrupted = false;
         let (event_tx, event_rx) = mpsc::unbounded_channel();
@@ -569,6 +570,7 @@ impl Server {
 
                 signum = &mut terminate_signal_fut => {
                     info!("shutdown signal received: {}", signum);
+                    ret = Some(signum);
                     break;
                 }
 
@@ -667,7 +669,7 @@ impl Server {
             warn!("runtime exits immediately since the graceful exit feature has been disabled");
         }
 
-        Ok(())
+        Ok(ret)
     }
 }
 

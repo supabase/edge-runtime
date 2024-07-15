@@ -9,20 +9,24 @@ name = "edge-runtime"
 path = "src/main.rs"
 
 [dependencies]
-anyhow = { workspace = true }
-base = { path = "../base" }
-deno_core = { workspace = true }
-clap = { version = "4.0.29", features = ["cargo", "string", "env"] }
-env_logger = "0.10.0"
+deno_core.workspace = true
+
+base = { version = "0.1.0", path = "../base" }
+
+sb_graph = { version = "0.1.0", path = "../sb_graph" }
+
+anyhow.workspace = true
 log.workspace = true
-sb_graph = { path = "../sb_graph" }
 tokio.workspace = true
 glob.workspace = true
 once_cell.workspace = true
+
+clap = { version = "4.0.29", features = ["cargo", "string", "env"] }
 tracing-subscriber = { workspace = true, optional = true, features = ["env-filter", "tracing-log"] }
+env_logger = "0.10.0"
 
 [build-dependencies]
-dotenv-build = { version = "0.1.1" }
+dotenv-build = "0.1.1"
 
 [features]
 tracing = ["dep:tracing-subscriber"]

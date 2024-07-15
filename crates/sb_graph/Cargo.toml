@@ -10,28 +10,29 @@ license = "MIT"
 path = "lib.rs"
 
 [dependencies]
+deno_core.workspace = true
+deno_ast.workspace = true
+deno_fs.workspace = true
+deno_npm.workspace = true
+deno_semver.workspace = true
+deno_web.workspace = true
+deno_lockfile.workspace = true
+deno_config.workspace = true
+
 sb_core = { version = "0.1.0", path = "../sb_core" }
 sb_node = { version = "0.1.0", path = "../node" }
 sb_npm = { version = "0.1.0", path = "../npm" }
 sb_fs = { version = "0.1.0", path = "../sb_fs" }
 sb_eszip_shared = { version = "0.1.0", path = "../sb_eszip_shared" }
-deno_semver.workspace = true
 anyhow.workspace = true
-deno_core.workspace = true
-eszip.workspace = true
 import_map.workspace = true
 log.workspace = true
 serde.workspace = true
 tokio.workspace = true
-deno_ast.workspace = true
-deno_fs.workspace = true
-deno_npm.workspace = true
 once_cell.workspace = true
-deno_web.workspace = true
 urlencoding.workspace = true
-deno_lockfile.workspace = true
-deno_config.workspace = true
 glob.workspace = true
+eszip.workspace = true
 futures.workspace = true
 sha2.workspace = true
 scopeguard.workspace = true

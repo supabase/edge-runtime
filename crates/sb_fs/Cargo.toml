@@ -24,6 +24,7 @@ sb_eszip_shared = { version = "0.1.0", path = "../sb_eszip_shared" }
 
 anyhow.workspace = true
 import_map.workspace = true
+indexmap.workspace = true
 log.workspace = true
 serde.workspace = true
 tokio.workspace = true

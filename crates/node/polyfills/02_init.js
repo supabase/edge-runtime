@@ -10,14 +10,16 @@ import "node:module";
 
 let initialized = false;
 
-function initialize(
-  usesLocalNodeModulesDir,
-  argv0,
-  runningOnMainThread,
-  workerId,
-  maybeWorkerMetadata,
-  warmup = false,
-) {
+function initialize(args) {
+  const {
+    usesLocalNodeModulesDir,
+    argv0,
+    runningOnMainThread,
+    workerId,
+    maybeWorkerMetadata,
+    nodeDebug,
+    warmup = false,
+  } = args;
   if (!warmup) {
     if (initialized) {
       throw Error("Node runtime already initialized");
@@ -33,14 +35,18 @@ function initialize(
       argv0,
       Deno.args,
       Deno.version,
-      Deno.env.get("NODE_DEBUG") ?? "",
+      nodeDebug,
     );
+
     // @andreespirela, no we shouldn't be using these worker threads
-/*    internals.__initWorkerThreads(
-      runningOnMainThread,
-      workerId,
-      maybeWorkerMetadata,
-    );*/
+    /*
+      internals.__initWorkerThreads(
+        runningOnMainThread,
+        workerId,
+        maybeWorkerMetadata,
+      );
+    */
+
     internals.__setupChildProcessIpcChannel();
     // `Deno[Deno.internal].requireImpl` will be unreachable after this line.
     delete internals.requireImpl;

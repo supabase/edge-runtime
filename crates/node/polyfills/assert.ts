@@ -17,6 +17,9 @@ import {
   ERR_MISSING_ARGS,
 } from "ext:deno_node/internal/errors.ts";
 import { isDeepEqual } from "ext:deno_node/internal/util/comparisons.ts";
+import { primordials } from "ext:core/mod.js";
+
+const { ObjectPrototypeIsPrototypeOf } = primordials;
 
 function innerFail(obj: {
   actual?: unknown;
@@ -435,8 +438,7 @@ function doesNotMatch(
     }
     throw new AssertionError({
       message: message ||
-        `The "string" argument must be of type string. Received type ${typeof string} (${
-          inspect(string)
+        `The "string" argument must be of type string. Received type ${typeof string} (${inspect(string)
         })`,
       actual: string,
       expected: regexp,
@@ -582,7 +584,7 @@ function doesNotReject(
   }
 
   return promise.then(
-    () => {},
+    () => { },
     (e) => gotUnwantedException(e, error, message, doesNotReject),
   );
 }
@@ -633,16 +635,14 @@ function gotUnwantedException(
   } else {
     if (message) {
       throw new AssertionError({
-        message: `Got unwanted exception: ${message}\nActual message: "${
-          e ? e.message : String(e)
-        }"`,
+        message: `Got unwanted exception: ${message}\nActual message: "${e ? e.message : String(e)
+          }"`,
         operator: operator.name,
       });
     }
     throw new AssertionError({
-      message: `Got unwanted exception.\nActual message: "${
-        e ? e.message : String(e)
-      }"`,
+      message: `Got unwanted exception.\nActual message: "${e ? e.message : String(e)
+        }"`,
       operator: operator.name,
     });
   }
@@ -744,8 +744,8 @@ function validateThrownError(
     error = undefined;
   }
   if (
-    error instanceof Function && error.prototype !== undefined &&
-    error.prototype instanceof Error
+    typeof error === "function" &&
+    (error === Error || ObjectPrototypeIsPrototypeOf(Error, error))
   ) {
     // error is a constructor
     if (e instanceof error) {
@@ -766,13 +766,11 @@ function validateThrownError(
       return true;
     }
     throw createAssertionError({
-      message: `The ${
-        options.validationFunctionName
+      message: `The ${options.validationFunctionName
           ? `"${options.validationFunctionName}" validation`
           : "validation"
-      } function is expected to return "true". Received ${
-        inspect(received)
-      }\n\nCaught error:\n\n${e}`,
+        } function is expected to return "true". Received ${inspect(received)
+        }\n\nCaught error:\n\n${e}`,
       actual: e,
       expected: error,
       operator: options.operator.name,
@@ -785,8 +783,7 @@ function validateThrownError(
     }
     throw createAssertionError({
       message:
-        `The input did not match the regular expression ${error.toString()}. Input:\n\n'${
-          String(e)
+        `The input did not match the regular expression ${error.toString()}. Input:\n\n'${String(e)
         }'\n`,
       actual: e,
       expected: error,

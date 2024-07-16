@@ -19,10 +19,10 @@ use deno_core::{
 use deno_http::{HttpRequestReader, HttpStreamReadResource};
 use errors::WorkerError;
 use http_utils::utils::get_upgrade_type;
-use hyper::body::HttpBody;
-use hyper::header::{HeaderName, HeaderValue, CONTENT_LENGTH};
-use hyper::upgrade::OnUpgrade;
-use hyper::{Body, Method, Request};
+use hyper_v014::body::HttpBody;
+use hyper_v014::header::{HeaderName, HeaderValue, CONTENT_LENGTH};
+use hyper_v014::upgrade::OnUpgrade;
+use hyper_v014::{Body, Method, Request};
 use log::error;
 use sb_core::conn_sync::ConnWatcher;
 use sb_graph::{DecoratorType, EszipPayloadKind};
@@ -235,7 +235,7 @@ impl Resource for UserWorkerRequestBodyResource {
 
     fn write(self: Rc<Self>, buf: BufView) -> AsyncResult<WriteOutcome> {
         Box::pin(async move {
-            let bytes: bytes::Bytes = buf.into();
+            let bytes: bytes::Bytes = buf.to_vec().into();
             let nwritten = bytes.len();
             let body = RcRef::map(&self, |r| &r.body).borrow_mut().await;
             let body = (*body).as_ref();

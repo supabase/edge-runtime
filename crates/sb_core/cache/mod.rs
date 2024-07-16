@@ -6,16 +6,12 @@ pub mod deno_dir;
 pub mod disk_cache;
 pub mod emit;
 pub mod fc_permissions;
-pub mod fetch_cacher;
-pub mod http_cache;
 pub mod incremental;
 pub mod module_info;
 pub mod node;
 pub mod parsed_source;
 
 use crate::util::fs::atomic_write_file;
-pub use deno_cache_dir::CachedUrlMetadata;
-pub use deno_cache_dir::HttpCache;
 use std::path::Path;
 use std::time::SystemTime;
 

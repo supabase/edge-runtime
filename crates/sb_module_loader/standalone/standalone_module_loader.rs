@@ -1,8 +1,10 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
-use crate::node::node_module_loader::NpmModuleLoader;
 use base64::Engine;
 use deno_ast::MediaType;
+use deno_config::package_json::PackageJsonDepValue;
+use deno_config::workspace::MappedResolution;
+use deno_config::workspace::WorkspaceResolver;
 use deno_core::error::generic_error;
 use deno_core::error::type_error;
 use deno_core::error::AnyError;
@@ -13,18 +15,52 @@ use deno_core::{ModuleLoader, ModuleSourceCode};
 use deno_core::{ModuleSpecifier, RequestedModuleType};
 use deno_semver::npm::NpmPackageReqReference;
 use eszip::deno_graph;
+use eszip::EszipRelativeFileBaseUrl;
+use sb_graph::resolver::CliNodeResolver;
+use sb_graph::resolver::NpmModuleLoader;
+use sb_node::NodeResolutionMode;
 use sb_eszip_shared::AsyncEszipDataRead;
 use sb_graph::LazyLoadableEszip;
 use std::sync::Arc;
 use tracing::instrument;
 
-use crate::node::cli_node_resolver::CliNodeResolver;
 use crate::util::arc_u8_to_arc_str;
-use sb_graph::graph_resolver::MappedSpecifierResolver;
+
+pub struct WorkspaceEszipModule {
+    specifier: ModuleSpecifier,
+    inner: eszip::Module,
+}
+
+pub struct WorkspaceEszip {
+    pub eszip: eszip::EszipV2,
+    pub root_dir_url: ModuleSpecifier,
+}
+
+impl WorkspaceEszip {
+    pub fn get_module(&self, specifier: &ModuleSpecifier) -> Option<WorkspaceEszipModule> {
+        if specifier.scheme() == "file" {
+            let specifier_key =
+                EszipRelativeFileBaseUrl::new(&self.root_dir_url).specifier_key(specifier);
+            let module = self.eszip.get_module(&specifier_key)?;
+            let specifier = self.root_dir_url.join(&module.specifier).unwrap();
+            Some(WorkspaceEszipModule {
+                specifier,
+                inner: module,
+            })
+        } else {
+            let module = self.eszip.get_module(specifier.as_str())?;
+            Some(WorkspaceEszipModule {
+                specifier: ModuleSpecifier::parse(&module.specifier).unwrap(),
+                inner: module,
+            })
+        }
+    }
+}
 
 pub struct SharedModuleLoaderState {
+    pub(crate) eszip: WorkspaceEszip,
     pub(crate) eszip: LazyLoadableEszip,
-    pub(crate) mapped_specifier_resolver: MappedSpecifierResolver,
+    pub(crate) workspace_resolver: WorkspaceResolver,
     pub(crate) npm_module_loader: Arc<NpmModuleLoader>,
     pub(crate) node_resolver: Arc<CliNodeResolver>,
 }
@@ -57,47 +93,88 @@ impl ModuleLoader for EmbeddedModuleLoader {
                 .map_err(|err| type_error(format!("Referrer uses invalid specifier: {}", err)))?
         };
 
-        let permissions = sb_node::allow_all();
-        if let Some(result) =
-            self.shared
-                .node_resolver
-                .resolve_if_in_npm_package(specifier, &referrer, &*permissions)
-        {
-            return result;
+        if let Some(result) = self.shared.node_resolver.resolve_if_in_npm_package(
+            specifier,
+            &referrer,
+            NodeResolutionMode::Execution,
+        ) {
+            return match result? {
+                Some(res) => Ok(res.into_url()),
+                None => Err(generic_error("not found")),
+            };
         }
 
-        let maybe_mapped = self
-            .shared
-            .mapped_specifier_resolver
-            .resolve(specifier, &referrer)?
-            .into_specifier();
+        let mapped_resolution = self.shared.workspace_resolver.resolve(specifier, &referrer);
 
-        // npm specifier
-        let specifier_text = maybe_mapped
-            .as_ref()
-            .map(|r| r.as_str())
-            .unwrap_or(specifier);
+        match mapped_resolution {
+            Ok(MappedResolution::PackageJson {
+                dep_result,
+                sub_path,
+                alias,
+                ..
+            }) => match dep_result.as_ref().map_err(|e| AnyError::from(e.clone()))? {
+                PackageJsonDepValue::Req(req) => self
+                    .shared
+                    .node_resolver
+                    .resolve_req_with_sub_path(
+                        req,
+                        sub_path.as_deref(),
+                        &referrer,
+                        NodeResolutionMode::Execution,
+                    )
+                    .map(|res| res.into_url()),
+                PackageJsonDepValue::Workspace(version_req) => {
+                    let pkg_folder = self
+                        .shared
+                        .workspace_resolver
+                        .resolve_workspace_pkg_json_folder_for_pkg_json_dep(alias, version_req)?;
+                    Ok(self
+                        .shared
+                        .node_resolver
+                        .resolve_package_sub_path_from_deno_module(
+                            pkg_folder,
+                            sub_path.as_deref(),
+                            Some(&referrer),
+                            NodeResolutionMode::Execution,
+                        )?
+                        .into_url())
+                }
+            },
+            Ok(MappedResolution::Normal(specifier))
+            | Ok(MappedResolution::ImportMap(specifier)) => {
+                if let Ok(reference) = NpmPackageReqReference::from_specifier(&specifier) {
+                    return self
+                        .shared
+                        .node_resolver
+                        .resolve_req_reference(&reference, &referrer, NodeResolutionMode::Execution)
+                        .map(|res| res.into_url());
+                }
 
-        if let Ok(reference) = NpmPackageReqReference::from_str(specifier_text) {
-            return self.shared.node_resolver.resolve_req_reference(
-                &reference,
-                &*permissions,
-                &referrer,
-            );
-        }
+                if specifier.scheme() == "jsr" {
+                    if let Some(module) = self.shared.eszip.get_module(&specifier) {
+                        return Ok(module.specifier);
+                    }
+                }
 
-        let specifier = match maybe_mapped {
-            Some(resolved) => resolved,
-            None => deno_core::resolve_import(specifier, referrer.as_str())?,
-        };
-
-        if specifier.scheme() == "jsr" {
-            if let Some(module) = self.shared.eszip.ensure_module(specifier.as_str()) {
-                return Ok(ModuleSpecifier::parse(&module.specifier).unwrap());
+                self.shared
+                    .node_resolver
+                    .handle_if_in_node_modules(specifier)
             }
+            Err(err) if err.is_unmapped_bare_specifier() && referrer.scheme() == "file" => {
+                // todo(dsherret): return a better error from node resolution so that
+                // we can more easily tell whether to surface it or not
+                let node_result = self.shared.node_resolver.resolve(
+                    specifier,
+                    &referrer,
+                    NodeResolutionMode::Execution,
+                );
+                if let Ok(Some(res)) = node_result {
+                    return Ok(res.into_url());
+                }
+                Err(err.into())
+            }
+            Err(err) => Err(err.into()),
         }
-
-        Ok(specifier)
     }
 
     #[instrument(level = "debug", skip_all, fields(specifier = original_specifier.as_str()))]
@@ -109,11 +186,9 @@ impl ModuleLoader for EmbeddedModuleLoader {
         _requested_module_type: RequestedModuleType,
     ) -> deno_core::ModuleLoadResponse {
         let include_source_map = self.include_source_map;
-        let permissions = sb_node::allow_all();
-
         if original_specifier.scheme() == "data" {
             let data_url_text = match deno_graph::source::RawDataUrl::parse(original_specifier)
-                .and_then(|url| url.decode().map_err(|err| err.into()))
+                .and_then(|url| url.decode())
             {
                 Ok(response) => response,
                 Err(err) => {
@@ -131,26 +206,28 @@ impl ModuleLoader for EmbeddedModuleLoader {
             )));
         }
 
-        if let Some(result) = self.shared.npm_module_loader.load_sync_if_in_npm_package(
-            original_specifier,
-            maybe_referrer,
-            &*permissions,
-        ) {
-            return match result {
-                Ok(code_source) => deno_core::ModuleLoadResponse::Sync(Ok(
-                    deno_core::ModuleSource::new_with_redirect(
+        if self.shared.node_resolver.in_npm_package(original_specifier) {
+            let npm_module_loader = self.shared.npm_module_loader.clone();
+            let original_specifier = original_specifier.clone();
+            let maybe_referrer = maybe_referrer.cloned();
+            return deno_core::ModuleLoadResponse::Async(
+                async move {
+                    let code_source = npm_module_loader
+                        .load(&original_specifier, maybe_referrer.as_ref())
+                        .await?;
+                    Ok(deno_core::ModuleSource::new_with_redirect(
                         match code_source.media_type {
                             MediaType::Json => ModuleType::Json,
                             _ => ModuleType::JavaScript,
                         },
-                        ModuleSourceCode::String(code_source.code),
-                        original_specifier,
+                        code_source.code,
+                        &original_specifier,
                         &code_source.found_url,
                         None,
-                    ),
-                )),
-                Err(err) => deno_core::ModuleLoadResponse::Sync(Err(err)),
-            };
+                    ))
+                }
+                .boxed_local(),
+            );
         }
 
         let Some(module) = self.shared.eszip.ensure_module(original_specifier.as_str()) else {
@@ -161,20 +238,15 @@ impl ModuleLoader for EmbeddedModuleLoader {
         };
 
         let original_specifier = original_specifier.clone();
-        let found_specifier =
-            ModuleSpecifier::parse(&module.specifier).expect("invalid url in eszip");
 
         deno_core::ModuleLoadResponse::Async(
             async move {
-                let code = module
-                    .source()
-                    .await
-                    .ok_or_else(|| type_error(format!("Module not found: {}", original_specifier)))
-                    .and_then(|it| {
-                        arc_u8_to_arc_str(it).map_err(|_| type_error("Module source is not utf-8"))
-                    })?;
-
-                let source_map = module.source_map().await;
+                let code = module.inner.source().await.ok_or_else(|| {
+                    type_error(format!("Module not found: {}", original_specifier))
+                })?;
+                let code = arc_u8_to_arc_str(code)
+                    .map_err(|_| type_error("Module source is not utf-8"))?;
+                let source_map = module.inner.source_map().await;
                 let maybe_code_with_source_map = 'scope: {
                     if !include_source_map {
                         break 'scope code;
@@ -195,9 +267,8 @@ impl ModuleLoader for EmbeddedModuleLoader {
 
                     Arc::from(src)
                 };
-
                 Ok(deno_core::ModuleSource::new_with_redirect(
-                    match module.kind {
+                    match module.inner.kind {
                         eszip::ModuleKind::JavaScript => ModuleType::JavaScript,
                         eszip::ModuleKind::Json => ModuleType::Json,
                         eszip::ModuleKind::Jsonc => {
@@ -209,7 +280,7 @@ impl ModuleLoader for EmbeddedModuleLoader {
                     },
                     ModuleSourceCode::String(maybe_code_with_source_map.into()),
                     &original_specifier,
-                    &found_specifier,
+                    &module.specifier,
                     None,
                 ))
             }

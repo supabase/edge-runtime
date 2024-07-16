@@ -95,34 +95,34 @@ impl NodePermissions for AllowAllNodePermissions {
     }
 }
 
-impl NodePermissions for deno_permissions::PermissionsContainer {
-    #[inline(always)]
-    fn check_net_url(&mut self, url: &Url, api_name: &str) -> Result<(), AnyError> {
-        deno_permissions::PermissionsContainer::check_net_url(self, url, api_name)
-    }
+// impl NodePermissions for deno_permissions::PermissionsContainer {
+//     #[inline(always)]
+//     fn check_net_url(&mut self, url: &Url, api_name: &str) -> Result<(), AnyError> {
+//         deno_permissions::PermissionsContainer::check_net_url(self, url, api_name)
+//     }
 
-    #[inline(always)]
-    fn check_read_with_api_name(
-        &mut self,
-        path: &Path,
-        api_name: Option<&str>,
-    ) -> Result<(), AnyError> {
-        deno_permissions::PermissionsContainer::check_read_with_api_name(self, path, api_name)
-    }
+//     #[inline(always)]
+//     fn check_read_with_api_name(
+//         &mut self,
+//         path: &Path,
+//         api_name: Option<&str>,
+//     ) -> Result<(), AnyError> {
+//         deno_permissions::PermissionsContainer::check_read_with_api_name(self, path, api_name)
+//     }
 
-    #[inline(always)]
-    fn check_write_with_api_name(
-        &mut self,
-        path: &Path,
-        api_name: Option<&str>,
-    ) -> Result<(), AnyError> {
-        deno_permissions::PermissionsContainer::check_write_with_api_name(self, path, api_name)
-    }
+//     #[inline(always)]
+//     fn check_write_with_api_name(
+//         &mut self,
+//         path: &Path,
+//         api_name: Option<&str>,
+//     ) -> Result<(), AnyError> {
+//         deno_permissions::PermissionsContainer::check_write_with_api_name(self, path, api_name)
+//     }
 
-    fn check_sys(&mut self, kind: &str, api_name: &str) -> Result<(), AnyError> {
-        deno_permissions::PermissionsContainer::check_sys(self, kind, api_name)
-    }
-}
+//     fn check_sys(&mut self, kind: &str, api_name: &str) -> Result<(), AnyError> {
+//         deno_permissions::PermissionsContainer::check_sys(self, kind, api_name)
+//     }
+// }
 
 #[allow(clippy::disallowed_types)]
 pub type NpmResolverRc = deno_fs::sync::MaybeArc<dyn NpmResolver>;
@@ -288,6 +288,10 @@ deno_core::extension!(deno_node,
     ops::fs::op_node_fs_exists_sync<P>,
     ops::fs::op_node_cp_sync<P>,
     ops::fs::op_node_cp<P>,
+    ops::fs::op_node_lchown_sync,
+    ops::fs::op_node_lchown,
+    ops::fs::op_node_lutimes_sync,
+    ops::fs::op_node_lutimes,
     ops::fs::op_node_statfs,
     ops::winerror::op_node_sys_to_uv_error,
     ops::v8::op_v8_cached_data_version_tag,
@@ -327,11 +331,12 @@ deno_core::extension!(deno_node,
     ops::http2::op_http2_accept,
     ops::http2::op_http2_listen,
     ops::http2::op_http2_send_response,
-    ops::os::op_node_os_get_priority<P>,
-    ops::os::op_node_os_set_priority<P>,
-    ops::os::op_node_os_username<P>,
-    ops::os::op_geteuid<P>,
-    ops::os::op_cpus<P>,
+    // ops::os::op_node_os_get_priority<P>,
+    // ops::os::op_node_os_set_priority<P>,
+    // ops::os::op_node_os_username<P>,
+    ops::os::op_geteuid,
+    ops::os::op_getegid,
+    // ops::os::op_cpus<P>,
     op_node_build_os,
     op_node_is_promise_rejected,
     op_npm_process_state,
@@ -390,8 +395,10 @@ deno_core::extension!(deno_node,
     "_fs/_fs_fsync.ts",
     "_fs/_fs_ftruncate.ts",
     "_fs/_fs_futimes.ts",
+    "_fs/_fs_lchown.ts",
     "_fs/_fs_link.ts",
     "_fs/_fs_lstat.ts",
+    "_fs/_fs_lutimes.ts",
     "_fs/_fs_mkdir.ts",
     "_fs/_fs_mkdtemp.ts",
     "_fs/_fs_open.ts",

@@ -1,6 +1,10 @@
 #[path = "../src/utils/integration_test_helper.rs"]
 mod integration_test_helper;
 
+use http_v02 as http;
+use hyper_v014 as hyper;
+use reqwest_v011 as reqwest;
+
 use std::{
     borrow::Cow,
     collections::HashMap,
@@ -210,7 +214,7 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
         .await
         .unwrap();
 
-    let (res_tx, res_rx) = oneshot::channel::<Result<HttpResponse<Body>, hyper::Error>>();
+    let (res_tx, res_rx) = oneshot::channel::<Result<HttpResponse<Body>, hyper_v014::Error>>();
 
     let req = Request::builder()
         .uri("/slow_resp")
@@ -1224,7 +1228,7 @@ async fn test_oak_file_upload<F, R>(
     mime: Option<&str>,
     resp_callback: F,
 ) where
-    F: FnOnce(Result<Response, reqwest::Error>) -> R,
+    F: FnOnce(Result<Response, reqwest_v011::Error>) -> R,
     R: Future<Output = ()>,
 {
     let client = Client::builder().build().unwrap();

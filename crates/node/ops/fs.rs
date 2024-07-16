@@ -260,7 +260,7 @@ pub async fn op_node_lutimes(
     // Ok(())
 }
 
-#[op2(fast)]
+#[op2]
 pub fn op_node_lchown_sync(
     _state: &mut OpState,
     #[string] _path: String,

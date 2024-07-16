@@ -165,11 +165,11 @@ impl<S> Service<S> {
     }
 }
 
-impl<S, B, Request> hyper::service::Service<Request> for Service<S>
+impl<S, B, Request> hyper_v014::service::Service<Request> for Service<S>
 where
-    S: hyper::service::Service<Request, Response = hyper::Response<B>>,
+    S: hyper_v014::service::Service<Request, Response = hyper_v014::Response<B>>,
 {
-    type Response = hyper::Response<Body<B>>;
+    type Response = hyper_v014::Response<Body<B>>;
     type Error = S::Error;
     type Future = ServiceFuture<S::Future>;
 
@@ -202,9 +202,9 @@ impl<F> ServiceFuture<F> {
 
 impl<F, B, Error> Future for ServiceFuture<F>
 where
-    F: Future<Output = Result<hyper::Response<B>, Error>>,
+    F: Future<Output = Result<hyper_v014::Response<B>, Error>>,
 {
-    type Output = Result<hyper::Response<Body<B>>, Error>;
+    type Output = Result<hyper_v014::Response<Body<B>>, Error>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
         let this = self.project();
@@ -228,9 +228,9 @@ impl<B> Body<B> {
     }
 }
 
-impl<B> hyper::body::HttpBody for Body<B>
+impl<B> hyper_v014::body::HttpBody for Body<B>
 where
-    B: hyper::body::HttpBody,
+    B: hyper_v014::body::HttpBody,
 {
     type Data = B::Data;
     type Error = B::Error;
@@ -257,7 +257,7 @@ where
     fn poll_trailers(
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
-    ) -> Poll<Result<Option<http::HeaderMap>, Self::Error>> {
+    ) -> Poll<Result<Option<http_v02::HeaderMap>, Self::Error>> {
         self.project().inner.poll_trailers(cx)
     }
 
@@ -275,7 +275,7 @@ where
         }
     }
 
-    fn size_hint(&self) -> hyper::body::SizeHint {
+    fn size_hint(&self) -> hyper_v014::body::SizeHint {
         self.inner.size_hint()
     }
 }

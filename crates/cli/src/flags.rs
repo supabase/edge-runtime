@@ -12,7 +12,7 @@ pub(super) fn get_cli() -> Command {
         .version(format!(
             "{}\ndeno {} ({}, {})",
             crate_version!(),
-            env!("DENO_VERSION"),
+            deno_manifest::version(),
             env!("PROFILE"),
             env!("TARGET")
         ))

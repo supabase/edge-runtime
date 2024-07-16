@@ -1,14 +1,18 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+use std::sync::Arc;
 
 use deno_ast::MediaType;
 use deno_ast::ModuleSpecifier;
 use deno_core::error::AnyError;
-use deno_fs;
-use sb_core::cache::node::NodeAnalysisCache;
-use sb_core::util::fs::canonicalize_path_maybe_not_exists;
+use sb_node::analyze::CjsAnalysis as ExtNodeCjsAnalysis;
+use sb_node::analyze::CjsAnalysisExports;
 use sb_node::analyze::CjsCodeAnalyzer;
 use sb_node::analyze::NodeCodeTranslator;
-use sb_node::analyze::{CjsAnalysis as ExtNodeCjsAnalysis, CjsAnalysisExports, CliCjsAnalysis};
+use serde::{Deserialize, Serialize};
+
+use crate::{
+    cache::{cache_db::CacheDBHash, node::NodeAnalysisCache},
+    util::fs::canonicalize_path_maybe_not_exists,
+};
 
 pub type CliNodeCodeTranslator = NodeCodeTranslator<CliCjsCodeAnalyzer>;
 
@@ -29,6 +33,17 @@ pub fn resolve_specifier_into_node_modules(specifier: &ModuleSpecifier) -> Modul
         .unwrap_or_else(|| specifier.clone())
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CliCjsAnalysis {
+    /// The module was found to be an ES module.
+    Esm,
+    /// The module was CJS.
+    Cjs {
+        exports: Vec<String>,
+        reexports: Vec<String>,
+    },
+}
+
 pub struct CliCjsCodeAnalyzer {
     cache: NodeAnalysisCache,
     fs: deno_fs::FileSystemRc,
@@ -39,16 +54,13 @@ impl CliCjsCodeAnalyzer {
         Self { cache, fs }
     }
 
-    fn inner_cjs_analysis(
+    async fn inner_cjs_analysis(
         &self,
         specifier: &ModuleSpecifier,
         source: &str,
     ) -> Result<CliCjsAnalysis, AnyError> {
-        let source_hash = NodeAnalysisCache::compute_source_hash(source);
-        if let Some(analysis) = self
-            .cache
-            .get_cjs_analysis(specifier.as_str(), &source_hash)
-        {
+        let source_hash = CacheDBHash::from_source(source);
+        if let Some(analysis) = self.cache.get_cjs_analysis(specifier.as_str(), source_hash) {
             return Ok(analysis);
         }
 
@@ -60,43 +72,55 @@ impl CliCjsCodeAnalyzer {
             });
         }
 
-        let parsed_source = deno_ast::parse_program(deno_ast::ParseParams {
-            specifier: specifier.clone(),
-            text_info: deno_ast::SourceTextInfo::new(source.into()),
-            media_type,
-            capture_tokens: true,
-            scope_analysis: false,
-            maybe_syntax: None,
-        })?;
-        let analysis = if parsed_source.is_script() {
-            let analysis = parsed_source.analyze_cjs();
-            CliCjsAnalysis::Cjs {
-                exports: analysis.exports,
-                reexports: analysis.reexports,
+        let analysis = deno_core::unsync::spawn_blocking({
+            let specifier = specifier.clone();
+            let source: Arc<str> = source.into();
+            move || -> Result<_, deno_ast::ParseDiagnostic> {
+                let parsed_source = deno_ast::parse_program(deno_ast::ParseParams {
+                    specifier,
+                    text: source,
+                    media_type,
+                    capture_tokens: true,
+                    scope_analysis: false,
+                    maybe_syntax: None,
+                })?;
+                if parsed_source.is_script() {
+                    let analysis = parsed_source.analyze_cjs();
+                    Ok(CliCjsAnalysis::Cjs {
+                        exports: analysis.exports,
+                        reexports: analysis.reexports,
+                    })
+                } else {
+                    Ok(CliCjsAnalysis::Esm)
+                }
             }
-        } else {
-            CliCjsAnalysis::Esm
-        };
+        })
+        .await
+        .unwrap()?;
+
         self.cache
-            .set_cjs_analysis(specifier.as_str(), &source_hash, &analysis);
+            .set_cjs_analysis(specifier.as_str(), source_hash, &analysis);
 
         Ok(analysis)
     }
 }
 
+#[async_trait::async_trait(?Send)]
 impl CjsCodeAnalyzer for CliCjsCodeAnalyzer {
-    fn analyze_cjs(
+    async fn analyze_cjs(
         &self,
         specifier: &ModuleSpecifier,
         source: Option<String>,
     ) -> Result<ExtNodeCjsAnalysis, AnyError> {
         let source = match source {
             Some(source) => source,
-            None => self
-                .fs
-                .read_text_file_sync(&specifier.to_file_path().unwrap(), None)?,
+            None => {
+                self.fs
+                    .read_text_file_lossy_async(specifier.to_file_path().unwrap(), None)
+                    .await?
+            }
         };
-        let analysis = self.inner_cjs_analysis(specifier, &source)?;
+        let analysis = self.inner_cjs_analysis(specifier, &source).await?;
         match analysis {
             CliCjsAnalysis::Esm => Ok(ExtNodeCjsAnalysis::Esm(source)),
             CliCjsAnalysis::Cjs { exports, reexports } => {

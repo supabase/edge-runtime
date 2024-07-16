@@ -17,7 +17,6 @@ use deno_core::{
 };
 use deno_http::DefaultHttpPropertyExtractor;
 use deno_tls::deno_native_certs::load_native_certs;
-use deno_tls::rustls;
 use deno_tls::rustls::RootCertStore;
 use deno_tls::RootCertStoreProvider;
 use futures_util::future::poll_fn;
@@ -367,7 +366,7 @@ where
                     let roots = load_native_certs().expect("could not load platform certs");
                     for root in roots {
                         root_cert_store
-                            .add(&rustls::Certificate(root.0))
+                            .add((&*root.0).into())
                             .expect("Failed to add platform cert to root cert store");
                     }
                 }
@@ -403,6 +402,7 @@ where
         .await?;
 
         let RuntimeProviders {
+            node_resolver,
             npm_resolver,
             vfs,
             module_loader,
@@ -471,7 +471,7 @@ where
             sb_core_http_start::init_ops(),
             // NOTE(AndresP): Order is matters. Otherwise, it will lead to hard
             // errors such as SIGBUS depending on the platform.
-            deno_node::init_ops::<Permissions>(Some(npm_resolver), op_fs),
+            deno_node::init_ops::<Permissions>(Some(node_resolver), Some(npm_resolver), op_fs),
             sb_core_runtime::init_ops(Some(main_module_url.clone())),
         ];
 

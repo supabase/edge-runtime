@@ -4,6 +4,7 @@
 // `https://github.com/denoland/deno/blob/v1.37.2/runtime/inspector_server.rs`.
 
 // Alias for the future `!` type.
+use bytes::Bytes;
 use core::convert::Infallible as Never;
 use deno_core::futures::channel::mpsc;
 use deno_core::futures::channel::mpsc::UnboundedReceiver;
@@ -27,6 +28,13 @@ use enum_as_inner::EnumAsInner;
 use fastwebsockets::Frame;
 use fastwebsockets::OpCode;
 use fastwebsockets::WebSocket;
+use http_body_util::combinators::BoxBody;
+use http_body_util::BodyExt;
+use hyper::rt::Executor;
+use hyper_util::rt::TokioIo;
+use hyper_util::server::conn;
+use hyper_util::server::graceful::GracefulShutdown;
+use log::error;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -36,6 +44,7 @@ use std::process;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::thread;
+use tokio::net::TcpListener;
 use tokio::sync::watch;
 use uuid::Uuid;
 
@@ -167,9 +176,9 @@ where
 }
 
 fn handle_ws_request(
-    req: http::Request<hyper::Body>,
+    req: http::Request<hyper::body::Incoming>,
     inspector_map_rc: Rc<RefCell<HashMap<Uuid, InspectorInfo>>>,
-) -> http::Result<http::Response<hyper::Body>> {
+) -> http::Result<http::Response<BoxBody<Bytes, Infallible>>> {
     let (parts, body) = req.into_parts();
     let req = http::Request::from_parts(parts, ());
 
@@ -182,7 +191,7 @@ fn handle_ws_request(
     if maybe_uuid.is_none() {
         return http::Response::builder()
             .status(http::StatusCode::BAD_REQUEST)
-            .body("Malformed inspector UUID".into());
+            .body("Malformed inspector UUID".to_string().boxed());
     }
 
     // run in a block to not hold borrow to `inspector_map` for too long
@@ -193,7 +202,7 @@ fn handle_ws_request(
         if maybe_inspector_info.is_none() {
             return http::Response::builder()
                 .status(http::StatusCode::NOT_FOUND)
-                .body("Invalid inspector UUID".into());
+                .body("Invalid inspector UUID".to_string().boxed());
         }
 
         let info = maybe_inspector_info.unwrap();
@@ -206,11 +215,11 @@ fn handle_ws_request(
     let mut req = http::Request::from_parts(parts, body);
 
     let (resp, fut) = match fastwebsockets::upgrade::upgrade(&mut req) {
-        Ok(e) => e,
+        Ok((resp, fut)) => (resp.map(BodyExt::boxed), fut),
         _ => {
             return http::Response::builder()
                 .status(http::StatusCode::BAD_REQUEST)
-                .body("Not a valid Websocket Request".into());
+                .body("Not a valid Websocket Request".to_string().boxed());
         }
     };
 
@@ -245,7 +254,7 @@ fn handle_ws_request(
 fn handle_json_request(
     inspector_map: Rc<RefCell<HashMap<Uuid, InspectorInfo>>>,
     host: Option<String>,
-) -> http::Result<http::Response<hyper::Body>> {
+) -> http::Result<http::Response<BoxBody<Bytes, Infallible>>> {
     let data = inspector_map
         .borrow()
         .values()
@@ -254,22 +263,22 @@ fn handle_json_request(
     http::Response::builder()
         .status(http::StatusCode::OK)
         .header(http::header::CONTENT_TYPE, "application/json")
-        .body(serde_json::to_string(&data).unwrap().into())
+        .body(serde_json::to_string(&data).unwrap().boxed())
 }
 
 fn handle_json_version_request(
     version_response: Value,
-) -> http::Result<http::Response<hyper::Body>> {
+) -> http::Result<http::Response<BoxBody<Bytes, Infallible>>> {
     http::Response::builder()
         .status(http::StatusCode::OK)
         .header(http::header::CONTENT_TYPE, "application/json")
-        .body(serde_json::to_string(&version_response).unwrap().into())
+        .body(serde_json::to_string(&version_response).unwrap().boxed())
 }
 
 async fn server(
     host: SocketAddr,
     register_inspector_rx: UnboundedReceiver<InspectorInfo>,
-    shutdown_server_rx: oneshot::Receiver<()>,
+    mut shutdown_server_rx: oneshot::Receiver<()>,
     name: &str,
 ) {
     let inspector_map_ = Rc::new(RefCell::new(HashMap::<Uuid, InspectorInfo>::new()));
@@ -311,69 +320,85 @@ async fn server(
         "V8-Version": deno_core::v8_version(),
     });
 
-    let make_svc = hyper::service::make_service_fn(|_| {
-        let inspector_map = Rc::clone(&inspector_map_);
+    let service_fn = hyper::service::service_fn({
+        let inspector_map = inspector_map_.clone();
         let json_version_response = json_version_response.clone();
 
-        future::ok::<_, Infallible>(hyper::service::service_fn(
-            move |req: http::Request<hyper::Body>| {
-                future::ready({
-                    // If the host header can make a valid URL, use it
-                    let host = req
-                        .headers()
-                        .get("host")
-                        .and_then(|host| host.to_str().ok())
-                        .and_then(|host| Url::parse(&format!("http://{host}")).ok())
-                        .and_then(|url| match (url.host(), url.port()) {
-                            (Some(host), Some(port)) => Some(format!("{host}:{port}")),
-                            (Some(host), None) => Some(format!("{host}")),
-                            _ => None,
-                        });
-                    match (req.method(), req.uri().path()) {
-                        (&http::Method::GET, path) if path.starts_with("/ws/") => {
-                            handle_ws_request(req, Rc::clone(&inspector_map))
-                        }
-                        (&http::Method::GET, "/json/version") => {
-                            handle_json_version_request(json_version_response.clone())
-                        }
-                        (&http::Method::GET, "/json") => {
-                            handle_json_request(Rc::clone(&inspector_map), host)
-                        }
-                        (&http::Method::GET, "/json/list") => {
-                            handle_json_request(Rc::clone(&inspector_map), host)
-                        }
-                        _ => http::Response::builder()
-                            .status(http::StatusCode::NOT_FOUND)
-                            .body("Not Found".into()),
-                    }
-                })
-            },
-        ))
+        move |req| {
+            // If the host header can make a valid URL, use it
+            let host = req
+                .headers()
+                .get("host")
+                .and_then(|host| host.to_str().ok())
+                .and_then(|host| Url::parse(&format!("http://{host}")).ok())
+                .and_then(|url| match (url.host(), url.port()) {
+                    (Some(host), Some(port)) => Some(format!("{host}:{port}")),
+                    (Some(host), None) => Some(format!("{host}")),
+                    _ => None,
+                });
+
+            let resp = match (req.method(), req.uri().path()) {
+                (&http::Method::GET, path) if path.starts_with("/ws/") => {
+                    handle_ws_request(req, inspector_map.clone())
+                }
+                (&http::Method::GET, "/json/version") => {
+                    handle_json_version_request(json_version_response.clone())
+                }
+                (&http::Method::GET, "/json") => handle_json_request(inspector_map.clone(), host),
+                (&http::Method::GET, "/json/list") => {
+                    handle_json_request(inspector_map.clone(), host)
+                }
+                _ => http::Response::builder()
+                    .status(http::StatusCode::NOT_FOUND)
+                    .body(String::from("Not Found").boxed()),
+            };
+
+            future::ready(resp)
+        }
     });
 
-    // Create the server manually so it can use the Local Executor
-    let mut server_handler = pin!(hyper::server::Builder::new(
-        hyper::server::conn::AddrIncoming::bind(&host).unwrap_or_else(|e| {
-            eprintln!("Cannot start inspector server: {e}.");
-            process::exit(1);
-        }),
-        hyper::server::conn::Http::new().with_executor(LocalExecutor),
-    )
-    .serve(make_svc)
-    .with_graceful_shutdown(async {
-        shutdown_server_rx.await.ok();
-    })
-    .unwrap_or_else(|err| {
-        eprintln!("Cannot start inspector server: {err}.");
+    let listener = TcpListener::bind(host).await.unwrap_or_else(|e| {
+        eprintln!("Cannot start inspector server: {e}.");
         process::exit(1);
-    })
-    .fuse());
+    });
 
-    select! {
-      _ = register_inspector_handler => {},
-      _ = deregister_inspector_handler => unreachable!(),
-      _ = server_handler => {},
+    let graceful = GracefulShutdown::new();
+    let accept_fut = async {
+        let executor = LocalExecutor;
+        let conn_builder = conn::auto::Builder::new(executor.clone());
+
+        loop {
+            let (tcp, _) = match listener.accept().await {
+                Ok(conn) => conn,
+                Err(err) => {
+                    error!("accept error: {err}");
+                    continue;
+                }
+            };
+
+            let io = TokioIo::new(tcp);
+            let conn = conn_builder.serve_connection(io, service_fn.clone());
+            let conn = graceful.watch(conn.into_owned());
+
+            executor.execute(async move {
+                let _ = conn.await;
+            });
+        }
     }
+    .fuse();
+
+    {
+        let mut accept_fut = pin!(accept_fut);
+
+        select! {
+            _ = register_inspector_handler => {},
+            _ = deregister_inspector_handler => unreachable!(),
+            _ = accept_fut => {},
+            _ = shutdown_server_rx => {}
+        }
+    }
+
+    graceful.shutdown().await;
 }
 
 /// The pump future takes care of forwarding messages between the websocket
@@ -389,7 +414,7 @@ async fn server(
 /// 'futures' crate, therefore they can't participate in Tokio's cooperative
 /// task yielding.
 async fn pump_websocket_messages(
-    mut websocket: WebSocket<hyper::upgrade::Upgraded>,
+    mut websocket: WebSocket<TokioIo<hyper::upgrade::Upgraded>>,
     inbound_tx: UnboundedSender<String>,
     mut outbound_rx: UnboundedReceiver<InspectorMsg>,
     mut deregistered_watch_rx: watch::Receiver<bool>,

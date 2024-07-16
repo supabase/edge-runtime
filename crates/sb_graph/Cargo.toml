@@ -14,9 +14,11 @@ deno_core.workspace = true
 deno_ast.workspace = true
 deno_fs.workspace = true
 deno_npm.workspace = true
+deno_graph.workspace = true
 deno_semver.workspace = true
 deno_web.workspace = true
 deno_lockfile.workspace = true
+deno_cache_dir.workspace = true
 deno_config.workspace = true
 
 sb_core = { version = "0.1.0", path = "../sb_core" }
@@ -24,8 +26,11 @@ sb_node = { version = "0.1.0", path = "../node" }
 sb_npm = { version = "0.1.0", path = "../npm" }
 sb_fs = { version = "0.1.0", path = "../sb_fs" }
 
+npm_cache = { version = "0.1.0", path = "../npm_cache" }
+
 anyhow.workspace = true
 import_map.workspace = true
+async-trait.workspace = true
 log.workspace = true
 serde.workspace = true
 tokio.workspace = true
@@ -33,3 +38,5 @@ once_cell.workspace = true
 urlencoding.workspace = true
 glob.workspace = true
 eszip.workspace = true
+
+dashmap = "5.5.3"

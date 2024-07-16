@@ -24,7 +24,7 @@ sb_graph = { version = "0.1.0", path = "../sb_graph" }
 anyhow.workspace = true
 uuid.workspace = true
 tokio.workspace = true
-hyper.workspace = true
+hyper_v014.workspace = true
 serde.workspace = true
 bytes.workspace = true
 log.workspace = true

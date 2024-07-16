@@ -12,6 +12,7 @@ path = "src/main.rs"
 deno_core.workspace = true
 
 base = { version = "0.1.0", path = "../base" }
+deno_manifest = { path = "../deno_manifest" }
 
 sb_graph = { version = "0.1.0", path = "../sb_graph" }
 
@@ -24,9 +25,6 @@ once_cell.workspace = true
 clap = { version = "4.0.29", features = ["cargo", "string", "env"] }
 tracing-subscriber = { workspace = true, optional = true, features = ["env-filter", "tracing-log"] }
 env_logger = "0.10.0"
-
-[build-dependencies]
-dotenv-build = "0.1.1"
 
 [features]
 tracing = ["dep:tracing-subscriber"]

@@ -1,13 +1,12 @@
 use crate::metadata::Metadata;
-use crate::node::cjs_code_anaylzer::CliCjsCodeAnalyzer;
-use crate::node::cli_node_resolver::CliNodeResolver;
-use crate::node::node_module_loader::{CjsResolutionStore, NpmModuleLoader};
 use crate::standalone::standalone_module_loader::{EmbeddedModuleLoader, SharedModuleLoaderState};
 use crate::RuntimeProviders;
 use anyhow::Context;
+use deno_config::workspace::{PackageJsonDepResolution, WorkspaceResolver};
 use deno_core::error::AnyError;
 use deno_core::url::Url;
 use deno_core::{FastString, ModuleSpecifier};
+use deno_npm::npm_rc::ResolvedNpmRc;
 use deno_tls::rustls::RootCertStore;
 use deno_tls::RootCertStoreProvider;
 use import_map::{parse_from_json, ImportMap};
@@ -16,19 +15,22 @@ use sb_core::cache::deno_dir::DenoDirProvider;
 use sb_core::cache::node::NodeAnalysisCache;
 use sb_core::cache::CacheSetting;
 use sb_core::cert::{get_root_cert_store, CaData};
-use sb_core::util::http_util::HttpClient;
+use sb_core::node::CliCjsCodeAnalyzer;
+use sb_core::util::http_util::HttpClientProvider;
 use sb_fs::file_system::DenoCompileFileSystem;
 use sb_fs::{extract_static_files_from_eszip, load_npm_vfs};
-use sb_graph::graph_resolver::MappedSpecifierResolver;
+use sb_graph::resolver::{CjsResolutionStore, CliNodeResolver, NpmModuleLoader};
 use sb_graph::{payload_to_eszip, EszipPayloadKind, SOURCE_CODE_ESZIP_KEY, VFS_ESZIP_KEY};
 use sb_node::analyze::NodeCodeTranslator;
 use sb_node::NodeResolver;
 use sb_npm::cache_dir::NpmCacheDir;
-use sb_npm::package_json::PackageJsonDepsProvider;
+use sb_npm::package_json::PackageJsonInstallDepsProvider;
 use sb_npm::{
     create_managed_npm_resolver, CliNpmResolverManagedCreateOptions,
-    CliNpmResolverManagedPackageJsonInstallerOption, CliNpmResolverManagedSnapshotOption,
+    CliNpmResolverManagedSnapshotOption,
 };
+use standalone_module_loader::WorkspaceEszip;
+
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -68,17 +70,23 @@ pub async fn create_module_loader_for_eszip(
         ca_data: metadata.ca_data.map(CaData::Bytes),
         cell: Default::default(),
     });
-    let http_client = Arc::new(HttpClient::new(
+
+    let http_client_provider = Arc::new(HttpClientProvider::new(
         Some(root_cert_store_provider.clone()),
         metadata.unsafely_ignore_certificate_errors.clone(),
     ));
 
     // use a dummy npm registry url
     let npm_registry_url = ModuleSpecifier::parse("https://localhost/").unwrap();
-    let root_path = std::env::temp_dir()
-        .join(format!("sb-compile-{}", current_exe_name))
-        .join("node_modules");
-    let npm_cache_dir = NpmCacheDir::new(root_path.clone());
+    let root_path = std::env::temp_dir().join(format!("sb-compile-{}", current_exe_name));
+
+    let root_dir_url = ModuleSpecifier::from_directory_path(&root_path).unwrap();
+    let root_node_modules_path = root_path.join("node_modules");
+
+    let npm_cache_dir = NpmCacheDir::new(
+        root_node_modules_path.clone(),
+        vec![npm_registry_url.clone()],
+    );
     let npm_global_cache_dir = npm_cache_dir.get_cache_location();
 
     let code_fs = if let Some(module) = eszip.get_module(SOURCE_CODE_ESZIP_KEY) {
@@ -93,7 +101,7 @@ pub async fn create_module_loader_for_eszip(
 
     let snapshot = eszip.take_npm_snapshot();
     let static_files = extract_static_files_from_eszip(&eszip).await;
-    let vfs_root_dir_path = npm_cache_dir.registry_folder(&npm_registry_url);
+    let vfs_root_dir_path = npm_cache_dir.root_dir().to_owned();
 
     let (fs, vfs) = {
         let key = String::from(VFS_ESZIP_KEY);
@@ -126,25 +134,25 @@ pub async fn create_module_loader_for_eszip(
         (Arc::new(fs) as Arc<dyn deno_fs::FileSystem>, fs_backed_vfs)
     };
 
-    let package_json_deps_provider = Arc::new(PackageJsonDepsProvider::new(
-        metadata
-            .package_json_deps
-            .map(|serialized| serialized.into_deps()),
-    ));
-
+    let package_json_deps_provider = Arc::new(PackageJsonInstallDepsProvider::empty());
     let npm_resolver = create_managed_npm_resolver(CliNpmResolverManagedCreateOptions {
         snapshot: CliNpmResolverManagedSnapshotOption::Specified(snapshot.clone()),
         maybe_lockfile: None,
         fs: fs.clone(),
-        http_client,
+        http_client_provider,
         npm_global_cache_dir,
         cache_setting: CacheSetting::Use,
         maybe_node_modules_path: None,
         npm_system_info: Default::default(),
-        package_json_installer: CliNpmResolverManagedPackageJsonInstallerOption::ConditionalInstall(
-            package_json_deps_provider.clone(),
-        ),
-        npm_registry_url,
+        package_json_deps_provider,
+        npmrc: Arc::new(ResolvedNpmRc {
+            default_config: deno_npm::npm_rc::RegistryConfigWithUrl {
+                registry_url: npm_registry_url.clone(),
+                config: Default::default(),
+            },
+            scopes: Default::default(),
+            registry_configs: Default::default(),
+        }),
     })
     .await?;
 
@@ -152,6 +160,7 @@ pub async fn create_module_loader_for_eszip(
         fs.clone(),
         npm_resolver.clone().into_npm_resolver(),
     ));
+
     let cjs_resolutions = Arc::new(CjsResolutionStore::default());
     let cache_db = Caches::new(deno_dir_provider.clone());
     let node_analysis_cache = NodeAnalysisCache::new(cache_db.node_analysis_db());
@@ -162,22 +171,24 @@ pub async fn create_module_loader_for_eszip(
         node_resolver.clone(),
         npm_resolver.clone().into_npm_resolver(),
     ));
-    let maybe_import_map = maybe_import_map
-        .map(|import_map| Some(Arc::new(import_map)))
-        .unwrap_or_else(|| None);
 
     let cli_node_resolver = Arc::new(CliNodeResolver::new(
         cjs_resolutions.clone(),
+        fs.clone(),
         node_resolver.clone(),
         npm_resolver.clone(),
     ));
 
     let module_loader_factory = StandaloneModuleLoaderFactory {
         shared: Arc::new(SharedModuleLoaderState {
-            eszip,
-            mapped_specifier_resolver: MappedSpecifierResolver::new(
+            eszip: WorkspaceEszip {
+                eszip,
+                root_dir_url,
+            },
+            workspace_resolver: WorkspaceResolver::new_raw(
                 maybe_import_map,
-                package_json_deps_provider.clone(),
+                vec![],
+                PackageJsonDepResolution::Disabled,
             ),
             node_resolver: cli_node_resolver.clone(),
             npm_module_loader: Arc::new(NpmModuleLoader::new(
@@ -190,11 +201,12 @@ pub async fn create_module_loader_for_eszip(
     };
 
     Ok(RuntimeProviders {
+        node_resolver,
+        npm_resolver: npm_resolver.into_npm_resolver(),
         module_loader: Rc::new(EmbeddedModuleLoader {
             shared: module_loader_factory.shared.clone(),
             include_source_map,
         }),
-        npm_resolver: npm_resolver.into_npm_resolver(),
         vfs,
         module_code: code_fs,
         static_files,
@@ -205,27 +217,28 @@ pub async fn create_module_loader_for_eszip(
 
 pub async fn create_module_loader_for_standalone_from_eszip_kind(
     eszip_payload_kind: EszipPayloadKind,
-    maybe_import_map_arc: Option<Arc<ImportMap>>,
+    maybe_import_map: Option<ImportMap>,
     maybe_import_map_path: Option<String>,
     include_source_map: bool,
 ) -> Result<RuntimeProviders, AnyError> {
     let eszip = payload_to_eszip(eszip_payload_kind).await;
+    let maybe_import_map = 'scope: {
+        if maybe_import_map.is_some() {
+            break 'scope maybe_import_map;
+        } else if let Some(import_map_path) = maybe_import_map_path {
+            let import_map_url = Url::parse(import_map_path.as_str())?;
+            if let Some(import_map_module) = eszip.get_import_map(import_map_url.as_str()) {
+                if let Some(source) = import_map_module.source().await {
+                    let source = std::str::from_utf8(&source)?.to_string();
+                    let result = parse_from_json(import_map_url, &source)?;
 
-    let mut maybe_import_map: Option<ImportMap> = None;
-
-    if let Some(import_map) = maybe_import_map_arc {
-        let clone_import_map = (*import_map).clone();
-        maybe_import_map = Some(clone_import_map);
-    } else if let Some(import_map_path) = maybe_import_map_path {
-        let import_map_url = Url::parse(import_map_path.as_str())?;
-        if let Some(import_map_module) = eszip.get_import_map(import_map_url.as_str()) {
-            if let Some(source) = import_map_module.source().await {
-                let source = std::str::from_utf8(&source)?.to_string();
-                let result = parse_from_json(&import_map_url, &source)?;
-                maybe_import_map = Some(result.import_map);
+                    break 'scope Some(result.import_map);
+                }
             }
         }
-    }
+
+        None
+    };
 
     create_module_loader_for_eszip(
         eszip,
@@ -233,7 +246,6 @@ pub async fn create_module_loader_for_standalone_from_eszip_kind(
             ca_stores: None,
             ca_data: None,
             unsafely_ignore_certificate_errors: None,
-            package_json_deps: None,
         },
         maybe_import_map,
         include_source_map,

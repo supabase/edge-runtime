@@ -50,7 +50,6 @@ import {
 } from "ext:deno_node/_next_tick.ts";
 import { isWindows } from "ext:deno_node/_util/os.ts";
 import * as io from "ext:deno_io/12_io.js";
-import * as denoOs from "ext:runtime/30_os.js";
 
 export let argv0 = "";
 
@@ -83,13 +82,13 @@ let ProcessExitCode: undefined | null | string | number;
 
 /** https://nodejs.org/api/process.html#process_process_exit_code */
 export const exit = (code?: number | string) => {
-  if (code || code === 0) {
-    denoOs.setExitCode(code);
-  } else if (Number.isNaN(code)) {
-    denoOs.setExitCode(1);
-  }
+  // if (code || code === 0) {
+  //   denoOs.setExitCode(code);
+  // } else if (Number.isNaN(code)) {
+  //   denoOs.setExitCode(1);
+  // }
 
-  ProcessExitCode = denoOs.getExitCode();
+  // ProcessExitCode = denoOs.getExitCode();
   if (!process._exiting) {
     process._exiting = true;
     // FIXME(bartlomieju): this is wrong, we won't be using syscall to exit
@@ -397,7 +396,7 @@ Object.defineProperty(Process.prototype, "argv0", {
   get() {
     return argv0;
   },
-  set(_val) {},
+  set(_val) { },
 });
 
 /** https://nodejs.org/api/process.html#process_process_chdir_directory */
@@ -462,7 +461,7 @@ Object.defineProperty(Process.prototype, "exitCode", {
       throw new ERR_OUT_OF_RANGE("code", "an integer", parsedCode);
     }
 
-    denoOs.setExitCode(parsedCode);
+    // denoOs.setExitCode(parsedCode);
     ProcessExitCode = code;
   },
 });

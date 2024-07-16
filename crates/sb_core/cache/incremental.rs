@@ -6,23 +6,23 @@ use std::path::PathBuf;
 
 use deno_core::error::AnyError;
 use deno_core::parking_lot::Mutex;
-use deno_core::serde_json;
 use deno_core::unsync::spawn;
 use deno_core::unsync::JoinHandle;
 use deno_webstorage::rusqlite::params;
-use serde::Serialize;
 
 use super::cache_db::CacheDB;
 use super::cache_db::CacheDBConfiguration;
+use super::cache_db::CacheDBHash;
 use super::cache_db::CacheFailure;
-use super::common::FastInsecureHasher;
 
 pub static INCREMENTAL_CACHE_DB: CacheDBConfiguration = CacheDBConfiguration {
-    table_initializer: "CREATE TABLE IF NOT EXISTS incrementalcache (
-      file_path TEXT PRIMARY KEY,
-      state_hash TEXT NOT NULL,
-      source_hash TEXT NOT NULL
-    );",
+    table_initializer: concat!(
+        "CREATE TABLE IF NOT EXISTS incrementalcache (",
+        "file_path TEXT PRIMARY KEY,",
+        "state_hash INTEGER NOT NULL,",
+        "source_hash INTEGER NOT NULL",
+        ");"
+    ),
     on_version_change: "DELETE FROM incrementalcache;",
     preheat_queries: &[],
     // If the cache fails, just ignore all caching attempts
@@ -34,7 +34,7 @@ pub static INCREMENTAL_CACHE_DB: CacheDBConfiguration = CacheDBConfiguration {
 pub struct IncrementalCache(IncrementalCacheInner);
 
 impl IncrementalCache {
-    pub fn new<TState: Serialize>(
+    pub fn new<TState: std::hash::Hash>(
         db: CacheDB,
         state: &TState,
         initial_file_paths: &[PathBuf],
@@ -56,23 +56,23 @@ impl IncrementalCache {
 }
 
 enum ReceiverMessage {
-    Update(PathBuf, u64),
+    Update(PathBuf, CacheDBHash),
     Exit,
 }
 
 struct IncrementalCacheInner {
-    previous_hashes: HashMap<PathBuf, u64>,
+    previous_hashes: HashMap<PathBuf, CacheDBHash>,
     sender: tokio::sync::mpsc::UnboundedSender<ReceiverMessage>,
     handle: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl IncrementalCacheInner {
-    pub fn new<TState: Serialize>(
+    pub fn new<TState: std::hash::Hash>(
         db: CacheDB,
         state: &TState,
         initial_file_paths: &[PathBuf],
     ) -> Self {
-        let state_hash = FastInsecureHasher::hash(serde_json::to_string(state).unwrap());
+        let state_hash = CacheDBHash::from_source(state);
         let sql_cache = SqlIncrementalCache::new(db, state_hash);
         Self::from_sql_incremental_cache(sql_cache, initial_file_paths)
     }
@@ -111,13 +111,13 @@ impl IncrementalCacheInner {
 
     pub fn is_file_same(&self, file_path: &Path, file_text: &str) -> bool {
         match self.previous_hashes.get(file_path) {
-            Some(hash) => *hash == FastInsecureHasher::hash(file_text),
+            Some(hash) => *hash == CacheDBHash::from_source(file_text),
             None => false,
         }
     }
 
     pub fn update_file(&self, file_path: &Path, file_text: &str) {
-        let hash = FastInsecureHasher::hash(file_text);
+        let hash = CacheDBHash::from_source(file_text);
         if let Some(previous_hash) = self.previous_hashes.get(file_path) {
             if *previous_hash == hash {
                 return; // do not bother updating the db file because nothing has changed
@@ -144,15 +144,15 @@ struct SqlIncrementalCache {
     /// A hash of the state used to produce the formatting/linting other than
     /// the CLI version. This state is a hash of the configuration and ensures
     /// we format/lint a file when the configuration changes.
-    state_hash: u64,
+    state_hash: CacheDBHash,
 }
 
 impl SqlIncrementalCache {
-    pub fn new(conn: CacheDB, state_hash: u64) -> Self {
+    pub fn new(conn: CacheDB, state_hash: CacheDBHash) -> Self {
         Self { conn, state_hash }
     }
 
-    pub fn get_source_hash(&self, path: &Path) -> Option<u64> {
+    pub fn get_source_hash(&self, path: &Path) -> Option<CacheDBHash> {
         match self.get_source_hash_result(path) {
             Ok(option) => option,
             Err(err) => {
@@ -166,40 +166,36 @@ impl SqlIncrementalCache {
         }
     }
 
-    fn get_source_hash_result(&self, path: &Path) -> Result<Option<u64>, AnyError> {
+    fn get_source_hash_result(&self, path: &Path) -> Result<Option<CacheDBHash>, AnyError> {
         let query = "
-      SELECT
-        source_hash
-      FROM
-        incrementalcache
-      WHERE
-        file_path=?1
-        AND state_hash=?2
-      LIMIT 1";
+        SELECT
+          source_hash
+        FROM
+          incrementalcache
+        WHERE
+          file_path=?1
+          AND state_hash=?2
+        LIMIT 1";
         let res = self.conn.query_row(
             query,
-            params![path.to_string_lossy(), self.state_hash.to_string()],
+            params![path.to_string_lossy(), self.state_hash],
             |row| {
-                let hash: String = row.get(0)?;
-                Ok(hash.parse::<u64>()?)
+                let hash: CacheDBHash = row.get(0)?;
+                Ok(hash)
             },
         )?;
         Ok(res)
     }
 
-    pub fn set_source_hash(&self, path: &Path, source_hash: u64) -> Result<(), AnyError> {
+    pub fn set_source_hash(&self, path: &Path, source_hash: CacheDBHash) -> Result<(), AnyError> {
         let sql = "
-      INSERT OR REPLACE INTO
-        incrementalcache (file_path, state_hash, source_hash)
-      VALUES
-        (?1, ?2, ?3)";
+        INSERT OR REPLACE INTO
+          incrementalcache (file_path, state_hash, source_hash)
+        VALUES
+          (?1, ?2, ?3)";
         self.conn.execute(
             sql,
-            params![
-                path.to_string_lossy(),
-                &self.state_hash.to_string(),
-                &source_hash,
-            ],
+            params![path.to_string_lossy(), self.state_hash, source_hash],
         )?;
         Ok(())
     }

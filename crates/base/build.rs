@@ -159,24 +159,24 @@ mod supabase_startup_snapshot {
             unreachable!("snapshotting!")
         }
 
-        fn check_read(&self, _path: &Path) -> Result<(), AnyError> {
+        fn check_read(&mut self, _path: &Path) -> Result<(), AnyError> {
             unreachable!("snapshotting!")
         }
 
         fn check_read_with_api_name(
-            &self,
+            &mut self,
             _path: &Path,
             _api_name: Option<&str>,
         ) -> Result<(), AnyError> {
             unreachable!("snapshotting!")
         }
 
-        fn check_sys(&self, _kind: &str, _api_name: &str) -> Result<(), AnyError> {
+        fn check_sys(&mut self, _kind: &str, _api_name: &str) -> Result<(), AnyError> {
             unreachable!("snapshotting!")
         }
 
         fn check_write_with_api_name(
-            &self,
+            &mut self,
             _path: &Path,
             _api_name: Option<&str>,
         ) -> Result<(), AnyError> {
@@ -224,7 +224,7 @@ mod supabase_startup_snapshot {
             sb_core_net::init_ops_and_esm(),
             sb_core_http::init_ops_and_esm(),
             sb_core_http_start::init_ops_and_esm(),
-            deno_node::init_ops_and_esm::<Permissions>(None, fs),
+            deno_node::init_ops_and_esm::<Permissions>(None, None, fs),
             sb_core_runtime::init_ops_and_esm(None),
         ];
 

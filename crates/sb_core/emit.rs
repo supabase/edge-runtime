@@ -15,26 +15,29 @@ use std::sync::Arc;
 pub struct Emitter {
     emit_cache: EmitCache,
     parsed_source_cache: Arc<ParsedSourceCache>,
-    emit_options: deno_ast::EmitOptions,
-    transpile_options: TranspileOptions,
-    // cached hash of the emit options
-    emit_options_hash: u64,
+    transpile_and_emit_options: Arc<(deno_ast::TranspileOptions, deno_ast::EmitOptions)>,
+    // cached hash of the transpile and emit options
+    transpile_and_emit_options_hash: u64,
 }
 
 impl Emitter {
     pub fn new(
         emit_cache: EmitCache,
         parsed_source_cache: Arc<ParsedSourceCache>,
-        emit_options: deno_ast::EmitOptions,
         transpile_options: TranspileOptions,
+        emit_options: deno_ast::EmitOptions,
     ) -> Self {
-        let emit_options_hash = FastInsecureHasher::hash(&emit_options);
+        let transpile_and_emit_options_hash = {
+            let mut hasher = FastInsecureHasher::new_without_deno_version();
+            hasher.write_hashable(&transpile_options);
+            hasher.write_hashable(&emit_options);
+            hasher.finish()
+        };
         Self {
             emit_cache,
             parsed_source_cache,
-            emit_options,
-            emit_options_hash,
-            transpile_options,
+            transpile_and_emit_options: Arc::new((transpile_options, emit_options)),
+            transpile_and_emit_options_hash,
         }
     }
 
@@ -81,14 +84,17 @@ impl Emitter {
                 media_type,
             )?;
 
-            let transpiled_source =
-                parsed_source.transpile(&self.transpile_options, &self.emit_options)?;
+            let transpiled_source = parsed_source.transpile(
+                &self.transpile_and_emit_options.0,
+                &self.transpile_and_emit_options.1,
+            )?;
 
             let source = transpiled_source.into_source();
+            let source_text = String::from_utf8(source.source)?;
             debug_assert!(source.source_map.is_none());
             self.emit_cache
-                .set_emit_code(specifier, source_hash, &source.text.clone());
-            Ok(source.text.into())
+                .set_emit_code(specifier, source_hash, source_text.as_str());
+            Ok(source_text.into())
         }
     }
 
@@ -96,9 +102,9 @@ impl Emitter {
     /// options then generates a string hash which can be stored to
     /// determine if the cached emit is valid or not.
     fn get_source_hash(&self, source_text: &str) -> u64 {
-        FastInsecureHasher::new()
+        FastInsecureHasher::new_without_deno_version()
             .write_str(source_text)
-            .write_u64(self.emit_options_hash)
+            .write_u64(self.transpile_and_emit_options_hash)
             .finish()
     }
 }

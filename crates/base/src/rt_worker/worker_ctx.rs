@@ -14,12 +14,12 @@ use event_worker::events::{
     BootEvent, ShutdownEvent, WorkerEventWithMetadata, WorkerEvents, WorkerMemoryUsed,
 };
 use futures_util::pin_mut;
-use http::StatusCode;
+use http_v02::StatusCode;
 use http_utils::io::Upgraded2;
 use http_utils::utils::{emit_status_code, get_upgrade_type};
-use hyper::client::conn::http1;
-use hyper::upgrade::OnUpgrade;
-use hyper::{Body, Request, Response};
+use hyper_v014::client::conn::http1;
+use hyper_v014::upgrade::OnUpgrade;
+use hyper_v014::{Body, Request, Response};
 use log::{debug, error};
 use sb_core::{MetricSource, SharedMetricSource};
 use sb_graph::{DecoratorType, EszipPayloadKind};
@@ -167,7 +167,7 @@ async fn handle_request(
     let res = tokio::select! {
         resp = request_sender.send_request(req) => resp,
         _ = maybe_cancel_fut => {
-            Ok(emit_status_code(http::StatusCode::GATEWAY_TIMEOUT, None, false))
+            Ok(emit_status_code(http_v02::StatusCode::GATEWAY_TIMEOUT, None, false))
         }
     };
 
@@ -191,7 +191,7 @@ async fn handle_request(
 
     if let Some(timeout_ms) = maybe_request_idle_timeout {
         let headers = res.headers();
-        let is_streamed_response = !headers.contains_key(http::header::CONTENT_LENGTH);
+        let is_streamed_response = !headers.contains_key(http_v02::header::CONTENT_LENGTH);
 
         if is_streamed_response {
             let duration = Duration::from_millis(timeout_ms);
@@ -680,7 +680,7 @@ pub async fn send_user_worker_request(
     exit: WorkerExit,
     conn_token: Option<CancellationToken>,
 ) -> Result<Response<Body>, Error> {
-    let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
+    let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper_v014::Error>>();
     let msg = WorkerRequestMsg {
         req,
         res_tx,

@@ -1,67 +1,55 @@
-use crate::cache::emit::EmitCache;
-use crate::cache::fc_permissions::FcPermissions;
-use crate::cache::module_info::{ModuleInfoCache, ModuleInfoCacheSourceHash};
-use crate::cache::parsed_source::ParsedSourceCache;
-use crate::cache::{CacheSetting, GlobalHttpCache};
-use crate::file_fetcher::{FetchOptions, FileFetcher};
-use crate::util::errors::get_error_class_name;
-use crate::util::fs::canonicalize_path_maybe_not_exists;
-use deno_ast::{MediaType, ModuleSpecifier};
-use deno_core::futures;
-use deno_core::futures::FutureExt;
-use deno_graph::source::{CacheInfo, LoadFuture, LoadOptions, LoadResponse, Loader};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-pub fn resolve_specifier_into_node_modules(specifier: &ModuleSpecifier) -> ModuleSpecifier {
-    specifier
-        .to_file_path()
-        .ok()
-        // this path might not exist at the time the graph is being created
-        // because the node_modules folder might not yet exist
-        .and_then(|path| canonicalize_path_maybe_not_exists(&path).ok())
-        .and_then(|path| ModuleSpecifier::from_file_path(path).ok())
-        .unwrap_or_else(|| specifier.clone())
-}
+use deno_ast::{MediaType, ModuleSpecifier};
+use deno_core::futures;
+use deno_core::futures::FutureExt;
+use deno_graph::source::{CacheInfo, LoadFuture, LoadOptions, LoadResponse, Loader};
+
+use sb_core::cache::cache_db::CacheDBHash;
+use sb_core::cache::emit::EmitCache;
+use sb_core::cache::fc_permissions::FcPermissions;
+use sb_core::cache::module_info::ModuleInfoCache;
+use sb_core::cache::{CacheSetting, GlobalHttpCache};
+use sb_core::util::errors::get_error_class_name;
+use sb_npm::CliNpmResolver;
+
+use crate::file_fetcher::{FetchNoFollowOptions, FetchOptions, FileFetcher, FileOrRedirect};
 
 /// A "wrapper" for the FileFetcher and DiskCache for the Deno CLI that provides
 /// a concise interface to the DENO_DIR when building module graphs.
 #[allow(dead_code)]
 pub struct FetchCacher {
-    module_info_cache: Arc<ModuleInfoCache>,
     emit_cache: EmitCache,
     file_fetcher: Arc<FileFetcher>,
     file_header_overrides: HashMap<ModuleSpecifier, HashMap<String, String>>,
     global_http_cache: Arc<GlobalHttpCache>,
-    parsed_source_cache: Arc<ParsedSourceCache>,
+    npm_resolver: Arc<dyn CliNpmResolver>,
+    module_info_cache: Arc<ModuleInfoCache>,
     permissions: FcPermissions,
     cache_info_enabled: bool,
-    maybe_local_node_modules_url: Option<ModuleSpecifier>,
 }
 
 impl FetchCacher {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
-        module_info_cache: Arc<ModuleInfoCache>,
         emit_cache: EmitCache,
         file_fetcher: Arc<FileFetcher>,
         file_header_overrides: HashMap<ModuleSpecifier, HashMap<String, String>>,
         global_http_cache: Arc<GlobalHttpCache>,
-        parsed_source_cache: Arc<ParsedSourceCache>,
+        npm_resolver: Arc<dyn CliNpmResolver>,
+        module_info_cache: Arc<ModuleInfoCache>,
         permissions: FcPermissions,
-        maybe_local_node_modules_url: Option<ModuleSpecifier>,
     ) -> Self {
         Self {
-            module_info_cache,
             emit_cache,
             file_fetcher,
             file_header_overrides,
             global_http_cache,
-            parsed_source_cache,
+            npm_resolver,
+            module_info_cache,
             permissions,
             cache_info_enabled: false,
-            maybe_local_node_modules_url,
         }
     }
 
@@ -121,18 +109,15 @@ impl Loader for FetchCacher {
 
     fn load(&self, specifier: &ModuleSpecifier, options: LoadOptions) -> LoadFuture {
         use deno_graph::source::CacheSetting as LoaderCacheSetting;
-        let cache_setting = options.cache_setting;
 
-        let path = specifier.path();
-
-        if path.contains("/node_modules/") {
+        if specifier.scheme() == "file" && specifier.path().contains("/node_modules/") {
             // The specifier might be in a completely different symlinked tree than
             // what the node_modules url is in (ex. `/my-project-1/node_modules`
             // symlinked to `/my-project-2/node_modules`), so first we checked if the path
             // is in a node_modules dir to avoid needlessly canonicalizing, then now compare
             // against the canonicalized specifier.
-            let specifier = resolve_specifier_into_node_modules(specifier);
-            if specifier.as_str().starts_with(path) {
+            let specifier = sb_core::node::resolve_specifier_into_node_modules(specifier);
+            if self.npm_resolver.in_npm_package(&specifier) {
                 return Box::pin(futures::future::ready(Ok(Some(LoadResponse::External {
                     specifier,
                 }))));
@@ -145,56 +130,71 @@ impl Loader for FetchCacher {
         let specifier = specifier.clone();
 
         async move {
-            let maybe_cache_setting = match cache_setting {
-                LoaderCacheSetting::Use => None,
-                LoaderCacheSetting::Reload => {
-                    if matches!(file_fetcher.cache_setting(), CacheSetting::Only) {
-                        return Err(deno_core::anyhow::anyhow!(
-                            "Failed to resolve version constraint. Try running again without --cached-only"
-                        ));
+          let maybe_cache_setting = match options.cache_setting {
+            LoaderCacheSetting::Use => None,
+            LoaderCacheSetting::Reload => {
+              if matches!(file_fetcher.cache_setting(), CacheSetting::Only) {
+                return Err(deno_core::anyhow::anyhow!(
+                  "Could not resolve version constraint using only cached data. Try running again without --cached-only"
+                ));
+              }
+              Some(CacheSetting::ReloadAll)
+            }
+            LoaderCacheSetting::Only => Some(CacheSetting::Only),
+          };
+          file_fetcher
+            .fetch_no_follow_with_options(FetchNoFollowOptions {
+              fetch_options: FetchOptions {
+                specifier: &specifier,
+                permissions: permissions.clone(),
+                maybe_accept: None,
+                maybe_cache_setting: maybe_cache_setting.as_ref(),
+              },
+              maybe_checksum: options.maybe_checksum.as_ref(),
+            })
+            .await
+            .map(|file_or_redirect| {
+              match file_or_redirect {
+                FileOrRedirect::File(file) => {
+                  let maybe_headers =
+                  match (file.maybe_headers, file_header_overrides.get(&specifier)) {
+                    (Some(headers), Some(overrides)) => {
+                      Some(headers.into_iter().chain(overrides.clone()).collect())
                     }
-                    Some(CacheSetting::ReloadAll)
+                    (Some(headers), None) => Some(headers),
+                    (None, Some(overrides)) => Some(overrides.clone()),
+                    (None, None) => None,
+                  };
+                Ok(Some(LoadResponse::Module {
+                  specifier: file.specifier,
+                  maybe_headers,
+                  content: file.source,
+                }))
+                },
+                FileOrRedirect::Redirect(redirect_specifier) => {
+                  Ok(Some(LoadResponse::Redirect {
+                    specifier: redirect_specifier,
+                  }))
+                },
+              }
+            })
+            .unwrap_or_else(|err| {
+              if let Some(io_err) = err.downcast_ref::<std::io::Error>() {
+                if io_err.kind() == std::io::ErrorKind::NotFound {
+                  return Ok(None);
+                } else {
+                  return Err(err);
                 }
-                LoaderCacheSetting::Only => Some(CacheSetting::Only),
-            };
-            file_fetcher
-                .fetch_with_options(FetchOptions {
-                    specifier: &specifier,
-                    permissions,
-                    maybe_accept: None,
-                    maybe_cache_setting: maybe_cache_setting.as_ref(),
-                })
-                .await
-                .map(|file| {
-                    let maybe_headers = match (file.maybe_headers, file_header_overrides.get(&specifier)) {
-                        (Some(headers), Some(overrides)) => Some(headers.into_iter().chain(overrides.clone()).collect()),
-                        (Some(headers), None) => Some(headers),
-                        (None, Some(overrides)) => Some(overrides.clone()),
-                        (None, None) => None,
-                    };
-                    Ok(Some(LoadResponse::Module {
-                        specifier: file.specifier,
-                        maybe_headers,
-                        content: file.source.into(),
-                    }))
-                })
-                .unwrap_or_else(|err| {
-                    if let Some(io_err) = err.downcast_ref::<std::io::Error>() {
-                        if io_err.kind() == std::io::ErrorKind::NotFound {
-                            return Ok(None);
-                        } else {
-                            return Err(err);
-                        }
-                    }
-                    let error_class_name = get_error_class_name(&err);
-                    match error_class_name {
-                        "NotFound" => Ok(None),
-                        "NotCached" if cache_setting == LoaderCacheSetting::Only => Ok(None),
-                        _ => Err(err),
-                    }
-                })
+              }
+              let error_class_name = get_error_class_name(&err);
+              match error_class_name {
+                "NotFound" => Ok(None),
+                "NotCached" if options.cache_setting == LoaderCacheSetting::Only => Ok(None),
+                _ => Err(err),
+              }
+            })
         }
-        .boxed()
+        .boxed_local()
     }
 
     fn cache_module_info(
@@ -203,11 +203,11 @@ impl Loader for FetchCacher {
         source: &Arc<[u8]>,
         module_info: &deno_graph::ModuleInfo,
     ) {
-        let source_hash = ModuleInfoCacheSourceHash::from_source(source);
+        let source_hash = CacheDBHash::from_source(source);
         let result = self.module_info_cache.set_module_info(
             specifier,
             MediaType::from_specifier(specifier),
-            &source_hash,
+            source_hash,
             module_info,
         );
         if let Err(err) = result {

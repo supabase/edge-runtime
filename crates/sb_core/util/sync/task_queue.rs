@@ -1,29 +1,13 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 use std::collections::LinkedList;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use deno_core::futures::task::AtomicWaker;
 use deno_core::futures::Future;
 use deno_core::parking_lot::Mutex;
 
-/// Simplifies the use of an atomic boolean as a flag.
-#[derive(Debug, Default)]
-pub struct AtomicFlag(AtomicBool);
-
-impl AtomicFlag {
-    /// Raises the flag returning if the raise was successful.
-    pub fn raise(&self) -> bool {
-        !self.0.swap(true, Ordering::SeqCst)
-    }
-
-    /// Gets if the flag is raised.
-    pub fn is_raised(&self) -> bool {
-        self.0.load(Ordering::SeqCst)
-    }
-}
+use super::AtomicFlag;
 
 #[derive(Debug, Default)]
 struct TaskQueueTaskItem {

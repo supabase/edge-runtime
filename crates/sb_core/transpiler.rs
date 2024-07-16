@@ -1,4 +1,4 @@
-use deno_ast::{MediaType, ParseParams, SourceMapOption, SourceTextInfo};
+use deno_ast::{MediaType, ParseParams, SourceMapOption};
 use deno_core::error::AnyError;
 use deno_core::{ModuleCodeString, ModuleName, SourceMapData};
 use std::path::Path;
@@ -26,7 +26,7 @@ pub fn maybe_transpile_source(
 
     let parsed = deno_ast::parse_module(ParseParams {
         specifier: deno_core::url::Url::parse(&name).unwrap(),
-        text_info: SourceTextInfo::from_string(source.as_str().to_owned()),
+        text: source.into(),
         media_type,
         capture_tokens: false,
         scope_analysis: false,
@@ -51,9 +51,8 @@ pub fn maybe_transpile_source(
         )?
         .into_source();
 
-    let maybe_source_map: Option<SourceMapData> = transpiled_source
-        .source_map
-        .map(|sm| sm.into_bytes().into());
+    let maybe_source_map: Option<SourceMapData> = transpiled_source.source_map.map(|sm| sm.into());
+    let source_text = String::from_utf8(transpiled_source.source)?;
 
-    Ok((transpiled_source.text.into(), maybe_source_map))
+    Ok((source_text.into(), maybe_source_map))
 }

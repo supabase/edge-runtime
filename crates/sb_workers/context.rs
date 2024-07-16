@@ -3,7 +3,7 @@ use deno_config::JsxImportSourceConfig;
 use deno_core::FastString;
 use enum_as_inner::EnumAsInner;
 use event_worker::events::{UncaughtExceptionEvent, WorkerEventWithMetadata};
-use hyper::{Body, Request, Response};
+use hyper_v014::{Body, Request, Response};
 use sb_core::util::sync::AtomicFlag;
 use sb_core::{MetricSource, SharedMetricSource};
 use std::path::PathBuf;
@@ -228,6 +228,6 @@ pub struct CreateUserWorkerResult {
 #[derive(Debug)]
 pub struct WorkerRequestMsg {
     pub req: Request<Body>,
-    pub res_tx: oneshot::Sender<Result<Response<Body>, hyper::Error>>,
+    pub res_tx: oneshot::Sender<Result<Response<Body>, hyper_v014::Error>>,
     pub conn_token: Option<CancellationToken>,
 }

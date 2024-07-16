@@ -9,7 +9,7 @@ use deno_config::JsxImportSourceConfig;
 use event_worker::events::WorkerEventWithMetadata;
 use futures_util::future::{poll_fn, BoxFuture};
 use futures_util::{FutureExt, Stream};
-use hyper::{server::conn::Http, service::Service, Body, Request, Response};
+use hyper_v014::{server::conn::Http, service::Service, Body, Request, Response};
 use log::{debug, error, info, trace, warn};
 use rustls_pemfile::read_one_from_slice;
 use rustls_pemfile::Item;
@@ -48,7 +48,7 @@ mod signal {
 }
 
 pub enum ServerEvent {
-    ConnectionError(hyper::Error),
+    ConnectionError(hyper_v014::Error),
     #[cfg(debug_assertions)]
     Draining,
 }
@@ -160,7 +160,7 @@ impl Service<Request<Body>> for WorkerService {
         let metric_src = self.metric_src.clone();
         let worker_req_tx = self.worker_req_tx.clone();
         let fut = async move {
-            let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
+            let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper_v014::Error>>();
 
             let req_uri = req.uri().clone();
             let msg = WorkerRequestMsg {
@@ -217,7 +217,7 @@ impl Service<Request<Body>> for WorkerService {
 
                     // FIXME: add an error body
                     Response::builder()
-                        .status(http::StatusCode::INTERNAL_SERVER_ERROR)
+                        .status(http_v02::StatusCode::INTERNAL_SERVER_ERROR)
                         .body(Body::wrap_stream(CancelOnDrop {
                             inner: Body::empty(),
                             cancel: Some(cancel),

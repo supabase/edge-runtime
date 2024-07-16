@@ -1,21 +1,23 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
-use crate::cache::common::FastInsecureHasher;
+use crate::node::CliCjsAnalysis;
 use deno_core::error::AnyError;
 use deno_core::serde_json;
 use deno_webstorage::rusqlite::params;
-use sb_node::analyze::CliCjsAnalysis;
 
 use super::cache_db::CacheDB;
 use super::cache_db::CacheDBConfiguration;
+use super::cache_db::CacheDBHash;
 use super::cache_db::CacheFailure;
 
 pub static NODE_ANALYSIS_CACHE_DB: CacheDBConfiguration = CacheDBConfiguration {
-    table_initializer: "CREATE TABLE IF NOT EXISTS cjsanalysiscache (
-      specifier TEXT PRIMARY KEY,
-      source_hash TEXT NOT NULL,
-      data TEXT NOT NULL
-    );",
+    table_initializer: concat!(
+        "CREATE TABLE IF NOT EXISTS cjsanalysiscache (",
+        "specifier TEXT PRIMARY KEY,",
+        "source_hash INTEGER NOT NULL,",
+        "data TEXT NOT NULL",
+        ");"
+    ),
     on_version_change: "DELETE FROM cjsanalysiscache;",
     preheat_queries: &[],
     on_failure: CacheFailure::InMemory,
@@ -31,10 +33,6 @@ impl NodeAnalysisCache {
         Self {
             inner: NodeAnalysisCacheInner::new(db),
         }
-    }
-
-    pub fn compute_source_hash(text: &str) -> String {
-        FastInsecureHasher::hash(text).to_string()
     }
 
     fn ensure_ok<T: Default>(res: Result<T, AnyError>) -> T {
@@ -57,7 +55,7 @@ impl NodeAnalysisCache {
     pub fn get_cjs_analysis(
         &self,
         specifier: &str,
-        expected_source_hash: &str,
+        expected_source_hash: CacheDBHash,
     ) -> Option<CliCjsAnalysis> {
         Self::ensure_ok(self.inner.get_cjs_analysis(specifier, expected_source_hash))
     }
@@ -65,7 +63,7 @@ impl NodeAnalysisCache {
     pub fn set_cjs_analysis(
         &self,
         specifier: &str,
-        source_hash: &str,
+        source_hash: CacheDBHash,
         cjs_analysis: &CliCjsAnalysis,
     ) {
         Self::ensure_ok(
@@ -88,7 +86,7 @@ impl NodeAnalysisCacheInner {
     pub fn get_cjs_analysis(
         &self,
         specifier: &str,
-        expected_source_hash: &str,
+        expected_source_hash: CacheDBHash,
     ) -> Result<Option<CliCjsAnalysis>, AnyError> {
         let query = "
       SELECT
@@ -101,7 +99,7 @@ impl NodeAnalysisCacheInner {
       LIMIT 1";
         let res = self
             .conn
-            .query_row(query, params![specifier, &expected_source_hash], |row| {
+            .query_row(query, params![specifier, expected_source_hash], |row| {
                 let analysis_info: String = row.get(0)?;
                 Ok(serde_json::from_str(&analysis_info)?)
             })?;
@@ -111,7 +109,7 @@ impl NodeAnalysisCacheInner {
     pub fn set_cjs_analysis(
         &self,
         specifier: &str,
-        source_hash: &str,
+        source_hash: CacheDBHash,
         cjs_analysis: &CliCjsAnalysis,
     ) -> Result<(), AnyError> {
         let sql = "
@@ -123,7 +121,7 @@ impl NodeAnalysisCacheInner {
             sql,
             params![
                 specifier,
-                &source_hash.to_string(),
+                source_hash,
                 &serde_json::to_string(&cjs_analysis)?,
             ],
         )?;

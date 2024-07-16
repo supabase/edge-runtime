@@ -1,8 +1,9 @@
+use anyhow::Context;
 use deno_core::error::AnyError;
 use deno_tls::deno_native_certs::load_native_certs;
 use deno_tls::rustls::RootCertStore;
-use deno_tls::{rustls, rustls_pemfile, webpki_roots, RootCertStoreProvider};
-use std::io::{BufReader, Cursor};
+use deno_tls::{rustls_pemfile, webpki_roots, RootCertStoreProvider};
+use std::io::{BufReader, Cursor, Read};
 use std::path::PathBuf;
 use thiserror::Error;
 
@@ -63,24 +64,18 @@ pub fn get_root_cert_store(
     for store in ca_stores.iter() {
         match store.as_str() {
             "mozilla" => {
-                root_cert_store.add_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.iter().map(
-                    |ta| {
-                        rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
-                            ta.subject,
-                            ta.spki,
-                            ta.name_constraints,
-                        )
-                    },
-                ));
+                root_cert_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
             }
+
             "system" => {
                 let roots = load_native_certs().expect("could not load platform certs");
                 for root in roots {
                     root_cert_store
-                        .add(&rustls::Certificate(root.0))
+                        .add((&*root.0).into())
                         .expect("Failed to add platform cert to root cert store");
                 }
             }
+
             _ => {
                 return Err(RootCertStoreLoadError::UnknownStore(store.clone()));
             }
@@ -89,7 +84,7 @@ pub fn get_root_cert_store(
 
     let ca_data = maybe_ca_data.or_else(|| std::env::var("DENO_CERT").ok().map(CaData::File));
     if let Some(ca_data) = ca_data {
-        let result = match ca_data {
+        let mut reader: BufReader<Box<dyn Read>> = match ca_data {
             CaData::File(ca_file) => {
                 let ca_file = if let Some(root) = &maybe_root_path {
                     root.join(&ca_file)
@@ -98,21 +93,22 @@ pub fn get_root_cert_store(
                 };
                 let certfile = std::fs::File::open(ca_file)
                     .map_err(|err| RootCertStoreLoadError::CaFileOpenError(err.to_string()))?;
-                let mut reader = BufReader::new(certfile);
-                rustls_pemfile::certs(&mut reader)
+                BufReader::new(Box::new(certfile) as _)
             }
-            CaData::Bytes(data) => {
-                let mut reader = BufReader::new(Cursor::new(data));
-                rustls_pemfile::certs(&mut reader)
-            }
+
+            CaData::Bytes(data) => BufReader::new(Box::new(Cursor::new(data)) as _),
         };
 
-        match result {
-            Ok(certs) => {
-                root_cert_store.add_parsable_certificates(&certs);
-            }
-            Err(e) => {
-                return Err(RootCertStoreLoadError::FailedAddPemFile(e.to_string()));
+        for cert in rustls_pemfile::certs(&mut reader) {
+            if let Err(err) = cert
+                .with_context(|| "failed to load the certificate")
+                .and_then(|it| {
+                    root_cert_store
+                        .add(it.clone())
+                        .with_context(|| "error adding a certificate to the store")
+                })
+            {
+                return Err(RootCertStoreLoadError::FailedAddPemFile(err.to_string()));
             }
         }
     }

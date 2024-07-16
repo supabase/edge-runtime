@@ -18,8 +18,8 @@ use base::{
     server::ServerFlags,
 };
 use futures_util::{future::BoxFuture, Future, FutureExt};
-use http::{Request, Response};
-use hyper::Body;
+use http_v02::{Request, Response};
+use hyper_v014::Body;
 use pin_project::pin_project;
 
 use sb_workers::context::{

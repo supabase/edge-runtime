@@ -223,24 +223,24 @@ impl sb_node::NodePermissions for Permissions {
         Ok(())
     }
 
-    fn check_read(&self, _path: &Path) -> Result<(), AnyError> {
+    fn check_read(&mut self, _path: &Path) -> Result<(), AnyError> {
         Ok(())
     }
 
     fn check_read_with_api_name(
-        &self,
+        &mut self,
         _path: &Path,
         _api_name: Option<&str>,
     ) -> Result<(), AnyError> {
         Ok(())
     }
 
-    fn check_sys(&self, _kind: &str, _api_name: &str) -> Result<(), AnyError> {
+    fn check_sys(&mut self, _kind: &str, _api_name: &str) -> Result<(), AnyError> {
         Ok(())
     }
 
     fn check_write_with_api_name(
-        &self,
+        &mut self,
         _path: &Path,
         _api_name: Option<&str>,
     ) -> Result<(), AnyError> {

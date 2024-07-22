@@ -180,7 +180,7 @@ impl ModuleGraphBuilder {
         let fs = Arc::new(deno_fs::RealFs);
         let fs = DenoGraphFsAdapter(fs.as_ref());
         let lockfile = self.lockfile();
-        let mut locker = lockfile.as_ref().map(|lockfile| LockfileLocker(&lockfile));
+        let mut locker = lockfile.as_ref().map(LockfileLocker);
 
         self.build_graph_with_npm_resolution(
             &mut graph,
@@ -321,7 +321,7 @@ impl ModuleGraphBuilder {
         let fs = Arc::new(deno_fs::RealFs);
         let fs = DenoGraphFsAdapter(fs.as_ref());
         let lockfile = self.lockfile();
-        let mut locker = lockfile.as_ref().map(|lockfile| LockfileLocker(&lockfile));
+        let mut locker = lockfile.as_ref().map(LockfileLocker);
 
         self.build_graph_with_npm_resolution(
             &mut graph,

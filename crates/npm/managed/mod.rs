@@ -167,12 +167,12 @@ async fn resolve_snapshot(
 ) -> Result<Option<ValidSerializedNpmResolutionSnapshot>, AnyError> {
     match snapshot {
         CliNpmResolverManagedSnapshotOption::ResolveFromLockfile(lockfile) => {
-            let lockfile_guard = lockfile.lock();
-            let overwrite = lockfile_guard.overwrite;
-            if !overwrite {
-                let filename = lockfile_guard.filename.clone();
+            let (overwrite, filename) = {
+                let guard = lockfile.lock();
+                (guard.overwrite, guard.filename.clone())
+            };
 
-                drop(lockfile_guard);
+            if !overwrite {
                 let snapshot = snapshot_from_lockfile(lockfile.clone(), api)
                     .await
                     .with_context(|| format!("failed reading lockfile '{}'", filename.display()))?;

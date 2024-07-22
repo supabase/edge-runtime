@@ -103,7 +103,7 @@ impl EmitCache {
 
         // save the metadata
         let metadata = EmitMetadata {
-            source_hash: source_hash,
+            source_hash,
             emit_hash: compute_emit_hash(code.as_bytes(), self.cli_version),
         };
 

@@ -354,7 +354,8 @@ impl FileFetcher {
 
         let mut maybe_etag = maybe_etag;
         let mut retried = false; // retry intermittent failures
-        let result = loop {
+
+        loop {
             let result = match self
                 .http_client_provider
                 .get_or_create()?
@@ -412,9 +413,7 @@ impl FileFetcher {
                 }
             };
             break result;
-        };
-
-        result
+        }
     }
 
     /// Returns if the cache should be used for a given specifier.

@@ -6,5 +6,5 @@ pub fn arc_u8_to_arc_str(arc_u8: Arc<[u8]>) -> Result<Arc<str>, std::str::Utf8Er
     // SAFETY: the string is valid UTF-8, and the layout Arc<[u8]> is the same as
     // Arc<str>. This is proven by the From<Arc<str>> impl for Arc<[u8]> from the
     // standard library.
-    Ok(unsafe { std::mem::transmute(arc_u8) })
+    Ok(unsafe { std::mem::transmute::<std::sync::Arc<[u8]>, std::sync::Arc<str>>(arc_u8) })
 }

@@ -14,9 +14,9 @@ use event_worker::events::{
     BootEvent, ShutdownEvent, WorkerEventWithMetadata, WorkerEvents, WorkerMemoryUsed,
 };
 use futures_util::pin_mut;
-use http_v02::StatusCode;
 use http_utils::io::Upgraded2;
 use http_utils::utils::{emit_status_code, get_upgrade_type};
+use http_v02::StatusCode;
 use hyper_v014::client::conn::http1;
 use hyper_v014::upgrade::OnUpgrade;
 use hyper_v014::{Body, Request, Response};

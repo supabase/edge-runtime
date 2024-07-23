@@ -59,6 +59,4 @@ fn op_get_env(state: &mut OpState, #[string] key: String) -> Result<Option<Strin
 }
 
 #[op2(fast)]
-fn op_delete_env(_state: &mut OpState, #[string] _key: String) -> Result<(), AnyError> {
-    Err(not_supported())
-}
+fn op_delete_env(_state: &mut OpState, #[string] _key: String) {}

@@ -214,7 +214,7 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
         .await
         .unwrap();
 
-    let (res_tx, res_rx) = oneshot::channel::<Result<HttpResponse<Body>, hyper_v014::Error>>();
+    let (res_tx, res_rx) = oneshot::channel::<Result<HttpResponse<Body>, hyper::Error>>();
 
     let req = Request::builder()
         .uri("/slow_resp")
@@ -1228,7 +1228,7 @@ async fn test_oak_file_upload<F, R>(
     mime: Option<&str>,
     resp_callback: F,
 ) where
-    F: FnOnce(Result<Response, reqwest_v011::Error>) -> R,
+    F: FnOnce(Result<Response, reqwest::Error>) -> R,
     R: Future<Output = ()>,
 {
     let client = Client::builder().build().unwrap();
@@ -1485,7 +1485,7 @@ async fn test_decorators(ty: Option<DecoratorType>) {
                     .text()
                     .await
                     .unwrap()
-                    .starts_with("{\"msg\":\"InvalidWorkerCreation: worker boot error Uncaught SyntaxError: Invalid or unexpected token"),);
+                    .starts_with("{\"msg\":\"InvalidWorkerCreation: worker boot error: Uncaught SyntaxError: Invalid or unexpected token"),);
             } else {
                 assert_eq!(resp.status(), StatusCode::OK);
                 assert_eq!(resp.text().await.unwrap().as_str(), "meow?");

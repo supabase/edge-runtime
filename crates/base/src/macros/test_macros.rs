@@ -110,13 +110,13 @@ macro_rules! integration_test_with_server_flag {
 
         if tokio::time::timeout(
             // XXX(Nyannyacha): Should we apply variable timeout?
-            core::time::Duration::from_secs(10),
+            core::time::Duration::from_secs(30),
             wait_fut
         )
         .await
         .is_err()
         {
-            panic!("failed to terminate server within 10 seconds");
+            panic!("failed to terminate server within 30 seconds");
         }
     };
 

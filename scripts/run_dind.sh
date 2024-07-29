@@ -1,14 +1,9 @@
 #!/usr/bin/env bash
 
-GIT_V_TAG=0.1.1
-EDGE_RUNTIME_PORT=9998
-ONNXRUNTIME_VERSION=1.17.3
-FEATURES=cli/tracing
-RUST_BACKTRACE=full
-
 SCRIPT=$(readlink -f "$0")
 SCRIPTPATH=$(dirname "$SCRIPT")
 
+source $SCRIPTPATH/docker_vars.sh
 cd $SCRIPTPATH && \
     docker build \
     -t edge_runtime \

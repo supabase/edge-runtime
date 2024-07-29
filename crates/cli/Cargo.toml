@@ -12,14 +12,14 @@ path = "src/main.rs"
 anyhow = { workspace = true }
 base = { path = "../base" }
 deno_core = { workspace = true }
-clap = { version = "4.0.29", features = ["cargo", "string", "env"] }
+clap.workspace = true
 env_logger = "0.10.0"
 log.workspace = true
 sb_graph = { path = "../sb_graph" }
 tokio.workspace = true
 glob.workspace = true
 once_cell.workspace = true
-tracing-subscriber = { workspace = true, optional = true, features = ["env-filter", "tracing-log"] }
+tracing-subscriber = { workspace = true, optional = true }
 
 [build-dependencies]
 dotenv-build = { version = "0.1.1" }

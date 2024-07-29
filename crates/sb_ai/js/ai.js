@@ -1,5 +1,5 @@
 
-import EventSourceStream from 'ext:sb_ai/js/util/event_source_stream.mjs';
+import EventSourceStream from 'ext:sb_ai/js/util/event_source_stream.js';
 
 const core = globalThis.Deno.core;
 
@@ -86,6 +86,7 @@ const parseJSONOverEventStream = async function* (itr, signal) {
 
 class Session {
     model;
+    init;
     is_ext_inference_api;
     inferenceAPIHost;
 
@@ -94,7 +95,7 @@ class Session {
         this.is_ext_inference_api = false;
 
         if (model === 'gte-small') {
-            core.ops.op_sb_ai_init_model(model);
+            this.init = core.ops.op_sb_ai_init_model(model);
         } else {
             this.inferenceAPIHost = core.ops.op_get_env('AI_INFERENCE_API_HOST');
             this.is_ext_inference_api = !!this.inferenceAPIHost; // only enable external inference API if env variable is set
@@ -226,13 +227,19 @@ class Session {
             }
         }
 
+        if (!!this.init) {
+            await this.init;
+        }
+
         const mean_pool = opts.mean_pool ?? true;
         const normalize = opts.normalize ?? true;
         const result = await core.ops.op_sb_ai_run_model(
             this.model,
-            prompt,
-            mean_pool,
-            normalize
+            {
+                prompt,
+                mean_pool,
+                normalize
+            }
         );
 
         return result;
@@ -241,20 +248,25 @@ class Session {
 
 class Pipeline {
     task;
-    model;
+    variation;
+    init;
 
-    constructor(task, model = undefined) {
+    constructor(task, variation = undefined) {
         this.task = task;
-        this.model = model;
-
-        core.ops.op_sb_ai_init_pipeline(task, model);
+        this.variation = variation;
+        this.init = core.ops.op_sb_ai_init_pipeline(task, variation);
     }
 
     async run(prompt, opts = {}) {
+        await this.init;
+
         const mean_pool = opts.mean_pool ?? true;
         const normalize = opts.normalize ?? true;
-
-        const result = await core.ops.op_sb_ai_run_pipeline(this.task, this.model, prompt, mean_pool, normalize);
+        const result = await core.ops.op_sb_ai_run_pipeline(this.task, this.variation, {
+            prompt,
+            mean_pool,
+            normalize,
+        });
 
         return result;
     }

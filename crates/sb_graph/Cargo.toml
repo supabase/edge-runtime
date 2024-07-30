@@ -38,11 +38,10 @@ tokio.workspace = true
 once_cell.workspace = true
 urlencoding.workspace = true
 glob.workspace = true
-eszip.workspace = true
 futures.workspace = true
-sha2.workspace = true
 scopeguard.workspace = true
 thiserror.workspace = true
+eszip = { workspace = true, features = ["xxhash3"] }
 rkyv = { workspace = true, features = ["validation"] }
 
 hashlink = "0.8"
@@ -51,3 +50,4 @@ dashmap = "5.5.3"
 
 [dev-dependencies]
 tempfile.workspace = true
+enum-as-inner.workspace = true

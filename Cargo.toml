@@ -47,6 +47,7 @@ deno_npm = "0.21.4"
 deno_semver = "=0.5.6"
 deno_cache_dir = "=0.10.0"
 deno_lockfile = "0.20.0"
+deno_permissions = "0.21.0"
 
 # crypto
 hkdf = "0.12.3"
@@ -131,12 +132,11 @@ spki = "0.7.2"
 urlencoding = "2.1.2"
 tracing = "0.1"
 tracing-subscriber = "0.3"
-sha2 = "0.10"
 rkyv = "0.7"
 tempfile = "3"
 
 [patch.crates-io]
-eszip = { git = "https://github.com/supabase/eszip", branch = "fix-pub-vis-0-68-2" }
+eszip = { git = "https://github.com/supabase/eszip", branch = "fix-pub-vis-0-72-2" }
 
 [profile.dind]
 inherits = "dev"

@@ -8,7 +8,10 @@ use futures::future::{BoxFuture, LocalBoxFuture};
 use futures::{FutureExt, StreamExt, TryFutureExt};
 use futures_util::io::AllowStdIo;
 use once_cell::sync::Lazy;
-use ort::{CUDAExecutionProvider, ExecutionProvider, GraphOptimizationLevel, Session};
+use ort::{
+    CUDAExecutionProvider, ExecutionProvider, ExecutionProviderDispatch, GraphOptimizationLevel,
+    Session, SessionBuilder,
+};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -71,26 +74,9 @@ impl Task {
                             return Err(anyhow!("failed to create onnx environment: {err}"));
                         }
 
-                        let orm_threads = std::env::var("OMP_NUM_THREADS")
-                            .map_or(None, |val| val.parse::<usize>().ok())
-                            .unwrap_or(1);
-
-                        let builder = Session::builder()?
-                            .with_optimization_level(GraphOptimizationLevel::Level3)?
-                            .with_intra_threads(orm_threads)?;
-
-                        let cuda = CUDAExecutionProvider::default();
-                        if let Ok(is_cuda_available) = cuda.is_available() {
-                            debug!(cuda_support = is_cuda_available);
-
-                            if is_cuda_available {
-                                if let Err(err) = cuda.register(&builder) {
-                                    error!({ ?err }, "failed to register cuda device");
-                                }
-                            }
-                        }
-
-                        builder
+                        def.session_builder()?
+                            .with_execution_providers(def.execution_providers())
+                            .context("failed to register execution providers")?
                             .commit_from_file(it)
                             .context("failed to commit model to session")
                     })
@@ -295,12 +281,88 @@ pub(crate) trait PipelineDefinition: Send + Sync {
         truncation.max_length = 512;
     }
 
+    fn session_builder(&self) -> Result<SessionBuilder, AnyError> {
+        let orm_threads = std::env::var("OMP_NUM_THREADS")
+            .map_or(None, |val| val.parse::<usize>().ok())
+            .unwrap_or(1);
+
+        Ok(Session::builder()?
+            .with_optimization_level(GraphOptimizationLevel::Level3)?
+            .with_memory_pattern(false)?
+            .with_intra_threads(orm_threads)?)
+    }
+
+    fn execution_providers(&self) -> Box<dyn Iterator<Item = ExecutionProviderDispatch>> {
+        Box::new(None.into_iter())
+    }
+
     fn run(
         &self,
         session: &Session,
         tokenizer: Option<&Tokenizer>,
         input: &Self::Input,
     ) -> Result<Self::Output, AnyError>;
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct WithCUDAExecutionProvider<T: PipelineDefinition> {
+    inner: T,
+}
+
+impl<T: PipelineDefinition> PipelineDefinition for WithCUDAExecutionProvider<T> {
+    type Input = T::Input;
+    type Output = T::Output;
+
+    fn make() -> Self {
+        WithCUDAExecutionProvider { inner: T::make() }
+    }
+
+    fn name(&self) -> Cow<'static, str> {
+        self.inner.name()
+    }
+
+    fn model_url(&self, requested_variation: Option<&str>) -> Result<Url, AnyError> {
+        self.inner.model_url(requested_variation)
+    }
+
+    fn tokenizer_url(&self, requested_variation: Option<&str>) -> Option<Result<Url, AnyError>> {
+        self.inner.tokenizer_url(requested_variation)
+    }
+
+    fn configure_tokenizer(&self, tokenizer: &mut Tokenizer) {
+        self.inner.configure_tokenizer(tokenizer)
+    }
+
+    fn execution_providers(&self) -> Box<dyn Iterator<Item = ExecutionProviderDispatch>> {
+        let cuda = CUDAExecutionProvider::default();
+        let providers = match cuda.is_available() {
+            Ok(is_cuda_available) => {
+                debug!(cuda_support = is_cuda_available);
+                if is_cuda_available {
+                    vec![cuda.build()]
+                } else {
+                    vec![]
+                }
+            }
+
+            _ => vec![],
+        };
+
+        Box::new(
+            providers
+                .into_iter()
+                .chain(self.inner.execution_providers()),
+        )
+    }
+
+    fn run(
+        &self,
+        session: &Session,
+        tokenizer: Option<&Tokenizer>,
+        input: &Self::Input,
+    ) -> Result<Self::Output, AnyError> {
+        self.inner.run(session, tokenizer, input)
+    }
 }
 
 fn try_create_pipeline_fut<T>(

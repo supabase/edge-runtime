@@ -14,6 +14,15 @@ type Initializer = Arc<
     dyn (Fn(Option<Rc<RefCell<OpState>>>, Option<String>) -> InitializerReturnType) + Send + Sync,
 >;
 
+static DEFS: Lazy<HashMap<Cow<'static, str>, Initializer>> = Lazy::new(|| {
+    HashMap::from([
+        factory::<pipeline::WithCUDAExecutionProvider<feature_extraction::SupabaseGte>>(),
+        // factory::<feature_extraction::SupabaseGte>(),
+        factory::<pipeline::WithCUDAExecutionProvider<feature_extraction::GteSmall>>(),
+        // factory::<feature_extraction::GteSmall>(),
+    ])
+});
+
 fn factory<T>() -> (Cow<'static, str>, Initializer)
 where
     T: PipelineDefinition + Clone + 'static,
@@ -37,13 +46,6 @@ where
         pipeline::init(state, arg).boxed_local()
     })
 }
-
-static DEFS: Lazy<HashMap<Cow<'static, str>, Initializer>> = Lazy::new(|| {
-    HashMap::from([
-        factory::<feature_extraction::SupabaseGte>(),
-        factory::<feature_extraction::GteSmall>(),
-    ])
-});
 
 pub async fn init(
     state: Option<Rc<RefCell<OpState>>>,

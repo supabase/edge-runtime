@@ -82,11 +82,11 @@ tokio-rustls = "0.25.0"
 
 [dev-dependencies]
 tokio-util = { workspace = true, features = ["rt", "compat"] }
+tracing-subscriber = { workspace = true, features = ["env-filter", "tracing-log"] }
 
 serial_test = "3.0.0"
 async-tungstenite = { version = "0.25.0", default-features = false }
 tungstenite = { version = "0.21.0", default-features = false, features = ["handshake"] }
-tracing-subscriber = { workspace = true, features = ["env-filter", "tracing-log"] }
 
 [build-dependencies]
 deno_ast.workspace = true

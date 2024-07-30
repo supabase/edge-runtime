@@ -21,3 +21,4 @@ tokenizers = { version = ">=0.13.4", default-features = false, features = [ "oni
 rand = "0.8"
 tokio.workspace = true
 once_cell.workspace = true
+tracing.workspace = true

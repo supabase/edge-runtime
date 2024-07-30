@@ -26,7 +26,7 @@ impl From<&'_ v8::HeapStatistics> for WorkerHeapStatistics {
             total_global_handles_size: value.total_global_handles_size(),
             used_global_handles_size: value.used_global_handles_size(),
             used_heap_size: value.used_heap_size(),
-            malloced_memory: value.used_heap_size(),
+            malloced_memory: value.malloced_memory(),
             external_memory: value.external_memory(),
             peak_malloced_memory: value.peak_malloced_memory(),
         }

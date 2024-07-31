@@ -17,7 +17,7 @@ deno_net.workspace = true
 deno_web.workspace = true
 deno_fetch.workspace = true
 deno_fs.workspace = true
-deno_permissions = { version = "0.9.0" }
+deno_permissions.workspace = true
 deno_websocket.workspace = true
 deno_http.workspace = true
 deno_tls.workspace = true
@@ -60,7 +60,6 @@ http.workspace = true
 faster-hex.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-fqdn = "0.3.4"
 
 data-url = "=0.3.0"
 cache_control = "=0.2.0"

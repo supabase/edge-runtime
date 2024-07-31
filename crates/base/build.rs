@@ -188,7 +188,7 @@ mod supabase_startup_snapshot {
         let user_agent = String::from("supabase");
         let fs = Arc::new(deno_fs::RealFs);
         let extensions: Vec<Extension> = vec![
-            sb_core_permissions::init_ops_and_esm(false),
+            sb_core_permissions::init_ops_and_esm(false, None),
             deno_webidl::deno_webidl::init_ops_and_esm(),
             deno_console::deno_console::init_ops_and_esm(),
             deno_url::deno_url::init_ops_and_esm(),

@@ -2099,6 +2099,117 @@ async fn test_should_not_hang_when_forced_redirection_for_specifiers() {
     }
 }
 
+async fn test_allow_net<F, R>(allow_net: Option<Vec<&str>>, url: &str, callback: F)
+where
+    F: FnOnce(Result<Response, reqwest::Error>) -> R,
+    R: Future<Output = ()>,
+{
+    let payload = serde_json::json!({
+        "allowNet": allow_net,
+        "url": url
+    });
+
+    let client = Client::new();
+    let req = client
+        .request(
+            Method::POST,
+            format!("http://localhost:{}/fetch", NON_SECURE_PORT),
+        )
+        .json(&payload)
+        .build()
+        .unwrap();
+
+    integration_test!(
+        "./test_cases/main_with_allow_net",
+        NON_SECURE_PORT,
+        "",
+        None,
+        None,
+        Some(RequestBuilder::from_parts(client, req)),
+        None,
+        (|resp| async {
+            callback(resp).await;
+        }),
+        TerminationToken::new()
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_allow_net_fetch_google_com() {
+    #[derive(Deserialize)]
+    struct FetchResponse {
+        status: u16,
+        body: String,
+    }
+
+    // 1. allow only specific hosts
+    test_allow_net(
+        // because google.com redirects to www.google.com
+        Some(vec!["google.com", "www.google.com"]),
+        "https://google.com",
+        |resp| async move {
+            let resp = resp.unwrap();
+
+            assert_eq!(resp.status().as_u16(), StatusCode::OK);
+
+            let payload = resp.json::<FetchResponse>().await.unwrap();
+
+            assert_eq!(payload.status, StatusCode::OK);
+            assert!(!payload.body.is_empty());
+        },
+    )
+    .await;
+
+    // 2. allow only specific host (but not considering the redirected host)
+    test_allow_net(
+        Some(vec!["google.com"]),
+        "https://google.com",
+        |resp| async move {
+            let resp = resp.unwrap();
+
+            assert_eq!(resp.status().as_u16(), StatusCode::INTERNAL_SERVER_ERROR);
+
+            let msg = resp.text().await.unwrap();
+
+            assert_eq!(
+                msg.as_str(),
+                // google.com redirects to www.google.com, but we didn't allow it
+                "PermissionDenied: Access to www.google.com is not allowed for user worker"
+            );
+        },
+    )
+    .await;
+
+    // 3. deny all hosts
+    test_allow_net(Some(vec![]), "https://google.com", |resp| async move {
+        let resp = resp.unwrap();
+
+        assert_eq!(resp.status().as_u16(), StatusCode::INTERNAL_SERVER_ERROR);
+
+        let msg = resp.text().await.unwrap();
+
+        assert_eq!(
+            msg.as_str(),
+            "PermissionDenied: Access to google.com is not allowed for user worker"
+        );
+    })
+    .await;
+
+    // 4. allow all hosts
+    test_allow_net(None, "https://google.com", |resp| async move {
+        let resp = resp.unwrap();
+
+        assert_eq!(resp.status().as_u16(), StatusCode::OK);
+
+        let payload = resp.json::<FetchResponse>().await.unwrap();
+
+        assert_eq!(payload.status, StatusCode::OK);
+        assert!(!payload.body.is_empty());
+    })
+    .await;
+}
+
 trait AsyncReadWrite: AsyncRead + AsyncWrite + Send + Unpin {}
 
 impl<T> AsyncReadWrite for T where T: AsyncRead + AsyncWrite + Send + Unpin {}

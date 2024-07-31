@@ -1,23 +1,27 @@
-use deno_core::error::{custom_error, AnyError};
+use deno_core::error::{custom_error, generic_error, AnyError};
 use deno_core::url::Url;
 use deno_fs::OpenOptions;
+use deno_permissions::NetDescriptor;
+use fqdn::fqdn;
 use std::borrow::Cow;
 use std::path::Path;
 
 pub struct Permissions {
     net_access_disabled: bool,
+    allow_net: Option<Vec<NetDescriptor>>,
 }
 
 impl Default for Permissions {
     fn default() -> Self {
-        Self::new(false)
+        Self::new(false, None)
     }
 }
 
 impl Permissions {
-    pub fn new(net_access_disabled: bool) -> Self {
+    pub fn new(net_access_disabled: bool, allow_net: Option<Vec<NetDescriptor>>) -> Self {
         Self {
             net_access_disabled,
+            allow_net,
         }
     }
 
@@ -41,9 +45,9 @@ impl Permissions {
 
 deno_core::extension!(
     sb_core_permissions,
-    options = { net_access_disabled: bool },
+    options = { net_access_disabled: bool, allow_net: Option<Vec<NetDescriptor>> },
     state = |state, options| {
-        state.put::<Permissions>(Permissions::new(options.net_access_disabled));
+        state.put::<Permissions>(Permissions::new(options.net_access_disabled, options.allow_net));
     }
 );
 
@@ -54,13 +58,28 @@ impl deno_web::TimersPermission for Permissions {
 }
 
 impl deno_fetch::FetchPermissions for Permissions {
-    fn check_net_url(&mut self, _url: &Url, _api_name: &str) -> Result<(), AnyError> {
+    fn check_net_url(&mut self, url: &Url, _api_name: &str) -> Result<(), AnyError> {
         if self.net_access_disabled {
             return Err(custom_error(
                 "PermissionDenied",
                 "net access disabled for the user worker",
             ));
         }
+
+        if let Some(allow_net) = &self.allow_net {
+            let hostname = url
+                .host_str()
+                .ok_or(generic_error("empty host"))?
+                .to_string();
+            let descriptor = NetDescriptor(fqdn!(&hostname), url.port());
+            if !allow_net.contains(&descriptor) {
+                return Err(custom_error(
+                    "PermissionDenied",
+                    format!("Access to {descriptor} is not allowed for user worker"),
+                ));
+            }
+        }
+
         Ok(())
     }
 
@@ -72,7 +91,7 @@ impl deno_fetch::FetchPermissions for Permissions {
 impl deno_net::NetPermissions for Permissions {
     fn check_net<T: AsRef<str>>(
         &mut self,
-        _host: &(T, Option<u16>),
+        host: &(T, Option<u16>),
         _api_name: &str,
     ) -> Result<(), AnyError> {
         if self.net_access_disabled {
@@ -80,6 +99,17 @@ impl deno_net::NetPermissions for Permissions {
                 "PermissionDenied",
                 "net access disabled for the user worker",
             ));
+        }
+
+        if let Some(allow_net) = &self.allow_net {
+            let hostname = host.0.as_ref().parse()?;
+            let descriptor = NetDescriptor(hostname, host.1);
+            if !allow_net.contains(&descriptor) {
+                return Err(custom_error(
+                    "PermissionDenied",
+                    format!("Access to {descriptor} is not allowed for user worker"),
+                ));
+            }
         }
         Ok(())
     }
@@ -94,14 +124,26 @@ impl deno_net::NetPermissions for Permissions {
 }
 
 impl deno_websocket::WebSocketPermissions for Permissions {
-    fn check_net_url(&mut self, _url: &Url, _api_name: &str) -> Result<(), AnyError> {
+    fn check_net_url(&mut self, url: &Url, _api_name: &str) -> Result<(), AnyError> {
         if self.net_access_disabled {
             return Err(custom_error(
                 "PermissionDenied",
                 "net access disabled for the user worker",
             ));
         }
-
+        if let Some(allow_net) = &self.allow_net {
+            let hostname = url
+                .host_str()
+                .ok_or(generic_error("empty host"))?
+                .to_string();
+            let descriptor = NetDescriptor(fqdn!(&hostname), url.port());
+            if !allow_net.contains(&descriptor) {
+                return Err(custom_error(
+                    "PermissionDenied",
+                    format!("Access to {descriptor} is not allowed for user worker"),
+                ));
+            }
+        }
         Ok(())
     }
 }

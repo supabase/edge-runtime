@@ -1,5 +1,5 @@
-use http::{header, response, HeaderMap, HeaderValue, Response, StatusCode};
-use hyper::Body;
+use http_v02::{header, response, HeaderMap, HeaderValue, Response, StatusCode};
+use hyper_v014::body::Body;
 
 pub fn get_upgrade_type(headers: &HeaderMap) -> Option<String> {
     let connection_header_exists = headers
@@ -38,7 +38,7 @@ pub fn emit_status_code(
         builder.body(body)
     } else {
         builder
-            .header(http::header::CONTENT_LENGTH, 0)
+            .header(http_v02::header::CONTENT_LENGTH, 0)
             .body(Body::empty())
     }
     .unwrap()

@@ -3,13 +3,12 @@ use deno_core::error::AnyError;
 use deno_core::{normalize_path, serde_json};
 use deno_npm::NpmSystemInfo;
 use eszip::EszipV2;
-use sb_npm::cache::NpmCache;
-use sb_npm::registry::CliNpmRegistryApi;
-use sb_npm::resolution::NpmResolution;
+use indexmap::IndexMap;
 use sb_npm::{CliNpmResolver, InnerCliNpmResolverRef};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use virtual_fs::VfsEntry;
 
 pub mod file_system;
 pub mod static_fs;
@@ -17,9 +16,6 @@ pub mod virtual_fs;
 
 pub struct VfsOpts {
     pub npm_resolver: Arc<dyn CliNpmResolver>,
-    pub npm_registry_api: Arc<CliNpmRegistryApi>,
-    pub npm_cache: Arc<NpmCache>,
-    pub npm_resolution: Arc<NpmResolution>,
 }
 
 pub type EszipStaticFiles = HashMap<String, Vec<u8>>;
@@ -93,20 +89,56 @@ pub fn build_vfs(opts: VfsOpts) -> Result<VfsBuilder, AnyError> {
             } else {
                 // DO NOT include the user's registry url as it may contain credentials,
                 // but also don't make this dependent on the registry url
-                let registry_url = npm_resolver.registry_base_url();
-                let root_path = npm_resolver.registry_folder_in_global_cache(registry_url);
+                let root_path = npm_resolver.global_cache_root_folder();
                 let mut builder = VfsBuilder::new(root_path)?;
                 for package in npm_resolver.all_system_packages(&NpmSystemInfo::default()) {
                     let folder = npm_resolver.resolve_pkg_folder_from_pkg_id(&package.id)?;
                     builder.add_dir_recursive(&folder)?;
                 }
-                // overwrite the root directory's name to obscure the user's registry url
-                builder.set_root_dir_name("node_modules".to_string());
+
+                // Flatten all the registries folders into a single "node_modules/localhost" folder
+                // that will be used by denort when loading the npm cache. This avoids us exposing
+                // the user's private registry information and means we don't have to bother
+                // serializing all the different registry config into the binary.
+                builder.with_root_dir(|root_dir| {
+                    root_dir.name = "node_modules".to_string();
+                    let mut new_entries = Vec::with_capacity(root_dir.entries.len());
+                    let mut localhost_entries = IndexMap::new();
+                    for entry in std::mem::take(&mut root_dir.entries) {
+                        match entry {
+                            VfsEntry::Dir(dir) => {
+                                for entry in dir.entries {
+                                    log::debug!("Flattening {} into node_modules", entry.name());
+                                    if let Some(existing) =
+                                        localhost_entries.insert(entry.name().to_string(), entry)
+                                    {
+                                        panic!(
+                                            "Unhandled scenario where a duplicate entry was found: {:?}",
+                                            existing
+                                        );
+                                    }
+                                }
+                            }
+                            VfsEntry::File(_) | VfsEntry::Symlink(_) => {
+                                new_entries.push(entry);
+                            }
+                        }
+                    }
+                    new_entries.push(VfsEntry::Dir(VirtualDirectory {
+                        name: "localhost".to_string(),
+                        entries: localhost_entries.into_iter().map(|(_, v)| v).collect(),
+                    }));
+                    // needs to be sorted by name
+                    new_entries.sort_by(|a, b| a.name().cmp(b.name()));
+                    root_dir.entries = new_entries;
+                });
+
                 Ok(builder)
             }
         }
+
         _ => {
-            panic!("Unreachable");
+            unreachable!();
         }
     }
 }

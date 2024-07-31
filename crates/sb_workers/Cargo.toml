@@ -11,12 +11,20 @@ license = "MIT"
 path = "lib.rs"
 
 [dependencies]
+deno_core.workspace = true
+deno_http.workspace = true
+deno_config.workspace = true
+
+http_utils = { version = "0.1.0", path = "../http_utils" }
+event_worker = { version = "0.1.0", path = "../event_worker" }
+
+sb_core = { version = "0.1.0", path = "../sb_core" }
+sb_graph = { version = "0.1.0", path = "../sb_graph" }
+
 anyhow.workspace = true
 uuid.workspace = true
-deno_core.workspace = true
 tokio.workspace = true
-deno_http.workspace = true
-hyper.workspace = true
+hyper_v014.workspace = true
 serde.workspace = true
 bytes.workspace = true
 log.workspace = true
@@ -25,8 +33,3 @@ futures-util.workspace = true
 tokio-util.workspace = true
 thiserror.workspace = true
 scopeguard.workspace = true
-http_utils = { version = "0.1.0", path = "../http_utils" }
-event_worker = { version = "0.1.0", path = "../event_worker" }
-sb_graph = { version = "0.1.0", path = "../sb_graph" }
-sb_core = { version = "0.1.0", path = "../sb_core" }
-deno_config.workspace = true

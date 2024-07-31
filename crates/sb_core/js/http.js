@@ -55,7 +55,7 @@ function serveHttp(conn) {
 
 	const [connRid, watcherRid] = ops.op_http_start(conn[internalRidSymbol]);
 	const httpConn = new HttpConn(connRid, conn.remoteAddr, conn.localAddr);
-	
+
 	httpConn.nextRequest = async () => {
 		const nextRequest = await HttpConnPrototypeNextRequest.call(httpConn);
 
@@ -82,8 +82,8 @@ function serveHttp(conn) {
 	return httpConn;
 }
 
-async function serve(args1, args2) {
-	let options = {
+function serve(args1, args2) {
+	const options = {
 		port: 9999,
 		hostname: "0.0.0.0",
 		transport: "tcp",
@@ -186,7 +186,7 @@ async function respond(requestEvent, httpConn, options) {
 		}
 
 		setTimeout(async () => {
-			let {
+			const {
 				status,
 				headers
 			} = await ops.op_http_upgrade_raw2_fence(fenceRid);
@@ -219,7 +219,7 @@ function closeHttpConn(httpConn) {
 		httpConn.close();
 	} catch {
 		// connection has already been closed
-	}	
+	}
 }
 
 function getSupabaseTag(request) {
@@ -228,7 +228,7 @@ function getSupabaseTag(request) {
 
 function applySupabaseTag(src, dest) {
 	if (
-		!ObjectPrototypeIsPrototypeOf(RequestPrototype, src) 
+		!ObjectPrototypeIsPrototypeOf(RequestPrototype, src)
 		|| !ObjectPrototypeIsPrototypeOf(RequestPrototype, dest)
 	) {
 		throw new TypeError("Only Request instance can apply the supabase tag");
@@ -240,7 +240,7 @@ function applySupabaseTag(src, dest) {
 internals.getSupabaseTag = getSupabaseTag;
 internals.RAW_UPGRADE_RESPONSE_SENTINEL = RAW_UPGRADE_RESPONSE_SENTINEL;
 
-export { 
+export {
 	serve,
 	serveHttp,
 	getSupabaseTag,

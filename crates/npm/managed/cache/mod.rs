@@ -2,6 +2,7 @@
 
 use std::collections::HashSet;
 use std::fs;
+use std::io::ErrorKind;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -9,29 +10,34 @@ use std::sync::Arc;
 use deno_ast::ModuleSpecifier;
 use deno_core::anyhow::bail;
 use deno_core::anyhow::Context;
-use deno_core::error::custom_error;
 use deno_core::error::AnyError;
 use deno_core::parking_lot::Mutex;
+use deno_core::serde_json;
 use deno_core::url::Url;
-use deno_fs;
-use deno_npm::registry::NpmPackageVersionDistInfo;
+use deno_npm::npm_rc::ResolvedNpmRc;
+use deno_npm::registry::NpmPackageInfo;
 use deno_npm::NpmPackageCacheFolderId;
 use deno_semver::package::PackageNv;
+use sb_core::cache::CACHE_PERM;
+use sb_core::util::fs::atomic_write_file_with_retries;
 
 use crate::cache_dir::NpmCacheDir;
 use sb_core::cache::CacheSetting;
 use sb_core::util::fs::hard_link_dir_recursive;
-use sb_core::util::http_util::HttpClient;
 
-use super::tarball::verify_and_extract_tarball;
+mod registry_info;
+mod tarball;
+mod tarball_extract;
+
+pub use registry_info::RegistryInfoDownloader;
+pub use tarball::TarballCache;
 
 /// Stores a single copy of npm packages in a cache.
 #[derive(Debug)]
 pub struct NpmCache {
     cache_dir: NpmCacheDir,
     cache_setting: CacheSetting,
-    fs: Arc<dyn deno_fs::FileSystem>,
-    http_client: Arc<HttpClient>,
+    npmrc: Arc<ResolvedNpmRc>,
     /// ensures a package is only downloaded once per run
     previously_reloaded_packages: Mutex<HashSet<PackageNv>>,
 }
@@ -40,15 +46,13 @@ impl NpmCache {
     pub fn new(
         cache_dir: NpmCacheDir,
         cache_setting: CacheSetting,
-        fs: Arc<dyn deno_fs::FileSystem>,
-        http_client: Arc<HttpClient>,
+        npmrc: Arc<ResolvedNpmRc>,
     ) -> Self {
         Self {
             cache_dir,
             cache_setting,
-            fs,
-            http_client,
             previously_reloaded_packages: Default::default(),
+            npmrc,
         }
     }
 
@@ -65,7 +69,7 @@ impl NpmCache {
     /// to ensure a package is only downloaded once per run of the CLI. This
     /// prevents downloads from re-occurring when someone has `--reload` and
     /// and imports a dynamic import that imports the same package again for example.
-    fn should_use_global_cache_for_package(&self, package: &PackageNv) -> bool {
+    pub fn should_use_cache_for_package(&self, package: &PackageNv) -> bool {
         self.cache_setting.should_use_for_npm_package(&package.name)
             || !self
                 .previously_reloaded_packages
@@ -73,75 +77,19 @@ impl NpmCache {
                 .insert(package.clone())
     }
 
-    pub async fn ensure_package(
-        &self,
-        package: &PackageNv,
-        dist: &NpmPackageVersionDistInfo,
-        registry_url: &Url,
-    ) -> Result<(), AnyError> {
-        self.ensure_package_inner(package, dist, registry_url)
-            .await
-            .with_context(|| format!("Failed caching npm package '{package}'."))
-    }
-
-    async fn ensure_package_inner(
-        &self,
-        package: &PackageNv,
-        dist: &NpmPackageVersionDistInfo,
-        registry_url: &Url,
-    ) -> Result<(), AnyError> {
-        let package_folder = self
-            .cache_dir
-            .package_folder_for_name_and_version(package, registry_url);
-        if self.should_use_global_cache_for_package(package)
-      && self.fs.exists_sync(&package_folder)
-      // if this file exists, then the package didn't successfully extract
-      // the first time, or another process is currently extracting the zip file
-      && !self.fs.exists_sync(&package_folder.join(NPM_PACKAGE_SYNC_LOCK_FILENAME))
-        {
-            return Ok(());
-        } else if self.cache_setting == CacheSetting::Only {
-            return Err(custom_error(
-                "NotCached",
-                format!(
-                    "An npm specifier not found in cache: \"{}\", --cached-only is specified.",
-                    &package.name
-                ),
-            ));
-        }
-
-        if dist.tarball.is_empty() {
-            bail!("Tarball URL was empty.");
-        }
-
-        let maybe_bytes = self
-            .http_client
-            .download_with_progress(&dist.tarball)
-            .await?;
-        match maybe_bytes {
-            Some(bytes) => verify_and_extract_tarball(package, &bytes, dist, &package_folder),
-            None => {
-                bail!("Could not find npm package tarball at: {}", dist.tarball);
-            }
-        }
-    }
-
     /// Ensures a copy of the package exists in the global cache.
     ///
     /// This assumes that the original package folder being hard linked
     /// from exists before this is called.
-    pub fn ensure_copy_package(
-        &self,
-        folder_id: &NpmPackageCacheFolderId,
-        registry_url: &Url,
-    ) -> Result<(), AnyError> {
+    pub fn ensure_copy_package(&self, folder_id: &NpmPackageCacheFolderId) -> Result<(), AnyError> {
+        let registry_url = self.npmrc.get_registry_url(&folder_id.nv.name);
         assert_ne!(folder_id.copy_index, 0);
         let package_folder = self
             .cache_dir
             .package_folder_for_id(folder_id, registry_url);
 
         if package_folder.exists()
-      // if this file exists, then the package didn't successfully extract
+      // if this file exists, then the package didn't successfully initialize
       // the first time, or another process is currently extracting the zip file
       && !package_folder.join(NPM_PACKAGE_SYNC_LOCK_FILENAME).exists()
       && self.cache_setting.should_use_for_npm_package(&folder_id.nv.name)
@@ -151,45 +99,76 @@ impl NpmCache {
 
         let original_package_folder = self
             .cache_dir
-            .package_folder_for_name_and_version(&folder_id.nv, registry_url);
+            .package_folder_for_nv(&folder_id.nv, registry_url);
+
+        // it seems Windows does an "AccessDenied" error when moving a
+        // directory with hard links, so that's why this solution is done
         with_folder_sync_lock(&folder_id.nv, &package_folder, || {
             hard_link_dir_recursive(&original_package_folder, &package_folder)
         })?;
         Ok(())
     }
 
-    pub fn package_folder_for_id(
-        &self,
-        id: &NpmPackageCacheFolderId,
-        registry_url: &Url,
-    ) -> PathBuf {
+    pub fn package_folder_for_id(&self, id: &NpmPackageCacheFolderId) -> PathBuf {
+        let registry_url = self.npmrc.get_registry_url(&id.nv.name);
         self.cache_dir.package_folder_for_id(id, registry_url)
     }
 
-    pub fn package_folder_for_name_and_version(
+    pub fn package_folder_for_nv(&self, package: &PackageNv) -> PathBuf {
+        let registry_url = self.npmrc.get_registry_url(&package.name);
+        self.package_folder_for_nv_and_url(package, registry_url)
+    }
+
+    pub fn package_folder_for_nv_and_url(
         &self,
         package: &PackageNv,
         registry_url: &Url,
     ) -> PathBuf {
-        self.cache_dir
-            .package_folder_for_name_and_version(package, registry_url)
+        self.cache_dir.package_folder_for_nv(package, registry_url)
     }
 
-    pub fn package_name_folder(&self, name: &str, registry_url: &Url) -> PathBuf {
+    pub fn package_name_folder(&self, name: &str) -> PathBuf {
+        let registry_url = self.npmrc.get_registry_url(name);
         self.cache_dir.package_name_folder(name, registry_url)
     }
 
-    pub fn registry_folder(&self, registry_url: &Url) -> PathBuf {
-        self.cache_dir.registry_folder(registry_url)
+    pub fn root_folder(&self) -> PathBuf {
+        self.cache_dir.root_dir().to_owned()
     }
 
     pub fn resolve_package_folder_id_from_specifier(
         &self,
         specifier: &ModuleSpecifier,
-        registry_url: &Url,
     ) -> Option<NpmPackageCacheFolderId> {
         self.cache_dir
-            .resolve_package_folder_id_from_specifier(specifier, registry_url)
+            .resolve_package_folder_id_from_specifier(specifier)
+    }
+
+    pub fn load_package_info(&self, name: &str) -> Result<Option<NpmPackageInfo>, AnyError> {
+        let file_cache_path = self.get_registry_package_info_file_cache_path(name);
+
+        let file_text = match fs::read_to_string(file_cache_path) {
+            Ok(file_text) => file_text,
+            Err(err) if err.kind() == ErrorKind::NotFound => return Ok(None),
+            Err(err) => return Err(err.into()),
+        };
+        Ok(serde_json::from_str(&file_text)?)
+    }
+
+    pub fn save_package_info(
+        &self,
+        name: &str,
+        package_info: &NpmPackageInfo,
+    ) -> Result<(), AnyError> {
+        let file_cache_path = self.get_registry_package_info_file_cache_path(name);
+        let file_text = serde_json::to_string(&package_info)?;
+        atomic_write_file_with_retries(&file_cache_path, file_text, CACHE_PERM)?;
+        Ok(())
+    }
+
+    fn get_registry_package_info_file_cache_path(&self, name: &str) -> PathBuf {
+        let name_folder_path = self.package_name_folder(name);
+        name_folder_path.join("registry.json")
     }
 }
 
@@ -200,7 +179,6 @@ pub fn with_folder_sync_lock(
     output_folder: &Path,
     action: impl FnOnce() -> Result<(), AnyError>,
 ) -> Result<(), AnyError> {
-    #[allow(clippy::suspicious_open_options)]
     fn inner(
         output_folder: &Path,
         action: impl FnOnce() -> Result<(), AnyError>,
@@ -220,6 +198,7 @@ pub fn with_folder_sync_lock(
         match fs::OpenOptions::new()
             .write(true)
             .create(true)
+            .truncate(false)
             .open(&sync_lock_path)
         {
             Ok(_) => {

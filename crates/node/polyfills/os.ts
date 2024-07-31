@@ -32,7 +32,7 @@ import {
 
 import { validateIntegerRange } from "ext:deno_node/_utils.ts";
 import process from "node:process";
-import { isWindows, osType } from "ext:deno_node/_util/os.ts";
+import { isWindows } from "ext:deno_node/_util/os.ts";
 import { ERR_OS_NO_HOMEDIR } from "ext:deno_node/internal/errors.ts";
 import { os } from "ext:deno_node/internal_binding/constants.ts";
 import { osCalls } from "ext:sb_os/os.js"
@@ -183,21 +183,21 @@ export function getPriority(_pid = 0): number {
 
 /** Returns the string path of the current user's home directory. */
 export function homedir(): string | null {
-/*  // Note: Node/libuv calls getpwuid() / GetUserProfileDirectory() when the
-  // environment variable isn't set but that's the (very uncommon) fallback
-  // path. IMO, it's okay to punt on that for now.
-  switch (osType) {
-    case "windows":
-      return Deno.env.get("USERPROFILE") || null;
-    case "linux":
-    case "android":
-    case "darwin":
-    case "freebsd":
-    case "openbsd":
-      return Deno.env.get("HOME") || null;
-    default:
-      throw Error("unreachable");
-  }*/
+  /*  // Note: Node/libuv calls getpwuid() / GetUserProfileDirectory() when the
+    // environment variable isn't set but that's the (very uncommon) fallback
+    // path. IMO, it's okay to punt on that for now.
+    switch (osType) {
+      case "windows":
+        return Deno.env.get("USERPROFILE") || null;
+      case "linux":
+      case "android":
+      case "darwin":
+      case "freebsd":
+      case "openbsd":
+        return Deno.env.get("HOME") || null;
+      default:
+        throw Error("unreachable");
+    }*/
   return "/home/deno"
 }
 

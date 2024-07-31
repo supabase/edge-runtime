@@ -3,7 +3,7 @@
 use super::CACHE_PERM;
 use crate::util::fs::atomic_write_file;
 
-use super::http_cache::url_to_filename;
+use deno_cache_dir::url_to_filename;
 use deno_core::url::Host;
 use deno_core::url::Url;
 use std::ffi::OsStr;

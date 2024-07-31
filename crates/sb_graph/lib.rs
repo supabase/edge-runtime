@@ -22,11 +22,11 @@ use std::sync::Arc;
 
 pub mod emitter;
 pub mod graph_fs;
-pub mod graph_resolver;
 pub mod graph_util;
 pub mod import_map;
 pub mod jsr;
 pub mod jsx_util;
+pub mod resolver;
 
 pub const VFS_ESZIP_KEY: &str = "---SUPABASE-VFS-DATA-ESZIP---";
 pub const SOURCE_CODE_ESZIP_KEY: &str = "---SUPABASE-SOURCE-CODE-ESZIP---";
@@ -97,7 +97,7 @@ pub async fn generate_binary_eszip(
     maybe_module_code: Option<FastString>,
     maybe_import_map_url: Option<String>,
 ) -> Result<EszipV2, AnyError> {
-    let graph = create_graph(file.clone(), emitter_factory.clone(), &maybe_module_code).await;
+    let graph = create_graph(file.clone(), emitter_factory.clone(), &maybe_module_code).await?;
     let eszip = create_eszip_from_graph_raw(graph, Some(emitter_factory.clone())).await;
 
     if let Ok(mut eszip) = eszip {
@@ -123,26 +123,23 @@ pub async fn generate_binary_eszip(
         )?;
 
         let bin_code: Arc<[u8]> = emit_source.as_bytes().into();
+        let resolver = emitter_factory.npm_resolver().await.cloned()?;
 
-        let npm_res = emitter_factory.npm_resolution().await;
-        let resolver = emitter_factory.npm_resolver().await;
-
-        let (npm_vfs, _npm_files) = match resolver.clone().as_inner() {
+        let (npm_vfs, _npm_files) = match resolver.as_inner() {
             InnerCliNpmResolverRef::Managed(managed) => {
                 let snapshot =
                     managed.serialized_valid_snapshot_for_system(&NpmSystemInfo::default());
                 if !snapshot.as_serialized().packages.is_empty() {
                     let (root_dir, files) = build_vfs(VfsOpts {
                         npm_resolver: resolver.clone(),
-                        npm_registry_api: emitter_factory.npm_api().await.clone(),
-                        npm_cache: emitter_factory.npm_cache().await.clone(),
-                        npm_resolution: emitter_factory.npm_resolution().await.clone(),
                     })?
                     .into_dir_and_files();
 
                     let snapshot =
-                        npm_res.serialized_valid_snapshot_for_system(&NpmSystemInfo::default());
+                        managed.serialized_valid_snapshot_for_system(&NpmSystemInfo::default());
+
                     eszip.add_npm_snapshot(snapshot);
+
                     (Some(root_dir), files)
                 } else {
                     (None, Vec::new())

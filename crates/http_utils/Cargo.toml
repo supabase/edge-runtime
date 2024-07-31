@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-tokio = { workspace = true }
+tokio.workspace = true
 tokio-util = { workspace = true, features = ["rt"] }
-futures-util = { workspace = true }
-bytes = { workspace = true }
-hyper = { workspace = true, features = ["full"] }
-http = { workspace = true }
+hyper_v014 = { workspace = true, features = ["full"] }
+http_v02.workspace = true
+futures-util.workspace = true
+bytes.workspace = true

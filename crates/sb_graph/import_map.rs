@@ -27,7 +27,7 @@ pub fn load_import_map(maybe_path: Option<String>) -> Result<Option<ImportMap>, 
                 .map_err(|_| anyhow!("invalid import map base url"))?;
         }
 
-        let result = parse_from_json(&base_url, json_str.as_str())?;
+        let result = parse_from_json(base_url, json_str.as_str())?;
         Ok(Some(result.import_map))
     } else {
         Ok(None)

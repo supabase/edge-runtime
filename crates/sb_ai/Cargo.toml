@@ -10,15 +10,18 @@ license = "MIT"
 path = "lib.rs"
 
 [dependencies]
-anyhow.workspace = true
 deno_core.workspace = true
-log = { workspace = true }
+
+anyhow.workspace = true
+log.workspace = true
 serde.workspace = true
-ort = { git = "https://github.com/pykeio/ort", default-features = false, features = [ "ndarray", "half", "load-dynamic" ] }
-ndarray = "0.15"
-ndarray-linalg = "0.15"
-tokenizers = { version = ">=0.13.4", default-features = false, features = [ "onig" ] }
-rand = "0.8"
 tokio.workspace = true
 once_cell.workspace = true
 tracing.workspace = true
+
+ndarray = "0.15"
+ndarray-linalg = "0.15"
+rand = "0.8"
+tokenizers = { version = ">=0.13.4", default-features = false, features = [ "onig" ] }
+
+ort = { git = "https://github.com/pykeio/ort", default-features = false, features = [ "ndarray", "half", "load-dynamic" ] }

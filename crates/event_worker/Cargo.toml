@@ -11,8 +11,10 @@ license = "MIT"
 path = "lib.rs"
 
 [dependencies]
-base_mem_check = { version = "0.1.0", path = "../base_mem_check" }
 deno_core.workspace = true
+
+base_mem_check = { version = "0.1.0", path = "../base_mem_check" }
+
 uuid.workspace = true
 serde.workspace = true
 anyhow.workspace = true

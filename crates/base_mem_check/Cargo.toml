@@ -5,4 +5,5 @@ edition = "2021"
 
 [dependencies]
 deno_core.workspace = true
+
 serde.workspace = true

@@ -45,7 +45,7 @@ impl Permissions {
 
 deno_core::extension!(
     sb_core_permissions,
-options = { net_access_disabled: bool, allow_net: Option<Vec<NetDescriptor>> },
+    options = { net_access_disabled: bool, allow_net: Option<Vec<NetDescriptor>> },
     state = |state, options| {
         state.put::<Permissions>(Permissions::new(options.net_access_disabled, options.allow_net));
     }

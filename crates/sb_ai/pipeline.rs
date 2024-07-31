@@ -9,8 +9,8 @@ use futures::{FutureExt, StreamExt, TryFutureExt};
 use futures_util::io::AllowStdIo;
 use once_cell::sync::Lazy;
 use ort::{
-    CUDAExecutionProvider, ExecutionProvider, ExecutionProviderDispatch, GraphOptimizationLevel,
-    Session, SessionBuilder,
+    CPUExecutionProvider, CUDAExecutionProvider, ExecutionProvider, ExecutionProviderDispatch,
+    GraphOptimizationLevel, Session, SessionBuilder,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -288,12 +288,29 @@ pub(crate) trait PipelineDefinition: Send + Sync {
 
         Ok(Session::builder()?
             .with_optimization_level(GraphOptimizationLevel::Level3)?
+            // NOTE(Nyannyacha): This is set to prevent memory leaks caused by different input
+            // shapes.
+            //
+            // Backgrounds:
+            // [1]: https://github.com/microsoft/onnxruntime/issues/11118
+            // [2]: https://github.com/microsoft/onnxruntime/blob/main/onnxruntime/core/framework/session_options.h#L95-L110
             .with_memory_pattern(false)?
             .with_intra_threads(orm_threads)?)
     }
 
     fn execution_providers(&self) -> Box<dyn Iterator<Item = ExecutionProviderDispatch>> {
-        Box::new(None.into_iter())
+        Box::new(
+            [
+                // NOTE(Nyannacha): See the comment above. This makes `enable_cpu_mem_arena` set to
+                // False.
+                //
+                // Backgrounds:
+                // [1]: https://docs.rs/ort/2.0.0-rc.4/src/ort/execution_providers/cpu.rs.html#9-18
+                // [2]: https://docs.rs/ort/2.0.0-rc.4/src/ort/execution_providers/cpu.rs.html#46-50
+                CPUExecutionProvider::default().build(),
+            ]
+            .into_iter(),
+        )
     }
 
     fn run(

@@ -272,4 +272,16 @@ class Pipeline {
     }
 }
 
-export default { Session, Pipeline };
+const MAIN_WORKER_API = {
+    tryCleanupUnusedPipeline: () => /* async */ core.ops.op_sb_ai_try_cleanup_unused_pipeline(),
+};
+
+const USER_WORKER_API = {
+    Session,
+    Pipeline
+};
+
+export {
+    MAIN_WORKER_API,
+    USER_WORKER_API,
+};

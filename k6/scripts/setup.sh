@@ -1,14 +1,19 @@
 #!/bin/bash
 
+PWD=$(pwd)
 K6_VERSION="v0.52.0"
 OS="$(uname -s)"
+SCRIPT=$(readlink -f "$0")
+SCRIPTPATH=$(dirname "$SCRIPT")
+
+cd $SCRIPTPATH
 
 if ! command -v npm &> /dev/null; then
     echo "npm is not installed"
     exit 1
 fi
 
-if ! command -v k6 &> /dev/null
+if ! command -v k6 &> /dev/null || [[ "$1" = "-f" ]];
 then
     case "${OS}" in
         Linux*)
@@ -61,3 +66,5 @@ export K6_TARGET="http://127.0.0.1:9998"
 export K6_RUN_PROFILE="performance"
 
 npm install
+
+cd $PWD

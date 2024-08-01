@@ -17,6 +17,7 @@ deno_core::extension!(
         op_sb_ai_run_model,
         op_sb_ai_init_pipeline,
         op_sb_ai_run_pipeline,
+        op_sb_ai_try_cleanup_unused_pipeline,
     ],
     esm_entry_point = "ext:sb_ai/js/ai.js",
     esm = [
@@ -79,4 +80,10 @@ pub async fn op_sb_ai_run_pipeline(
         },
     )
     .await
+}
+
+#[op2(async)]
+#[serde]
+pub async fn op_sb_ai_try_cleanup_unused_pipeline() -> Result<serde_json::Value, anyhow::Error> {
+    pipeline::cleanup().await
 }

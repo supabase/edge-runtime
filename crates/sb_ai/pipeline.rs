@@ -724,3 +724,56 @@ pub async fn run(
 
     runner.run(state, input).await
 }
+
+#[derive(Serialize, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+struct CleanupResult {
+    dropped_task_count: usize,
+    dropped_session_count: usize,
+}
+
+pub async fn cleanup() -> Result<serde_json::Value, AnyError> {
+    let mut result = CleanupResult::default();
+
+    {
+        let mut guard = TASKS.write().await;
+        let mut to_be_removed = vec![];
+        for (key, task) in &mut *guard {
+            if Arc::strong_count(task) > 1 {
+                continue;
+            }
+
+            to_be_removed.push(key.clone());
+        }
+        for key in to_be_removed {
+            let old_task = guard.remove(&key);
+            debug_assert!(old_task.is_some());
+            result.dropped_task_count += 1;
+        }
+    }
+
+    {
+        let mut guard = ONNX_SESSIONS.lock().await;
+        let mut to_be_removed = vec![];
+        for (key, store) in &mut *guard {
+            let maybe_session = store.lock().await;
+            if let Some(session) = &*maybe_session {
+                if Arc::strong_count(session) > 1 {
+                    continue;
+                }
+            }
+            if Arc::strong_count(store) > 1 {
+                continue;
+            }
+
+            to_be_removed.push(key.clone());
+        }
+        for key in to_be_removed {
+            let old_store = guard.remove(&key);
+            debug_assert!(old_store.is_some());
+            result.dropped_session_count += 1;
+        }
+    }
+
+    serde_json::to_value(result).context("failed to serialize cleanup result")
+}

@@ -6,7 +6,7 @@ import { Options } from "k6/options";
 import { target } from "../config";
 
 /** @ts-ignore */
-import { randomIntBetween } from "https://jslib.k6.io/k6-utils/1.2.0/index.js"
+import { randomIntBetween } from "https://jslib.k6.io/k6-utils/1.2.0/index.js";
 
 const MB = 1048576;
 const MSG_CANCELED = "WorkerRequestCancelled: request has been cancelled by supervisor";

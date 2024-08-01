@@ -18,6 +18,9 @@ import { Options } from "k6/options";
 
 import { target } from "../config";
 
+/** @ts-ignore */
+import { randomIntBetween } from "https://jslib.k6.io/k6-utils/1.2.0/index.js";
+
 export const options: Options = {
     scenarios: {
         simple: {
@@ -28,11 +31,23 @@ export const options: Options = {
     }
 };
 
-export default function gte() {
+const GENERATORS = import("../generators");
+
+export async function setup() {
+    const pkg = await GENERATORS;
+    return {
+        words: pkg.makeText(1000)
+    }
+}
+
+export default function gte(data: { words: string[] }) {
+    const wordIdx = randomIntBetween(0, data.words.length - 1);
+
+    console.debug(`WORD[${wordIdx}]: ${data.words[wordIdx]}`);
     const res = http.post(
         `${target}/k6-gte`,
         JSON.stringify({
-            "text_for_embedding": "meow"
+            "text_for_embedding": data.words[wordIdx]
         })
     );
 

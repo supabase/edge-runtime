@@ -1,6 +1,6 @@
 #!/bin/bash
 
-K6_VERSION="v0.49.0"
+K6_VERSION="v0.52.0"
 OS="$(uname -s)"
 
 if ! command -v npm &> /dev/null; then

@@ -215,8 +215,9 @@ pub enum EszipDataSectionMetadata {
 #[derive(Debug, Clone)]
 pub struct EszipDataSection {
     inner: Arc<Mutex<Cursor<Vec<u8>>>>,
-    initial_offset: u64,
     modules: EszipV2Modules,
+    initial_offset: u64,
+    sources_len: Arc<Mutex<Option<u64>>>,
     locs_by_specifier: Arc<Mutex<Option<HashMap<String, EszipDataSectionMetadata>>>>,
     loaded_locs_by_specifier: Arc<Mutex<HashMap<String, EszipDataLoc>>>,
 }
@@ -225,8 +226,9 @@ impl EszipDataSection {
     pub fn new(inner: Cursor<Vec<u8>>, initial_offset: u64, modules: EszipV2Modules) -> Self {
         Self {
             inner: Arc::new(Mutex::new(inner)),
-            initial_offset,
             modules,
+            initial_offset,
+            sources_len: Arc::default(),
             locs_by_specifier: Arc::default(),
             loaded_locs_by_specifier: Arc::default(),
         }
@@ -349,6 +351,33 @@ impl EszipDataSection {
             if loc.source_map_length == 0 {
                 break 'scope None::<Vec<u8>>;
             }
+
+            let sources_len = {
+                let mut guard = self.sources_len.lock().await;
+
+                match &mut *guard {
+                    Some(len) => *len,
+                    opt @ None => {
+                        let mut io = AllowStdIo::new({
+                            inner.set_position(self.initial_offset);
+                            inner.by_ref()
+                        });
+
+                        let sources_len = read_u32(&mut io).await? as usize;
+
+                        *opt = Some(sources_len as u64);
+                        sources_len as u64
+                    }
+                }
+            };
+
+            let mut io = AllowStdIo::new({
+                // NOTE: 4 byte offset in the middle represents the full source / source map length.
+                inner.set_position(
+                    self.initial_offset + 4 + sources_len + 4 + loc.source_map_offset as u64,
+                );
+                inner.by_ref()
+            });
 
             let wake_guard = scopeguard::guard(&self.modules, |modules| {
                 Self::wake_source_map_slot(modules, specifier, || EszipV2SourceSlot::Taken);

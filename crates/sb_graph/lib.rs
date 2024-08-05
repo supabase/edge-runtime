@@ -259,16 +259,19 @@ impl EszipDataSection {
                         }
 
                         EszipV2SourceSlot::Ready(_) | EszipV2SourceSlot::Taken => {
-                            return Some((
-                                specifier.clone(),
-                                EszipDataSectionMetadata::PendingOrAlreadyLoaded,
-                            ));
+                            loc.source_length = 0;
+                            loc.source_offset = 0;
                         }
                     }
 
                     if let EszipV2SourceSlot::Pending { offset, length, .. } = source_map_slot {
                         loc.source_map_offset = *offset;
                         loc.source_map_length = *length;
+                    } else if loc.source_length == 0 && loc.source_offset == 0 {
+                        return Some((
+                            specifier.clone(),
+                            EszipDataSectionMetadata::PendingOrAlreadyLoaded,
+                        ));
                     }
 
                     Some((
@@ -306,7 +309,11 @@ impl EszipDataSection {
             inner.by_ref()
         });
 
-        let source_bytes = {
+        let source_bytes = 'scope: {
+            if loc.source_length == 0 {
+                break 'scope None::<Vec<u8>>;
+            }
+
             let wake_guard = scopeguard::guard(&self.modules, |modules| {
                 Self::wake_source_slot(modules, specifier, || EszipV2SourceSlot::Taken);
             });
@@ -329,12 +336,14 @@ impl EszipDataSection {
 
             let _ = ScopeGuard::into_inner(wake_guard);
 
-            source_bytes
+            Some(source_bytes)
         };
 
-        Self::wake_source_slot(&self.modules, specifier, move || {
-            EszipV2SourceSlot::Ready(Arc::from(source_bytes))
-        });
+        if let Some(bytes) = source_bytes {
+            Self::wake_source_slot(&self.modules, specifier, move || {
+                EszipV2SourceSlot::Ready(Arc::from(bytes))
+            });
+        }
 
         let source_map_bytes = 'scope: {
             if loc.source_map_length == 0 {

@@ -260,11 +260,11 @@ impl WorkerPool {
             .as_user_worker()
             .map_or(false, |it| !is_oneshot_policy && it.force_create);
 
-        if let Some(ref active_worker_uuid) = self.maybe_active_worker(&service_path, force_create)
-        {
+        if let Some((key, profile)) = self.maybe_active_worker(&service_path, force_create) {
             if tx
                 .send(Ok(CreateUserWorkerResult {
-                    key: *active_worker_uuid,
+                    key,
+                    token: profile.cancel.clone(),
                 }))
                 .is_err()
             {
@@ -437,7 +437,7 @@ impl WorkerPool {
                         permit: permit.map(Arc::new),
                         status: status.clone(),
                         exit: ctx.exit,
-                        cancel,
+                        cancel: cancel.clone(),
                     };
 
                     if worker_pool_msgs_tx
@@ -446,12 +446,20 @@ impl WorkerPool {
                     {
                         error!("user worker msgs receiver dropped")
                     }
-                    if tx.send(Ok(CreateUserWorkerResult { key: uuid })).is_err() {
+
+                    if tx
+                        .send(Ok(CreateUserWorkerResult {
+                            key: uuid,
+                            token: cancel,
+                        }))
+                        .is_err()
+                    {
                         error!("main worker receiver dropped")
                     };
 
                     status.demand.fetch_add(1, Ordering::Release);
                 }
+
                 Err(e) => {
                     if tx.send(Err(e)).is_err() {
                         error!("main worker receiver dropped")
@@ -622,7 +630,11 @@ impl WorkerPool {
         }
     }
 
-    fn maybe_active_worker(&mut self, service_path: &String, force_create: bool) -> Option<Uuid> {
+    fn maybe_active_worker(
+        &mut self,
+        service_path: &String,
+        force_create: bool,
+    ) -> Option<(Uuid, &UserWorkerProfile)> {
         if force_create {
             return None;
         }
@@ -639,18 +651,15 @@ impl WorkerPool {
             .map(|it| it.status.is_retired.clone())
         {
             Some(is_retired) if !is_retired.is_raised() => {
-                self.user_workers
-                    .get(&worker_uuid)
-                    .map(|it| it.status.demand.as_ref())
-                    .unwrap()
-                    .fetch_add(1, Ordering::Release);
+                let profile = self.user_workers.get(&worker_uuid).unwrap();
 
-                Some(worker_uuid)
+                profile.status.demand.fetch_add(1, Ordering::Release);
+                Some((worker_uuid, profile))
             }
 
             _ => {
                 self.retire(&worker_uuid);
-                self.maybe_active_worker(service_path, force_create)
+                self.maybe_active_worker(service_path, false)
             }
         }
     }

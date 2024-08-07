@@ -223,6 +223,7 @@ pub type SendRequestResult = (Response<Body>, mpsc::UnboundedSender<()>);
 #[derive(Debug)]
 pub struct CreateUserWorkerResult {
     pub key: Uuid,
+    pub token: CancellationToken,
 }
 
 #[derive(Debug)]

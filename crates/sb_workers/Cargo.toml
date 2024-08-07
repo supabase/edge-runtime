@@ -25,6 +25,7 @@ futures-util.workspace = true
 tokio-util.workspace = true
 thiserror.workspace = true
 scopeguard.workspace = true
+base_rt = { version = "0.1.0", path = "../base_rt" }
 http_utils = { version = "0.1.0", path = "../http_utils" }
 event_worker = { version = "0.1.0", path = "../event_worker" }
 sb_graph = { version = "0.1.0", path = "../sb_graph" }

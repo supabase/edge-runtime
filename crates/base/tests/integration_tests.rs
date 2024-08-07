@@ -2099,6 +2099,42 @@ async fn test_should_not_hang_when_forced_redirection_for_specifiers() {
     }
 }
 
+#[tokio::test]
+#[serial]
+async fn test_fastify_v4_package() {
+    integration_test!(
+        "./test_cases/main",
+        NON_SECURE_PORT,
+        "fastify-v4",
+        None,
+        None,
+        None,
+        None,
+        (|resp| async {
+            assert_eq!(resp.unwrap().text().await.unwrap(), "meow");
+        }),
+        TerminationToken::new()
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_fastify_latest_package() {
+    integration_test!(
+        "./test_cases/main",
+        NON_SECURE_PORT,
+        "fastify-latest",
+        None,
+        None,
+        None,
+        None,
+        (|resp| async {
+            assert_eq!(resp.unwrap().text().await.unwrap(), "meow");
+        }),
+        TerminationToken::new()
+    );
+}
+
 async fn test_allow_net<F, R>(allow_net: Option<Vec<&str>>, url: &str, callback: F)
 where
     F: FnOnce(Result<Response, reqwest::Error>) -> R,

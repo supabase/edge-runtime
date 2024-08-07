@@ -1,3 +1,4 @@
+use crate::rt::SYNC_IO_RT;
 use crate::{EszipStaticFiles, FileBackedVfs};
 use deno_core::normalize_path;
 use deno_fs::{AccessCheckCb, FsDirEntry, FsFileType, OpenOptions};
@@ -10,7 +11,8 @@ use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub struct StaticFs {
-    files: EszipStaticFiles,
+    static_files: EszipStaticFiles,
+    base_dir_path: PathBuf,
     vfs_path: PathBuf,
     snapshot: Option<ValidSerializedNpmResolutionSnapshot>,
     vfs: Arc<FileBackedVfs>,
@@ -19,13 +21,15 @@ pub struct StaticFs {
 impl StaticFs {
     pub fn new(
         static_files: EszipStaticFiles,
+        base_dir_path: PathBuf,
         vfs_path: PathBuf,
         vfs: Arc<FileBackedVfs>,
         snapshot: Option<ValidSerializedNpmResolutionSnapshot>,
     ) -> Self {
         Self {
             vfs,
-            files: static_files,
+            static_files,
+            base_dir_path,
             vfs_path,
             snapshot,
         }
@@ -294,16 +298,37 @@ impl deno_fs::FileSystem for StaticFs {
             let buf = file.read_all_sync()?;
             Ok(buf)
         } else {
-            let normalize_path = normalize_path(path);
-            let path = normalize_path.to_str().unwrap();
-            let is_file_in_vfs = self.files.contains_key(path);
-            if is_file_in_vfs {
-                let res = self.files.get(path).unwrap().to_vec();
-                Ok(res)
+            let eszip = self.vfs.eszip.as_ref();
+            let path = if path.is_relative() {
+                self.base_dir_path.join(path)
+            } else {
+                path.to_path_buf()
+            };
+
+            let normalized = normalize_path(path);
+
+            if let Some(file) = self
+                .static_files
+                .get(&normalized)
+                .and_then(|it| eszip.ensure_module(it))
+            {
+                let Some(res) = std::thread::scope(|s| {
+                    s.spawn(move || SYNC_IO_RT.block_on(async move { file.source().await }))
+                        .join()
+                        .unwrap()
+                }) else {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        "No content available",
+                    )
+                    .into());
+                };
+
+                Ok(res.to_vec())
             } else {
                 Err(std::io::Error::new(
                     std::io::ErrorKind::NotFound,
-                    format!("path not found {}", path),
+                    format!("path not found: {}", normalized.to_string_lossy()),
                 )
                 .into())
             }

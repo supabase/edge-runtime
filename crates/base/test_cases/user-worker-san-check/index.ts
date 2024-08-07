@@ -1,4 +1,4 @@
-let blocklist: string[] = Deno.readTextFileSync("./mnt/data/test_cases/user-worker-san-check/.blocklisted")
+let blocklist: string[] = Deno.readTextFileSync(".blocklisted")
     .trim()
     .split("\n");
 

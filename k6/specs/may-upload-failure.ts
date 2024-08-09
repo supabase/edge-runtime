@@ -4,12 +4,12 @@ import { check } from "k6";
 import { Options } from "k6/options";
 
 import { target } from "../config";
+import { MSG_CANCELED } from "../constants";
 
 /** @ts-ignore */
 import { randomIntBetween } from "https://jslib.k6.io/k6-utils/1.2.0/index.js";
 
 const MB = 1048576;
-const MSG_CANCELED = "WorkerRequestCancelled: request has been cancelled by supervisor";
 
 const dummyBinary = new Uint8Array(randomIntBetween(25 * MB, 35 * MB));
 const dummyFile = http.file(dummyBinary, "dummy", "application/octet-stream");

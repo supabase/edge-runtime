@@ -38,3 +38,4 @@ ndarray-linalg = "0.15"
 tokenizers = { version = ">=0.13.4", default-features = false, features = ["onig"] }
 rand = "0.8"
 convert_case = "0.6"
+base_rt = { version = "0.1.0", path = "../base_rt" }

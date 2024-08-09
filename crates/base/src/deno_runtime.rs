@@ -4,10 +4,11 @@ use crate::rt_worker::worker::DuplexStreamEntry;
 use crate::utils::path::find_up;
 use crate::utils::units::{bytes_to_display, mib_to_bytes};
 
-use anyhow::{anyhow, bail, Context, Error};
+use anyhow::{anyhow, bail, Error};
 use base_mem_check::{MemCheckState, WorkerHeapStatistics};
+use base_rt::DenoRuntimeDropToken;
+use base_rt::{get_current_cpu_time_ns, BlockingScopeCPUUsage};
 use cooked_waker::{IntoWaker, WakeRef};
-use cpu_timer::get_thread_time;
 use ctor::ctor;
 use deno_core::error::AnyError;
 use deno_core::url::Url;
@@ -22,9 +23,8 @@ use deno_tls::rustls::RootCertStore;
 use deno_tls::RootCertStoreProvider;
 use futures_util::future::poll_fn;
 use futures_util::task::AtomicWaker;
-use log::{error, trace};
+use log::error;
 use once_cell::sync::{Lazy, OnceCell};
-use base_rt::DenoRuntimeDropToken;
 use sb_core::http::sb_core_http;
 use sb_core::http_start::sb_core_http_start;
 use sb_core::util::sync::AtomicFlag;
@@ -45,7 +45,7 @@ use std::time::Duration;
 use tokio::sync::{mpsc, OwnedSemaphorePermit, Semaphore};
 use tokio::time::interval;
 use tokio_util::sync::{CancellationToken, PollSemaphore};
-use tracing::debug;
+use tracing::{debug, trace};
 
 use crate::snapshot;
 use event_worker::events::{EventMetadata, WorkerEventWithMetadata};
@@ -928,11 +928,10 @@ where
                 mem_state.waker.register(waker);
 
                 trace!(
-                    "name: {:?}, thread_id: {:?}, accumulated_cpu_time: {}ms, malloced: {}",
-                    name.as_ref(),
-                    thread_id,
-                    *accumulated_cpu_time_ns / 1_000_000,
-                    bytes_to_display(total_malloced_bytes as u64)
+                    ?name,
+                    ?thread_id,
+                    accumulated_cpu_time_ms = *accumulated_cpu_time_ns / 1_000_000,
+                    malloced_mb = bytes_to_display(total_malloced_bytes as u64)
                 );
             }
 
@@ -1023,10 +1022,6 @@ pub fn import_meta_resolve_callback(
     referrer: String,
 ) -> Result<ModuleSpecifier, AnyError> {
     loader.resolve(&specifier, &referrer, ResolutionKind::DynamicImport)
-}
-
-fn get_current_cpu_time_ns() -> Result<i64, Error> {
-    get_thread_time().context("can't get current thread time")
 }
 
 fn with_cpu_metrics_guard<'l, F, R>(

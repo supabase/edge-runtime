@@ -2,9 +2,10 @@ mod onnx;
 mod session;
 
 use anyhow::{bail, Error};
+use base_rt::BlockingScopeCPUUsageMetricExt;
 use deno_core::error::AnyError;
-use deno_core::{op2, V8CrossThreadTaskSpawner, V8TaskSpawner};
-use deno_core::{serde_json, OpState};
+use deno_core::OpState;
+use deno_core::{op2, JsRuntime, V8CrossThreadTaskSpawner, V8TaskSpawner};
 use log::error;
 use ndarray::{Array1, Array2, ArrayView3, Axis, Ix3};
 use ndarray_linalg::norm::{normalize, NormalizeAxis};
@@ -56,11 +57,19 @@ fn init_gte(state: &mut OpState) -> Result<(), Error> {
 
     let models_dir = std::env::var("SB_AI_MODELS_DIR").unwrap_or("/etc/sb_ai/models".to_string());
 
-    let (req_tx, mut req_rx) = mpsc::unbounded_channel::<GteModelRequest>();
+    spawner.spawn(move |scope| {
+        let state = JsRuntime::op_state_from(scope);
+        let mut state = state.borrow_mut();
 
-    state.put::<mpsc::UnboundedSender<GteModelRequest>>(req_tx);
+        let mut req_rx = {
+            let (req_tx, req_rx) = mpsc::unbounded_channel::<GteModelRequest>();
+            let _ = state.try_take::<mpsc::UnboundedSender<GteModelRequest>>();
 
-    spawner.spawn(move |_| {
+            state.put::<mpsc::UnboundedSender<GteModelRequest>>(req_tx);
+
+            req_rx
+        };
+
         let session =
             load_session_from_file(Path::new(&models_dir).join("gte-small").join("model.onnx"));
 
@@ -162,15 +171,19 @@ fn init_gte(state: &mut OpState) -> Result<(), Error> {
 
                 let req = req.unwrap();
 
-                cross_thread_spawner.spawn(move |_| {
-                    let result = run_inference_fn(req.prompt, req.mean_pool, req.normalize);
+                cross_thread_spawner.spawn(move |state| {
+                    JsRuntime::op_state_from(state)
+                        .borrow_mut()
+                        .spawn_cpu_accumul_blocking_scope(move || {
+                            let result = run_inference_fn(req.prompt, req.mean_pool, req.normalize);
 
-                    if req.result_tx.send(result).is_err() {
-                        error!("sb_ai: failed to send inference results (channel error)");
-                    };
+                            if req.result_tx.send(result).is_err() {
+                                error!("sb_ai: failed to send inference results (channel error)");
+                            };
+                        });
                 });
             }
-        }));
+        }))
     });
 
     Ok(())

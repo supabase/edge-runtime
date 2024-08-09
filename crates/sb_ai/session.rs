@@ -1,13 +1,11 @@
 use deno_core::error::AnyError;
-use deno_core::serde_json;
 use once_cell::sync::Lazy;
-use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::usize;
 use std::{path::PathBuf, sync::Arc};
 
-use anyhow::{anyhow, Context, Error};
+use anyhow::{anyhow, Error};
 use ort::{
     CPUExecutionProvider, ExecutionProviderDispatch, GraphOptimizationLevel, Session,
     SessionBuilder,

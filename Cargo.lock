@@ -440,6 +440,7 @@ dependencies = [
  "tokio",
  "tokio-rustls 0.25.0",
  "tokio-util",
+ "tracing",
  "tracing-subscriber",
  "tungstenite",
  "url",
@@ -508,9 +509,12 @@ dependencies = [
 name = "base_rt"
 version = "0.1.0"
 dependencies = [
+ "cpu_timer",
+ "deno_core",
  "once_cell",
  "tokio",
  "tokio-util",
+ "tracing",
 ]
 
 [[package]]
@@ -4941,6 +4945,7 @@ name = "sb_ai"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base_rt",
  "clap 4.5.0",
  "convert_case 0.6.0",
  "ctor",

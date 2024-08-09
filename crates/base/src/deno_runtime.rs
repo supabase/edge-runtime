@@ -23,7 +23,7 @@ use futures_util::future::poll_fn;
 use futures_util::task::AtomicWaker;
 use log::{error, trace};
 use once_cell::sync::{Lazy, OnceCell};
-use sb_core::conn_sync::DenoRuntimeDropToken;
+use base_rt::DenoRuntimeDropToken;
 use sb_core::http::sb_core_http;
 use sb_core::http_start::sb_core_http_start;
 use sb_core::util::sync::AtomicFlag;

@@ -1,6 +1,7 @@
 use std::num::NonZeroUsize;
 
 use once_cell::sync::Lazy;
+use tokio_util::sync::CancellationToken;
 
 pub const DEFAULT_PRIMARY_WORKER_POOL_SIZE: usize = 2;
 pub const DEFAULT_USER_WORKER_POOL_SIZE: usize = 1;
@@ -56,3 +57,15 @@ pub static USER_WORKER_RT: Lazy<tokio_util::task::LocalPoolHandle> = Lazy::new(|
         )
     })
 });
+
+#[derive(Clone)]
+pub struct DenoRuntimeDropToken(pub CancellationToken);
+
+impl std::ops::Deref for DenoRuntimeDropToken {
+    type Target = CancellationToken;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+

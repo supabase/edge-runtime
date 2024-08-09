@@ -1,9 +1,10 @@
 use anyhow::{anyhow, bail, Context};
+use base_rt::BlockingScopeCPUUsageMetricExt;
 use convert_case::Casing;
 use deno_core::error::AnyError;
 use deno_core::url::Url;
-use deno_core::OpState;
 use deno_core::{serde_json, V8CrossThreadTaskSpawner, V8TaskSpawner};
+use deno_core::{JsRuntime, OpState};
 use futures::future::{BoxFuture, LocalBoxFuture};
 use futures::{FutureExt, StreamExt, TryFutureExt};
 use futures_util::io::AllowStdIo;
@@ -391,13 +392,17 @@ where
     T: PipelineDefinition + 'static,
 {
     let cross_thread_spawner = state.borrow::<V8CrossThreadTaskSpawner>().clone();
-    let (req_tx, mut req_rx) = mpsc::unbounded_channel::<PipelineRequest<T::Input, T::Output>>();
+    let mut req_rx = {
+        let (req_tx, req_rx) = mpsc::unbounded_channel::<PipelineRequest<T::Input, T::Output>>();
 
-    let _ = state.try_take::<PipelineTx<T>>();
-    let _ = state.try_take::<PipelineWeakTx<T>>();
+        let _ = state.try_take::<PipelineTx<T>>();
+        let _ = state.try_take::<PipelineWeakTx<T>>();
 
-    state.put(PipelineWeakTx::<T>(req_tx.downgrade()));
-    state.put(PipelineTx::<T>(req_tx));
+        state.put(PipelineWeakTx::<T>(req_tx.downgrade()));
+        state.put(PipelineTx::<T>(req_tx));
+
+        req_rx
+    };
 
     async move {
         loop {
@@ -409,13 +414,20 @@ where
             let session = task.onnx_session.clone();
             let tokenizer = task.maybe_tokenizer.clone();
 
-            cross_thread_spawner.spawn(move |_| {
-                let result = def.run(session.as_ref(), tokenizer.as_deref(), &req.input);
+            cross_thread_spawner.spawn(move |state| {
+                drop(
+                    JsRuntime::op_state_from(state)
+                        .borrow_mut()
+                        .spawn_cpu_accumul_blocking_scope(move || {
+                            let result =
+                                def.run(session.as_ref(), tokenizer.as_deref(), &req.input);
 
-                if let Err(_result) = req.tx.send(result) {
-                    error!("failed to send inference result");
-                };
-            });
+                            if let Err(_result) = req.tx.send(result) {
+                                error!("failed to send inference result");
+                            };
+                        }),
+                )
+            })
         }
     }
 }
@@ -629,7 +641,7 @@ where
 {
     let def = Arc::new(arg);
     let name = def.name();
-    let spawn_arg = 'scope: {
+    let spawner = 'scope: {
         let Some(state) = state else {
             break 'scope None;
         };
@@ -652,7 +664,7 @@ where
             spawner
         };
 
-        Some((state, spawner))
+        Some(spawner)
     };
 
     let task = match ensure_task_ready(&*def).await {
@@ -660,8 +672,9 @@ where
         Err(err) => bail!("failed to create task: {err:?}"),
     };
 
-    if let Some((state, spawner)) = spawn_arg {
-        spawner.spawn(move |_| {
+    if let Some(spawner) = spawner {
+        spawner.spawn(move |scope| {
+            let state = JsRuntime::op_state_from(scope);
             tokio::task::spawn(try_create_pipeline_fut(&mut state.borrow_mut(), def, task));
         });
     }

@@ -9,16 +9,33 @@ license = "MIT"
 [lib]
 path = "lib.rs"
 
+[[bin]]
+name = "preload-sb-ai-defs"
+path = "preload_defs.rs"
+
 [dependencies]
 anyhow.workspace = true
 deno_core.workspace = true
-log = { workspace = true }
+log.workspace = true 
 serde.workspace = true
-ort = { git = "https://github.com/pykeio/ort", default-features = false, features = [ "ndarray", "half", "load-dynamic" ] }
+futures.workspace = true
+futures-util = { workspace = true, features = ["io"] }
+fxhash.workspace = true
+faster-hex.workspace = true
+sha2.workspace = true
+reqwest.workspace = true
+tokio.workspace = true
+tokio-util = { workspace = true, features = ["compat"] }
+clap = { workspace = true, features = ["derive"] }
+once_cell.workspace = true
+ctor.workspace = true
+scopeguard.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+ort = { git = "https://github.com/pykeio/ort", default-features = false, features = ["ndarray", "half", "load-dynamic", "cuda"] }
 ndarray = "0.15"
 ndarray-linalg = "0.15"
-tokenizers = { version = ">=0.13.4", default-features = false, features = [ "onig" ] }
+tokenizers = { version = ">=0.13.4", default-features = false, features = ["onig"] }
 rand = "0.8"
-tokio.workspace = true
-once_cell.workspace = true
-tracing.workspace = true
+convert_case = "0.6"
+base_rt = { version = "0.1.0", path = "../base_rt" }

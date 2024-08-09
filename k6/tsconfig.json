@@ -22,6 +22,7 @@
       "allowSyntheticDefaultImports": true,
       "experimentalDecorators": true,
       "emitDecoratorMetadata": true,
+      "downlevelIteration": true,
   
       "allowJs": true,
       "strict": true,

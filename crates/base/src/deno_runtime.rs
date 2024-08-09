@@ -3,10 +3,11 @@ use crate::rt_worker::supervisor::{CPUUsage, CPUUsageMetrics};
 use crate::rt_worker::worker::DuplexStreamEntry;
 use crate::utils::units::{bytes_to_display, mib_to_bytes};
 
-use anyhow::{anyhow, bail, Context, Error};
+use anyhow::{anyhow, bail, Error};
 use base_mem_check::{MemCheckState, WorkerHeapStatistics};
+use base_rt::DenoRuntimeDropToken;
+use base_rt::{get_current_cpu_time_ns, BlockingScopeCPUUsage};
 use cooked_waker::{IntoWaker, WakeRef};
-use cpu_timer::get_thread_time;
 use ctor::ctor;
 use deno_core::error::AnyError;
 use deno_core::url::Url;
@@ -22,9 +23,8 @@ use deno_tls::rustls::RootCertStore;
 use deno_tls::RootCertStoreProvider;
 use futures_util::future::poll_fn;
 use futures_util::task::AtomicWaker;
-use log::{error, trace};
+use log::error;
 use once_cell::sync::{Lazy, OnceCell};
-use sb_core::conn_sync::DenoRuntimeDropToken;
 use sb_core::http::sb_core_http;
 use sb_core::http_start::sb_core_http_start;
 use sb_core::util::sync::AtomicFlag;
@@ -42,6 +42,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::interval;
 use tokio_util::sync::CancellationToken;
+use tracing::trace;
 
 use crate::snapshot;
 use event_worker::events::{EventMetadata, WorkerEventWithMetadata};
@@ -815,6 +816,10 @@ where
             };
 
             let cpu_time_after_poll_ns = get_current_cpu_time_ns().unwrap();
+            let blocking_cpu_time_ns = BlockingScopeCPUUsage::get_cpu_usage_ns_and_reset(
+                &mut js_runtime.op_state().borrow_mut(),
+            );
+
             let diff_cpu_time_ns = if need_pool_event_loop {
                 cpu_time_after_poll_ns - current_cpu_time_ns
             } else {
@@ -822,6 +827,7 @@ where
             };
 
             accumulated_cpu_time_ns += diff_cpu_time_ns;
+            accumulated_cpu_time_ns += blocking_cpu_time_ns;
 
             send_cpu_metrics_fn(CPUUsageMetrics::Leave(CPUUsage {
                 accumulated: accumulated_cpu_time_ns,
@@ -835,11 +841,11 @@ where
                 mem_state.waker.register(waker);
 
                 trace!(
-                    "name: {:?}, thread_id: {:?}, accumulated_cpu_time: {}ms, malloced: {}",
-                    name.as_ref(),
-                    thread_id,
-                    accumulated_cpu_time_ns / 1_000_000,
-                    bytes_to_display(total_malloced_bytes as u64)
+                    ?name,
+                    ?thread_id,
+                    accumulated_cpu_time_ms = accumulated_cpu_time_ns / 1_000_000,
+                    blocking_cpu_time_ms = blocking_cpu_time_ns / 1_000_000,
+                    malloced_mb = bytes_to_display(total_malloced_bytes as u64)
                 );
             }
 
@@ -921,10 +927,6 @@ where
             }
         }
     }
-}
-
-fn get_current_cpu_time_ns() -> Result<i64, Error> {
-    get_thread_time().context("can't get current thread time")
 }
 
 fn set_v8_flags() {

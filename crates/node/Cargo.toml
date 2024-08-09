@@ -49,6 +49,7 @@ num-bigint-dig = "0.8.2"
 num-integer = "0.1.45"
 num-traits = "0.2.14"
 once_cell.workspace = true
+sha2.workspace = true
 p224 = { version = "0.13.0", features = ["ecdh"] }
 p256 = { version = "0.13.2", features = ["ecdh"] }
 p384 = { version = "0.13.0", features = ["ecdh"] }
@@ -65,7 +66,6 @@ scrypt = "0.11.0"
 sec1 = "0.7"
 serde = "1.0.149"
 sha-1 = "0.10.0"
-sha2 = { workspace = true, features = ["oid"] }
 signature = "2.1"
 simd-json = "0.13.4"
 spki = "0.7.2"

@@ -3,10 +3,10 @@ use crate::rt_worker::supervisor::{CPUUsage, CPUUsageMetrics};
 use crate::rt_worker::worker::DuplexStreamEntry;
 use crate::utils::units::{bytes_to_display, mib_to_bytes};
 
-use anyhow::{anyhow, bail, Context, Error};
+use anyhow::{anyhow, bail, Error};
 use base_mem_check::{MemCheckState, WorkerHeapStatistics};
+use base_rt::{get_current_cpu_time_ns, BlockingScopeCPUUsage};
 use cooked_waker::{IntoWaker, WakeRef};
-use cpu_timer::get_thread_time;
 use ctor::ctor;
 use deno_core::error::AnyError;
 use deno_core::url::Url;
@@ -21,7 +21,7 @@ use deno_tls::rustls::RootCertStore;
 use deno_tls::RootCertStoreProvider;
 use futures_util::future::poll_fn;
 use futures_util::task::AtomicWaker;
-use log::{error, trace};
+use log::error;
 use once_cell::sync::{Lazy, OnceCell};
 use base_rt::DenoRuntimeDropToken;
 use sb_core::http::sb_core_http;
@@ -43,7 +43,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::interval;
 use tokio_util::sync::CancellationToken;
-use tracing::debug;
+use tracing::{trace, debug};
 
 use crate::snapshot;
 use event_worker::events::{EventMetadata, WorkerEventWithMetadata};
@@ -882,11 +882,10 @@ where
                 mem_state.waker.register(waker);
 
                 trace!(
-                    "name: {:?}, thread_id: {:?}, accumulated_cpu_time: {}ms, malloced: {}",
-                    name.as_ref(),
-                    thread_id,
-                    *accumulated_cpu_time_ns / 1_000_000,
-                    bytes_to_display(total_malloced_bytes as u64)
+                    ?name,
+                    ?thread_id,
+                    accumulated_cpu_time_ms = *accumulated_cpu_time_ns / 1_000_000,
+                    malloced_mb = bytes_to_display(total_malloced_bytes as u64)
                 );
             }
 

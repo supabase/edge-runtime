@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 
+use crate::serde_json::{Map, Value};
 use anyhow::{anyhow, bail, Context, Error};
 use deno_core::error::AnyError;
 use deno_core::url::Url;
@@ -49,6 +50,7 @@ impl PipelineDefinition for FeatureExtractionPipeline {
         &self,
         session: &Session,
         tokenizer: Option<&Tokenizer>,
+        config: Option<&Map<String, Value>>,
         input: &FeatureExtractionPipelineInput,
     ) -> Result<<Self as PipelineDefinition>::Output, Error> {
         let encoded_prompt = tokenizer
@@ -156,9 +158,10 @@ impl PipelineDefinition for SupabaseGte {
         &self,
         session: &Session,
         tokenizer: Option<&Tokenizer>,
+        config: Option<&Map<String, Value>>,
         input: &Self::Input,
     ) -> Result<Self::Output, anyhow::Error> {
-        self.inner.run(session, tokenizer, input)
+        self.inner.run(session, tokenizer, config, input)
     }
 }
 
@@ -205,8 +208,9 @@ impl PipelineDefinition for GteSmall {
         &self,
         session: &Session,
         tokenizer: Option<&Tokenizer>,
+        config: Option<&Map<String, Value>>,
         input: &Self::Input,
     ) -> Result<Self::Output, AnyError> {
-        self.inner.run(session, tokenizer, input)
+        self.inner.run(session, tokenizer, config, input)
     }
 }

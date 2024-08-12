@@ -1,3 +1,4 @@
+use crate::onnx::ensure_onnx_env_init;
 use anyhow::{anyhow, bail, Context};
 use base_rt::BlockingScopeCPUUsageMetricExt;
 use convert_case::Casing;
@@ -15,6 +16,7 @@ use ort::{
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 use std::borrow::Cow;
 use std::cell::RefCell;
@@ -30,8 +32,6 @@ use tokio::sync::{mpsc, oneshot, Mutex, RwLock};
 use tokio_util::compat::FuturesAsyncWriteCompatExt;
 use tracing::{debug, error, info, info_span, instrument, trace};
 
-use crate::onnx::ensure_onnx_env_init;
-
 type TaskMap = RwLock<HashMap<Cow<'static, str>, Arc<RwLock<Option<Result<Task, Arc<AnyError>>>>>>>;
 type OnnxSessionMap = Mutex<HashMap<Url, Arc<Mutex<Option<Arc<Session>>>>>>;
 
@@ -42,6 +42,7 @@ static ONNX_SESSIONS: Lazy<OnnxSessionMap> = Lazy::new(OnnxSessionMap::default);
 struct Task {
     onnx_session: Arc<Session>,
     maybe_tokenizer: Option<Arc<Tokenizer>>,
+    maybe_config: Option<Arc<Map<String, Value>>>,
 }
 
 impl Task {
@@ -107,9 +108,26 @@ impl Task {
             })
             .await?;
 
+        let maybe_config = info_span!("config")
+            .in_scope(|| async move {
+                if let Some(url) = def.config_url(None) {
+                    let buf = tokio::fs::read(fetch_and_cache_from_url(&url?, "configs").await?)
+                        .map_err(AnyError::new)
+                        .await?;
+
+                    let config = serde_json::from_slice(&buf).map_err(|e| anyhow!(e))?;
+
+                    Ok(Some(Arc::new(config)))
+                } else {
+                    Ok::<_, AnyError>(None)
+                }
+            })
+            .await?;
+
         Ok(Self {
             onnx_session,
             maybe_tokenizer,
+            maybe_config,
         })
     }
 }
@@ -277,10 +295,16 @@ pub(crate) trait PipelineDefinition: Send + Sync {
     type Output: Serialize + Send;
 
     fn make() -> Self;
+
     fn name(&self) -> Cow<'static, str>;
 
     fn model_url(&self, requested_variation: Option<&str>) -> Result<Url, AnyError>;
+
     fn tokenizer_url(&self, _requested_variation: Option<&str>) -> Option<Result<Url, AnyError>> {
+        None
+    }
+
+    fn config_url(&self, _requested_variation: Option<&str>) -> Option<Result<Url, AnyError>> {
         None
     }
 
@@ -330,6 +354,7 @@ pub(crate) trait PipelineDefinition: Send + Sync {
         &self,
         session: &Session,
         tokenizer: Option<&Tokenizer>,
+        config: Option<&Map<String, Value>>,
         input: &Self::Input,
     ) -> Result<Self::Output, AnyError>;
 }
@@ -357,6 +382,10 @@ impl<T: PipelineDefinition> PipelineDefinition for WithCUDAExecutionProvider<T> 
 
     fn tokenizer_url(&self, requested_variation: Option<&str>) -> Option<Result<Url, AnyError>> {
         self.inner.tokenizer_url(requested_variation)
+    }
+
+    fn config_url(&self, requested_variation: Option<&str>) -> Option<Result<Url, AnyError>> {
+        self.inner.config_url(requested_variation)
     }
 
     fn configure_tokenizer(&self, tokenizer: &mut Tokenizer) {
@@ -389,9 +418,10 @@ impl<T: PipelineDefinition> PipelineDefinition for WithCUDAExecutionProvider<T> 
         &self,
         session: &Session,
         tokenizer: Option<&Tokenizer>,
+        config: Option<&Map<String, Value>>,
         input: &Self::Input,
     ) -> Result<Self::Output, AnyError> {
-        self.inner.run(session, tokenizer, input)
+        self.inner.run(session, tokenizer, config, input)
     }
 }
 
@@ -425,14 +455,19 @@ where
             let def = def.clone();
             let session = task.onnx_session.clone();
             let tokenizer = task.maybe_tokenizer.clone();
+            let config = task.maybe_config.clone();
 
             cross_thread_spawner.spawn(move |state| {
                 drop(
                     JsRuntime::op_state_from(state)
                         .borrow_mut()
                         .spawn_cpu_accumul_blocking_scope(move || {
-                            let result =
-                                def.run(session.as_ref(), tokenizer.as_deref(), &req.input);
+                            let result = def.run(
+                                session.as_ref(),
+                                tokenizer.as_deref(),
+                                config.as_deref(),
+                                &req.input,
+                            );
 
                             if let Err(_result) = req.tx.send(result) {
                                 error!("failed to send inference result");
@@ -614,6 +649,11 @@ impl<T: PipelineDefinition> PipelineDefinition for PipelineInitArg<T> {
         self.def().tokenizer_url(self.variation())
     }
 
+    fn config_url(&self, requested_variation: Option<&str>) -> Option<Result<Url, AnyError>> {
+        debug_assert!(requested_variation.is_none());
+        self.def().config_url(requested_variation)
+    }
+
     fn configure_tokenizer(&self, tokenizer: &mut Tokenizer) {
         self.def().configure_tokenizer(tokenizer)
     }
@@ -622,9 +662,10 @@ impl<T: PipelineDefinition> PipelineDefinition for PipelineInitArg<T> {
         &self,
         session: &Session,
         tokenizer: Option<&Tokenizer>,
+        config: Option<&Map<String, Value>>,
         input: &Self::Input,
     ) -> Result<Self::Output, AnyError> {
-        self.def().run(session, tokenizer, input)
+        self.def().run(session, tokenizer, config, input)
     }
 }
 

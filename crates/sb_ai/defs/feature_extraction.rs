@@ -50,7 +50,7 @@ impl PipelineDefinition for FeatureExtractionPipeline {
         &self,
         session: &Session,
         tokenizer: Option<&Tokenizer>,
-        config: Option<&Map<String, Value>>,
+        _config: Option<&Map<String, Value>>,
         input: &FeatureExtractionPipelineInput,
     ) -> Result<<Self as PipelineDefinition>::Output, Error> {
         let encoded_prompt = tokenizer

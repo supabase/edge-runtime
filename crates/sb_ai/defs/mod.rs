@@ -8,6 +8,7 @@ use once_cell::sync::Lazy;
 use crate::pipeline::{self, PipelineDefinition};
 
 mod feature_extraction;
+mod sentiment_analysis;
 
 type InitializerReturnType = LocalBoxFuture<'static, Result<(), AnyError>>;
 type Initializer = Arc<
@@ -17,9 +18,9 @@ type Initializer = Arc<
 static DEFS: Lazy<HashMap<Cow<'static, str>, Initializer>> = Lazy::new(|| {
     HashMap::from([
         factory::<pipeline::WithCUDAExecutionProvider<feature_extraction::SupabaseGte>>(),
-        // factory::<feature_extraction::SupabaseGte>(),
         factory::<pipeline::WithCUDAExecutionProvider<feature_extraction::GteSmall>>(),
-        // factory::<feature_extraction::GteSmall>(),
+        factory::<pipeline::WithCUDAExecutionProvider<sentiment_analysis::SentimentAnalysisPipeline>>(
+        ),
     ])
 });
 

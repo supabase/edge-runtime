@@ -1,5 +1,8 @@
 [
-    {
-        "name": "supabase-gte"
-    }
+  {
+    "name": "supabase-gte"
+  },
+  {
+    "name": "sentiment-analysis"
+  }
 ]

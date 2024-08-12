@@ -574,6 +574,16 @@ where
     try_get_url_from_env("tokenizer_url", def, variation)
 }
 
+pub fn try_get_config_url_from_env<T>(
+    def: &T,
+    variation: Option<&str>,
+) -> Option<Result<Url, AnyError>>
+where
+    T: PipelineDefinition,
+{
+    try_get_url_from_env("config_url", def, variation)
+}
+
 trait PipelineRunner {
     fn run(
         &self,

@@ -1327,8 +1327,8 @@ mod test {
                 "<anon>",
                 ModuleCodeString::from(
                     r#"
-            globalThis.isTenEven;
-        "#
+                        globalThis.isTenEven;
+                    "#
                     .to_string(),
                 ),
             )
@@ -1391,8 +1391,8 @@ mod test {
                 "<anon>",
                 ModuleCodeString::from(
                     r#"
-            globalThis.isTenEven;
-        "#
+                        globalThis.isTenEven;
+                    "#
                     .to_string(),
                 ),
             )
@@ -1456,8 +1456,8 @@ mod test {
                 "<anon>",
                 ModuleCodeString::from(
                     r#"
-            Deno.readTextFileSync("./test_cases/readFile/hello_world.json");
-        "#
+                        Deno.readTextFileSync("./test_cases/readFile/hello_world.json");
+                    "#
                     .to_string(),
                 ),
             )
@@ -1498,8 +1498,8 @@ mod test {
                 "<anon>",
                 ModuleCodeString::from(
                     r#"
-           globalThis.hello;
-        "#
+                        globalThis.hello;
+                    "#
                     .to_string(),
                 ),
             )
@@ -1581,21 +1581,21 @@ mod test {
                 "<anon>",
                 ModuleCodeString::from(
                     r#"
-            // Should not be able to set
-            const data = {
-                gid: Deno.gid(),
-                uid: Deno.uid(),
-                hostname: Deno.hostname(),
-                loadavg: Deno.loadavg(),
-                osUptime: Deno.osUptime(),
-                osRelease: Deno.osRelease(),
-                systemMemoryInfo: Deno.systemMemoryInfo(),
-                consoleSize: Deno.consoleSize(),
-                version: [Deno.version.deno, Deno.version.v8, Deno.version.typescript],
-                networkInterfaces: Deno.networkInterfaces()
-            };
-            data;
-        "#
+                        // Should not be able to set
+                        const data = {
+                            gid: Deno.gid(),
+                            uid: Deno.uid(),
+                            hostname: Deno.hostname(),
+                            loadavg: Deno.loadavg(),
+                            osUptime: Deno.osUptime(),
+                            osRelease: Deno.osRelease(),
+                            systemMemoryInfo: Deno.systemMemoryInfo(),
+                            consoleSize: Deno.consoleSize(),
+                            version: [Deno.version.deno, Deno.version.v8, Deno.version.typescript],
+                            networkInterfaces: Deno.networkInterfaces()
+                        };
+                        data;
+                    "#
                     .to_string(),
                 ),
             )
@@ -1675,9 +1675,9 @@ mod test {
             "<anon>",
             ModuleCodeString::from(
                 r#"
-            let cmd = new Deno.Command("", {});
-            cmd.outputSync();
-        "#
+                    let cmd = new Deno.Command("", {});
+                    cmd.outputSync();
+                "#
                 .to_string(),
             ),
         );
@@ -1708,9 +1708,9 @@ mod test {
                 "<anon>",
                 ModuleCodeString::from(
                     r#"
-            // Should not be able to set
-            Deno.env.set("Supa_Test", "Supa_Value");
-        "#
+                        // Should not be able to set
+                        Deno.env.set("Supa_Test", "Supa_Value");
+                    "#
                     .to_string(),
                 ),
             )
@@ -1726,9 +1726,9 @@ mod test {
                 "<anon>",
                 ModuleCodeString::from(
                     r#"
-            // Should not be able to set
-            Deno.env.get("Supa_Test");
-        "#
+                        // Should not be able to set
+                        Deno.env.get("Supa_Test");
+                    "#
                     .to_string(),
                 ),
             )
@@ -1745,9 +1745,9 @@ mod test {
                 "<anon>",
                 ModuleCodeString::from(
                     r#"
-            // Should not be able to set
-            Deno.env.get("Supa_Test");
-        "#
+                        // Should not be able to set
+                        Deno.env.get("Supa_Test");
+                    "#
                     .to_string(),
                 ),
             )

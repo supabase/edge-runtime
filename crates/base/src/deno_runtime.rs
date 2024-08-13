@@ -331,6 +331,8 @@ where
                 arc_emitter_factory,
                 maybe_code,
                 import_map_path.clone(),
+                // here we don't want to add extra cost, so we won't use a checksum
+                None,
             )
             .await?;
 
@@ -1279,7 +1281,7 @@ mod test {
             .unwrap();
         let path_buf = PathBuf::from("./test_cases/eszip-source-test.ts");
         let emitter_factory = Arc::new(EmitterFactory::new());
-        let bin_eszip = generate_binary_eszip(path_buf, emitter_factory.clone(), None, None)
+        let bin_eszip = generate_binary_eszip(path_buf, emitter_factory.clone(), None, None, None)
             .await
             .unwrap();
         fs::remove_file("./test_cases/eszip-source-test.ts").unwrap();
@@ -1344,7 +1346,7 @@ mod test {
         let file = PathBuf::from("./test_cases/eszip-silly-test/index.ts");
         let service_path = PathBuf::from("./test_cases/eszip-silly-test");
         let emitter_factory = Arc::new(EmitterFactory::new());
-        let binary_eszip = generate_binary_eszip(file, emitter_factory.clone(), None, None)
+        let binary_eszip = generate_binary_eszip(file, emitter_factory.clone(), None, None, None)
             .await
             .unwrap();
 

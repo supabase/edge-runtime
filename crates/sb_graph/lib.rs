@@ -43,6 +43,8 @@ pub mod jsr;
 pub mod jsx_util;
 pub mod resolver;
 
+pub use eszip::v2::Checksum;
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DecoratorType {
@@ -628,6 +630,7 @@ pub async fn generate_binary_eszip<P>(
     emitter_factory: Arc<EmitterFactory>,
     maybe_module_code: Option<FastString>,
     maybe_import_map_url: Option<String>,
+    maybe_checksum: Option<Checksum>,
 ) -> Result<EszipV2, anyhow::Error>
 where
     P: AsRef<Path>,
@@ -641,6 +644,9 @@ where
     .await?;
 
     let mut eszip = create_eszip_from_graph_raw(graph, Some(emitter_factory.clone())).await?;
+    if let Some(checksum) = maybe_checksum {
+        eszip.set_checksum(checksum);
+    }
 
     let source_code: Arc<str> = if let Some(code) = maybe_module_code {
         code.as_str().into()
@@ -901,6 +907,7 @@ mod test {
         let eszip = generate_binary_eszip(
             PathBuf::from("../base/test_cases/npm/index.ts"),
             Arc::new(EmitterFactory::new()),
+            None,
             None,
             None,
         )

@@ -257,16 +257,10 @@ class Pipeline {
         this.init = core.ops.op_sb_ai_init_pipeline(task, variation);
     }
 
-    async run(prompt, opts = {}) {
+    async run(input, opts = {}) {
         await this.init;
 
-        const mean_pool = opts.mean_pool ?? true;
-        const normalize = opts.normalize ?? true;
-        const result = await core.ops.op_sb_ai_run_pipeline(this.task, this.variation, {
-            prompt,
-            mean_pool,
-            normalize,
-        });
+        const result = await core.ops.op_sb_ai_run_pipeline(this.task, this.variation, input, opts);
 
         return result;
     }

@@ -277,21 +277,23 @@ async fn fetch_and_cache_from_url(url: &Url, kind: &'static str) -> Result<PathB
         .await
 }
 
-struct PipelineRequest<T, U> {
+struct PipelineRequest<T, TO, U> {
     input: T,
+    options: Option<TO>,
     tx: oneshot::Sender<Result<U, AnyError>>,
 }
 
 struct PipelineTx<T: PipelineDefinition>(
-    #[allow(unused)] mpsc::UnboundedSender<PipelineRequest<T::Input, T::Output>>,
+    #[allow(unused)] mpsc::UnboundedSender<PipelineRequest<T::Input, T::InputOptions, T::Output>>,
 );
 
 struct PipelineWeakTx<T: PipelineDefinition>(
-    mpsc::WeakUnboundedSender<PipelineRequest<T::Input, T::Output>>,
+    mpsc::WeakUnboundedSender<PipelineRequest<T::Input, T::InputOptions, T::Output>>,
 );
 
 pub(crate) trait PipelineDefinition: Send + Sync {
     type Input: DeserializeOwned + Send + Sync;
+    type InputOptions: DeserializeOwned + Send + Sync;
     type Output: Serialize + Send;
 
     fn make() -> Self;
@@ -356,6 +358,7 @@ pub(crate) trait PipelineDefinition: Send + Sync {
         tokenizer: Option<&Tokenizer>,
         config: Option<&Map<String, Value>>,
         input: &Self::Input,
+        options: Option<&Self::InputOptions>,
     ) -> Result<Self::Output, AnyError>;
 }
 
@@ -366,6 +369,7 @@ pub(crate) struct WithCUDAExecutionProvider<T: PipelineDefinition> {
 
 impl<T: PipelineDefinition> PipelineDefinition for WithCUDAExecutionProvider<T> {
     type Input = T::Input;
+    type InputOptions = T::InputOptions;
     type Output = T::Output;
 
     fn make() -> Self {
@@ -420,8 +424,9 @@ impl<T: PipelineDefinition> PipelineDefinition for WithCUDAExecutionProvider<T> 
         tokenizer: Option<&Tokenizer>,
         config: Option<&Map<String, Value>>,
         input: &Self::Input,
+        options: Option<&Self::InputOptions>,
     ) -> Result<Self::Output, AnyError> {
-        self.inner.run(session, tokenizer, config, input)
+        self.inner.run(session, tokenizer, config, input, options)
     }
 }
 
@@ -435,7 +440,8 @@ where
 {
     let cross_thread_spawner = state.borrow::<V8CrossThreadTaskSpawner>().clone();
     let mut req_rx = {
-        let (req_tx, req_rx) = mpsc::unbounded_channel::<PipelineRequest<T::Input, T::Output>>();
+        let (req_tx, req_rx) =
+            mpsc::unbounded_channel::<PipelineRequest<T::Input, T::InputOptions, T::Output>>();
 
         let _ = state.try_take::<PipelineTx<T>>();
         let _ = state.try_take::<PipelineWeakTx<T>>();
@@ -467,6 +473,7 @@ where
                                 tokenizer.as_deref(),
                                 config.as_deref(),
                                 &req.input,
+                                req.options.as_ref(),
                             );
 
                             if let Err(_result) = req.tx.send(result) {
@@ -589,6 +596,7 @@ trait PipelineRunner {
         &self,
         state: Rc<RefCell<OpState>>,
         input: serde_json::Value,
+        options: serde_json::Value,
     ) -> LocalBoxFuture<'_, Result<serde_json::Value, AnyError>>;
 }
 
@@ -597,6 +605,7 @@ impl<T: PipelineDefinition + 'static> PipelineRunner for T {
         &self,
         state: Rc<RefCell<OpState>>,
         input: serde_json::Value,
+        options: serde_json::Value,
     ) -> LocalBoxFuture<'_, Result<serde_json::Value, AnyError>> {
         async move {
             let req_tx = state
@@ -608,10 +617,14 @@ impl<T: PipelineDefinition + 'static> PipelineRunner for T {
             let deserialized_input =
                 serde_json::from_value::<T::Input>(input).context("cannot deserialize input")?;
 
+            let deserialized_options = serde_json::from_value::<Option<T::InputOptions>>(options)
+                .context("cannot deserialize input")?;
+
             let (result_tx, result_rx) = oneshot::channel::<Result<T::Output, AnyError>>();
 
             req_tx.send(PipelineRequest {
                 input: deserialized_input,
+                options: deserialized_options,
                 tx: result_tx,
             })?;
 
@@ -635,6 +648,7 @@ pub enum PipelineInitArg<T> {
 
 impl<T: PipelineDefinition> PipelineDefinition for PipelineInitArg<T> {
     type Input = T::Input;
+    type InputOptions = T::InputOptions;
     type Output = T::Output;
 
     fn make() -> Self {
@@ -674,8 +688,9 @@ impl<T: PipelineDefinition> PipelineDefinition for PipelineInitArg<T> {
         tokenizer: Option<&Tokenizer>,
         config: Option<&Map<String, Value>>,
         input: &Self::Input,
+        options: Option<&Self::InputOptions>,
     ) -> Result<Self::Output, AnyError> {
-        self.def().run(session, tokenizer, config, input)
+        self.def().run(session, tokenizer, config, input, options)
     }
 }
 
@@ -776,6 +791,7 @@ impl<'l> PipelineRunArg<'l> {
 pub async fn run(
     state: Rc<RefCell<OpState>>,
     input: serde_json::Value,
+    options: serde_json::Value,
     arg: PipelineRunArg<'_>,
 ) -> Result<serde_json::Value, AnyError> {
     let name = arg.name();
@@ -798,7 +814,7 @@ pub async fn run(
         )
     })?;
 
-    runner.run(state, input).await
+    runner.run(state, input, options).await
 }
 
 #[derive(Serialize, Debug, Default)]

@@ -17,10 +17,22 @@ use crate::pipeline::{
 use crate::tensor_ops::mean_pool;
 
 #[derive(Deserialize, Debug)]
-pub struct FeatureExtractionPipelineInput {
-    pub prompt: String,
+pub struct FeatureExtractionPipelineInput(String);
+
+#[derive(Deserialize, Debug)]
+#[serde(default)]
+pub struct FeatureExtractionPipelineInputOptions {
     pub mean_pool: bool,
     pub normalize: bool,
+}
+
+impl Default for FeatureExtractionPipelineInputOptions {
+    fn default() -> Self {
+        Self {
+            mean_pool: true,
+            normalize: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -28,6 +40,7 @@ pub struct FeatureExtractionPipeline;
 
 impl PipelineDefinition for FeatureExtractionPipeline {
     type Input = FeatureExtractionPipelineInput;
+    type InputOptions = FeatureExtractionPipelineInputOptions;
     type Output = Vec<f32>;
 
     fn make() -> Self {
@@ -52,10 +65,11 @@ impl PipelineDefinition for FeatureExtractionPipeline {
         tokenizer: Option<&Tokenizer>,
         _config: Option<&Map<String, Value>>,
         input: &FeatureExtractionPipelineInput,
+        options: Option<&FeatureExtractionPipelineInputOptions>,
     ) -> Result<<Self as PipelineDefinition>::Output, Error> {
         let encoded_prompt = tokenizer
             .unwrap()
-            .encode(input.prompt.to_owned(), true)
+            .encode(input.0.to_owned(), true)
             .map_err(anyhow::Error::msg)?;
 
         let input_ids = encoded_prompt
@@ -94,13 +108,18 @@ impl PipelineDefinition for FeatureExtractionPipeline {
         let embeddings = outputs["last_hidden_state"].try_extract_tensor()?;
         let embeddings = embeddings.into_dimensionality::<Ix3>()?;
 
-        let result = if input.mean_pool {
+        let options = options.unwrap_or(&FeatureExtractionPipelineInputOptions {
+            mean_pool: true,
+            normalize: true,
+        });
+
+        let result = if options.mean_pool {
             mean_pool(embeddings, attention_mask_array.insert_axis(Axis(2)))
         } else {
             embeddings.into_owned().remove_axis(Axis(0))
         };
 
-        let result = if input.normalize {
+        let result = if options.normalize {
             let (normalized, _) = normalize(result, NormalizeAxis::Row);
             normalized
         } else {
@@ -118,6 +137,7 @@ pub struct SupabaseGte {
 
 impl PipelineDefinition for SupabaseGte {
     type Input = <FeatureExtractionPipeline as PipelineDefinition>::Input;
+    type InputOptions = <FeatureExtractionPipeline as PipelineDefinition>::InputOptions;
     type Output = <FeatureExtractionPipeline as PipelineDefinition>::Output;
 
     fn make() -> Self {
@@ -160,8 +180,9 @@ impl PipelineDefinition for SupabaseGte {
         tokenizer: Option<&Tokenizer>,
         config: Option<&Map<String, Value>>,
         input: &Self::Input,
+        options: Option<&Self::InputOptions>,
     ) -> Result<Self::Output, anyhow::Error> {
-        self.inner.run(session, tokenizer, config, input)
+        self.inner.run(session, tokenizer, config, input, options)
     }
 }
 
@@ -172,6 +193,7 @@ pub struct GteSmall {
 
 impl PipelineDefinition for GteSmall {
     type Input = <SupabaseGte as PipelineDefinition>::Input;
+    type InputOptions = <FeatureExtractionPipeline as PipelineDefinition>::InputOptions;
     type Output = <SupabaseGte as PipelineDefinition>::Output;
 
     fn make() -> Self {
@@ -210,7 +232,8 @@ impl PipelineDefinition for GteSmall {
         tokenizer: Option<&Tokenizer>,
         config: Option<&Map<String, Value>>,
         input: &Self::Input,
+        options: Option<&Self::InputOptions>,
     ) -> Result<Self::Output, AnyError> {
-        self.inner.run(session, tokenizer, config, input)
+        self.inner.run(session, tokenizer, config, input, options)
     }
 }

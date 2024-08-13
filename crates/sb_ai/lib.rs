@@ -41,10 +41,12 @@ pub async fn op_sb_ai_run_model(
     state: Rc<RefCell<OpState>>,
     #[string] name: String,
     #[serde] input: serde_json::Value,
+    #[serde] options: serde_json::Value,
 ) -> Result<serde_json::Value, AnyError> {
     pipeline::run(
         state,
         input,
+        options,
         pipeline::PipelineRunArg::Simple(name.as_str()),
     )
     .await
@@ -66,10 +68,12 @@ pub async fn op_sb_ai_run_pipeline(
     #[string] name: String,
     #[string] variation: Option<String>,
     #[serde] input: serde_json::Value,
+    #[serde] options: serde_json::Value,
 ) -> Result<serde_json::Value, AnyError> {
     pipeline::run(
         state,
         input,
+        options,
         if let Some(variation) = variation.as_deref() {
             pipeline::PipelineRunArg::WithVariation {
                 name: name.as_str(),

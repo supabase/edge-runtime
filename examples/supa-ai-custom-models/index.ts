@@ -1,5 +1,5 @@
 /* Using default: Gte-small */
-// const pipe = new Supabase.ai.Pipeline('feature-extraction');
+const pipe = new Supabase.ai.Pipeline('supabase-gte');
 
 /* Using custom model
 const pipe = new Supabase.ai.Pipeline(
@@ -12,10 +12,9 @@ const pipe = new Supabase.ai.Pipeline(
 // const pipe = new Supabase.ai.Pipeline('sentiment-analysis');
 
 Deno.serve(async (req: Request) => {
-  const params = new URL(req.url).searchParams;
-  const input = params.get('text');
+  const { input } = await req.json();
 
-  const output = await pipe.run(input, { mean_pool: true, normalize: true });
+  const output = await pipe.run(input);
   return new Response(
     JSON.stringify(
       output,

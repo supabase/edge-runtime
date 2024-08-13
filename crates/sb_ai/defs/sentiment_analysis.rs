@@ -14,9 +14,7 @@ use crate::pipeline::{
 };
 
 #[derive(Deserialize, Debug)]
-pub struct SentimentAnalysisPipelineInput {
-    pub prompt: String,
-}
+pub struct SentimentAnalysisPipelineInput(String);
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct SentimentAnalysisPipelineOutput {
@@ -29,7 +27,7 @@ pub struct SentimentAnalysisPipeline;
 
 impl PipelineDefinition for SentimentAnalysisPipeline {
     type Input = SentimentAnalysisPipelineInput;
-
+    type InputOptions = Value;
     type Output = Vec<SentimentAnalysisPipelineOutput>;
 
     fn make() -> Self {
@@ -61,10 +59,11 @@ impl PipelineDefinition for SentimentAnalysisPipeline {
         tokenizer: Option<&tokenizers::Tokenizer>,
         config: Option<&Map<String, Value>>,
         input: &Self::Input,
+        _options: Option<&Self::InputOptions>,
     ) -> Result<Self::Output, AnyError> {
         let encoded_prompt = tokenizer
             .unwrap()
-            .encode(input.prompt.to_owned(), true)
+            .encode(input.0.to_owned(), true)
             .map_err(anyhow::Error::msg)?;
 
         // TODO: Encode using batch, Accept multiple inputs

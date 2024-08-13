@@ -12,7 +12,7 @@ use serde::Deserialize;
 use tokenizers::{pad_encodings, PaddingParams, Tokenizer};
 
 use crate::pipeline::{
-    try_get_model_url_from_env, try_get_tokenizer_url_from_env, PipelineDefinition,
+    try_get_model_url_from_env, try_get_tokenizer_url_from_env, PipelineBatchIO, PipelineDefinition,
 };
 
 use crate::tensor_ops::mean_pool;
@@ -44,9 +44,9 @@ impl Default for FeatureExtractionPipelineInputOptions {
 pub struct FeatureExtractionPipeline;
 
 impl PipelineDefinition for FeatureExtractionPipeline {
-    type Input = FeatureExtractionPipelineInput;
+    type Input = PipelineBatchIO<String>;
     type InputOptions = FeatureExtractionPipelineInputOptions;
-    type Output = Vec<Vec<f32>>;
+    type Output = PipelineBatchIO<Vec<f32>>;
 
     fn make() -> Self {
         FeatureExtractionPipeline
@@ -69,16 +69,16 @@ impl PipelineDefinition for FeatureExtractionPipeline {
         session: &Session,
         tokenizer: Option<&Tokenizer>,
         _config: Option<&Map<String, Value>>,
-        input: &FeatureExtractionPipelineInput,
+        input: &PipelineBatchIO<String>,
         options: Option<&FeatureExtractionPipelineInputOptions>,
     ) -> Result<<Self as PipelineDefinition>::Output, Error> {
-        let input = match input {
-            FeatureExtractionPipelineInput::Single(value) => vec![value.to_owned()],
-            FeatureExtractionPipelineInput::Batch(values) => values.to_owned(),
+        let input_values = match input {
+            PipelineBatchIO::Single(value) => vec![value.to_owned()],
+            PipelineBatchIO::Batch(values) => values.to_owned(),
         };
         let mut encodings = tokenizer
             .unwrap()
-            .encode_batch(input.to_owned(), true)
+            .encode_batch(input_values.to_owned(), true)
             .map_err(anyhow::Error::msg)?;
 
         // We use it instead of overriding the Tokenizer
@@ -86,7 +86,7 @@ impl PipelineDefinition for FeatureExtractionPipeline {
             .map_err(anyhow::Error::msg)?;
 
         let padded_token_length = encodings.get(0).unwrap().len();
-        let input_shape = [input.len(), padded_token_length];
+        let input_shape = [input_values.len(), padded_token_length];
 
         let input_ids = encodings
             .iter()
@@ -140,7 +140,12 @@ impl PipelineDefinition for FeatureExtractionPipeline {
             results.push(row.as_slice().unwrap().to_vec());
         }
 
-        Ok(results)
+        match input {
+            PipelineBatchIO::Single(_) => {
+                Ok(PipelineBatchIO::Single(results.first().unwrap().to_owned()))
+            }
+            PipelineBatchIO::Batch(_) => Ok(PipelineBatchIO::Batch(results)),
+        }
     }
 }
 

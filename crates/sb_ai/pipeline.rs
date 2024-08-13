@@ -15,7 +15,7 @@ use ort::{
     GraphOptimizationLevel, Session, SessionBuilder,
 };
 use serde::de::DeserializeOwned;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 use std::borrow::Cow;
@@ -37,6 +37,14 @@ type OnnxSessionMap = Mutex<HashMap<Url, Arc<Mutex<Option<Arc<Session>>>>>>;
 
 static TASKS: Lazy<TaskMap> = Lazy::new(TaskMap::default);
 static ONNX_SESSIONS: Lazy<OnnxSessionMap> = Lazy::new(OnnxSessionMap::default);
+
+// Can be handled as T | T[] in typescript
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(untagged)]
+pub enum PipelineBatchIO<T> {
+    Single(T),
+    Batch(Vec<T>),
+}
 
 #[derive(Debug, Clone)]
 struct Task {

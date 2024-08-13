@@ -1,14 +1,15 @@
 use std::borrow::Cow;
+use std::vec;
 
 use crate::serde_json::{Map, Value};
 use anyhow::{anyhow, bail, Context, Error};
 use deno_core::error::AnyError;
 use deno_core::url::Url;
-use ndarray::{Array1, Axis, Ix3};
+use ndarray::{Array2, Axis, Ix3};
 use ndarray_linalg::norm::{normalize, NormalizeAxis};
 use ort::{inputs, Session};
 use serde::Deserialize;
-use tokenizers::Tokenizer;
+use tokenizers::{pad_encodings, PaddingParams, Tokenizer};
 
 use crate::pipeline::{
     try_get_model_url_from_env, try_get_tokenizer_url_from_env, PipelineDefinition,
@@ -17,7 +18,11 @@ use crate::pipeline::{
 use crate::tensor_ops::mean_pool;
 
 #[derive(Deserialize, Debug)]
-pub struct FeatureExtractionPipelineInput(String);
+#[serde(untagged)]
+pub enum FeatureExtractionPipelineInput {
+    Single(String),
+    Batch(Vec<String>),
+}
 
 #[derive(Deserialize, Debug)]
 #[serde(default)]
@@ -41,7 +46,7 @@ pub struct FeatureExtractionPipeline;
 impl PipelineDefinition for FeatureExtractionPipeline {
     type Input = FeatureExtractionPipelineInput;
     type InputOptions = FeatureExtractionPipelineInputOptions;
-    type Output = Vec<f32>;
+    type Output = Vec<Vec<f32>>;
 
     fn make() -> Self {
         FeatureExtractionPipeline
@@ -67,66 +72,75 @@ impl PipelineDefinition for FeatureExtractionPipeline {
         input: &FeatureExtractionPipelineInput,
         options: Option<&FeatureExtractionPipelineInputOptions>,
     ) -> Result<<Self as PipelineDefinition>::Output, Error> {
-        let encoded_prompt = tokenizer
+        let input = match input {
+            FeatureExtractionPipelineInput::Single(value) => vec![value.to_owned()],
+            FeatureExtractionPipelineInput::Batch(values) => values.to_owned(),
+        };
+        let mut encodings = tokenizer
             .unwrap()
-            .encode(input.0.to_owned(), true)
+            .encode_batch(input.to_owned(), true)
             .map_err(anyhow::Error::msg)?;
 
-        let input_ids = encoded_prompt
-            .get_ids()
+        // We use it instead of overriding the Tokenizer
+        pad_encodings(encodings.as_mut_slice(), &PaddingParams::default())
+            .map_err(anyhow::Error::msg)?;
+
+        let padded_token_length = encodings.get(0).unwrap().len();
+        let input_shape = [input.len(), padded_token_length];
+
+        let input_ids = encodings
             .iter()
-            .map(|i| *i as i64)
+            .flat_map(|e| e.get_ids().iter().map(|v| i64::from(*v)))
             .collect::<Vec<_>>();
 
-        let attention_mask = encoded_prompt
-            .get_attention_mask()
+        let attention_mask = encodings
             .iter()
-            .map(|i| *i as i64)
+            .flat_map(|e| e.get_attention_mask().iter().map(|v| i64::from(*v)))
             .collect::<Vec<_>>();
 
-        let token_type_ids = encoded_prompt
-            .get_type_ids()
+        let token_type_ids = encodings
             .iter()
-            .map(|i| *i as i64)
+            .flat_map(|e| e.get_type_ids().iter().map(|v| i64::from(*v)))
             .collect::<Vec<_>>();
 
-        let input_ids_array = Array1::from_iter(input_ids.iter().cloned());
-        let input_ids_array = input_ids_array.view().insert_axis(Axis(0));
-
-        let attention_mask_array = Array1::from_iter(attention_mask.iter().cloned());
-        let attention_mask_array = attention_mask_array.view().insert_axis(Axis(0));
-
-        let token_type_ids_array = Array1::from_iter(token_type_ids.iter().cloned());
-        let token_type_ids_array = token_type_ids_array.view().insert_axis(Axis(0));
+        let input_ids_array = Array2::from_shape_vec(input_shape, input_ids.to_owned()).unwrap();
+        let attention_mask_array = Array2::from_shape_vec(input_shape, attention_mask).unwrap();
+        let token_type_ids_array = Array2::from_shape_vec(input_shape, token_type_ids).unwrap();
 
         let outputs = session.run(inputs! {
             "input_ids" => input_ids_array,
             "token_type_ids" => token_type_ids_array,
-            "attention_mask" => attention_mask_array,
+            "attention_mask" => attention_mask_array.to_owned(),
         }?)?;
 
-        let embeddings = outputs["last_hidden_state"].try_extract_tensor()?;
-        let embeddings = embeddings.into_dimensionality::<Ix3>()?;
+        let embeddings = outputs["last_hidden_state"]
+            .try_extract_tensor::<f32>()?
+            .into_dimensionality::<Ix3>()?;
 
         let options = options.unwrap_or(&FeatureExtractionPipelineInputOptions {
             mean_pool: true,
             normalize: true,
         });
 
-        let result = if options.mean_pool {
-            mean_pool(embeddings, attention_mask_array.insert_axis(Axis(2)))
+        let embeddings = if options.mean_pool {
+            mean_pool(embeddings, attention_mask_array.view().insert_axis(Axis(2)))
         } else {
             embeddings.into_owned().remove_axis(Axis(0))
         };
 
-        let result = if options.normalize {
-            let (normalized, _) = normalize(result, NormalizeAxis::Row);
+        let embeddings = if options.normalize {
+            let (normalized, _) = normalize(embeddings, NormalizeAxis::Row);
             normalized
         } else {
-            result
+            embeddings
         };
 
-        Ok(result.view().to_slice().unwrap().to_vec())
+        let mut results = vec![];
+        for row in embeddings.rows() {
+            results.push(row.as_slice().unwrap().to_vec());
+        }
+
+        Ok(results)
     }
 }
 

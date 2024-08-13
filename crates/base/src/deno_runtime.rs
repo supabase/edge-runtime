@@ -804,7 +804,7 @@ where
     fn run_event_loop<'l>(
         &'l mut self,
         name: Option<&'l str>,
-        current_thread_id: ThreadId,
+        #[allow(unused_variables)] current_thread_id: ThreadId,
         maybe_cpu_usage_metrics_tx: &'l Option<mpsc::UnboundedSender<CPUUsageMetrics>>,
         accumulated_cpu_time_ns: &'l mut i64,
     ) -> impl Future<Output = Result<(), AnyError>> + 'l {

@@ -271,7 +271,7 @@ pub fn create_supervisor(
     // we assert supervisor is only run for user workers
     let conf = worker_runtime.conf.as_user_worker().unwrap().clone();
     let mem_check_state = worker_runtime.mem_check_state();
-    let is_termination_requested = worker_runtime.is_termination_requested.clone();
+    let termination_request_token = worker_runtime.termination_request_token.clone();
 
     let giveup_process_requests_token = cancel.clone();
     let supervise_cancel_token = CancellationToken::new();
@@ -381,12 +381,13 @@ pub fn create_supervisor(
                         let wait_inspector_disconnect_fut = async move {
                             let ls = tokio::task::LocalSet::new();
                             ls.run_until(async move {
-                                if is_terminated.is_raised() || is_termination_requested.is_raised()
+                                if is_terminated.is_raised()
+                                    || termination_request_token.is_cancelled()
                                 {
                                     return;
                                 }
 
-                                is_termination_requested.raise();
+                                termination_request_token.cancel();
 
                                 if is_found.is_raised() {
                                     return;
@@ -452,7 +453,7 @@ pub fn create_supervisor(
                     .await
                     .unwrap();
             } else {
-                is_termination_requested.raise();
+                termination_request_token.cancel();
             }
 
             // NOTE: If we issue a hard CPU time limit, It's OK because it is

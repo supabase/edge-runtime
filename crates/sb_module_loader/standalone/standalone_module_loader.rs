@@ -16,11 +16,11 @@ use deno_core::{ModuleSpecifier, RequestedModuleType};
 use deno_semver::npm::NpmPackageReqReference;
 use eszip::deno_graph;
 use eszip::EszipRelativeFileBaseUrl;
+use sb_eszip_shared::AsyncEszipDataRead;
 use sb_graph::resolver::CliNodeResolver;
 use sb_graph::resolver::NpmModuleLoader;
-use sb_node::NodeResolutionMode;
-use sb_eszip_shared::AsyncEszipDataRead;
 use sb_graph::LazyLoadableEszip;
+use sb_node::NodeResolutionMode;
 use std::sync::Arc;
 use tracing::instrument;
 
@@ -32,7 +32,7 @@ pub struct WorkspaceEszipModule {
 }
 
 pub struct WorkspaceEszip {
-    pub eszip: eszip::EszipV2,
+    pub eszip: LazyLoadableEszip,
     pub root_dir_url: ModuleSpecifier,
 }
 
@@ -41,14 +41,14 @@ impl WorkspaceEszip {
         if specifier.scheme() == "file" {
             let specifier_key =
                 EszipRelativeFileBaseUrl::new(&self.root_dir_url).specifier_key(specifier);
-            let module = self.eszip.get_module(&specifier_key)?;
+            let module = self.eszip.ensure_module(&specifier_key)?;
             let specifier = self.root_dir_url.join(&module.specifier).unwrap();
             Some(WorkspaceEszipModule {
                 specifier,
                 inner: module,
             })
         } else {
-            let module = self.eszip.get_module(specifier.as_str())?;
+            let module = self.eszip.ensure_module(specifier.as_str())?;
             Some(WorkspaceEszipModule {
                 specifier: ModuleSpecifier::parse(&module.specifier).unwrap(),
                 inner: module,
@@ -59,7 +59,6 @@ impl WorkspaceEszip {
 
 pub struct SharedModuleLoaderState {
     pub(crate) eszip: WorkspaceEszip,
-    pub(crate) eszip: LazyLoadableEszip,
     pub(crate) workspace_resolver: WorkspaceResolver,
     pub(crate) npm_module_loader: Arc<NpmModuleLoader>,
     pub(crate) node_resolver: Arc<CliNodeResolver>,
@@ -230,7 +229,7 @@ impl ModuleLoader for EmbeddedModuleLoader {
             );
         }
 
-        let Some(module) = self.shared.eszip.ensure_module(original_specifier.as_str()) else {
+        let Some(module) = self.shared.eszip.get_module(original_specifier) else {
             return deno_core::ModuleLoadResponse::Sync(Err(type_error(format!(
                 "Module not found: {}",
                 original_specifier

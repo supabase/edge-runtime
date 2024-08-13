@@ -1175,7 +1175,7 @@ async fn req_failure_case_intentional_peer_reset_secure() {
 async fn req_failure_case_op_cancel_from_server_due_to_cpu_resource_limit() {
     test_oak_file_upload(
         Cow::Borrowed("./test_cases/main_small_cpu_time"),
-        48 * MB,
+        120 * MB,
         None,
         |resp| async {
             let res = resp.unwrap();

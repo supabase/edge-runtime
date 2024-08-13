@@ -18,11 +18,11 @@ use sb_core::cache::CacheSetting;
 use sb_core::cert::{get_root_cert_store, CaData};
 use sb_core::node::CliCjsCodeAnalyzer;
 use sb_core::util::http_util::HttpClientProvider;
+use sb_eszip_shared::{AsyncEszipDataRead, SOURCE_CODE_ESZIP_KEY, VFS_ESZIP_KEY};
 use sb_fs::file_system::DenoCompileFileSystem;
 use sb_fs::{extract_static_files_from_eszip, load_npm_vfs};
 use sb_graph::resolver::{CjsResolutionStore, CliNodeResolver, NpmModuleLoader};
 use sb_graph::{eszip_migrate, payload_to_eszip, EszipPayloadKind, LazyLoadableEszip};
-use sb_eszip_shared::{AsyncEszipDataRead, SOURCE_CODE_ESZIP_KEY, VFS_ESZIP_KEY};
 use sb_node::analyze::NodeCodeTranslator;
 use sb_node::NodeResolver;
 use sb_npm::cache_dir::NpmCacheDir;
@@ -215,14 +215,13 @@ where
 pub async fn create_module_loader_for_standalone_from_eszip_kind<P>(
     eszip_payload_kind: EszipPayloadKind,
     base_dir_path: P,
-    maybe_import_map_arc: Option<Arc<ImportMap>>,
+    maybe_import_map: Option<ImportMap>,
     maybe_import_map_path: Option<String>,
     include_source_map: bool,
 ) -> Result<RuntimeProviders, AnyError>
 where
     P: AsRef<Path>,
 {
-    let mut maybe_import_map = None;
     let eszip = match eszip_migrate::try_migrate_if_needed(
         payload_to_eszip(eszip_payload_kind).await,
     )
@@ -234,16 +233,18 @@ where
         }
     };
 
-    if let Some(import_map) = maybe_import_map_arc {
-        let clone_import_map = (*import_map).clone();
-        maybe_import_map = Some(clone_import_map);
-    } else if let Some(import_map_path) = maybe_import_map_path {
-        let import_map_url = Url::parse(import_map_path.as_str())?;
-        if let Some(import_map_module) = eszip.ensure_import_map(import_map_url.as_str()) {
-            if let Some(source) = import_map_module.source().await {
-                let source = std::str::from_utf8(&source)?.to_string();
-                let result = parse_from_json(&import_map_url, &source)?;
-                maybe_import_map = Some(result.import_map);
+    let maybe_import_map = 'scope: {
+        if maybe_import_map.is_some() {
+            break 'scope maybe_import_map;
+        } else if let Some(import_map_path) = maybe_import_map_path {
+            let import_map_url = Url::parse(import_map_path.as_str())?;
+            if let Some(import_map_module) = eszip.ensure_import_map(import_map_url.as_str()) {
+                if let Some(source) = import_map_module.source().await {
+                    let source = std::str::from_utf8(&source)?.to_string();
+                    let result = parse_from_json(import_map_url, &source)?;
+
+                    break 'scope Some(result.import_map);
+                }
             }
         }
 

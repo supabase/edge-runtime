@@ -104,8 +104,12 @@ macro_rules! integration_test_with_server_flag {
     (@term_cleanup $(#[manual] $_:expr)?, $__:ident, $___:ident) => {};
     (@term_cleanup $_:expr, $token:ident, $join_fut:ident) => {
         let wait_fut = async move {
-            $token.cancel_and_wait().await;
-            $join_fut.await.unwrap();
+            let (_, ret) = tokio::join!(
+                $token.cancel_and_wait(),
+                $join_fut
+            );
+
+            ret.unwrap();
         };
 
         if tokio::time::timeout(

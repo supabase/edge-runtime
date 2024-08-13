@@ -82,6 +82,7 @@ mod v0 {
             EszipV2 {
                 modules: EszipV2Modules::default(),
                 npm_snapshot: v0_eszip.npm_snapshot.take(),
+                options: v0_eszip.options,
             },
             None,
         );

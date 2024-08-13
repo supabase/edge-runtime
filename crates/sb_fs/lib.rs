@@ -4,13 +4,14 @@ use deno_core::normalize_path;
 use deno_npm::NpmSystemInfo;
 use eszip::EszipV2;
 use indexmap::IndexMap;
+use log::warn;
 use sb_eszip_shared::{AsyncEszipDataRead, STATIC_FILES_ESZIP_KEY};
 use sb_npm::{CliNpmResolver, InnerCliNpmResolverRef};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use virtual_fs::VfsEntry;
 use url::Url;
+use virtual_fs::VfsEntry;
 
 pub mod file_system;
 mod rt;
@@ -133,8 +134,7 @@ where
             } else {
                 // DO NOT include the user's registry url as it may contain credentials,
                 // but also don't make this dependent on the registry url
-                let registry_url = npm_resolver.registry_base_url();
-                let root_path = npm_resolver.registry_folder_in_global_cache(registry_url);
+                let root_path = npm_resolver.global_cache_root_folder();
                 let mut builder = VfsBuilder::new(root_path, add_content_callback_fn)?;
                 for package in npm_resolver.all_system_packages(&NpmSystemInfo::default()) {
                     let folder = npm_resolver.resolve_pkg_folder_from_pkg_id(&package.id)?;

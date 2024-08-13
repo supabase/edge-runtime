@@ -182,8 +182,8 @@ impl Worker {
                             pending().boxed()
                         } else if let Some(token) = termination_token.clone() {
                             let is_terminated = new_runtime.is_terminated.clone();
-                            let is_termination_requested =
-                                new_runtime.is_termination_requested.clone();
+                            let termination_request_token =
+                                new_runtime.termination_request_token.clone();
 
                             let (waker, thread_safe_handle) = {
                                 let js_runtime = &mut new_runtime.js_runtime;
@@ -196,7 +196,7 @@ impl Worker {
                             base_rt::SUPERVISOR_RT
                                 .spawn(async move {
                                     token.inbound.cancelled().await;
-                                    is_termination_requested.raise();
+                                    termination_request_token.cancel();
 
                                     let data_ptr_mut =
                                         Box::into_raw(Box::new(supervisor::IsolateInterruptData {

@@ -206,39 +206,26 @@ impl<'scope> VfsBuilder<'scope> {
         let dir = self.add_dir(path.parent().unwrap())?;
         let name = path.file_name().unwrap().to_string_lossy();
         let data_len = data.len();
+
         match dir.entries.binary_search_by(|e| e.name().cmp(&name)) {
             Ok(_) => {
                 // already added, just ignore
             }
             Err(insert_index) => {
+                let len = data.len();
+                let key = (add_content_callback_fn.lock().unwrap())(path, &name, data);
+
                 dir.entries.insert(
                     insert_index,
                     VfsEntry::File(VirtualFile {
+                        key,
                         name: name.to_string(),
                         offset,
-                        len: data.len() as u64,
-                        content: Some(data),
+                        len: len as u64,
                     }),
                 );
             }
         }
-        // let insert_index = match dir.entries.binary_search_by(|e| e.name().cmp(&name)) {
-        //     Err(insert_index) => insert_index,
-        //     Ok(_) => unreachable!(),
-        // };
-
-        // let len = data.len();
-        // let key = (add_content_callback_fn.lock().unwrap())(path, &name, data);
-
-        // dir.entries.insert(
-        //     insert_index,
-        //     VfsEntry::File(VirtualFile {
-        //         key,
-        //         name: name.to_string(),
-        //         offset,
-        //         len: len as u64,
-        //     }),
-        // );
 
         // new file, update the list of files
         if self.current_offset == offset {

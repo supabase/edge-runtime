@@ -1,4 +1,4 @@
-// Below is roughly originated from eszip@0.60.0/src/v2.rs
+// Below is roughly originated from eszip@0.72.2/src/v2.rs
 
 use std::{
     collections::HashMap,
@@ -7,18 +7,19 @@ use std::{
 
 use eszip::{
     v2::{
-        read_npm_section, EszipNpmPackageIndex, EszipV2Module, EszipV2Modules, EszipV2SourceSlot,
-        HashedSection,
+        read_npm_section, Checksum, EszipNpmPackageIndex, EszipV2Module, EszipV2Modules,
+        EszipV2SourceSlot, Options, Section,
     },
     EszipV2, ModuleKind, ParseError,
 };
 use futures::{io::BufReader, AsyncRead, AsyncReadExt};
 use hashlink::LinkedHashMap;
 
-const ESZIP_V2_1_MAGIC: &[u8; 8] = b"ESZIP2.1";
+const ESZIP_V2_MAGIC: &[u8; 8] = b"ESZIP_V2";
+const ESZIP_V2_2_MAGIC: &[u8; 8] = b"ESZIP2.2";
 
 pub async fn parse_v2_header<R: AsyncRead + Unpin>(
-    reader: &mut BufReader<R>,
+    mut reader: &mut BufReader<R>,
 ) -> Result<EszipV2, ParseError> {
     let mut magic = [0u8; 8];
     reader.read_exact(&mut magic).await?;
@@ -27,9 +28,57 @@ pub async fn parse_v2_header<R: AsyncRead + Unpin>(
         return Err(ParseError::InvalidV2);
     }
 
-    let is_v3 = magic == *ESZIP_V2_1_MAGIC;
-    let header = HashedSection::read(reader).await?;
-    if !header.hash_valid() {
+    let supports_npm = magic != *ESZIP_V2_MAGIC;
+    let supports_options = magic == *ESZIP_V2_2_MAGIC;
+    let mut options = Options::default_for_version(&magic);
+
+    if supports_options {
+        let mut pre_options = options;
+        // First read options without checksum, then reread and validate if necessary
+        pre_options.checksum = Some(Checksum::NoChecksum);
+        pre_options.checksum_size = None;
+        let options_header = Section::read(&mut reader, pre_options).await?;
+        if options_header.content_len() % 2 != 0 {
+            return Err(ParseError::InvalidV22OptionsHeader(String::from(
+                "options are expected to be byte tuples",
+            )));
+        }
+
+        for option in options_header.content().chunks(2) {
+            let (option, value) = (option[0], option[1]);
+            match option {
+                0 => {
+                    options.checksum = Checksum::from_u8(value);
+                }
+                1 => {
+                    options.checksum_size = Some(value);
+                }
+                _ => {} // Ignore unknown options for forward compatibility
+            }
+        }
+        if options.checksum_size().is_none() {
+            return Err(ParseError::InvalidV22OptionsHeader(String::from(
+                "checksum size must be known",
+            )));
+        }
+
+        if let Some(1..) = options.checksum_size() {
+            // If the eszip has some checksum configured, the options header is also checksumed. Reread
+            // it again with the checksum and validate it
+            let options_header_with_checksum = Section::read_with_size(
+                options_header.content().chain(&mut reader),
+                options,
+                options_header.content_len(),
+            )
+            .await?;
+            if !options_header_with_checksum.is_checksum_valid() {
+                return Err(ParseError::InvalidV22OptionsHeaderHash);
+            }
+        }
+    }
+
+    let header = Section::read(&mut reader, options).await?;
+    if !header.is_checksum_valid() {
         return Err(ParseError::InvalidV2HeaderHash);
     }
 
@@ -43,16 +92,16 @@ pub async fn parse_v2_header<R: AsyncRead + Unpin>(
     // error.
     macro_rules! read {
         ($n:expr, $err:expr) => {{
-            if read + $n > header.len() {
+            if read + $n > header.content_len() {
                 return Err(ParseError::InvalidV2Header($err));
             }
             let start = read;
             read += $n;
-            &header.bytes()[start..read]
+            &header.content()[start..read]
         }};
     }
 
-    while read < header.len() {
+    while read < header.content_len() {
         let specifier_len =
             u32::from_be_bytes(read!(4, "specifier len").try_into().unwrap()) as usize;
         let specifier = String::from_utf8(read!(specifier_len, "specifier").to_vec())
@@ -107,7 +156,7 @@ pub async fn parse_v2_header<R: AsyncRead + Unpin>(
                     .map_err(|_| ParseError::InvalidV2Specifier(read))?;
                 modules.insert(specifier, EszipV2Module::Redirect { target });
             }
-            2 if is_v3 => {
+            2 if supports_npm => {
                 // npm specifier
                 let pkg_id = u32::from_be_bytes(read!(4, "npm package id").try_into().unwrap());
                 npm_specifiers.insert(specifier, EszipNpmPackageIndex(pkg_id));
@@ -116,8 +165,8 @@ pub async fn parse_v2_header<R: AsyncRead + Unpin>(
         };
     }
 
-    let npm_snapshot = if is_v3 {
-        read_npm_section(reader, npm_specifiers).await?
+    let npm_snapshot = if supports_npm {
+        read_npm_section(reader, options, npm_specifiers).await?
     } else {
         None
     };
@@ -125,5 +174,6 @@ pub async fn parse_v2_header<R: AsyncRead + Unpin>(
     Ok(EszipV2 {
         modules: EszipV2Modules(Arc::new(Mutex::new(modules))),
         npm_snapshot,
+        options,
     })
 }

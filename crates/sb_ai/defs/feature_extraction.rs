@@ -85,7 +85,7 @@ impl PipelineDefinition for FeatureExtractionPipeline {
         pad_encodings(encodings.as_mut_slice(), &PaddingParams::default())
             .map_err(anyhow::Error::msg)?;
 
-        let padded_token_length = encodings.get(0).unwrap().len();
+        let padded_token_length = encodings.first().unwrap().len();
         let input_shape = [input_values.len(), padded_token_length];
 
         let input_ids = encodings

@@ -142,19 +142,7 @@ impl Task {
 
 #[instrument(skip(url), fields(url = %url))]
 async fn fetch_and_cache_from_url(url: &Url, kind: &'static str) -> Result<PathBuf, AnyError> {
-    let is_huggingface = url
-        .domain()
-        .filter(|domain| domain.contains("huggingface"))
-        .is_some();
-
-    let cache_id = if is_huggingface {
-        url.path_segments().map(|paths| paths.take(2).collect())
-    } else {
-        url.query().map(String::from)
-    };
-
-    let cache_id = fxhash::hash(&cache_id).to_string();
-
+    let cache_id = fxhash::hash(url.as_str()).to_string();
     let download_dir = ort::sys::internal::dirs::cache_dir()
         .context("could not determine cache directory")?
         .join(kind)

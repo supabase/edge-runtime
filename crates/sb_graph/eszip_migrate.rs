@@ -9,11 +9,30 @@ pub async fn try_migrate_if_needed(
         match err.downcast_ref::<EszipError>() {
             Some(err) => {
                 warn!("{}: will attempt migration", err);
+
+                macro_rules! cont {
+                    ($name: ident, $label:tt, $expr:expr) => {
+                        #[allow(unused_mut)]
+                        let mut $name = {
+                            match $expr {
+                                Ok(v) => v,
+                                err @ Err(_) => break $label err,
+                            }
+                        };
+                    };
+                }
+
                 let result = match err {
-                    EszipError::UnsupportedVersion { expected, found } => match (expected, found) {
-                        (&b"1", &None) => v0::try_migrate_v0_v1(&mut eszip).await,
-                        _ => unreachable!(),
-                    },
+                    EszipError::UnsupportedVersion { expected, found } => {
+                        match (expected, found.as_deref()) {
+                            (&b"1.1", None) => 'scope: {
+                                cont!(v1, 'scope, v0::try_migrate_v0_v1(&mut eszip).await);
+                                v1_1::try_migrate_v1_v1_1(&mut v1).await
+                            }
+                            (&b"1.1", Some(b"1")) => v1_1::try_migrate_v1_v1_1(&mut eszip).await,
+                            _ => unreachable!(),
+                        }
+                    }
                 };
 
                 match result {
@@ -233,6 +252,7 @@ mod v1 {
     }
 
     #[derive(Archive, Serialize, Deserialize, Debug)]
+    #[cfg_attr(test, derive(enum_as_inner::EnumAsInner))]
     #[archive(check_bytes)]
     pub enum Entry {
         Dir(Directory),
@@ -241,12 +261,92 @@ mod v1 {
     }
 }
 
+mod v1_1 {
+    use std::sync::Arc;
+
+    use anyhow::{bail, Context};
+    use eszip::{v2::Checksum, EszipV2};
+    use futures::future::OptionFuture;
+    use sb_eszip_shared::{AsyncEszipDataRead, SUPABASE_ESZIP_VERSION_KEY, VFS_ESZIP_KEY};
+
+    use crate::LazyLoadableEszip;
+
+    use super::v1;
+
+    pub async fn try_migrate_v1_v1_1(
+        v1_eszip: &mut LazyLoadableEszip,
+    ) -> Result<LazyLoadableEszip, anyhow::Error> {
+        let mut v1_1_eszip = LazyLoadableEszip::new(
+            EszipV2 {
+                modules: v1_eszip.modules.clone(),
+                npm_snapshot: v1_eszip.npm_snapshot.take(),
+                options: v1_eszip.options,
+            },
+            None,
+        );
+
+        v1_eszip
+            .ensure_read_all()
+            .await
+            .with_context(|| "failed to load v1 eszip data")?;
+
+        v1_1_eszip.set_checksum(Checksum::NoChecksum);
+        v1_1_eszip.add_opaque_data(
+            String::from(SUPABASE_ESZIP_VERSION_KEY),
+            Arc::from(b"1.1" as &[u8]),
+        );
+
+        let mut v1_dir = {
+            let Some(vfs_mod_data) = OptionFuture::<_>::from(
+                v1_eszip
+                    .ensure_module(VFS_ESZIP_KEY)
+                    .map(|it| async move { it.take_source().await }),
+            )
+            .await
+            .flatten() else {
+                return Ok(v1_1_eszip);
+            };
+
+            let Ok(v1_dir) = rkyv::from_bytes::<v1::Directory>(&vfs_mod_data) else {
+                bail!("cannot deserialize vfs data");
+            };
+
+            v1_dir
+        };
+
+        if v1_dir.name != "node_modules" {
+            bail!("malformed vfs data (expected node_modules)");
+        }
+
+        v1_dir.name = "localhost".into();
+
+        let v1_1_dir = Some(v1::Directory {
+            name: "node_modules".into(),
+            entries: vec![v1::Entry::Dir(v1_dir)],
+        });
+
+        let v1_1_vfs_data = rkyv::to_bytes::<_, 1024>(&v1_1_dir)
+            .with_context(|| "failed to serialize v1.1 vfs data")?;
+
+        v1_1_eszip.add_opaque_data(
+            String::from(VFS_ESZIP_KEY),
+            Arc::from(v1_1_vfs_data.into_boxed_slice()),
+        );
+
+        Ok(v1_1_eszip)
+    }
+}
+
 #[cfg(test)]
 mod test {
+    use sb_eszip_shared::{AsyncEszipDataRead, VFS_ESZIP_KEY};
     use std::path::PathBuf;
     use tokio::fs;
 
-    use crate::{extract_eszip, EszipPayloadKind, ExtractEszipPayload};
+    use crate::{
+        eszip_migrate::try_migrate_if_needed, extract_eszip, payload_to_eszip, EszipPayloadKind,
+        ExtractEszipPayload,
+    };
 
     const MIGRATE_TEST_DIR: &str = "../base/test_cases/eszip-migration";
 
@@ -313,6 +413,80 @@ mod test {
                 "{}/npm-supabase-js/v1_corrupted.eszip",
                 MIGRATE_TEST_DIR
             )),
+        )
+        .await;
+    }
+
+    async fn test_vfs_npm_registry_migration_1_45_x(buf: Vec<u8>) {
+        let eszip = payload_to_eszip(EszipPayloadKind::VecKind(buf)).await;
+        let migrated = try_migrate_if_needed(eszip).await.unwrap();
+
+        let vfs_data = migrated
+            .ensure_module(VFS_ESZIP_KEY)
+            .unwrap()
+            .source()
+            .await
+            .unwrap();
+
+        let dir = rkyv::from_bytes::<Option<super::v1::Directory>>(&vfs_data)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(dir.name, "node_modules");
+
+        let first_child = dir.entries.first().unwrap().as_dir().unwrap();
+
+        assert_eq!(first_child.name, "localhost");
+    }
+
+    #[tokio::test]
+    async fn test_vfs_registry_migration_v0() {
+        test_vfs_npm_registry_migration_1_45_x(
+            fs::read(PathBuf::from(format!(
+                "{}/npm-supabase-js/v0.eszip",
+                MIGRATE_TEST_DIR
+            )))
+            .await
+            .unwrap(),
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn test_vfs_registry_migration_v1() {
+        test_vfs_npm_registry_migration_1_45_x(
+            fs::read(PathBuf::from(format!(
+                "{}/npm-supabase-js/v1.eszip",
+                MIGRATE_TEST_DIR
+            )))
+            .await
+            .unwrap(),
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn test_vfs_registry_migration_v1_1_xx_hash3() {
+        test_vfs_npm_registry_migration_1_45_x(
+            fs::read(PathBuf::from(format!(
+                "{}/npm-supabase-js/v1_1_xx_hash3.eszip",
+                MIGRATE_TEST_DIR
+            )))
+            .await
+            .unwrap(),
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn test_vfs_registry_migration_v1_1_no_checksum() {
+        test_vfs_npm_registry_migration_1_45_x(
+            fs::read(PathBuf::from(format!(
+                "{}/npm-supabase-js/v1_1_no_checksum.eszip",
+                MIGRATE_TEST_DIR
+            )))
+            .await
+            .unwrap(),
         )
         .await;
     }

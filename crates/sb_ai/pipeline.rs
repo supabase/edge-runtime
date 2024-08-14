@@ -59,84 +59,80 @@ impl Task {
     where
         T: PipelineDefinition,
     {
-        let onnx_session = info_span!("session")
-            .in_scope(|| async move {
-                let model_url = def.model_url(None)?;
-                let store = {
-                    let mut guard = ONNX_SESSIONS.lock().await;
+        let onnx_session = info_span!("session").in_scope(|| async move {
+            let model_url = def.model_url(None)?;
+            let store = {
+                let mut guard = ONNX_SESSIONS.lock().await;
 
-                    guard
-                        .entry(model_url.clone())
-                        .or_insert_with(Arc::default)
-                        .clone()
-                };
+                guard
+                    .entry(model_url.clone())
+                    .or_insert_with(Arc::default)
+                    .clone()
+            };
 
-                let mut guard = store.lock().await;
+            let mut guard = store.lock().await;
 
-                if let Some(already_initialized_onnx_session) = guard.clone() {
-                    return Ok::<_, AnyError>(already_initialized_onnx_session);
-                }
+            if let Some(already_initialized_onnx_session) = guard.clone() {
+                return Ok::<_, AnyError>(already_initialized_onnx_session);
+            }
 
-                let onnx_session = fetch_and_cache_from_url(&model_url, "models")
-                    .await
-                    .and_then(|it| {
-                        if let Some(err) = ensure_onnx_env_init() {
-                            return Err(anyhow!("failed to create onnx environment: {err}"));
-                        }
+            let onnx_session = fetch_and_cache_from_url(&model_url, "models")
+                .await
+                .and_then(|it| {
+                    if let Some(err) = ensure_onnx_env_init() {
+                        return Err(anyhow!("failed to create onnx environment: {err}"));
+                    }
 
-                        def.session_builder()?
-                            .with_execution_providers(def.execution_providers())
-                            .context("failed to register execution providers")?
-                            .commit_from_file(it)
-                            .context("failed to commit model to session")
-                    })
-                    .map(Arc::new)?;
+                    def.session_builder()?
+                        .with_execution_providers(def.execution_providers())
+                        .context("failed to register execution providers")?
+                        .commit_from_file(it)
+                        .context("failed to commit model to session")
+                })
+                .map(Arc::new)?;
 
-                *guard = Some(onnx_session.clone());
+            *guard = Some(onnx_session.clone());
 
-                Ok(onnx_session)
-            })
-            .await?;
+            Ok(onnx_session)
+        });
 
-        let maybe_tokenizer = info_span!("tokenizer")
-            .in_scope(|| async move {
-                if let Some(url) = def.tokenizer_url(None) {
-                    let buf = tokio::fs::read(fetch_and_cache_from_url(&url?, "tokenizers").await?)
-                        .map_err(AnyError::new)
-                        .await?;
+        let maybe_tokenizer = info_span!("tokenizer").in_scope(|| async move {
+            if let Some(url) = def.tokenizer_url(None) {
+                let buf = tokio::fs::read(fetch_and_cache_from_url(&url?, "tokenizers").await?)
+                    .map_err(AnyError::new)
+                    .await?;
 
-                    let mut tokenizer = Tokenizer::from_bytes(buf).map_err(|e| anyhow!(e))?;
+                let mut tokenizer = Tokenizer::from_bytes(buf).map_err(|e| anyhow!(e))?;
 
-                    def.configure_tokenizer(&mut tokenizer);
+                def.configure_tokenizer(&mut tokenizer);
 
-                    Ok(Some(Arc::new(tokenizer)))
-                } else {
-                    Ok::<_, AnyError>(None)
-                }
-            })
-            .await?;
+                Ok(Some(Arc::new(tokenizer)))
+            } else {
+                Ok::<_, AnyError>(None)
+            }
+        });
 
-        let maybe_config = info_span!("config")
-            .in_scope(|| async move {
-                if let Some(url) = def.config_url(None) {
-                    let buf = tokio::fs::read(fetch_and_cache_from_url(&url?, "configs").await?)
-                        .map_err(AnyError::new)
-                        .await?;
+        let maybe_config = info_span!("config").in_scope(|| async move {
+            if let Some(url) = def.config_url(None) {
+                let buf = tokio::fs::read(fetch_and_cache_from_url(&url?, "configs").await?)
+                    .map_err(AnyError::new)
+                    .await?;
 
-                    let config = serde_json::from_slice(&buf).map_err(|e| anyhow!(e))?;
+                let config = serde_json::from_slice(&buf).map_err(|e| anyhow!(e))?;
 
-                    Ok(Some(Arc::new(config)))
-                } else {
-                    Ok::<_, AnyError>(None)
-                }
-            })
-            .await?;
+                Ok(Some(Arc::new(config)))
+            } else {
+                Ok::<_, AnyError>(None)
+            }
+        });
 
-        Ok(Self {
-            onnx_session,
-            maybe_tokenizer,
-            maybe_config,
-        })
+        tokio::try_join!(onnx_session, maybe_tokenizer, maybe_config).map(
+            |(onnx_session, maybe_tokenizer, maybe_config)| Self {
+                onnx_session,
+                maybe_tokenizer,
+                maybe_config,
+            },
+        )
     }
 }
 

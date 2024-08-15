@@ -17,12 +17,12 @@ use ort::{
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use sha2::{Digest, Sha256};
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::env::VarError;
 use std::future::Future;
+use std::hash::Hasher;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -31,6 +31,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::sync::{mpsc, oneshot, Mutex, RwLock};
 use tokio_util::compat::FuturesAsyncWriteCompatExt;
 use tracing::{debug, error, info, info_span, instrument, trace, Instrument};
+use xxhash_rust::xxh3::Xxh3;
 
 type TaskMap = RwLock<HashMap<Cow<'static, str>, Arc<RwLock<Option<Result<Task, Arc<AnyError>>>>>>>;
 type OnnxSessionMap = Mutex<HashMap<Url, Arc<Mutex<Option<Arc<Session>>>>>>;
@@ -175,10 +176,10 @@ async fn fetch_and_cache_from_url(url: &Url, kind: &'static str) -> Result<PathB
             let filepath = filepath.clone();
             let checksum = tokio::task::spawn_blocking(move || {
                 let mut file = std::fs::File::open(filepath).ok()?;
-                let mut hasher = Sha256::new();
+                let mut hasher = Xxh3::new();
                 let _ = std::io::copy(&mut file, &mut hasher).ok()?;
 
-                Some(hasher.finalize())
+                Some(hasher.finish().to_be_bytes())
             })
             .await;
 
@@ -228,7 +229,7 @@ async fn fetch_and_cache_from_url(url: &Url, kind: &'static str) -> Result<PathB
 
             let mut stream = resp.bytes_stream();
             let mut writer = tokio::io::BufWriter::new(file);
-                let mut hasher = AllowStdIo::new(Sha256::new()).compat_write();
+            let mut hasher = AllowStdIo::new(Xxh3::new()).compat_write();
             let mut written = 0;
 
             while let Some(chunk) = stream.next().await {
@@ -245,10 +246,10 @@ async fn fetch_and_cache_from_url(url: &Url, kind: &'static str) -> Result<PathB
                 trace!(bytes_written = written);
             }
 
-                let checksum_str = {
-                    let hasher = hasher.into_inner().into_inner();
-                    faster_hex::hex_string(&hasher.finalize())
-                };
+            let checksum_str = {
+                let hasher = hasher.into_inner().into_inner();
+                faster_hex::hex_string(&hasher.finish().to_be_bytes())
+            };
 
             if written == len as u64 {
                 info!({ bytes_written = written, checksum = &checksum_str }, "done");

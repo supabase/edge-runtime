@@ -11,7 +11,7 @@ use deno_core::{anyhow::Context, error::AnyError, OpState, V8CrossThreadTaskSpaw
 use once_cell::sync::Lazy;
 use tokio::{runtime::Handle, sync::oneshot};
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, debug_span};
+use tracing::{debug, debug_span, Instrument};
 
 pub mod error;
 
@@ -144,9 +144,7 @@ impl BlockingScopeCPUUsageMetricExt for &mut OpState {
             });
 
             handle.block_on({
-                let span = debug_span!("wait v8 task done");
                 async move {
-                    let _span = span.entered();
                     tokio::select! {
                         _ = rx => {}
                         _ = drop_token.cancelled() => {
@@ -157,6 +155,7 @@ impl BlockingScopeCPUUsageMetricExt for &mut OpState {
                         }
                     }
                 }
+                .instrument(debug_span!("wait v8 task done"))
             });
 
             result

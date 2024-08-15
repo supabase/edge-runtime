@@ -102,7 +102,7 @@ class Session {
         }
     }
 
-    /** @param {string | object} prompt Either a String (ollama) or an OpenAI chat completion body object (openaicompatible): https://platform.openai.com/docs/api-reference/chat/create */
+    /** @param {string | string[] | object} prompt Either a String (ollama) or an OpenAI chat completion body object (openaicompatible): https://platform.openai.com/docs/api-reference/chat/create */
     async run(prompt, opts = {}) {
         if (this.is_ext_inference_api) {
             const stream = opts.stream ?? false;
@@ -235,8 +235,8 @@ class Session {
         const normalize = opts.normalize ?? true;
         const result = await core.ops.op_sb_ai_run_model(
             this.model,
+            prompt,
             {
-                prompt,
                 mean_pool,
                 normalize
             }

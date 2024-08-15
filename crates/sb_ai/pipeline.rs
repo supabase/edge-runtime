@@ -30,7 +30,7 @@ use tokenizers::Tokenizer;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::{mpsc, oneshot, Mutex, RwLock};
 use tokio_util::compat::FuturesAsyncWriteCompatExt;
-use tracing::{debug, error, info, info_span, instrument, trace};
+use tracing::{debug, error, info, info_span, instrument, trace, Instrument};
 
 type TaskMap = RwLock<HashMap<Cow<'static, str>, Arc<RwLock<Option<Result<Task, Arc<AnyError>>>>>>>;
 type OnnxSessionMap = Mutex<HashMap<Url, Arc<Mutex<Option<Arc<Session>>>>>>;
@@ -59,7 +59,7 @@ impl Task {
     where
         T: PipelineDefinition,
     {
-        let onnx_session = info_span!("session").in_scope(|| async move {
+        let onnx_session = async move {
             let model_url = def.model_url(None)?;
             let store = {
                 let mut guard = ONNX_SESSIONS.lock().await;
@@ -94,9 +94,10 @@ impl Task {
             *guard = Some(onnx_session.clone());
 
             Ok(onnx_session)
-        });
+        }
+        .instrument(info_span!("session"));
 
-        let maybe_tokenizer = info_span!("tokenizer").in_scope(|| async move {
+        let maybe_tokenizer = async move {
             if let Some(url) = def.tokenizer_url(None) {
                 let buf = tokio::fs::read(fetch_and_cache_from_url(&url?, "tokenizers").await?)
                     .map_err(AnyError::new)
@@ -110,9 +111,10 @@ impl Task {
             } else {
                 Ok::<_, AnyError>(None)
             }
-        });
+        }
+        .instrument(info_span!("tokenizer"));
 
-        let maybe_config = info_span!("config").in_scope(|| async move {
+        let maybe_config = async move {
             if let Some(url) = def.config_url(None) {
                 let buf = tokio::fs::read(fetch_and_cache_from_url(&url?, "configs").await?)
                     .map_err(AnyError::new)
@@ -124,7 +126,8 @@ impl Task {
             } else {
                 Ok::<_, AnyError>(None)
             }
-        });
+        }
+        .instrument(info_span!("config"));
 
         tokio::try_join!(onnx_session, maybe_tokenizer, maybe_config).map(
             |(onnx_session, maybe_tokenizer, maybe_config)| Self {
@@ -186,87 +189,88 @@ async fn fetch_and_cache_from_url(url: &Url, kind: &'static str) -> Result<PathB
             old_checksum_str == faster_hex::hex_string(&checksum)
         };
 
-    info_span!("download", filepath = %filepath.to_string_lossy())
-        .in_scope(|| async move {
-            if is_filepath_exists && is_checksum_valid {
-                info!("binary already exists, skipping download");
-                Ok(filepath.clone())
-            } else {
-                info!("downloading binary");
+    let span = info_span!("download", filepath = %filepath.to_string_lossy());
+    async move {
+        if is_filepath_exists && is_checksum_valid {
+            info!("binary already exists, skipping download");
+            Ok(filepath.clone())
+        } else {
+            info!("downloading binary");
 
-                if is_filepath_exists {
-                    let _ = tokio::fs::remove_file(&filepath).await;
-                }
+            if is_filepath_exists {
+                let _ = tokio::fs::remove_file(&filepath).await;
+            }
 
-                use reqwest::*;
+            use reqwest::*;
 
-                let resp = Client::builder()
-                    .build()
-                    .context("failed to create http client")?
-                    .get(url.clone())
-                    .send()
-                    .await
-                    .context("failed to download")?;
+            let resp = Client::builder()
+                .build()
+                .context("failed to create http client")?
+                .get(url.clone())
+                .send()
+                .await
+                .context("failed to download")?;
 
-                let len = resp
-                    .headers()
-                    .get(header::CONTENT_LENGTH)
-                    .map(|it| it.to_str().map_err(AnyError::new))
-                    .transpose()?
-                    .map(|it| it.parse::<usize>().map_err(AnyError::new))
-                    .transpose()?
-                    .context("invalid Content-Length header")?;
+            let len = resp
+                .headers()
+                .get(header::CONTENT_LENGTH)
+                .map(|it| it.to_str().map_err(AnyError::new))
+                .transpose()?
+                .map(|it| it.parse::<usize>().map_err(AnyError::new))
+                .transpose()?
+                .context("invalid Content-Length header")?;
 
-                debug!(total_bytes = len);
+            debug!(total_bytes = len);
 
-                let file = tokio::fs::File::create(&filepath)
-                    .await
-                    .context("failed to create file")?;
+            let file = tokio::fs::File::create(&filepath)
+                .await
+                .context("failed to create file")?;
 
-                let mut stream = resp.bytes_stream();
-                let mut writer = tokio::io::BufWriter::new(file);
+            let mut stream = resp.bytes_stream();
+            let mut writer = tokio::io::BufWriter::new(file);
                 let mut hasher = AllowStdIo::new(Sha256::new()).compat_write();
-                let mut written = 0;
+            let mut written = 0;
 
-                while let Some(chunk) = stream.next().await {
-                    let chunk = chunk.context("failed to get chunks")?;
+            while let Some(chunk) = stream.next().await {
+                let chunk = chunk.context("failed to get chunks")?;
 
-                    written += tokio::io::copy(&mut chunk.as_ref(), &mut writer)
-                        .await
-                        .context("failed to store chunks to file")?;
+                written += tokio::io::copy(&mut chunk.as_ref(), &mut writer)
+                    .await
+                    .context("failed to store chunks to file")?;
 
-                    let _ = tokio::io::copy(&mut chunk.as_ref(), &mut hasher)
-                        .await
-                        .context("failed to calculate checksum")?;
+                let _ = tokio::io::copy(&mut chunk.as_ref(), &mut hasher)
+                    .await
+                    .context("failed to calculate checksum")?;
 
-                    trace!(bytes_written = written);
-                }
+                trace!(bytes_written = written);
+            }
 
                 let checksum_str = {
                     let hasher = hasher.into_inner().into_inner();
                     faster_hex::hex_string(&hasher.finalize())
                 };
 
-                if written == len as u64 {
-                    info!({ bytes_written = written, checksum = &checksum_str }, "done");
+            if written == len as u64 {
+                info!({ bytes_written = written, checksum = &checksum_str }, "done");
 
-                    let mut checksum_file = tokio::fs::File::create(&checksum_path)
-                        .await
-                        .context("failed to create checksum file")?;
+                let mut checksum_file = tokio::fs::File::create(&checksum_path)
+                    .await
+                    .context("failed to create checksum file")?;
 
-                    let _ = checksum_file
-                        .write(checksum_str.as_bytes())
-                        .await
-                        .context("failed to write checksum to file system")?;
+                let _ = checksum_file
+                    .write(checksum_str.as_bytes())
+                    .await
+                    .context("failed to write checksum to file system")?;
 
-                    Ok(filepath)
-                } else {
-                    error!({ expected = len, got = written }, "bytes mismatch");
-                    bail!("error copying data to file: expected {len} length, but got {written}");
-                }
+                Ok(filepath)
+            } else {
+                error!({ expected = len, got = written }, "bytes mismatch");
+                bail!("error copying data to file: expected {len} length, but got {written}");
             }
-        })
-        .await
+        }
+    }
+    .instrument(span)
+    .await
 }
 
 struct PipelineRequest<T, TO, U> {

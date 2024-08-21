@@ -8,7 +8,7 @@ use deno_core::url::Url;
 use deno_core::{FastString, JsBuffer, ModuleSpecifier};
 use deno_fs::{FileSystem, RealFs};
 use deno_npm::NpmSystemInfo;
-use eszip::v2::{EszipV2Module, EszipV2Modules, EszipV2SourceSlot};
+use eszip::v2::{EszipV2Module, EszipV2Modules, EszipV2SourceSlot, Options, Section};
 use eszip::{EszipV2, Module, ModuleKind, ParseError};
 use futures::future::OptionFuture;
 use futures::{AsyncReadExt, AsyncSeekExt};
@@ -22,7 +22,6 @@ use sb_fs::{build_vfs, VfsOpts};
 use sb_npm::InnerCliNpmResolverRef;
 use scopeguard::ScopeGuard;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fs;
@@ -38,11 +37,13 @@ pub mod emitter;
 pub mod errors;
 pub mod eszip_migrate;
 pub mod graph_fs;
-pub mod graph_resolver;
 pub mod graph_util;
 pub mod import_map;
 pub mod jsr;
 pub mod jsx_util;
+pub mod resolver;
+
+pub use eszip::v2::Checksum;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -114,6 +115,7 @@ impl Clone for LazyLoadableEszip {
             eszip: EszipV2 {
                 modules: self.eszip.modules.clone(),
                 npm_snapshot: None,
+                options: self.eszip.options,
             },
             maybe_data_section: self.maybe_data_section.clone(),
         }
@@ -216,6 +218,7 @@ pub enum EszipDataSectionMetadata {
 pub struct EszipDataSection {
     inner: Arc<Mutex<Cursor<Vec<u8>>>>,
     modules: EszipV2Modules,
+    options: Options,
     initial_offset: u64,
     sources_len: Arc<Mutex<Option<u64>>>,
     locs_by_specifier: Arc<Mutex<Option<HashMap<String, EszipDataSectionMetadata>>>>,
@@ -223,10 +226,16 @@ pub struct EszipDataSection {
 }
 
 impl EszipDataSection {
-    pub fn new(inner: Cursor<Vec<u8>>, initial_offset: u64, modules: EszipV2Modules) -> Self {
+    pub fn new(
+        inner: Cursor<Vec<u8>>,
+        initial_offset: u64,
+        modules: EszipV2Modules,
+        options: Options,
+    ) -> Self {
         Self {
             inner: Arc::new(Mutex::new(inner)),
             modules,
+            options,
             initial_offset,
             sources_len: Arc::default(),
             locs_by_specifier: Arc::default(),
@@ -320,25 +329,17 @@ impl EszipDataSection {
                 Self::wake_source_slot(modules, specifier, || EszipV2SourceSlot::Taken);
             });
 
-            let mut source_bytes = vec![0u8; loc.source_length];
-            io.read_exact(&mut source_bytes).await?;
+            let source_bytes =
+                Section::read_with_size(&mut io, self.options, loc.source_length).await?;
 
-            let expected_hash = &mut [0u8; 32];
-            io.read_exact(expected_hash).await?;
-
-            let mut hasher = Sha256::new();
-            hasher.update(&source_bytes);
-
-            let actual_hash = hasher.finalize();
-
-            if &*actual_hash != expected_hash {
+            if !source_bytes.is_checksum_valid() {
                 return Err(ParseError::InvalidV2SourceHash(specifier.to_string()))
                     .context("invalid source hash");
             }
 
             let _ = ScopeGuard::into_inner(wake_guard);
 
-            Some(source_bytes)
+            Some(source_bytes.into_content())
         };
 
         if let Some(bytes) = source_bytes {
@@ -383,25 +384,17 @@ impl EszipDataSection {
                 Self::wake_source_map_slot(modules, specifier, || EszipV2SourceSlot::Taken);
             });
 
-            let mut source_map_bytes = vec![0u8; loc.source_map_length];
-            io.read_exact(&mut source_map_bytes).await?;
+            let source_map_bytes =
+                Section::read_with_size(&mut io, self.options, loc.source_map_length).await?;
 
-            let expected_hash = &mut [0u8; 32];
-            io.read_exact(expected_hash).await?;
-
-            let mut hasher = Sha256::new();
-            hasher.update(&source_map_bytes);
-
-            let actual_hash = hasher.finalize();
-
-            if &*actual_hash != expected_hash {
+            if !source_map_bytes.is_checksum_valid() {
                 return Err(ParseError::InvalidV2SourceHash(specifier.to_string()))
                     .context("invalid source hash");
             }
 
             let _ = ScopeGuard::into_inner(wake_guard);
 
-            Some(source_map_bytes)
+            Some(source_map_bytes.into_content())
         };
 
         if let Some(bytes) = source_map_bytes {
@@ -414,10 +407,15 @@ impl EszipDataSection {
     }
 
     pub async fn read_data_section_all(self: Arc<Self>) -> Result<(), ParseError> {
-        // NOTE: Below codes is roughly originated from eszip@0.60.0/src/v2.rs
+        // NOTE: Below codes is roughly originated from eszip@0.72.2/src/v2.rs
 
         let this = Arc::into_inner(self).unwrap();
         let modules = this.modules;
+        let checksum_size = this
+            .options
+            .checksum_size()
+            .expect("checksum size must be known") as usize;
+
         let mut loaded_locs = Arc::into_inner(this.loaded_locs_by_specifier)
             .unwrap()
             .into_inner();
@@ -483,7 +481,7 @@ impl EszipDataSection {
                 .ok_or(ParseError::InvalidV2SourceOffset(read))?;
 
             if !need_load {
-                read += length + 32;
+                read += length + checksum_size;
 
                 io.seek(SeekFrom::Current((length + 32) as i64))
                     .await
@@ -492,25 +490,16 @@ impl EszipDataSection {
                 continue;
             }
 
-            let mut source_bytes = vec![0u8; length];
-            io.read_exact(&mut source_bytes).await?;
+            let source_bytes = Section::read_with_size(&mut io, this.options, length).await?;
 
-            let expected_hash = &mut [0u8; 32];
-            io.read_exact(expected_hash).await?;
-
-            let mut hasher = Sha256::new();
-            hasher.update(&source_bytes);
-
-            let actual_hash = hasher.finalize();
-
-            if &*actual_hash != expected_hash {
+            if !source_bytes.is_checksum_valid() {
                 return Err(ParseError::InvalidV2SourceHash(specifier));
             }
 
-            read += length + 32;
+            read += source_bytes.total_len();
 
             Self::wake_source_slot(&modules, &specifier, move || {
-                EszipV2SourceSlot::Ready(Arc::from(source_bytes))
+                EszipV2SourceSlot::Ready(Arc::from(source_bytes.into_content()))
             });
         }
 
@@ -523,34 +512,25 @@ impl EszipDataSection {
                 .ok_or(ParseError::InvalidV2SourceOffset(read))?;
 
             if !need_load {
-                read += length + 32;
+                read += length + checksum_size;
 
-                io.seek(SeekFrom::Current((length + 32) as i64))
+                io.seek(SeekFrom::Current((length + checksum_size) as i64))
                     .await
                     .unwrap();
 
                 continue;
             }
 
-            let mut source_map_bytes = vec![0u8; length];
-            io.read_exact(&mut source_map_bytes).await?;
+            let source_map_bytes = Section::read_with_size(&mut io, this.options, length).await?;
 
-            let expected_hash = &mut [0u8; 32];
-            io.read_exact(expected_hash).await?;
-
-            let mut hasher = Sha256::new();
-            hasher.update(&source_map_bytes);
-
-            let actual_hash = hasher.finalize();
-
-            if &*actual_hash != expected_hash {
+            if !source_map_bytes.is_checksum_valid() {
                 return Err(ParseError::InvalidV2SourceHash(specifier));
             }
 
-            read += length + 32;
+            read += source_map_bytes.total_len();
 
             Self::wake_source_map_slot(&modules, &specifier, move || {
-                EszipV2SourceSlot::Ready(Arc::from(source_map_bytes))
+                EszipV2SourceSlot::Ready(Arc::from(source_map_bytes.into_content()))
             });
         }
 
@@ -633,8 +613,12 @@ pub async fn payload_to_eszip(eszip_payload_kind: EszipPayloadKind) -> LazyLoada
             let eszip = eszip_parse::parse_v2_header(&mut bufreader).await.unwrap();
 
             let initial_offset = bufreader.stream_position().await.unwrap();
-            let data_section =
-                EszipDataSection::new(io.into_inner(), initial_offset, eszip.modules.clone());
+            let data_section = EszipDataSection::new(
+                io.into_inner(),
+                initial_offset,
+                eszip.modules.clone(),
+                eszip.options,
+            );
 
             LazyLoadableEszip::new(eszip, Some(Arc::new(data_section)))
         }
@@ -646,6 +630,7 @@ pub async fn generate_binary_eszip<P>(
     emitter_factory: Arc<EmitterFactory>,
     maybe_module_code: Option<FastString>,
     maybe_import_map_url: Option<String>,
+    maybe_checksum: Option<Checksum>,
 ) -> Result<EszipV2, anyhow::Error>
 where
     P: AsRef<Path>,
@@ -656,9 +641,12 @@ where
         emitter_factory.clone(),
         &maybe_module_code,
     )
-    .await;
+    .await?;
 
     let mut eszip = create_eszip_from_graph_raw(graph, Some(emitter_factory.clone())).await?;
+    if let Some(checksum) = maybe_checksum {
+        eszip.set_checksum(checksum);
+    }
 
     let source_code: Arc<str> = if let Some(code) = maybe_module_code {
         code.as_str().into()
@@ -679,8 +667,7 @@ where
     )?;
 
     let bin_code: Arc<[u8]> = emit_source.as_bytes().into();
-    let npm_res = emitter_factory.npm_resolution().await;
-    let resolver = emitter_factory.npm_resolver().await;
+    let resolver = emitter_factory.npm_resolver().await.cloned()?;
 
     let (npm_vfs, _npm_files) = match resolver.clone().as_inner() {
         InnerCliNpmResolverRef::Managed(managed) => {
@@ -690,9 +677,6 @@ where
                 let (root_dir, files) = build_vfs(
                     VfsOpts {
                         npm_resolver: resolver.clone(),
-                        npm_registry_api: emitter_factory.npm_api().await.clone(),
-                        npm_cache: emitter_factory.npm_cache().await.clone(),
-                        npm_resolution: emitter_factory.npm_resolution().await.clone(),
                     },
                     |_path, _key, content| {
                         let key = format!("vfs://{}", count);
@@ -705,7 +689,7 @@ where
                 .into_dir_and_files();
 
                 let snapshot =
-                    npm_res.serialized_valid_snapshot_for_system(&NpmSystemInfo::default());
+                    managed.serialized_valid_snapshot_for_system(&NpmSystemInfo::default());
 
                 eszip.add_npm_snapshot(snapshot);
 
@@ -923,6 +907,7 @@ mod test {
         let eszip = generate_binary_eszip(
             PathBuf::from("../base/test_cases/npm/index.ts"),
             Arc::new(EmitterFactory::new()),
+            None,
             None,
             None,
         )

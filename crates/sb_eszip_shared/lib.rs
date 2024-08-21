@@ -1,6 +1,6 @@
 use eszip::Module;
 
-pub static SUPABASE_ESZIP_VERSION: &[u8] = b"1";
+pub static SUPABASE_ESZIP_VERSION: &[u8] = b"1.1";
 
 pub static SUPABASE_ESZIP_VERSION_KEY: &str = "---SUPABASE-ESZIP-VERSION-ESZIP---";
 pub static VFS_ESZIP_KEY: &str = "---SUPABASE-VFS-DATA-ESZIP---";

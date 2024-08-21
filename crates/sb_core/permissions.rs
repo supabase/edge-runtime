@@ -2,7 +2,6 @@ use deno_core::error::{custom_error, generic_error, AnyError};
 use deno_core::url::Url;
 use deno_fs::OpenOptions;
 use deno_permissions::NetDescriptor;
-use fqdn::fqdn;
 use std::borrow::Cow;
 use std::path::Path;
 
@@ -67,11 +66,8 @@ impl deno_fetch::FetchPermissions for Permissions {
         }
 
         if let Some(allow_net) = &self.allow_net {
-            let hostname = url
-                .host_str()
-                .ok_or(generic_error("empty host"))?
-                .to_string();
-            let descriptor = NetDescriptor(fqdn!(&hostname), url.port());
+            let hostname = url.host_str().ok_or(generic_error("empty host"))?.parse()?;
+            let descriptor = NetDescriptor(hostname, url.port());
             if !allow_net.contains(&descriptor) {
                 return Err(custom_error(
                     "PermissionDenied",
@@ -132,11 +128,8 @@ impl deno_websocket::WebSocketPermissions for Permissions {
             ));
         }
         if let Some(allow_net) = &self.allow_net {
-            let hostname = url
-                .host_str()
-                .ok_or(generic_error("empty host"))?
-                .to_string();
-            let descriptor = NetDescriptor(fqdn!(&hostname), url.port());
+            let hostname = url.host_str().ok_or(generic_error("empty host"))?.parse()?;
+            let descriptor = NetDescriptor(hostname, url.port());
             if !allow_net.contains(&descriptor) {
                 return Err(custom_error(
                     "PermissionDenied",
@@ -223,24 +216,24 @@ impl sb_node::NodePermissions for Permissions {
         Ok(())
     }
 
-    fn check_read(&self, _path: &Path) -> Result<(), AnyError> {
+    fn check_read(&mut self, _path: &Path) -> Result<(), AnyError> {
         Ok(())
     }
 
     fn check_read_with_api_name(
-        &self,
+        &mut self,
         _path: &Path,
         _api_name: Option<&str>,
     ) -> Result<(), AnyError> {
         Ok(())
     }
 
-    fn check_sys(&self, _kind: &str, _api_name: &str) -> Result<(), AnyError> {
+    fn check_sys(&mut self, _kind: &str, _api_name: &str) -> Result<(), AnyError> {
         Ok(())
     }
 
     fn check_write_with_api_name(
-        &self,
+        &mut self,
         _path: &Path,
         _api_name: Option<&str>,
     ) -> Result<(), AnyError> {

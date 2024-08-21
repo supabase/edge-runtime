@@ -17,7 +17,6 @@ use deno_core::{
 };
 use deno_http::DefaultHttpPropertyExtractor;
 use deno_tls::deno_native_certs::load_native_certs;
-use deno_tls::rustls;
 use deno_tls::rustls::RootCertStore;
 use deno_tls::RootCertStoreProvider;
 use futures_util::future::poll_fn;
@@ -34,14 +33,17 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::fmt;
+use std::future::Future;
 use std::marker::PhantomData;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 use std::task::Poll;
+use std::thread::ThreadId;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::interval;
 use tokio_util::sync::CancellationToken;
+use tracing::debug;
 
 use crate::snapshot;
 use event_worker::events::{EventMetadata, WorkerEventWithMetadata};
@@ -191,7 +193,8 @@ pub struct DenoRuntime<RuntimeContext = ()> {
     pub env_vars: HashMap<String, String>, // TODO: does this need to be pub?
     pub conf: WorkerRuntimeOpts,
 
-    pub(crate) is_termination_requested: Arc<AtomicFlag>,
+    pub(crate) termination_request_token: CancellationToken,
+
     pub(crate) is_terminated: Arc<AtomicFlag>,
     pub(crate) is_found_inspector_session: Arc<AtomicFlag>,
 
@@ -287,7 +290,7 @@ where
             };
         }
 
-        let mut maybe_arc_import_map = None;
+        let mut maybe_import_map = None;
         let only_module_code =
             maybe_module_code.is_some() && maybe_eszip.is_none() && !is_some_entry_point;
 
@@ -312,10 +315,8 @@ where
                     .await;
             }
 
-            let maybe_import_map = load_import_map(import_map_path.clone())?;
-
-            emitter_factory.set_import_map(maybe_import_map);
-            maybe_arc_import_map.clone_from(&emitter_factory.maybe_import_map);
+            emitter_factory.set_import_map(load_import_map(import_map_path.clone())?);
+            maybe_import_map.clone_from(&emitter_factory.maybe_import_map);
 
             let arc_emitter_factory = Arc::new(emitter_factory);
             let main_module_url_file_path = main_module_url.clone().to_file_path().unwrap();
@@ -330,6 +331,8 @@ where
                 arc_emitter_factory,
                 maybe_code,
                 import_map_path.clone(),
+                // here we don't want to add extra cost, so we won't use a checksum
+                None,
             )
             .await?;
 
@@ -367,7 +370,7 @@ where
                     let roots = load_native_certs().expect("could not load platform certs");
                     for root in roots {
                         root_cert_store
-                            .add(&rustls::Certificate(root.0))
+                            .add((&*root.0).into())
                             .expect("Failed to add platform cert to root cert store");
                     }
                 }
@@ -396,13 +399,14 @@ where
         let rt_provider = create_module_loader_for_standalone_from_eszip_kind(
             eszip,
             base_dir_path.clone(),
-            maybe_arc_import_map,
+            maybe_import_map,
             import_map_path,
             maybe_inspector.is_some(),
         )
         .await?;
 
         let RuntimeProviders {
+            node_resolver,
             npm_resolver,
             vfs,
             module_loader,
@@ -471,7 +475,7 @@ where
             sb_core_http_start::init_ops(),
             // NOTE(AndresP): Order is matters. Otherwise, it will lead to hard
             // errors such as SIGBUS depending on the platform.
-            deno_node::init_ops::<Permissions>(Some(npm_resolver), op_fs),
+            deno_node::init_ops::<Permissions>(Some(node_resolver), Some(npm_resolver), op_fs),
             sb_core_runtime::init_ops(Some(main_module_url.clone())),
         ];
 
@@ -654,7 +658,8 @@ where
             env_vars,
             conf,
 
-            is_termination_requested: Arc::default(),
+            termination_request_token: CancellationToken::new(),
+
             is_terminated: Arc::default(),
             is_found_inspector_session: Arc::default(),
 
@@ -687,20 +692,17 @@ where
             }
         }
 
-        let send_cpu_metrics_fn = |metric: CPUUsageMetrics| {
-            if let Some(cpu_metric_tx) = maybe_cpu_usage_metrics_tx.as_ref() {
-                let _ = cpu_metric_tx.send(metric);
-            }
-        };
+        let _terminate_guard = scopeguard::guard(self.is_terminated.clone(), |v| {
+            v.raise();
+        });
 
         // NOTE: This is unnecessary on the LIFO task scheduler that can't steal
         // the task from the other threads.
         let current_thread_id = std::thread::current().id();
-        let mut current_cpu_time_ns;
         let mut accumulated_cpu_time_ns = 0i64;
 
         let inspector = self.inspector();
-        let mod_result_rx = unsafe {
+        let mut mod_result_rx = unsafe {
             self.js_runtime.v8_isolate().enter();
 
             if inspector.is_some() {
@@ -723,7 +725,7 @@ where
                     this.wait_for_inspector_session();
                 }
 
-                if this.is_termination_requested.is_raised() {
+                if this.termination_request_token.is_cancelled() {
                     this.js_runtime.v8_isolate().exit();
                     is_terminated.raise();
                     return (Ok(()), 0i64);
@@ -734,30 +736,86 @@ where
                 it.v8_isolate().exit();
             });
 
-            send_cpu_metrics_fn(CPUUsageMetrics::Enter(current_thread_id));
-
-            current_cpu_time_ns = get_current_cpu_time_ns().unwrap();
-
-            let top_level_await_fut = js_runtime.mod_evaluate(self.main_module_id);
-            let cpu_time_after_eval_ns = get_current_cpu_time_ns().unwrap();
-            let diff_cpu_time_ns = cpu_time_after_eval_ns - current_cpu_time_ns;
-
-            accumulated_cpu_time_ns += diff_cpu_time_ns;
-
-            send_cpu_metrics_fn(CPUUsageMetrics::Leave(CPUUsage {
-                accumulated: accumulated_cpu_time_ns,
-                diff: diff_cpu_time_ns,
-            }));
-
-            top_level_await_fut
+            with_cpu_metrics_guard(
+                current_thread_id,
+                &maybe_cpu_usage_metrics_tx,
+                &mut accumulated_cpu_time_ns,
+                || js_runtime.mod_evaluate(self.main_module_id),
+            )
         };
 
-        let is_termination_requested = self.is_termination_requested.clone();
+        macro_rules! get_accumulated_cpu_time_ms {
+            () => {
+                accumulated_cpu_time_ns / 1_000_000
+            };
+        }
+
+        {
+            let event_loop_fut = self.run_event_loop(
+                name.as_deref(),
+                current_thread_id,
+                &maybe_cpu_usage_metrics_tx,
+                &mut accumulated_cpu_time_ns,
+            );
+
+            let mod_result = tokio::select! {
+                // Not using biased mode leads to non-determinism for relatively simple
+                // programs.
+                biased;
+
+                maybe_mod_result = &mut mod_result_rx => {
+                    debug!("received module evaluate {:#?}", maybe_mod_result);
+                    maybe_mod_result
+
+                }
+
+                event_loop_result = event_loop_fut => {
+                    if let Err(err) = event_loop_result {
+                        Err(anyhow!("event loop error while evaluating the module: {}", err))
+                    } else {
+                        mod_result_rx.await
+                    }
+                }
+            };
+
+            if let Err(err) = mod_result {
+                return (Err(err), get_accumulated_cpu_time_ms!());
+            }
+        }
+
+        if let Err(err) = self
+            .run_event_loop(
+                name.as_deref(),
+                current_thread_id,
+                &maybe_cpu_usage_metrics_tx,
+                &mut accumulated_cpu_time_ns,
+            )
+            .await
+        {
+            return (
+                Err(anyhow!("event loop error: {}", err)),
+                get_accumulated_cpu_time_ms!(),
+            );
+        }
+
+        (Ok(()), get_accumulated_cpu_time_ms!())
+    }
+
+    fn run_event_loop<'l>(
+        &'l mut self,
+        name: Option<&'l str>,
+        #[allow(unused_variables)] current_thread_id: ThreadId,
+        maybe_cpu_usage_metrics_tx: &'l Option<mpsc::UnboundedSender<CPUUsageMetrics>>,
+        accumulated_cpu_time_ns: &'l mut i64,
+    ) -> impl Future<Output = Result<(), AnyError>> + 'l {
+        let has_inspector = self.inspector().is_some();
         let is_user_worker = self.conf.is_user_worker();
         let global_waker = self.waker.clone();
-        let mem_check = is_user_worker.then(|| self.mem_check.clone());
+        let termination_request_token = self.termination_request_token.clone();
 
-        let poll_result = poll_fn(|cx| unsafe {
+        let mem_check_state = is_user_worker.then(|| self.mem_check.clone());
+
+        poll_fn(move |cx| {
             // INVARIANT: Only can steal current task by other threads when LIFO
             // task scheduler heuristic disabled. Turning off the heuristic is
             // unstable now, so it's not considered.
@@ -770,16 +828,16 @@ where
 
             global_waker.register(waker);
 
-            let mut js_runtime = scopeguard::guard(&mut self.js_runtime, |it| {
-                it.v8_isolate().exit();
-            });
+            let mut this = self.get_v8_tls_guard();
 
-            js_runtime.v8_isolate().enter();
-            send_cpu_metrics_fn(CPUUsageMetrics::Enter(thread_id));
+            let js_runtime = &mut this.js_runtime;
+            let cpu_metrics_guard = get_cpu_metrics_guard(
+                thread_id,
+                maybe_cpu_usage_metrics_tx,
+                accumulated_cpu_time_ns,
+            );
 
-            current_cpu_time_ns = get_current_cpu_time_ns().unwrap();
-
-            let wait_for_inspector = if inspector.is_some() {
+            let wait_for_inspector = if has_inspector {
                 let inspector = js_runtime.inspector();
                 let inspector_ref = inspector.borrow();
                 inspector_ref.has_active_sessions() || inspector_ref.has_blocking_sessions()
@@ -807,29 +865,17 @@ where
                     &mut std::task::Context::from_waker(waker.as_ref()),
                     PollEventLoopOptions {
                         wait_for_inspector,
-                        pump_v8_message_loop: true,
+                        ..Default::default()
                     },
                 )
             } else {
                 Poll::Pending
             };
 
-            let cpu_time_after_poll_ns = get_current_cpu_time_ns().unwrap();
-            let diff_cpu_time_ns = if need_pool_event_loop {
-                cpu_time_after_poll_ns - current_cpu_time_ns
-            } else {
-                0
-            };
-
-            accumulated_cpu_time_ns += diff_cpu_time_ns;
-
-            send_cpu_metrics_fn(CPUUsageMetrics::Leave(CPUUsage {
-                accumulated: accumulated_cpu_time_ns,
-                diff: diff_cpu_time_ns,
-            }));
+            drop(cpu_metrics_guard);
 
             if is_user_worker {
-                let mem_state = mem_check.as_ref().unwrap();
+                let mem_state = mem_check_state.as_ref().unwrap();
                 let total_malloced_bytes = mem_state.check(js_runtime.v8_isolate().as_mut());
 
                 mem_state.waker.register(waker);
@@ -838,7 +884,7 @@ where
                     "name: {:?}, thread_id: {:?}, accumulated_cpu_time: {}ms, malloced: {}",
                     name.as_ref(),
                     thread_id,
-                    accumulated_cpu_time_ns / 1_000_000,
+                    *accumulated_cpu_time_ns / 1_000_000,
                     bytes_to_display(total_malloced_bytes as u64)
                 );
             }
@@ -850,29 +896,13 @@ where
             // terminate the runtime.
             if need_pool_event_loop
                 && poll_result.is_pending()
-                && is_termination_requested.is_raised()
+                && termination_request_token.is_cancelled()
             {
                 return Poll::Ready(Ok(()));
             }
 
             poll_result
         })
-        .await;
-
-        let result = match poll_result {
-            Err(err) => Err(anyhow!("event loop error: {}", err)),
-            Ok(_) => match mod_result_rx.await {
-                Err(e) => {
-                    error!("{}", e.to_string());
-                    Err(e)
-                }
-                Ok(_) => Ok(()),
-            },
-        };
-
-        self.is_terminated.raise();
-
-        (result, accumulated_cpu_time_ns / 1_000_000)
     }
 
     pub fn inspector(&self) -> Option<Inspector> {
@@ -921,10 +951,75 @@ where
             }
         }
     }
+
+    fn get_v8_tls_guard<'l>(
+        &'l mut self,
+    ) -> scopeguard::ScopeGuard<
+        &'l mut DenoRuntime<RuntimeContext>,
+        impl FnOnce(&'l mut DenoRuntime<RuntimeContext>) + 'l,
+    > {
+        let mut guard = scopeguard::guard(self, |v| unsafe {
+            v.js_runtime.v8_isolate().exit();
+        });
+
+        unsafe {
+            guard.js_runtime.v8_isolate().enter();
+        }
+
+        guard
+    }
 }
 
 fn get_current_cpu_time_ns() -> Result<i64, Error> {
     get_thread_time().context("can't get current thread time")
+}
+
+fn with_cpu_metrics_guard<'l, F, R>(
+    thread_id: ThreadId,
+    maybe_cpu_usage_metrics_tx: &'l Option<mpsc::UnboundedSender<CPUUsageMetrics>>,
+    accumulated_cpu_time_ns: &'l mut i64,
+    work_fn: F,
+) -> R
+where
+    F: FnOnce() -> R,
+{
+    let _cpu_metrics_guard = get_cpu_metrics_guard(
+        thread_id,
+        maybe_cpu_usage_metrics_tx,
+        accumulated_cpu_time_ns,
+    );
+
+    work_fn()
+}
+
+fn get_cpu_metrics_guard<'l>(
+    thread_id: ThreadId,
+    maybe_cpu_usage_metrics_tx: &'l Option<mpsc::UnboundedSender<CPUUsageMetrics>>,
+    accumulated_cpu_time_ns: &'l mut i64,
+) -> scopeguard::ScopeGuard<(), impl FnOnce(()) + 'l> {
+    let send_cpu_metrics_fn = move |metric: CPUUsageMetrics| {
+        if let Some(cpu_metric_tx) = maybe_cpu_usage_metrics_tx.as_ref() {
+            let _ = cpu_metric_tx.send(metric);
+        }
+    };
+
+    send_cpu_metrics_fn(CPUUsageMetrics::Enter(thread_id));
+
+    let current_cpu_time_ns = get_current_cpu_time_ns().unwrap();
+
+    scopeguard::guard((), move |_| {
+        debug_assert_eq!(thread_id, std::thread::current().id());
+
+        let cpu_time_after_drop_ns = get_current_cpu_time_ns().unwrap_or(current_cpu_time_ns);
+        let diff_cpu_time_ns = cpu_time_after_drop_ns - current_cpu_time_ns;
+
+        *accumulated_cpu_time_ns += diff_cpu_time_ns;
+
+        send_cpu_metrics_fn(CPUUsageMetrics::Leave(CPUUsage {
+            accumulated: *accumulated_cpu_time_ns,
+            diff: diff_cpu_time_ns,
+        }));
+    })
 }
 
 fn set_v8_flags() {
@@ -1186,7 +1281,7 @@ mod test {
             .unwrap();
         let path_buf = PathBuf::from("./test_cases/eszip-source-test.ts");
         let emitter_factory = Arc::new(EmitterFactory::new());
-        let bin_eszip = generate_binary_eszip(path_buf, emitter_factory.clone(), None, None)
+        let bin_eszip = generate_binary_eszip(path_buf, emitter_factory.clone(), None, None, None)
             .await
             .unwrap();
         fs::remove_file("./test_cases/eszip-source-test.ts").unwrap();
@@ -1232,8 +1327,8 @@ mod test {
                 "<anon>",
                 ModuleCodeString::from(
                     r#"
-            globalThis.isTenEven;
-        "#
+                        globalThis.isTenEven;
+                    "#
                     .to_string(),
                 ),
             )
@@ -1251,7 +1346,7 @@ mod test {
         let file = PathBuf::from("./test_cases/eszip-silly-test/index.ts");
         let service_path = PathBuf::from("./test_cases/eszip-silly-test");
         let emitter_factory = Arc::new(EmitterFactory::new());
-        let binary_eszip = generate_binary_eszip(file, emitter_factory.clone(), None, None)
+        let binary_eszip = generate_binary_eszip(file, emitter_factory.clone(), None, None, None)
             .await
             .unwrap();
 
@@ -1296,8 +1391,8 @@ mod test {
                 "<anon>",
                 ModuleCodeString::from(
                     r#"
-            globalThis.isTenEven;
-        "#
+                        globalThis.isTenEven;
+                    "#
                     .to_string(),
                 ),
             )
@@ -1361,8 +1456,8 @@ mod test {
                 "<anon>",
                 ModuleCodeString::from(
                     r#"
-            Deno.readTextFileSync("./test_cases/readFile/hello_world.json");
-        "#
+                        Deno.readTextFileSync("./test_cases/readFile/hello_world.json");
+                    "#
                     .to_string(),
                 ),
             )
@@ -1403,8 +1498,8 @@ mod test {
                 "<anon>",
                 ModuleCodeString::from(
                     r#"
-           globalThis.hello;
-        "#
+                        globalThis.hello;
+                    "#
                     .to_string(),
                 ),
             )
@@ -1486,21 +1581,21 @@ mod test {
                 "<anon>",
                 ModuleCodeString::from(
                     r#"
-            // Should not be able to set
-            const data = {
-                gid: Deno.gid(),
-                uid: Deno.uid(),
-                hostname: Deno.hostname(),
-                loadavg: Deno.loadavg(),
-                osUptime: Deno.osUptime(),
-                osRelease: Deno.osRelease(),
-                systemMemoryInfo: Deno.systemMemoryInfo(),
-                consoleSize: Deno.consoleSize(),
-                version: [Deno.version.deno, Deno.version.v8, Deno.version.typescript],
-                networkInterfaces: Deno.networkInterfaces()
-            };
-            data;
-        "#
+                        // Should not be able to set
+                        const data = {
+                            gid: Deno.gid(),
+                            uid: Deno.uid(),
+                            hostname: Deno.hostname(),
+                            loadavg: Deno.loadavg(),
+                            osUptime: Deno.osUptime(),
+                            osRelease: Deno.osRelease(),
+                            systemMemoryInfo: Deno.systemMemoryInfo(),
+                            consoleSize: Deno.consoleSize(),
+                            version: [Deno.version.deno, Deno.version.v8, Deno.version.typescript],
+                            networkInterfaces: Deno.networkInterfaces()
+                        };
+                        data;
+                    "#
                     .to_string(),
                 ),
             )
@@ -1580,9 +1675,9 @@ mod test {
             "<anon>",
             ModuleCodeString::from(
                 r#"
-            let cmd = new Deno.Command("", {});
-            cmd.outputSync();
-        "#
+                    let cmd = new Deno.Command("", {});
+                    cmd.outputSync();
+                "#
                 .to_string(),
             ),
         );
@@ -1613,9 +1708,9 @@ mod test {
                 "<anon>",
                 ModuleCodeString::from(
                     r#"
-            // Should not be able to set
-            Deno.env.set("Supa_Test", "Supa_Value");
-        "#
+                        // Should not be able to set
+                        Deno.env.set("Supa_Test", "Supa_Value");
+                    "#
                     .to_string(),
                 ),
             )
@@ -1631,9 +1726,9 @@ mod test {
                 "<anon>",
                 ModuleCodeString::from(
                     r#"
-            // Should not be able to set
-            Deno.env.get("Supa_Test");
-        "#
+                        // Should not be able to set
+                        Deno.env.get("Supa_Test");
+                    "#
                     .to_string(),
                 ),
             )
@@ -1650,9 +1745,9 @@ mod test {
                 "<anon>",
                 ModuleCodeString::from(
                     r#"
-            // Should not be able to set
-            Deno.env.get("Supa_Test");
-        "#
+                        // Should not be able to set
+                        Deno.env.get("Supa_Test");
+                    "#
                     .to_string(),
                 ),
             )
@@ -1760,10 +1855,10 @@ mod test {
         let wait_fut = async move {
             let (result, _) = user_rt.run(duplex_stream_rx, None, None).await;
 
-            assert_eq!(
-                result.unwrap_err().to_string(),
-                "event loop error: Uncaught Error: execution terminated"
-            );
+            assert!(result
+                .unwrap_err()
+                .to_string()
+                .ends_with("Error: execution terminated"));
 
             callback_rx.recv().await.unwrap();
 

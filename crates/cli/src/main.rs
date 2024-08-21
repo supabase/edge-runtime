@@ -13,7 +13,7 @@ use base::{DecoratorType, InspectorOption};
 use clap::ArgMatches;
 use deno_core::url::Url;
 use env::resolve_deno_runtime_env;
-use flags::get_cli;
+use flags::{get_cli, EszipV2ChecksumKind};
 use log::warn;
 use sb_graph::emitter::EmitterFactory;
 use sb_graph::import_map::load_import_map;
@@ -271,6 +271,10 @@ fn main() -> Result<(), anyhow::Error> {
                             .to_string(),
                     );
                 }
+                let maybe_checksum_kind = sub_matches
+                    .get_one::<EszipV2ChecksumKind>("checksum")
+                    .copied()
+                    .and_then(EszipV2ChecksumKind::into);
 
                 emitter_factory.set_decorator_type(maybe_decorator);
                 emitter_factory.set_import_map(maybe_import_map.clone());
@@ -280,6 +284,7 @@ fn main() -> Result<(), anyhow::Error> {
                     Arc::new(emitter_factory),
                     None,
                     maybe_import_map_url,
+                    maybe_checksum_kind,
                 )
                 .await?;
 

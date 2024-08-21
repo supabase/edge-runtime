@@ -3,16 +3,15 @@ name = "cpu_timer"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-anyhow = { workspace = true }
-libc = { workspace = true }
-nix = { version = "0.26.2", features = ["signal"] }
-tokio = { workspace = true }
-log = { workspace = true }
-ctor = { workspace = true }
-futures = { workspace = true }
-signal-hook = { version = "0.3.17" }
+libc.workspace = true
+anyhow.workspace = true
+tokio.workspace = true
+log.workspace = true
+ctor.workspace = true
+futures.workspace = true
+once_cell.workspace = true
+
+signal-hook = "0.3.17"
 signal-hook-tokio = { version = "0.3.1", features = ["futures-v0_3"] }
-once_cell = { workspace = true }
+nix = { version = "0.26.2", features = ["signal"] }

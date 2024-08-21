@@ -6,8 +6,6 @@
 use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;
-use std::rc::Rc;
-use std::sync::Arc;
 
 use deno_core::error::AnyError;
 use deno_core::located_script_name;
@@ -34,10 +32,11 @@ mod path;
 mod polyfill;
 mod resolution;
 
+pub use deno_config::package_json::PackageJson;
 pub use ops::ipc::ChildPipeFd;
 pub use ops::ipc::IpcJsonStreamResource;
-pub use ops::v8::VM_CONTEXT_INDEX;
-pub use package_json::PackageJson;
+pub use package_json::load_pkg_json;
+pub use package_json::PackageJsonThreadLocalCache;
 pub use path::PathClean;
 pub use polyfill::is_builtin_node_module;
 pub use polyfill::SUPPORTED_BUILTIN_NODE_MODULES;
@@ -47,6 +46,7 @@ pub use resolution::NodeModuleKind;
 pub use resolution::NodeResolution;
 pub use resolution::NodeResolutionMode;
 pub use resolution::NodeResolver;
+use resolution::NodeResolverRc;
 
 use crate::global::global_object_middleware;
 use crate::global::global_template_middleware;
@@ -54,43 +54,75 @@ use crate::global::global_template_middleware;
 pub trait NodePermissions {
     fn check_net_url(&mut self, url: &Url, api_name: &str) -> Result<(), AnyError>;
     #[inline(always)]
-    fn check_read(&self, path: &Path) -> Result<(), AnyError> {
+    fn check_read(&mut self, path: &Path) -> Result<(), AnyError> {
         self.check_read_with_api_name(path, None)
     }
-    fn check_read_with_api_name(&self, path: &Path, api_name: Option<&str>)
-        -> Result<(), AnyError>;
-    fn check_sys(&self, kind: &str, api_name: &str) -> Result<(), AnyError>;
+    fn check_read_with_api_name(
+        &mut self,
+        path: &Path,
+        api_name: Option<&str>,
+    ) -> Result<(), AnyError>;
+    fn check_sys(&mut self, kind: &str, api_name: &str) -> Result<(), AnyError>;
     fn check_write_with_api_name(
-        &self,
+        &mut self,
         path: &Path,
         api_name: Option<&str>,
     ) -> Result<(), AnyError>;
 }
 
-pub(crate) struct AllowAllNodePermissions;
+pub struct AllowAllNodePermissions;
 
 impl NodePermissions for AllowAllNodePermissions {
     fn check_net_url(&mut self, _url: &Url, _api_name: &str) -> Result<(), AnyError> {
         Ok(())
     }
     fn check_read_with_api_name(
-        &self,
+        &mut self,
         _path: &Path,
         _api_name: Option<&str>,
     ) -> Result<(), AnyError> {
         Ok(())
     }
     fn check_write_with_api_name(
-        &self,
+        &mut self,
         _path: &Path,
         _api_name: Option<&str>,
     ) -> Result<(), AnyError> {
         Ok(())
     }
-    fn check_sys(&self, _kind: &str, _api_name: &str) -> Result<(), AnyError> {
+    fn check_sys(&mut self, _kind: &str, _api_name: &str) -> Result<(), AnyError> {
         Ok(())
     }
 }
+
+// impl NodePermissions for deno_permissions::PermissionsContainer {
+//     #[inline(always)]
+//     fn check_net_url(&mut self, url: &Url, api_name: &str) -> Result<(), AnyError> {
+//         deno_permissions::PermissionsContainer::check_net_url(self, url, api_name)
+//     }
+
+//     #[inline(always)]
+//     fn check_read_with_api_name(
+//         &mut self,
+//         path: &Path,
+//         api_name: Option<&str>,
+//     ) -> Result<(), AnyError> {
+//         deno_permissions::PermissionsContainer::check_read_with_api_name(self, path, api_name)
+//     }
+
+//     #[inline(always)]
+//     fn check_write_with_api_name(
+//         &mut self,
+//         path: &Path,
+//         api_name: Option<&str>,
+//     ) -> Result<(), AnyError> {
+//         deno_permissions::PermissionsContainer::check_write_with_api_name(self, path, api_name)
+//     }
+
+//     fn check_sys(&mut self, kind: &str, api_name: &str) -> Result<(), AnyError> {
+//         deno_permissions::PermissionsContainer::check_sys(self, kind, api_name)
+//     }
+// }
 
 #[allow(clippy::disallowed_types)]
 pub type NpmResolverRc = deno_fs::sync::MaybeArc<dyn NpmResolver>;
@@ -111,8 +143,7 @@ pub trait NpmResolver: std::fmt::Debug + MaybeSend + MaybeSync {
         &self,
         specifier: &str,
         referrer: &ModuleSpecifier,
-        mode: NodeResolutionMode,
-    ) -> Result<PathBuf, AnyError>;
+    ) -> Result<PathBuf, errors::PackageFolderResolveError>;
 
     fn in_npm_package(&self, specifier: &ModuleSpecifier) -> bool;
 
@@ -134,7 +165,7 @@ pub trait NpmResolver: std::fmt::Debug + MaybeSend + MaybeSync {
 
     fn ensure_read_permission(
         &self,
-        permissions: &dyn NodePermissions,
+        permissions: &mut dyn NodePermissions,
         path: &Path,
     ) -> Result<(), AnyError>;
 }
@@ -174,6 +205,17 @@ deno_core::extension!(deno_node,
   deps = [ deno_io, deno_fs ],
   parameters = [P: NodePermissions],
   ops = [
+    ops::blocklist::op_socket_address_parse,
+    ops::blocklist::op_socket_address_get_serialization,
+
+    ops::blocklist::op_blocklist_new,
+    ops::blocklist::op_blocklist_add_address,
+    ops::blocklist::op_blocklist_add_range,
+    ops::blocklist::op_blocklist_add_subnet,
+    ops::blocklist::op_blocklist_check,
+
+    ops::buffer::op_is_ascii,
+    ops::buffer::op_is_utf8,
     ops::crypto::op_node_create_decipheriv,
     ops::crypto::op_node_cipheriv_encrypt,
     ops::crypto::op_node_cipheriv_final,
@@ -246,6 +288,10 @@ deno_core::extension!(deno_node,
     ops::fs::op_node_fs_exists_sync<P>,
     ops::fs::op_node_cp_sync<P>,
     ops::fs::op_node_cp<P>,
+    ops::fs::op_node_lchown_sync,
+    ops::fs::op_node_lchown,
+    ops::fs::op_node_lutimes_sync,
+    ops::fs::op_node_lutimes,
     ops::fs::op_node_statfs,
     ops::winerror::op_node_sys_to_uv_error,
     ops::v8::op_v8_cached_data_version_tag,
@@ -260,7 +306,6 @@ deno_core::extension!(deno_node,
     ops::zlib::op_zlib_close,
     ops::zlib::op_zlib_close_if_pending,
     ops::zlib::op_zlib_write,
-    ops::zlib::op_zlib_write_async,
     ops::zlib::op_zlib_init,
     ops::zlib::op_zlib_reset,
     ops::zlib::brotli::op_brotli_compress,
@@ -280,18 +325,18 @@ deno_core::extension!(deno_node,
     ops::http2::op_http2_client_get_response,
     ops::http2::op_http2_client_get_response_body_chunk,
     ops::http2::op_http2_client_send_data,
-    ops::http2::op_http2_client_end_stream,
     ops::http2::op_http2_client_reset_stream,
     ops::http2::op_http2_client_send_trailers,
     ops::http2::op_http2_client_get_response_trailers,
     ops::http2::op_http2_accept,
     ops::http2::op_http2_listen,
     ops::http2::op_http2_send_response,
-    ops::os::op_node_os_get_priority<P>,
-    ops::os::op_node_os_set_priority<P>,
-    ops::os::op_node_os_username<P>,
-    ops::os::op_geteuid<P>,
-    ops::os::op_cpus<P>,
+    // ops::os::op_node_os_get_priority<P>,
+    // ops::os::op_node_os_set_priority<P>,
+    // ops::os::op_node_os_username<P>,
+    ops::os::op_geteuid,
+    ops::os::op_getegid,
+    // ops::os::op_cpus<P>,
     op_node_build_os,
     op_node_is_promise_rejected,
     op_npm_process_state,
@@ -350,8 +395,10 @@ deno_core::extension!(deno_node,
     "_fs/_fs_fsync.ts",
     "_fs/_fs_ftruncate.ts",
     "_fs/_fs_futimes.ts",
+    "_fs/_fs_lchown.ts",
     "_fs/_fs_link.ts",
     "_fs/_fs_lstat.ts",
+    "_fs/_fs_lutimes.ts",
     "_fs/_fs_mkdir.ts",
     "_fs/_fs_mkdtemp.ts",
     "_fs/_fs_open.ts",
@@ -425,6 +472,7 @@ deno_core::extension!(deno_node,
     "internal_binding/uv.ts",
     "internal/assert.mjs",
     "internal/async_hooks.ts",
+    "internal/blocklist.mjs",
     "internal/buffer.mjs",
     "internal/child_process.ts",
     "internal/cli_table.ts",
@@ -519,7 +567,7 @@ deno_core::extension!(deno_node,
     "node:constants" = "constants.ts",
     "node:crypto" = "crypto.ts",
     "node:dgram" = "dgram.ts",
-    "node:diagnostics_channel" = "diagnostics_channel.ts",
+    "node:diagnostics_channel" = "diagnostics_channel.js",
     "node:dns" = "dns.ts",
     "node:dns/promises" = "dns/promises.ts",
     "node:domain" = "domain.ts",
@@ -557,22 +605,25 @@ deno_core::extension!(deno_node,
     "node:util/types" = "util/types.ts",
     "node:v8" = "v8.ts",
     "node:vm" = "vm.ts",
-    /*"node:worker_threads" = "worker_threads.ts",*/
+    "node:worker_threads" = "worker_threads.ts",
     "node:zlib" = "zlib.ts",
   ],
   options = {
+    maybe_node_resolver: Option<NodeResolverRc>,
     maybe_npm_resolver: Option<NpmResolverRc>,
     fs: deno_fs::FileSystemRc,
   },
   state = |state, options| {
-    let fs = options.fs;
-    state.put(fs.clone());
-    if let Some(npm_resolver) = options.maybe_npm_resolver {
+    // you should provide both of these or neither
+    debug_assert_eq!(options.maybe_node_resolver.is_some(), options.maybe_npm_resolver.is_some());
+
+    state.put(options.fs.clone());
+
+    if let Some(node_resolver) = &options.maybe_node_resolver {
+      state.put(node_resolver.clone());
+    }
+    if let Some(npm_resolver) = &options.maybe_npm_resolver {
       state.put(npm_resolver.clone());
-      state.put(Rc::new(NodeResolver::new(
-        fs,
-        npm_resolver,
-      )))
     }
   },
   global_template_middleware = global_template_middleware,
@@ -640,9 +691,4 @@ pub fn load_cjs_module(
 
     js_runtime.execute_script(located_script_name!(), source_code)?;
     Ok(())
-}
-
-#[allow(clippy::disallowed_types)]
-pub fn allow_all() -> Arc<dyn NodePermissions> {
-    Arc::new(AllowAllNodePermissions)
 }

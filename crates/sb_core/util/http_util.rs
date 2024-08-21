@@ -1,22 +1,33 @@
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+
+use crate::auth_tokens::AuthToken;
 use crate::util::versions_util::get_user_agent;
 use cache_control::Cachability;
 use cache_control::CacheControl;
 use chrono::DateTime;
-use deno_core::anyhow::bail;
 use deno_core::error::custom_error;
 use deno_core::error::generic_error;
 use deno_core::error::AnyError;
+use deno_core::parking_lot::Mutex;
 use deno_core::url::Url;
 use deno_fetch::create_http_client;
 use deno_fetch::reqwest;
+use deno_fetch::reqwest::header::HeaderName;
+use deno_fetch::reqwest::header::HeaderValue;
+use deno_fetch::reqwest::header::ACCEPT;
+use deno_fetch::reqwest::header::AUTHORIZATION;
+use deno_fetch::reqwest::header::IF_NONE_MATCH;
 use deno_fetch::reqwest::header::LOCATION;
 use deno_fetch::reqwest::Response;
+use deno_fetch::reqwest::StatusCode;
 use deno_fetch::CreateHttpClientOptions;
 use deno_tls::RootCertStoreProvider;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::thread::ThreadId;
 use std::time::Duration;
 use std::time::SystemTime;
+use thiserror::Error;
 
 /// Construct the next uri based on base uri and location header fragment
 /// See <https://tools.ietf.org/html/rfc3986#section-4.2>
@@ -48,7 +59,7 @@ fn resolve_url_from_location(base_url: &Url, location: &str) -> Url {
 pub fn resolve_redirect_from_response(
     request_url: &Url,
     response: &Response,
-) -> Result<Url, AnyError> {
+) -> Result<Url, DownloadError> {
     debug_assert!(response.status().is_redirection());
     if let Some(location) = response.headers().get(LOCATION) {
         let location_string = location.to_str()?;
@@ -56,9 +67,9 @@ pub fn resolve_redirect_from_response(
         let new_url = resolve_url_from_location(request_url, location_string);
         Ok(new_url)
     } else {
-        Err(generic_error(format!(
-            "Redirection from '{request_url}' did not provide location header"
-        )))
+        Err(DownloadError::NoRedirectHeader {
+            request_url: request_url.clone(),
+        })
     }
 }
 
@@ -208,13 +219,34 @@ impl CacheSemantics {
     }
 }
 
-pub struct HttpClient {
-    options: CreateHttpClientOptions,
-    root_cert_store_provider: Option<Arc<dyn RootCertStoreProvider>>,
-    cell: once_cell::sync::OnceCell<reqwest::Client>,
+#[derive(Debug, Eq, PartialEq)]
+pub enum FetchOnceResult {
+    Code(Vec<u8>, HeadersMap),
+    NotModified,
+    Redirect(Url, HeadersMap),
+    RequestError(String),
+    ServerError(StatusCode),
 }
 
-impl std::fmt::Debug for HttpClient {
+#[derive(Debug)]
+pub struct FetchOnceArgs {
+    pub url: Url,
+    pub maybe_accept: Option<String>,
+    pub maybe_etag: Option<String>,
+    pub maybe_auth_token: Option<AuthToken>,
+}
+
+pub struct HttpClientProvider {
+    options: CreateHttpClientOptions,
+    root_cert_store_provider: Option<Arc<dyn RootCertStoreProvider>>,
+    // it's not safe to share a reqwest::Client across tokio runtimes,
+    // so we store these Clients keyed by thread id
+    // https://github.com/seanmonstar/reqwest/issues/1148#issuecomment-910868788
+    #[allow(clippy::disallowed_types)] // reqwest::Client allowed here
+    clients_by_thread_id: Mutex<HashMap<ThreadId, reqwest::Client>>,
+}
+
+impl std::fmt::Debug for HttpClientProvider {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("HttpClient")
             .field("options", &self.options)
@@ -222,7 +254,7 @@ impl std::fmt::Debug for HttpClient {
     }
 }
 
-impl HttpClient {
+impl HttpClientProvider {
     pub fn new(
         root_cert_store_provider: Option<Arc<dyn RootCertStoreProvider>>,
         unsafely_ignore_certificate_errors: Option<Vec<String>>,
@@ -233,99 +265,254 @@ impl HttpClient {
                 ..Default::default()
             },
             root_cert_store_provider,
-            cell: Default::default(),
+            clients_by_thread_id: Default::default(),
         }
     }
 
-    #[cfg(test)]
-    pub fn from_client(client: reqwest::Client) -> Self {
-        let result = Self {
-            options: Default::default(),
-            root_cert_store_provider: Default::default(),
-            cell: Default::default(),
-        };
-        result.cell.set(client).unwrap();
-        result
-    }
-
-    fn client(&self) -> Result<&reqwest::Client, AnyError> {
-        self.cell.get_or_try_init(|| {
-            create_http_client(
-                get_user_agent(),
-                CreateHttpClientOptions {
-                    root_cert_store: match &self.root_cert_store_provider {
-                        Some(provider) => Some(provider.get_or_try_init()?.clone()),
-                        None => None,
+    pub fn get_or_create(&self) -> Result<HttpClient, AnyError> {
+        use std::collections::hash_map::Entry;
+        let thread_id = std::thread::current().id();
+        let mut clients = self.clients_by_thread_id.lock();
+        let entry = clients.entry(thread_id);
+        match entry {
+            Entry::Occupied(entry) => Ok(HttpClient::new(entry.get().clone())),
+            Entry::Vacant(entry) => {
+                let client = create_http_client(
+                    get_user_agent(),
+                    CreateHttpClientOptions {
+                        root_cert_store: match &self.root_cert_store_provider {
+                            Some(provider) => Some(provider.get_or_try_init()?.clone()),
+                            None => None,
+                        },
+                        ..self.options.clone()
                     },
-                    ..self.options.clone()
-                },
-            )
-        })
+                )?;
+                entry.insert(client.clone());
+                Ok(HttpClient::new(client))
+            }
+        }
+    }
+}
+
+#[derive(Debug, Error)]
+#[error("Bad response: {:?}{}", .status_code, .response_text.as_ref().map(|s| format!("\n\n{}", s)).unwrap_or_else(String::new))]
+pub struct BadResponseError {
+    pub status_code: StatusCode,
+    pub response_text: Option<String>,
+}
+
+#[derive(Debug, Error)]
+pub enum DownloadError {
+    #[error(transparent)]
+    Reqwest(#[from] reqwest::Error),
+    #[error(transparent)]
+    ToStr(#[from] reqwest::header::ToStrError),
+    #[error("Redirection from '{}' did not provide location header", .request_url)]
+    NoRedirectHeader { request_url: Url },
+    #[error("Too many redirects.")]
+    TooManyRedirects,
+    #[error(transparent)]
+    BadResponse(#[from] BadResponseError),
+}
+
+#[derive(Debug)]
+pub struct HttpClient {
+    #[allow(clippy::disallowed_types)] // reqwest::Client allowed here
+    client: reqwest::Client,
+    // don't allow sending this across threads because then
+    // it might be shared accidentally across tokio runtimes
+    // which will cause issues
+    // https://github.com/seanmonstar/reqwest/issues/1148#issuecomment-910868788
+    _unsend_marker: deno_core::unsync::UnsendMarker,
+}
+
+impl HttpClient {
+    // DO NOT make this public. You should always be creating one of these from
+    // the HttpClientProvider
+    #[allow(clippy::disallowed_types)] // reqwest::Client allowed here
+    fn new(client: reqwest::Client) -> Self {
+        Self {
+            client,
+            _unsend_marker: deno_core::unsync::UnsendMarker::default(),
+        }
     }
 
-    /// Do a GET request without following redirects.
-    pub fn get_no_redirect<U: reqwest::IntoUrl>(
-        &self,
-        url: U,
-    ) -> Result<reqwest::RequestBuilder, AnyError> {
-        Ok(self.client()?.get(url))
+    // todo(dsherret): don't expose `reqwest::RequestBuilder` because it
+    // is `Sync` and could accidentally be shared with multiple tokio runtimes
+    pub fn get(&self, url: impl reqwest::IntoUrl) -> reqwest::RequestBuilder {
+        self.client.get(url)
     }
 
-    pub async fn download_text<U: reqwest::IntoUrl>(&self, url: U) -> Result<String, AnyError> {
+    pub fn post(&self, url: impl reqwest::IntoUrl) -> reqwest::RequestBuilder {
+        self.client.post(url)
+    }
+
+    /// Asynchronously fetches the given HTTP URL one pass only.
+    /// If no redirect is present and no error occurs,
+    /// yields Code(ResultPayload).
+    /// If redirect occurs, does not follow and
+    /// yields Redirect(url).
+    pub async fn fetch_no_follow(&self, args: FetchOnceArgs) -> Result<FetchOnceResult, AnyError> {
+        let mut request = self.client.get(args.url.clone());
+
+        if let Some(etag) = args.maybe_etag {
+            let if_none_match_val = HeaderValue::from_str(&etag)?;
+            request = request.header(IF_NONE_MATCH, if_none_match_val);
+        }
+        if let Some(auth_token) = args.maybe_auth_token {
+            let authorization_val = HeaderValue::from_str(&auth_token.to_string())?;
+            request = request.header(AUTHORIZATION, authorization_val);
+        }
+        if let Some(accept) = args.maybe_accept {
+            let accepts_val = HeaderValue::from_str(&accept)?;
+            request = request.header(ACCEPT, accepts_val);
+        }
+        let response = match request.send().await {
+            Ok(resp) => resp,
+            Err(err) => {
+                if err.is_connect() || err.is_timeout() {
+                    return Ok(FetchOnceResult::RequestError(err.to_string()));
+                }
+                return Err(err.into());
+            }
+        };
+
+        if response.status() == StatusCode::NOT_MODIFIED {
+            return Ok(FetchOnceResult::NotModified);
+        }
+
+        let mut result_headers = HashMap::new();
+        let response_headers = response.headers();
+
+        if let Some(warning) = response_headers.get("X-Deno-Warning") {
+            log::warn!("{}", warning.to_str().unwrap());
+        }
+
+        for key in response_headers.keys() {
+            let key_str = key.to_string();
+            let values = response_headers.get_all(key);
+            let values_str = values
+                .iter()
+                .map(|e| e.to_str().unwrap().to_string())
+                .collect::<Vec<String>>()
+                .join(",");
+            result_headers.insert(key_str, values_str);
+        }
+
+        if response.status().is_redirection() {
+            let new_url = resolve_redirect_from_response(&args.url, &response)?;
+            return Ok(FetchOnceResult::Redirect(new_url, result_headers));
+        }
+
+        let status = response.status();
+
+        if status.is_server_error() {
+            return Ok(FetchOnceResult::ServerError(status));
+        }
+
+        if status.is_client_error() {
+            let err = if response.status() == StatusCode::NOT_FOUND {
+                custom_error(
+                    "NotFound",
+                    format!("Import '{}' failed, not found.", args.url),
+                )
+            } else {
+                generic_error(format!(
+                    "Import '{}' failed: {}",
+                    args.url,
+                    response.status()
+                ))
+            };
+            return Err(err);
+        }
+
+        let body = get_response_body_with_progress(response).await?;
+
+        Ok(FetchOnceResult::Code(body, result_headers))
+    }
+
+    pub async fn download_text(&self, url: impl reqwest::IntoUrl) -> Result<String, AnyError> {
         let bytes = self.download(url).await?;
         Ok(String::from_utf8(bytes)?)
     }
 
-    pub async fn download<U: reqwest::IntoUrl>(&self, url: U) -> Result<Vec<u8>, AnyError> {
-        let maybe_bytes = self.inner_download(url).await?;
+    pub async fn download(&self, url: impl reqwest::IntoUrl) -> Result<Vec<u8>, AnyError> {
+        let maybe_bytes = self.download_inner(url, None).await?;
         match maybe_bytes {
             Some(bytes) => Ok(bytes),
             None => Err(custom_error("Http", "Not found.")),
         }
     }
 
-    pub async fn download_with_progress<U: reqwest::IntoUrl>(
+    pub async fn download_with_progress(
         &self,
-        url: U,
-    ) -> Result<Option<Vec<u8>>, AnyError> {
-        self.inner_download(url).await
+        url: impl reqwest::IntoUrl,
+        maybe_header: Option<(HeaderName, HeaderValue)>,
+    ) -> Result<Option<Vec<u8>>, DownloadError> {
+        self.download_inner(url, maybe_header).await
     }
 
-    async fn inner_download<U: reqwest::IntoUrl>(
+    pub async fn get_redirected_url(
         &self,
-        url: U,
-    ) -> Result<Option<Vec<u8>>, AnyError> {
-        let response = self.get_redirected_response(url).await?;
+        url: impl reqwest::IntoUrl,
+        maybe_header: Option<(HeaderName, HeaderValue)>,
+    ) -> Result<Url, AnyError> {
+        let response = self.get_redirected_response(url, maybe_header).await?;
+        Ok(response.url().clone())
+    }
+
+    async fn download_inner(
+        &self,
+        url: impl reqwest::IntoUrl,
+        maybe_header: Option<(HeaderName, HeaderValue)>,
+    ) -> Result<Option<Vec<u8>>, DownloadError> {
+        let response = self.get_redirected_response(url, maybe_header).await?;
 
         if response.status() == 404 {
             return Ok(None);
         } else if !response.status().is_success() {
             let status = response.status();
             let maybe_response_text = response.text().await.ok();
-            bail!(
-                "Bad response: {:?}{}",
-                status,
-                match maybe_response_text {
-                    Some(text) => format!("\n\n{text}"),
-                    None => String::new(),
-                }
-            );
+            return Err(DownloadError::BadResponse(BadResponseError {
+                status_code: status,
+                response_text: maybe_response_text
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty()),
+            }));
         }
 
-        get_response_body_with_progress(response).await.map(Some)
+        get_response_body_with_progress(response)
+            .await
+            .map(Some)
+            .map_err(Into::into)
     }
 
-    pub async fn get_redirected_response<U: reqwest::IntoUrl>(
+    async fn get_redirected_response(
         &self,
-        url: U,
-    ) -> Result<Response, AnyError> {
+        url: impl reqwest::IntoUrl,
+        mut maybe_header: Option<(HeaderName, HeaderValue)>,
+    ) -> Result<reqwest::Response, DownloadError> {
         let mut url = url.into_url()?;
-        let mut response = self.get_no_redirect(url.clone())?.send().await?;
+        let mut builder = self.get(url.clone());
+        if let Some((header_name, header_value)) = maybe_header.as_ref() {
+            builder = builder.header(header_name, header_value);
+        }
+        let mut response = builder.send().await?;
         let status = response.status();
         if status.is_redirection() {
             for _ in 0..5 {
                 let new_url = resolve_redirect_from_response(&url, &response)?;
-                let new_response = self.get_no_redirect(new_url.clone())?.send().await?;
+                let mut builder = self.get(new_url.clone());
+
+                if new_url.origin() == url.origin() {
+                    if let Some((header_name, header_value)) = maybe_header.as_ref() {
+                        builder = builder.header(header_name, header_value);
+                    }
+                } else {
+                    maybe_header = None;
+                }
+
+                let new_response = builder.send().await?;
                 let status = new_response.status();
                 if status.is_redirection() {
                     response = new_response;
@@ -334,7 +521,7 @@ impl HttpClient {
                     return Ok(new_response);
                 }
             }
-            Err(custom_error("Http", "Too many redirects."))
+            Err(DownloadError::TooManyRedirects)
         } else {
             Ok(response)
         }
@@ -343,7 +530,7 @@ impl HttpClient {
 
 pub async fn get_response_body_with_progress(
     response: reqwest::Response,
-) -> Result<Vec<u8>, AnyError> {
+) -> Result<Vec<u8>, reqwest::Error> {
     let bytes = response.bytes().await?;
     Ok(bytes.into())
 }

@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -64,9 +64,8 @@ impl<'scope> VfsBuilder<'scope> {
             root_dir: VirtualDirectory {
                 name: root_path
                     .file_stem()
-                    .unwrap()
-                    .to_string_lossy()
-                    .into_owned(),
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or("root".to_string()),
                 entries: Vec::new(),
             },
             root_path,
@@ -78,13 +77,16 @@ impl<'scope> VfsBuilder<'scope> {
         })
     }
 
-    pub fn set_root_dir_name(&mut self, name: String) {
-        self.root_dir.name = name;
+    pub fn with_root_dir<R>(&mut self, with_root: impl FnOnce(&mut VirtualDirectory) -> R) -> R {
+        with_root(&mut self.root_dir)
     }
 
     pub fn add_dir_recursive(&mut self, path: &Path) -> Result<(), AnyError> {
-        let path = canonicalize_path(path)?;
-        self.add_dir_recursive_internal(&path)
+        let target_path = canonicalize_path(path)?;
+        if path != target_path {
+            self.add_symlink(path, &target_path)?;
+        }
+        self.add_dir_recursive_internal(&target_path)
     }
 
     fn add_dir_recursive_internal(&mut self, path: &Path) -> Result<(), AnyError> {
@@ -100,31 +102,38 @@ impl<'scope> VfsBuilder<'scope> {
             if file_type.is_dir() {
                 self.add_dir_recursive_internal(&path)?;
             } else if file_type.is_file() {
-                let file_bytes =
-                    std::fs::read(&path).with_context(|| format!("Reading {}", path.display()))?;
-                self.add_file(&path, file_bytes)?;
+                self.add_file_at_path_not_symlink(&path)?;
             } else if file_type.is_symlink() {
-                let target = canonicalize_path(&path)
-                    .with_context(|| format!("Reading symlink {}", path.display()))?;
-                if let Err(StripRootError { .. }) = self.add_symlink(&path, &target) {
-                    if target.is_file() {
-                        // this may change behavior, so warn the user about it
+                match canonicalize_path(&path) {
+                    Ok(target) => {
+                        if let Err(StripRootError { .. }) = self.add_symlink(&path, &target) {
+                            if target.is_file() {
+                                // this may change behavior, so warn the user about it
+                                log::warn!(
+                                    "Symlink target is outside '{}'. Inlining symlink at '{}' to '{}' as file.",
+                                    self.root_path.display(),
+                                    path.display(),
+                                    target.display(),
+                                );
+                                // inline the symlink and make the target file
+                                let file_bytes = std::fs::read(&target)
+                                    .with_context(|| format!("Reading {}", path.display()))?;
+                                self.add_file(&path, file_bytes)?;
+                            } else {
+                                log::warn!(
+                                    "Symlink target is outside '{}'. Excluding symlink at '{}' with target '{}'.",
+                                    self.root_path.display(),
+                                    path.display(),
+                                    target.display(),
+                                );
+                            }
+                        }
+                    }
+                    Err(err) => {
                         log::warn!(
-                            "Symlink target is outside '{}'. Inlining symlink at '{}' to '{}' as file.",
-                            self.root_path.display(),
+                            "Failed resolving symlink. Ignoring.\n    Path: {}\n    Message: {:#}",
                             path.display(),
-                            target.display(),
-                        );
-                        // inline the symlink and make the target file
-                        let file_bytes = std::fs::read(&target)
-                            .with_context(|| format!("Reading {}", path.display()))?;
-                        self.add_file(&path, file_bytes)?;
-                    } else {
-                        log::warn!(
-                            "Symlink target is outside '{}'. Excluding symlink at '{}' with target '{}'.",
-                            self.root_path.display(),
-                            path.display(),
-                            target.display(),
+                            err
                         );
                     }
                 }
@@ -168,6 +177,20 @@ impl<'scope> VfsBuilder<'scope> {
         Ok(current_dir)
     }
 
+    pub fn add_file_at_path(&mut self, path: &Path) -> Result<(), AnyError> {
+        let target_path = canonicalize_path(path)?;
+        if target_path != path {
+            self.add_symlink(path, &target_path)?;
+        }
+        self.add_file_at_path_not_symlink(&target_path)
+    }
+
+    pub fn add_file_at_path_not_symlink(&mut self, path: &Path) -> Result<(), AnyError> {
+        let file_bytes =
+            std::fs::read(path).with_context(|| format!("Reading {}", path.display()))?;
+        self.add_file(path, file_bytes)
+    }
+
     fn add_file(&mut self, path: &Path, data: Vec<u8>) -> Result<(), AnyError> {
         log::debug!("Adding file '{}'", path.display());
         let checksum = checksum::gen(&[&data]);
@@ -183,23 +206,26 @@ impl<'scope> VfsBuilder<'scope> {
         let dir = self.add_dir(path.parent().unwrap())?;
         let name = path.file_name().unwrap().to_string_lossy();
         let data_len = data.len();
-        let insert_index = match dir.entries.binary_search_by(|e| e.name().cmp(&name)) {
-            Err(insert_index) => insert_index,
-            Ok(_) => unreachable!(),
-        };
 
-        let len = data.len();
-        let key = (add_content_callback_fn.lock().unwrap())(path, &name, data);
+        match dir.entries.binary_search_by(|e| e.name().cmp(&name)) {
+            Ok(_) => {
+                // already added, just ignore
+            }
+            Err(insert_index) => {
+                let len = data.len();
+                let key = (add_content_callback_fn.lock().unwrap())(path, &name, data);
 
-        dir.entries.insert(
-            insert_index,
-            VfsEntry::File(VirtualFile {
-                key,
-                name: name.to_string(),
-                offset,
-                len: len as u64,
-            }),
-        );
+                dir.entries.insert(
+                    insert_index,
+                    VfsEntry::File(VirtualFile {
+                        key,
+                        name: name.to_string(),
+                        offset,
+                        len: len as u64,
+                    }),
+                );
+            }
+        }
 
         // new file, update the list of files
         if self.current_offset == offset {
@@ -217,6 +243,10 @@ impl<'scope> VfsBuilder<'scope> {
             target.display()
         );
         let dest = self.path_relative_root(target)?;
+        if dest == self.path_relative_root(path)? {
+            // it's the same, ignore
+            return Ok(());
+        }
         let dir = self.add_dir(path.parent().unwrap())?;
         let name = path.file_name().unwrap().to_string_lossy();
         match dir.entries.binary_search_by(|e| e.name().cmp(&name)) {

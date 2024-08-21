@@ -118,6 +118,19 @@ impl deno_fs::FileSystem for StaticFs {
         Err(FsError::NotSupported)
     }
 
+    fn lchown_sync(&self, _path: &Path, _uid: Option<u32>, _gid: Option<u32>) -> FsResult<()> {
+        Err(FsError::NotSupported)
+    }
+
+    async fn lchown_async(
+        &self,
+        _path: PathBuf,
+        _uid: Option<u32>,
+        _gid: Option<u32>,
+    ) -> FsResult<()> {
+        Err(FsError::NotSupported)
+    }
+
     fn remove_sync(&self, _path: &Path, _recursive: bool) -> FsResult<()> {
         Err(FsError::NotSupported)
     }
@@ -276,6 +289,28 @@ impl deno_fs::FileSystem for StaticFs {
     }
 
     async fn utime_async(
+        &self,
+        _path: PathBuf,
+        _atime_secs: i64,
+        _atime_nanos: u32,
+        _mtime_secs: i64,
+        _mtime_nanos: u32,
+    ) -> FsResult<()> {
+        Err(FsError::NotSupported)
+    }
+
+    fn lutime_sync(
+        &self,
+        _path: &Path,
+        _atime_secs: i64,
+        _atime_nanos: u32,
+        _mtime_secs: i64,
+        _mtime_nanos: u32,
+    ) -> FsResult<()> {
+        Err(FsError::NotSupported)
+    }
+
+    async fn lutime_async(
         &self,
         _path: PathBuf,
         _atime_secs: i64,

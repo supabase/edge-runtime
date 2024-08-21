@@ -344,8 +344,8 @@ function warnOnDeprecatedApi(apiName, stack, ...suggestions) {
 ObjectAssign(internals, { warnOnDeprecatedApi });
 
 function runtimeStart(target) {
-/*	core.setMacrotaskCallback(timers.handleTimerMacrotask);
-	core.setMacrotaskCallback(promiseRejectMacrotaskCallback);*/
+	/*	core.setMacrotaskCallback(timers.handleTimerMacrotask);
+		core.setMacrotaskCallback(promiseRejectMacrotaskCallback);*/
 	core.setWasmStreamingCallback(fetch.handleWasmStreaming);
 
 	ops.op_set_format_exception_callback(formatException);
@@ -379,7 +379,7 @@ let bootstrapMockFnThrowError = false;
 const MOCK_FN = () => {
 	if (bootstrapMockFnThrowError) {
 		throw new TypeError("called MOCK_FN");
-	}	
+	}
 };
 
 const MAKE_HARD_ERR_FN = msg => {
@@ -483,7 +483,7 @@ globalThis.bootstrapSBEdge = (opts, extraCtx) => {
 	});
 
 	/// DISABLE SHARED MEMORY AND INSTALL MEM CHECK TIMING
-	
+
 	// NOTE: We should not allow user workers to use shared memory. This is
 	// because they are not counted in the external memory statistics of the
 	// individual isolates.
@@ -497,7 +497,7 @@ globalThis.bootstrapSBEdge = (opts, extraCtx) => {
 	const wasmMemoryPrototypeGrow = wasmMemoryCtor.prototype.grow;
 
 	function patchedWasmMemoryPrototypeGrow(delta) {
-		let mem = wasmMemoryPrototypeGrow.call(this, delta); 
+		const mem = wasmMemoryPrototypeGrow.call(this, delta);
 
 		ops.op_schedule_mem_check();
 
@@ -505,7 +505,7 @@ globalThis.bootstrapSBEdge = (opts, extraCtx) => {
 	}
 
 	wasmMemoryCtor.prototype.grow = patchedWasmMemoryPrototypeGrow;
-	
+
 	function patchedWasmMemoryCtor(maybeOpts) {
 		if (typeof maybeOpts === "object" && maybeOpts["shared"] === true) {
 			throw new TypeError("Creating a shared memory is not supported");
@@ -530,14 +530,14 @@ globalThis.bootstrapSBEdge = (opts, extraCtx) => {
 				}),
 			),
 		});
-	
+
 		const apiNames = ObjectKeys(PATCH_DENO_API_LIST);
 
 		for (const name of apiNames) {
 			const value = PATCH_DENO_API_LIST[name];
 
 			if (value === false) {
-				delete Deno[name]; 
+				delete Deno[name];
 			} else if (typeof value === 'function') {
 				Deno[name] = value;
 			}
@@ -554,7 +554,13 @@ globalThis.bootstrapSBEdge = (opts, extraCtx) => {
 
 	const nodeBootstrap = globalThis.nodeBootstrap;
 	if (nodeBootstrap) {
-		nodeBootstrap(false, undefined);
+		nodeBootstrap({
+			runningOnMainThread: true,
+			usesLocalNodeModulesDir: false,
+			argv: void 0,
+			nodeDebug: Deno.env.get("NODE_DEBUG") ?? ""
+		});
+
 		delete globalThis.nodeBootstrap;
 	}
 

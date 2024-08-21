@@ -38,7 +38,7 @@ macro_rules! integration_test_with_server_flag {
 
         let (tx, mut rx) = tokio::sync::mpsc::channel::<base::server::ServerHealth>(1);
 
-        let req_builder: Option<reqwest::RequestBuilder> = $req_builder;
+        let req_builder: Option<reqwest_v011::RequestBuilder> = $req_builder;
         let tls: Option<base::server::Tls> = $tls;
         let schema = if tls.is_some() { "https" } else { "http" };
         let signal = tokio::spawn(async move {
@@ -104,19 +104,23 @@ macro_rules! integration_test_with_server_flag {
     (@term_cleanup $(#[manual] $_:expr)?, $__:ident, $___:ident) => {};
     (@term_cleanup $_:expr, $token:ident, $join_fut:ident) => {
         let wait_fut = async move {
-            $token.cancel_and_wait().await;
-            $join_fut.await.unwrap();
+            let (_, ret) = tokio::join!(
+                $token.cancel_and_wait(),
+                $join_fut
+            );
+
+            ret.unwrap();
         };
 
         if tokio::time::timeout(
             // XXX(Nyannyacha): Should we apply variable timeout?
-            core::time::Duration::from_secs(10),
+            core::time::Duration::from_secs(30),
             wait_fut
         )
         .await
         .is_err()
         {
-            panic!("failed to terminate server within 10 seconds");
+            panic!("failed to terminate server within 30 seconds");
         }
     };
 
@@ -135,7 +139,7 @@ macro_rules! integration_test_with_server_flag {
         {
             return Some(resp);
         } else {
-            let resp = reqwest::get(format!("{}://localhost:{}/{}", $schema, $port, $url)).await;
+            let resp = reqwest_v011::get(format!("{}://localhost:{}/{}", $schema, $port, $url)).await;
             return Some(resp);
         }
     };
@@ -144,7 +148,7 @@ macro_rules! integration_test_with_server_flag {
         if let Some(req_factory) = $req_builder {
             return Some(req_factory.send().await);
         } else {
-            let resp = reqwest::get(format!("{}://localhost:{}/{}", $schema, $port, $url)).await;
+            let resp = reqwest_v011::get(format!("{}://localhost:{}/{}", $schema, $port, $url)).await;
             return Some(resp);
         }
     };
@@ -180,7 +184,7 @@ macro_rules! integration_test {
 pub mod __private {
     use std::future::Future;
 
-    use reqwest::{Error, RequestBuilder, Response};
+    use reqwest_v011::{Error, RequestBuilder, Response};
     use sb_core::SharedMetricSource;
     use tokio::sync::mpsc;
 

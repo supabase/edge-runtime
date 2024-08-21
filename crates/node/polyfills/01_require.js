@@ -150,7 +150,7 @@ import utilTypes from "node:util/types";
 import util from "node:util";
 import v8 from "node:v8";
 import vm from "node:vm";
-// import workerThreads from "node:worker_threads";
+import workerThreads from "node:worker_threads";
 import wasi from "ext:deno_node/wasi.ts";
 import zlib from "node:zlib";
 
@@ -255,7 +255,7 @@ function setupBuiltinModules() {
     v8,
     vm,
     wasi,
-    // worker_threads: workerThreads, Disabled
+    worker_threads: workerThreads,
     zlib,
   };
   for (const [name, moduleExports] of ObjectEntries(nodeModules)) {
@@ -475,6 +475,7 @@ function Module(id = "", parent) {
   updateChildren(parent, this, false);
   this.filename = null;
   this.loaded = false;
+  this.parent = parent;
   this.children = [];
 }
 
@@ -1054,7 +1055,7 @@ Module._extensions[".js"] = function (module, filename) {
 
   if (StringPrototypeEndsWith(filename, ".js")) {
     const pkg = op_require_read_closest_package_json(filename);
-    if (pkg && pkg.exists && pkg.typ === "module") {
+    if (pkg && pkg.typ === "module") {
       throw createRequireEsmError(
         filename,
         moduleParentCache.get(module)?.filename,
@@ -1261,6 +1262,15 @@ internals.requireImpl = {
   Module,
   nativeModuleExports,
 };
+
+/**
+ * @param {string} path
+ * @returns {SourceMap | undefined}
+ */
+export function findSourceMap(_path) {
+  // TODO(@marvinhagemeister): Stub implementation for now to unblock ava
+  return undefined;
+}
 
 export { builtinModules, createRequire, isBuiltin, Module };
 export const _cache = Module._cache;

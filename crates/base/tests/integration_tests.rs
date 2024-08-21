@@ -1,6 +1,10 @@
 #[path = "../src/utils/integration_test_helper.rs"]
 mod integration_test_helper;
 
+use http_v02 as http;
+use hyper_v014 as hyper;
+use reqwest_v011 as reqwest;
+
 use std::{
     borrow::Cow,
     collections::HashMap,
@@ -1171,7 +1175,7 @@ async fn req_failure_case_intentional_peer_reset_secure() {
 async fn req_failure_case_op_cancel_from_server_due_to_cpu_resource_limit() {
     test_oak_file_upload(
         Cow::Borrowed("./test_cases/main_small_cpu_time"),
-        48 * MB,
+        120 * MB,
         None,
         |resp| async {
             let res = resp.unwrap();
@@ -1481,7 +1485,7 @@ async fn test_decorators(ty: Option<DecoratorType>) {
                     .text()
                     .await
                     .unwrap()
-                    .starts_with("{\"msg\":\"InvalidWorkerCreation: worker boot error Uncaught SyntaxError: Invalid or unexpected token"),);
+                    .starts_with("{\"msg\":\"InvalidWorkerCreation: worker boot error: Uncaught SyntaxError: Invalid or unexpected token"),);
             } else {
                 assert_eq!(resp.status(), StatusCode::OK);
                 assert_eq!(resp.text().await.unwrap().as_str(), "meow?");
@@ -2208,6 +2212,42 @@ async fn test_allow_net_fetch_google_com() {
         assert!(!payload.body.is_empty());
     })
     .await;
+}
+
+#[tokio::test]
+#[serial]
+async fn test_fastify_v4_package() {
+    integration_test!(
+        "./test_cases/main",
+        NON_SECURE_PORT,
+        "fastify-v4",
+        None,
+        None,
+        None,
+        None,
+        (|resp| async {
+            assert_eq!(resp.unwrap().text().await.unwrap(), "meow");
+        }),
+        TerminationToken::new()
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_fastify_latest_package() {
+    integration_test!(
+        "./test_cases/main",
+        NON_SECURE_PORT,
+        "fastify-latest",
+        None,
+        None,
+        None,
+        None,
+        (|resp| async {
+            assert_eq!(resp.unwrap().text().await.unwrap(), "meow");
+        }),
+        TerminationToken::new()
+    );
 }
 
 trait AsyncReadWrite: AsyncRead + AsyncWrite + Send + Unpin {}

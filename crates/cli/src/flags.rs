@@ -3,8 +3,24 @@ use std::{net::SocketAddr, path::PathBuf};
 use clap::{
     arg,
     builder::{BoolishValueParser, FalseyValueParser, TypedValueParser},
-    crate_version, value_parser, ArgAction, ArgGroup, Command,
+    crate_version, value_parser, ArgAction, ArgGroup, Command, ValueEnum,
 };
+use sb_graph::Checksum;
+
+#[derive(ValueEnum, Default, Clone, Copy)]
+#[repr(u8)]
+pub(super) enum EszipV2ChecksumKind {
+    #[default]
+    NoChecksum = 0,
+    Sha256 = 1,
+    XxHash3 = 2,
+}
+
+impl From<EszipV2ChecksumKind> for Option<Checksum> {
+    fn from(value: EszipV2ChecksumKind) -> Self {
+        Checksum::from_u8(value as u8)
+    }
+}
 
 pub(super) fn get_cli() -> Command {
     Command::new(env!("CARGO_BIN_NAME"))
@@ -12,7 +28,7 @@ pub(super) fn get_cli() -> Command {
         .version(format!(
             "{}\ndeno {} ({}, {})",
             crate_version!(),
-            env!("DENO_VERSION"),
+            deno_manifest::version(),
             env!("PROFILE"),
             env!("TARGET")
         ))
@@ -217,6 +233,12 @@ fn get_bundle_command() -> Command {
             arg!(--"decorator" <TYPE>)
                 .help("Type of decorator to use when bundling. If not specified, the decorator feature is disabled.")
                 .value_parser(["tc39", "typescript", "typescript_with_metadata"]),
+        )
+        .arg(
+            arg!(--"checksum" <KIND>)
+                .env("EDGE_RUNTIME_BUNDLE_CHECKSUM")
+                .help("Hash function to use when checksum the contents")
+                .value_parser(value_parser!(EszipV2ChecksumKind))
         )
 }
 

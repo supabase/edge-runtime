@@ -14,12 +14,12 @@ use event_worker::events::{
     BootEvent, ShutdownEvent, WorkerEventWithMetadata, WorkerEvents, WorkerMemoryUsed,
 };
 use futures_util::pin_mut;
-use http::StatusCode;
 use http_utils::io::Upgraded2;
 use http_utils::utils::{emit_status_code, get_upgrade_type};
-use hyper::client::conn::http1;
-use hyper::upgrade::OnUpgrade;
-use hyper::{Body, Request, Response};
+use http_v02::StatusCode;
+use hyper_v014::client::conn::http1;
+use hyper_v014::upgrade::OnUpgrade;
+use hyper_v014::{Body, Request, Response};
 use log::{debug, error};
 use sb_core::{MetricSource, SharedMetricSource};
 use sb_graph::{DecoratorType, EszipPayloadKind};
@@ -167,7 +167,7 @@ async fn handle_request(
     let res = tokio::select! {
         resp = request_sender.send_request(req) => resp,
         _ = maybe_cancel_fut => {
-            Ok(emit_status_code(http::StatusCode::GATEWAY_TIMEOUT, None, false))
+            Ok(emit_status_code(http_v02::StatusCode::GATEWAY_TIMEOUT, None, false))
         }
     };
 
@@ -191,7 +191,7 @@ async fn handle_request(
 
     if let Some(timeout_ms) = maybe_request_idle_timeout {
         let headers = res.headers();
-        let is_streamed_response = !headers.contains_key(http::header::CONTENT_LENGTH);
+        let is_streamed_response = !headers.contains_key(http_v02::header::CONTENT_LENGTH);
 
         if is_streamed_response {
             let duration = Duration::from_millis(timeout_ms);
@@ -271,7 +271,7 @@ pub fn create_supervisor(
     // we assert supervisor is only run for user workers
     let conf = worker_runtime.conf.as_user_worker().unwrap().clone();
     let mem_check_state = worker_runtime.mem_check_state();
-    let is_termination_requested = worker_runtime.is_termination_requested.clone();
+    let termination_request_token = worker_runtime.termination_request_token.clone();
 
     let giveup_process_requests_token = cancel.clone();
     let supervise_cancel_token = CancellationToken::new();
@@ -381,12 +381,13 @@ pub fn create_supervisor(
                         let wait_inspector_disconnect_fut = async move {
                             let ls = tokio::task::LocalSet::new();
                             ls.run_until(async move {
-                                if is_terminated.is_raised() || is_termination_requested.is_raised()
+                                if is_terminated.is_raised()
+                                    || termination_request_token.is_cancelled()
                                 {
                                     return;
                                 }
 
-                                is_termination_requested.raise();
+                                termination_request_token.cancel();
 
                                 if is_found.is_raised() {
                                     return;
@@ -452,7 +453,7 @@ pub fn create_supervisor(
                     .await
                     .unwrap();
             } else {
-                is_termination_requested.raise();
+                termination_request_token.cancel();
             }
 
             // NOTE: If we issue a hard CPU time limit, It's OK because it is
@@ -680,7 +681,7 @@ pub async fn send_user_worker_request(
     exit: WorkerExit,
     conn_token: Option<CancellationToken>,
 ) -> Result<Response<Body>, Error> {
-    let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper::Error>>();
+    let (res_tx, res_rx) = oneshot::channel::<Result<Response<Body>, hyper_v014::Error>>();
     let msg = WorkerRequestMsg {
         req,
         res_tx,

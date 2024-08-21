@@ -5,5 +5,5 @@ edition = "2021"
 
 [dependencies]
 tokio.workspace = true
-tokio-util.workspace = true
 once_cell.workspace = true
+tokio-util = { workspace = true, features = ["rt"] }

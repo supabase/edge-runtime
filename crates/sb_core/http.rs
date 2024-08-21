@@ -9,7 +9,7 @@ use deno_http::{HttpRequestReader, HttpStreamReadResource};
 use deno_websocket::ws_create_server_stream;
 use futures::ready;
 use futures::{future::BoxFuture, FutureExt};
-use hyper::upgrade::{OnUpgrade, Parts};
+use hyper_v014::upgrade::{OnUpgrade, Parts};
 use log::error;
 use serde::Serialize;
 use tokio::io::{copy_bidirectional, AsyncReadExt, AsyncWriteExt, DuplexStream};
@@ -217,7 +217,7 @@ async fn op_http_upgrade_websocket2(
         _ => return Err(http_error("cannot upgrade because request body was used")),
     };
 
-    let upgraded = hyper::upgrade::on(request).await?;
+    let upgraded = hyper_v014::upgrade::on(request).await?;
     let Parts { io, read_buf, .. } = upgraded.downcast::<DuplexStream2>().unwrap();
     let (mut rw, conn_sync) = io
         .into_inner()

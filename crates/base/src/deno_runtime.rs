@@ -43,7 +43,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::interval;
 use tokio_util::sync::CancellationToken;
-use tracing::{trace, debug};
+use tracing::{debug, trace};
 
 use crate::snapshot;
 use event_worker::events::{EventMetadata, WorkerEventWithMetadata};
@@ -968,10 +968,6 @@ where
 
         guard
     }
-}
-
-fn get_current_cpu_time_ns() -> Result<i64, Error> {
-    get_thread_time().context("can't get current thread time")
 }
 
 fn with_cpu_metrics_guard<'l, F, R>(

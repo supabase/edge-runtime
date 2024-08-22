@@ -18,13 +18,6 @@ use crate::pipeline::{
 use crate::tensor_ops::mean_pool;
 
 #[derive(Deserialize, Debug)]
-#[serde(untagged)]
-pub enum FeatureExtractionPipelineInput {
-    Single(String),
-    Batch(Vec<String>),
-}
-
-#[derive(Deserialize, Debug)]
 #[serde(default)]
 pub struct FeatureExtractionPipelineInputOptions {
     pub mean_pool: bool,

@@ -540,13 +540,12 @@ pub fn compose_url_env_key(
     variation: Option<&str>,
 ) -> String {
     let variation = variation.map(|it| format!("_{it}")).unwrap_or_default();
-    let key = format!(
+
+    format!(
         "{}_{prefix}_{def_name}{variation}",
         env!("CARGO_CRATE_NAME")
     )
-    .to_case(convert_case::Case::UpperSnake);
-
-    key
+    .to_case(convert_case::Case::UpperSnake)
 }
 
 fn try_get_url_from_env<T>(

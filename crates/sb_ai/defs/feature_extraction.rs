@@ -2,7 +2,7 @@ use std::borrow::Cow;
 use std::vec;
 
 use crate::serde_json::{Map, Value};
-use anyhow::{anyhow, bail, Context, Error};
+use anyhow::{anyhow, bail, Error};
 use deno_core::error::AnyError;
 use deno_core::url::Url;
 use ndarray::{Array2, Axis, Ix3};
@@ -49,12 +49,15 @@ impl PipelineDefinition for FeatureExtractionPipeline {
         "feature-extraction".into()
     }
 
-    fn model_url(&self, _requested_variation: Option<&str>) -> Result<Url, AnyError> {
-        unimplemented!()
+    fn model_url(&self, requested_variation: Option<&str>) -> Result<Url, AnyError> {
+        try_get_model_url_from_env(self, requested_variation).unwrap_or(Err(anyhow!(
+            "{}: no default or variation found",
+            self.name()
+        )))
     }
 
-    fn tokenizer_url(&self, _requested_variation: Option<&str>) -> Option<Result<Url, AnyError>> {
-        unimplemented!()
+    fn tokenizer_url(&self, requested_variation: Option<&str>) -> Option<Result<Url, AnyError>> {
+        try_get_tokenizer_url_from_env(self, requested_variation)
     }
 
     fn run(
@@ -163,23 +166,11 @@ impl PipelineDefinition for SupabaseGte {
     }
 
     fn model_url(&self, requested_variation: Option<&str>) -> Result<Url, AnyError> {
-        if let Some(Ok(url)) = try_get_model_url_from_env(self, requested_variation) {
-            return Ok(url);
-        }
-
-        Url::parse(include_str!("repo/supabase-gte/model.txt").trim())
-            .context("failed to parse URL")
+        self.inner.model_url(requested_variation)
     }
 
     fn tokenizer_url(&self, requested_variation: Option<&str>) -> Option<Result<Url, AnyError>> {
-        if let Some(Ok(url)) = try_get_tokenizer_url_from_env(self, requested_variation) {
-            return Some(Ok(url));
-        }
-
-        Some(
-            Url::parse(include_str!("repo/supabase-gte/tokenizer.txt").trim())
-                .context("failed to parse URL"),
-        )
+        self.inner.tokenizer_url(requested_variation)
     }
 
     fn configure_tokenizer(&self, tokenizer: &mut Tokenizer) {

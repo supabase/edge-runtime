@@ -534,6 +534,21 @@ where
     .boxed()
 }
 
+pub fn compose_url_env_key(
+    prefix: &'static str,
+    def_name: &str,
+    variation: Option<&str>,
+) -> String {
+    let variation = variation.map(|it| format!("_{it}")).unwrap_or_default();
+    let key = format!(
+        "{}_{prefix}_{def_name}{variation}",
+        env!("CARGO_CRATE_NAME")
+    )
+    .to_case(convert_case::Case::UpperSnake);
+
+    key
+}
+
 fn try_get_url_from_env<T>(
     prefix: &'static str,
     def: &T,
@@ -542,10 +557,7 @@ fn try_get_url_from_env<T>(
 where
     T: PipelineDefinition,
 {
-    let name = def.name();
-    let variation = variation.map(|it| format!("_{it}")).unwrap_or_default();
-    let key = format!("{}_{prefix}_{name}{variation}", env!("CARGO_CRATE_NAME"))
-        .to_case(convert_case::Case::UpperSnake);
+    let key = compose_url_env_key(prefix, &def.name(), variation);
 
     let value = match std::env::var(key) {
         Ok(value) => value,

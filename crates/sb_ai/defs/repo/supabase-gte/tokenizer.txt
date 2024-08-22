@@ -1,1 +1,0 @@
-https://huggingface.co/Supabase/gte-small/resolve/main/tokenizer.json?download=true

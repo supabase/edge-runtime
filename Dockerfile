@@ -41,12 +41,12 @@ RUN ./scripts/install_onnx.sh $ONNXRUNTIME_VERSION $TARGETPLATFORM /root/onnxrun
 # Preload defs
 FROM ort as preload-defs
 
-COPY --from=builder /root/preload-sb-ai-defs /usr/local/bin/preload-sb-ai-defs
+COPY --from=builder /root/preload-sb-ai-defs /usr/local/bin/preload-sb-ai-defs 
 
 ENV ORT_DYLIB_PATH=/root/onnxruntime/lib/libonnxruntime.so
+RUN mkdir -p /root/preload-defs-cache
 RUN --mount=type=cache,target=/root/.cache/ort.pyke.io,id=${TARGETPLATFORM} \
-    RUST_LOG=info /usr/local/bin/preload-sb-ai-defs && \
-    mkdir -p /root/preload-defs-cache && \
+    RUST_LOG=info /usr/local/bin/preload-sb-ai-defs -o /root/preload-defs-cache/.env.preload && \
     cp -r /root/.cache/ort.pyke.io/models /root/preload-defs-cache && \
     cp -r /root/.cache/ort.pyke.io/tokenizers /root/preload-defs-cache
 
@@ -65,11 +65,17 @@ COPY --from=edge-runtime-base /usr/local/bin/edge-runtime /usr/local/bin/edge-ru
 COPY --from=ort-cuda /root/onnxruntime /usr/local/bin/onnxruntime
 COPY --from=preload-defs /root/preload-defs-cache /root/.cache/ort.pyke.io
 
+# Export preload environment to edge-runtime
+RUN (echo '#!/usr/bin/env bash'; \
+    cat /root/.cache/ort.pyke.io/.env.preload | awk '{print "export " $0}'; \
+    echo "edge-runtime "'"$@"'"") | tee /usr/local/bin/entrypoint \
+    && chmod +x /usr/local/bin/entrypoint
+
 ENV ORT_DYLIB_PATH=/usr/local/bin/onnxruntime/lib/libonnxruntime.so
 ENV NVIDIA_VISIBLE_DEVICES=all
 ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
 
-ENTRYPOINT ["edge-runtime"]
+ENTRYPOINT ["/usr/local/bin/entrypoint"]
 
 
 # Base
@@ -78,4 +84,10 @@ FROM edge-runtime-base as edge-runtime
 COPY --from=ort /root/onnxruntime /usr/local/bin/onnxruntime
 COPY --from=preload-defs /root/preload-defs-cache /root/.cache/ort.pyke.io
 
-ENTRYPOINT ["edge-runtime"]
+# Export preload environment to edge-runtime
+RUN (echo '#!/usr/bin/env bash'; \
+    cat /root/.cache/ort.pyke.io/.env.preload | awk '{print "export " $0}'; \
+    echo "edge-runtime "'"$@"'"") | tee /usr/local/bin/entrypoint \
+    && chmod +x /usr/local/bin/entrypoint
+
+ENTRYPOINT ["/usr/local/bin/entrypoint"]

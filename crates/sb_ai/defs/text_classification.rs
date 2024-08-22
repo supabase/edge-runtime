@@ -189,7 +189,6 @@ impl PipelineDefinition for ZeroShotClassificationPipeline {
         input: &Self::Input,
         options: Option<&Self::InputOptions>,
     ) -> Result<Self::Output, AnyError> {
-        println!("RUN: {session:?}");
         let options = options
             .cloned()
             .unwrap_or(ZeroShotClassificationOptions::default());

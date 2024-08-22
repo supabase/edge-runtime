@@ -9,6 +9,7 @@ mod pipeline;
 mod tensor_ops;
 
 pub mod defs;
+pub use pipeline::compose_url_env_key;
 
 deno_core::extension!(
     sb_ai,

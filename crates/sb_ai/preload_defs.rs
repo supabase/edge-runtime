@@ -1,4 +1,4 @@
-use std::{borrow::Cow, io::Write, path::PathBuf, process::ExitCode};
+use std::{borrow::Cow, env, io::Write, path::PathBuf, process::ExitCode};
 
 use anyhow::Context;
 use clap::{ArgAction, Parser};
@@ -14,6 +14,10 @@ struct Cli {
     #[arg(short = 'p', env = "PRELOAD_DEFS_PATH")]
     path: Option<PathBuf>,
 
+    /// Path to save an .env file containing the urls loaded from preload.
+    #[arg(short = 'o', env = "PRELOAD_OUTPUT_ENV_PATH")]
+    output_env_path: Option<PathBuf>,
+
     /// Load all defs regardless of failure.
     #[arg(long, action = ArgAction::SetFalse)]
     no_fail_fast: bool,
@@ -23,6 +27,9 @@ struct Cli {
 struct Manifest {
     name: String,
     variation: Option<String>,
+    model_url: String,
+    tokenizer_url: String,
+    config_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -67,15 +74,43 @@ async fn main() -> Result<ExitCode, AnyError> {
     let mut failed = 0;
 
     println!("loading {} defs", manifests.len());
-    for Manifest { name, variation } in manifests {
-        print!("{name}");
-        if let Some(var) = variation.as_ref() {
+    for manifest_item in manifests {
+        print!("{}", manifest_item.name);
+
+        let model_url_key = sb_ai::compose_url_env_key(
+            "model_url",
+            &manifest_item.name,
+            manifest_item.variation.as_deref(),
+        );
+        let tokenizer_url_key = sb_ai::compose_url_env_key(
+            "tokenizer_url",
+            &manifest_item.name,
+            manifest_item.variation.as_deref(),
+        );
+
+        // TODO: set_var should be encapsulate in unsafe block in later rust versions.
+        env::set_var(model_url_key, manifest_item.model_url);
+        env::set_var(tokenizer_url_key, manifest_item.tokenizer_url);
+
+        if let Some(config_url) = manifest_item.config_url {
+            let config_url_key = sb_ai::compose_url_env_key(
+                "config_url",
+                &manifest_item.name,
+                manifest_item.variation.as_deref(),
+            );
+
+            env::set_var(config_url_key, config_url);
+        }
+
+        if let Some(var) = manifest_item.variation.as_ref() {
             print!("(with {var})");
         }
         print!(" ... ");
         stdout.flush().unwrap();
 
-        if let Err(err) = sb_ai::defs::init(None, name.as_str(), variation).await {
+        if let Err(err) =
+            sb_ai::defs::init(None, manifest_item.name.as_str(), manifest_item.variation).await
+        {
             failed += 1;
 
             println!("FAILED");
@@ -87,6 +122,30 @@ async fn main() -> Result<ExitCode, AnyError> {
         } else {
             println!("ok");
             loaded += 1;
+        }
+    }
+
+    if let Some(output_env_path) = args.output_env_path.filter(|_| failed == 0) {
+        let sb_var_prefix = env!("CARGO_PKG_NAME").to_uppercase();
+        let sb_vars = std::env::vars()
+            .filter_map(|(key, value)| {
+                if !key.starts_with(&sb_var_prefix) {
+                    return None;
+                }
+
+                Some(format!("{key}={value}"))
+            })
+            .collect::<Vec<_>>();
+
+        println!(
+            "saving {} enviroment variables to {output_env_path:?}",
+            sb_vars.len()
+        );
+
+        if let Err(err) = fs::write(output_env_path, sb_vars.join("\r\n")).await {
+            failed += 1;
+
+            println!("{err:?}");
         }
     }
 

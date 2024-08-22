@@ -1,8 +1,18 @@
 [
   {
-    "name": "supabase-gte"
+    "name": "feature-extraction",
+    "model_url": "https://huggingface.co/Supabase/gte-small/resolve/main/onnx/model_fp16.onnx?download=true",
+    "tokenizer_url": "https://huggingface.co/Supabase/gte-small/resolve/main/tokenizer.json?download=true"
   },
   {
-    "name": "sentiment-analysis"
+    "name": "sentiment-analysis",
+    "model_url": "https://huggingface.co/Xenova/distilbert-base-uncased-finetuned-sst-2-english/resolve/main/onnx/model_quantized.onnx?download=true",
+    "tokenizer_url": "https://huggingface.co/Xenova/distilbert-base-uncased-finetuned-sst-2-english/resolve/main/tokenizer.json?download=true",
+    "config_url": "https://huggingface.co/Xenova/distilbert-base-uncased-finetuned-sst-2-english/resolve/main/config.json?download=true"
+  },
+  {
+    "name": "zero-shot-classification",
+    "model_url": "https://huggingface.co/Xenova/distilbert-base-uncased-mnli/resolve/main/onnx/model_quantized.onnx?download=true",
+    "tokenizer_url": "https://huggingface.co/Xenova/distilbert-base-uncased-mnli/resolve/main/tokenizer.json?download=true"
   }
 ]

@@ -211,7 +211,7 @@ impl PipelineDefinition for ZeroShotClassificationPipeline {
 
         pad_encodings(encodings.as_mut_slice(), &PaddingParams::default()).unwrap();
 
-        let padded_token_length = encodings.get(0).unwrap().len();
+        let padded_token_length = encodings.first().unwrap().len();
         let input_shape = [input.candidate_labels.len(), padded_token_length];
 
         let input_ids = encodings
@@ -253,7 +253,7 @@ impl PipelineDefinition for ZeroShotClassificationPipeline {
             .enumerate()
             .map(|(idx, score)| TextClassificationOutput {
                 label: input.candidate_labels.get(idx).unwrap().to_owned(),
-                score: score.to_owned().into(),
+                score: score.to_owned(),
             })
             .collect::<Vec<_>>();
 

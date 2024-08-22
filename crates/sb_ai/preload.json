@@ -5,7 +5,7 @@
     "tokenizer_url": "https://huggingface.co/Supabase/gte-small/resolve/main/tokenizer.json?download=true"
   },
   {
-    "name": "sentiment-analysis",
+    "name": "text-classification",
     "model_url": "https://huggingface.co/Xenova/distilbert-base-uncased-finetuned-sst-2-english/resolve/main/onnx/model_quantized.onnx?download=true",
     "tokenizer_url": "https://huggingface.co/Xenova/distilbert-base-uncased-finetuned-sst-2-english/resolve/main/tokenizer.json?download=true",
     "config_url": "https://huggingface.co/Xenova/distilbert-base-uncased-finetuned-sst-2-english/resolve/main/config.json?download=true"

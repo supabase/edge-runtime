@@ -22,19 +22,19 @@ pub struct TextClassificationOutput {
 }
 
 #[derive(Debug, Clone)]
-pub struct SentimentAnalysisPipeline;
+pub struct TextClassificationPipeline;
 
-impl PipelineDefinition for SentimentAnalysisPipeline {
+impl PipelineDefinition for TextClassificationPipeline {
     type Input = PipelineBatchIO<String>;
     type InputOptions = Value;
     type Output = PipelineBatchIO<TextClassificationOutput>;
 
     fn make() -> Self {
-        SentimentAnalysisPipeline
+        TextClassificationPipeline
     }
 
     fn name(&self) -> std::borrow::Cow<'static, str> {
-        "sentiment-analysis".into()
+        "text-classification".into()
     }
 
     fn model_url(&self, requested_variation: Option<&str>) -> Result<Url, AnyError> {
@@ -125,6 +125,50 @@ impl PipelineDefinition for SentimentAnalysisPipeline {
             }
             PipelineBatchIO::Batch(_) => Ok(PipelineBatchIO::Batch(results)),
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SentimentAnalysis {
+    inner: TextClassificationPipeline,
+}
+
+impl PipelineDefinition for SentimentAnalysis {
+    type Input = <TextClassificationPipeline as PipelineDefinition>::Input;
+    type InputOptions = <TextClassificationPipeline as PipelineDefinition>::InputOptions;
+    type Output = <TextClassificationPipeline as PipelineDefinition>::Output;
+
+    fn make() -> Self {
+        SentimentAnalysis {
+            inner: TextClassificationPipeline,
+        }
+    }
+
+    fn name(&self) -> std::borrow::Cow<'static, str> {
+        "sentiment-analysis".into()
+    }
+
+    fn model_url(&self, requested_variation: Option<&str>) -> Result<Url, AnyError> {
+        self.inner.model_url(requested_variation)
+    }
+
+    fn tokenizer_url(&self, requested_variation: Option<&str>) -> Option<Result<Url, AnyError>> {
+        self.inner.tokenizer_url(requested_variation)
+    }
+
+    fn config_url(&self, requested_variation: Option<&str>) -> Option<Result<Url, AnyError>> {
+        self.inner.config_url(requested_variation)
+    }
+
+    fn run(
+        &self,
+        session: &ort::Session,
+        tokenizer: Option<&tokenizers::Tokenizer>,
+        config: Option<&Map<String, Value>>,
+        input: &Self::Input,
+        options: Option<&Self::InputOptions>,
+    ) -> Result<Self::Output, AnyError> {
+        self.inner.run(session, tokenizer, config, input, options)
     }
 }
 

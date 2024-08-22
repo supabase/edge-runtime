@@ -22,8 +22,9 @@ static DEFS: Lazy<HashMap<Cow<'static, str>, Initializer>> = Lazy::new(|| {
         factory::<pipeline::WithCUDAExecutionProvider<feature_extraction::FeatureExtractionPipeline>>(
         ),
         factory::<
-            pipeline::WithCUDAExecutionProvider<text_classification::SentimentAnalysisPipeline>,
+            pipeline::WithCUDAExecutionProvider<text_classification::TextClassificationPipeline>,
         >(),
+        factory::<pipeline::WithCUDAExecutionProvider<text_classification::SentimentAnalysis>>(),
         factory::<
             pipeline::WithCUDAExecutionProvider<
                 text_classification::ZeroShotClassificationPipeline,

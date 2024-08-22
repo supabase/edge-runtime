@@ -11,6 +11,7 @@ import * as fileReader from 'ext:deno_web/10_filereader.js';
 import * as formData from 'ext:deno_fetch/21_formdata.js';
 import * as headers from 'ext:deno_fetch/20_headers.js';
 import * as streams from 'ext:deno_web/06_streams.js';
+import * as streams2 from 'ext:deno_web/14_compression.js';
 import * as timers from 'ext:deno_web/02_timers.js';
 import * as url from 'ext:deno_url/00_url.js';
 import * as urlPattern from 'ext:deno_url/01_urlpattern.js';
@@ -46,7 +47,6 @@ import * as performance from 'ext:deno_web/15_performance.js';
 import * as messagePort from 'ext:deno_web/13_message_port.js';
 import { SupabaseEventListener } from 'ext:sb_user_event_worker/event_worker.js';
 import * as MainWorker from 'ext:sb_core_main_js/js/main_worker.js';
-import * as DenoWebCompression from 'ext:deno_web/14_compression.js';
 import * as DenoWSStream from 'ext:deno_websocket/02_websocketstream.js';
 import * as eventSource from 'ext:deno_fetch/27_eventsource.js';
 import * as WebGPU from 'ext:deno_webgpu/00_init.js';
@@ -199,7 +199,12 @@ const globalScope = {
 	WritableStreamDefaultController: nonEnumerable(
 		streams.WritableStreamDefaultController,
 	),
-
+	CompressionStream: nonEnumerable(
+		streams2.CompressionStream,
+	),
+	DecompressionStream: nonEnumerable(
+		streams2.DecompressionStream,
+	),
 	// event
 	CloseEvent: nonEnumerable(event.CloseEvent),
 	CustomEvent: nonEnumerable(event.CustomEvent),

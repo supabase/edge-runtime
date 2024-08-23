@@ -34,7 +34,6 @@ use hyper::rt::Executor;
 use hyper_util::rt::TokioIo;
 use hyper_util::server::conn;
 use hyper_util::server::graceful::GracefulShutdown;
-use log::error;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -46,6 +45,7 @@ use std::sync::Arc;
 use std::thread;
 use tokio::net::TcpListener;
 use tokio::sync::watch;
+use tracing::error;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, EnumAsInner)]
@@ -226,11 +226,12 @@ fn handle_ws_request(
     // spawn a task that will wait for websocket connection and then pump messages between
     // the socket and inspector proxy
     spawn(async move {
-        let websocket = if let Ok(w) = fut.await {
-            w
-        } else {
-            eprintln!("Inspector server failed to upgrade to WS connection");
-            return;
+        let websocket = match fut.await {
+            Ok(w) => w,
+            Err(err) => {
+                error!(%err, "inspector server failed to upgrade to ws connection");
+                return;
+            }
         };
 
         // The 'outbound' channel carries messages sent to the websocket.
@@ -371,13 +372,13 @@ async fn server(
             let (tcp, _) = match listener.accept().await {
                 Ok(conn) => conn,
                 Err(err) => {
-                    error!("accept error: {err}");
+                    error!(%err);
                     continue;
                 }
             };
 
             let io = TokioIo::new(tcp);
-            let conn = conn_builder.serve_connection(io, service_fn.clone());
+            let conn = conn_builder.serve_connection_with_upgrades(io, service_fn.clone());
             let conn = graceful.watch(conn.into_owned());
 
             executor.execute(async move {

@@ -43,6 +43,7 @@ import {
 
 import { promiseRejectMacrotaskCallback } from 'ext:sb_core_main_js/js/promises.js';
 import { denoOverrides, fsVars } from 'ext:sb_core_main_js/js/denoOverrides.js';
+import { registerDeclarativeServer } from 'ext:sb_core_main_js/js/00_serve.js';
 import * as performance from 'ext:deno_web/15_performance.js';
 import * as messagePort from 'ext:deno_web/13_message_port.js';
 import { SupabaseEventListener } from 'ext:sb_user_event_worker/event_worker.js';
@@ -66,6 +67,7 @@ const {
 	ObjectDefineProperty,
 	ObjectDefineProperties,
 	ObjectSetPrototypeOf,
+	ObjectHasOwn,
 	SafeSet,
 	StringPrototypeIncludes,
 	StringPrototypeSplit,
@@ -547,6 +549,13 @@ globalThis.bootstrapSBEdge = (opts, extraCtx) => {
 				Deno[name] = value;
 			}
 		}
+
+		// find declarative fetch handler
+		core.addMainModuleHandler(main => {
+			if (ObjectHasOwn(main, 'default')) {
+				registerDeclarativeServer(main.default);
+			}
+		});
 	}
 
 	if (isEventsWorker) {

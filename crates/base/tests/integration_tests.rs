@@ -2250,6 +2250,24 @@ async fn test_fastify_latest_package() {
     );
 }
 
+#[tokio::test]
+#[serial]
+async fn test_declarative_style_fetch_handler() {
+    integration_test!(
+        "./test_cases/main",
+        NON_SECURE_PORT,
+        "serve-declarative-style",
+        None,
+        None,
+        None,
+        None,
+        (|resp| async {
+            assert_eq!(resp.unwrap().text().await.unwrap(), "meow");
+        }),
+        TerminationToken::new()
+    );
+}
+
 trait AsyncReadWrite: AsyncRead + AsyncWrite + Send + Unpin {}
 
 impl<T> AsyncReadWrite for T where T: AsyncRead + AsyncWrite + Send + Unpin {}

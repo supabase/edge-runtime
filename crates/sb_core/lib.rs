@@ -374,6 +374,7 @@ deno_core::extension!(
         "js/navigator.js",
         "js/bootstrap.js",
         "js/main_worker.js",
+        "js/00_serve.js",
         "js/01_http.js"
     ]
 );

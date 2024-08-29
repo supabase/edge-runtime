@@ -296,7 +296,7 @@ mod v1_1 {
             Arc::from(b"1.1" as &[u8]),
         );
 
-        let mut v1_dir = {
+        let v1_dir = {
             let Some(vfs_mod_data) = OptionFuture::<_>::from(
                 v1_eszip
                     .ensure_module(VFS_ESZIP_KEY)
@@ -307,23 +307,27 @@ mod v1_1 {
                 return Ok(v1_1_eszip);
             };
 
-            let Ok(v1_dir) = rkyv::from_bytes::<v1::Directory>(&vfs_mod_data) else {
+            let Ok(v1_dir) = rkyv::from_bytes::<Option<v1::Directory>>(&vfs_mod_data) else {
                 bail!("cannot deserialize vfs data");
             };
 
             v1_dir
         };
 
-        if v1_dir.name != "node_modules" {
-            bail!("malformed vfs data (expected node_modules)");
-        }
+        let v1_1_dir = if let Some(mut v1_dir) = v1_dir {
+            if v1_dir.name != "node_modules" {
+                bail!("malformed vfs data (expected node_modules)");
+            }
 
-        v1_dir.name = "localhost".into();
+            v1_dir.name = "localhost".into();
 
-        let v1_1_dir = Some(v1::Directory {
-            name: "node_modules".into(),
-            entries: vec![v1::Entry::Dir(v1_dir)],
-        });
+            Some(v1::Directory {
+                name: "node_modules".into(),
+                entries: vec![v1::Entry::Dir(v1_dir)],
+            })
+        } else {
+            None
+        };
 
         let v1_1_vfs_data = rkyv::to_bytes::<_, 1024>(&v1_1_dir)
             .with_context(|| "failed to serialize v1.1 vfs data")?;

@@ -18,7 +18,7 @@ use crate::pipeline::{
 use crate::tensor_ops::mean_pool;
 
 #[derive(Deserialize, Debug)]
-#[serde(default)]
+#[serde(default, rename_all = "camelCase")]
 pub struct FeatureExtractionPipelineInputOptions {
     pub mean_pool: bool,
     pub normalize: bool,

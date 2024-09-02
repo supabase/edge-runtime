@@ -16,6 +16,7 @@ use crate::pipeline::{
 };
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct TextClassificationOutput {
     pub label: String,
     pub score: f32,
@@ -173,13 +174,14 @@ impl PipelineDefinition for SentimentAnalysis {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ZeroShotClassificationInput {
     pub text: String,
     pub candidate_labels: Vec<String>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
-#[serde(default)]
+#[serde(default, rename_all = "camelCase")]
 pub struct ZeroShotClassificationOptions {
     pub multi_label: bool,
     pub hypothesis_template: String,

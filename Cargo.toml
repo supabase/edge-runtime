@@ -136,6 +136,8 @@ rkyv = "0.7"
 tempfile = "3"
 
 [patch.crates-io]
+# If the PR is merged upstream, remove the line below.
+deno_core = { git = "https://github.com/supabase/deno_core", branch = "293-supabase" }
 eszip = { git = "https://github.com/supabase/eszip", branch = "fix-pub-vis-0-72-2" }
 
 [profile.dind]

@@ -396,12 +396,13 @@ where
             });
         }
 
+        let has_inspector = maybe_inspector.is_some();
         let rt_provider = create_module_loader_for_standalone_from_eszip_kind(
             eszip,
             base_dir_path.clone(),
             maybe_import_map,
             import_map_path,
-            maybe_inspector.is_some(),
+            has_inspector,
         )
         .await?;
 
@@ -701,11 +702,11 @@ where
         let current_thread_id = std::thread::current().id();
         let mut accumulated_cpu_time_ns = 0i64;
 
-        let inspector = self.inspector();
+        let has_inspector = self.inspector().is_some();
         let mut mod_result_rx = unsafe {
             self.js_runtime.v8_isolate().enter();
 
-            if inspector.is_some() {
+            if has_inspector {
                 let is_terminated = self.is_terminated.clone();
                 let mut this = scopeguard::guard_on_unwind(&mut *self, |this| {
                     this.js_runtime.v8_isolate().exit();

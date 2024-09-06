@@ -597,7 +597,9 @@ impl EszipDataSection {
     }
 }
 
-pub async fn payload_to_eszip(eszip_payload_kind: EszipPayloadKind) -> Result<LazyLoadableEszip, anyhow::Error> {
+pub async fn payload_to_eszip(
+    eszip_payload_kind: EszipPayloadKind,
+) -> Result<LazyLoadableEszip, anyhow::Error> {
     match eszip_payload_kind {
         EszipPayloadKind::Eszip(eszip) => Ok(LazyLoadableEszip::new(eszip, None)),
         _ => {
@@ -866,14 +868,13 @@ pub async fn extract_eszip(payload: ExtractEszipPayload) -> bool {
         }
     };
 
-    let mut eszip =
-        match eszip_migrate::try_migrate_if_needed(eszip).await {
-            Ok(v) => v,
-            Err(_old) => {
-                error!("eszip migration failed (give up extract job)");
-                return false;
-            }
-        };
+    let mut eszip = match eszip_migrate::try_migrate_if_needed(eszip).await {
+        Ok(v) => v,
+        Err(_old) => {
+            error!("eszip migration failed (give up extract job)");
+            return false;
+        }
+    };
 
     eszip.ensure_read_all().await.unwrap();
 

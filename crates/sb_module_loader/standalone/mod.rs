@@ -222,16 +222,15 @@ pub async fn create_module_loader_for_standalone_from_eszip_kind<P>(
 where
     P: AsRef<Path>,
 {
-    let eszip = match eszip_migrate::try_migrate_if_needed(
-        payload_to_eszip(eszip_payload_kind).await,
-    )
-    .await
-    {
-        Ok(v) => v,
-        Err(_old) => {
-            bail!("eszip migration failed");
-        }
-    };
+    let eszip =
+        match eszip_migrate::try_migrate_if_needed(payload_to_eszip(eszip_payload_kind).await?)
+            .await
+        {
+            Ok(v) => v,
+            Err(_old) => {
+                bail!("eszip migration failed");
+            }
+        };
 
     let maybe_import_map = 'scope: {
         if maybe_import_map.is_some() {

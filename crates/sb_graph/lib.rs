@@ -597,9 +597,9 @@ impl EszipDataSection {
     }
 }
 
-pub async fn payload_to_eszip(eszip_payload_kind: EszipPayloadKind) -> LazyLoadableEszip {
+pub async fn payload_to_eszip(eszip_payload_kind: EszipPayloadKind) -> Result<LazyLoadableEszip, anyhow::Error> {
     match eszip_payload_kind {
-        EszipPayloadKind::Eszip(eszip) => LazyLoadableEszip::new(eszip, None),
+        EszipPayloadKind::Eszip(eszip) => Ok(LazyLoadableEszip::new(eszip, None)),
         _ => {
             let bytes = match eszip_payload_kind {
                 EszipPayloadKind::JsBufferKind(js_buffer) => Vec::from(&*js_buffer),
@@ -610,7 +610,7 @@ pub async fn payload_to_eszip(eszip_payload_kind: EszipPayloadKind) -> LazyLoada
             let mut io = AllowStdIo::new(Cursor::new(bytes));
             let mut bufreader = BufReader::new(&mut io);
 
-            let eszip = eszip_parse::parse_v2_header(&mut bufreader).await.unwrap();
+            let eszip = eszip_parse::parse_v2_header(&mut bufreader).await?;
 
             let initial_offset = bufreader.stream_position().await.unwrap();
             let data_section = EszipDataSection::new(
@@ -620,7 +620,7 @@ pub async fn payload_to_eszip(eszip_payload_kind: EszipPayloadKind) -> LazyLoada
                 eszip.options,
             );
 
-            LazyLoadableEszip::new(eszip, Some(Arc::new(data_section)))
+            Ok(LazyLoadableEszip::new(eszip, Some(Arc::new(data_section))))
         }
     }
 }
@@ -858,8 +858,16 @@ async fn extract_modules(
 
 pub async fn extract_eszip(payload: ExtractEszipPayload) -> bool {
     let output_folder = payload.folder;
+    let eszip = match payload_to_eszip(payload.data).await {
+        Ok(v) => v,
+        Err(err) => {
+            error!("{err:?}");
+            return false;
+        }
+    };
+
     let mut eszip =
-        match eszip_migrate::try_migrate_if_needed(payload_to_eszip(payload.data).await).await {
+        match eszip_migrate::try_migrate_if_needed(eszip).await {
             Ok(v) => v,
             Err(_old) => {
                 error!("eszip migration failed (give up extract job)");

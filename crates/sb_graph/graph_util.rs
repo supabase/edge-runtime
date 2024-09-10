@@ -412,11 +412,11 @@ pub async fn create_graph(
 
         specifier
     } else {
-        let binding = std::fs::canonicalize(&file).unwrap();
-        let specifier = binding.to_str().unwrap();
+        let binding = std::fs::canonicalize(&file).context("failed to read path")?;
+        let specifier = binding.to_str().context("failed to convert path to str")?;
         let format_specifier = format!("file:///{}", specifier);
 
-        ModuleSpecifier::parse(&format_specifier).unwrap()
+        ModuleSpecifier::parse(&format_specifier).context("failed to parse specifier")?
     };
 
     let builder = ModuleGraphBuilder::new(emitter_factory, false);

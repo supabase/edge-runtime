@@ -4,6 +4,7 @@ mod integration_test_helper;
 use http_v02 as http;
 use hyper_v014 as hyper;
 use reqwest_v011 as reqwest;
+use sb_graph::EszipPayloadKind;
 
 use std::{
     borrow::Cow,
@@ -881,6 +882,62 @@ async fn test_worker_boot_invalid_imports() {
         .unwrap_err()
         .to_string()
         .starts_with("worker boot error"));
+}
+
+#[tokio::test]
+#[serial]
+async fn test_worker_boot_with_0_byte_eszip() {
+    let opts = WorkerContextInitOpts {
+        service_path: "./test_cases/meow".into(),
+        no_module_cache: false,
+        import_map_path: None,
+        env_vars: HashMap::new(),
+        events_rx: None,
+        timing: None,
+        maybe_eszip: Some(EszipPayloadKind::VecKind(vec![])),
+        maybe_entrypoint: Some("file:///src/index.ts".to_string()),
+        maybe_decorator: None,
+        maybe_module_code: None,
+        conf: WorkerRuntimeOpts::UserWorker(test_user_runtime_opts()),
+        static_patterns: vec![],
+        maybe_jsx_import_source_config: None,
+    };
+
+    let result = create_test_user_worker(opts).await;
+
+    assert!(result.is_err());
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .starts_with("worker boot error: unexpected end of file"));
+}
+
+#[tokio::test]
+#[serial]
+async fn test_worker_boot_with_invalid_entrypoint() {
+    let opts = WorkerContextInitOpts {
+        service_path: "./test_cases/meow".into(),
+        no_module_cache: false,
+        import_map_path: None,
+        env_vars: HashMap::new(),
+        events_rx: None,
+        timing: None,
+        maybe_eszip: None,
+        maybe_entrypoint: Some("file:///meow/mmmmeeeow.ts".to_string()),
+        maybe_decorator: None,
+        maybe_module_code: None,
+        conf: WorkerRuntimeOpts::UserWorker(test_user_runtime_opts()),
+        static_patterns: vec![],
+        maybe_jsx_import_source_config: None,
+    };
+
+    let result = create_test_user_worker(opts).await;
+
+    assert!(result.is_err());
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .starts_with("worker boot error: failed to read path"));
 }
 
 #[tokio::test]

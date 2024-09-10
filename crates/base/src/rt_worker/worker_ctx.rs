@@ -376,6 +376,8 @@ pub fn create_supervisor(
                 use deno_core::futures::channel::mpsc;
                 use deno_core::serde_json::Value;
 
+                let termination_request_token = termination_request_token.clone();
+
                 base_rt::SUPERVISOR_RT
                     .spawn_blocking(move || {
                         let wait_inspector_disconnect_fut = async move {
@@ -452,8 +454,6 @@ pub fn create_supervisor(
                     })
                     .await
                     .unwrap();
-            } else {
-                termination_request_token.cancel();
             }
 
             // NOTE: If we issue a hard CPU time limit, It's OK because it is
@@ -493,6 +493,11 @@ pub fn create_supervisor(
                     }
                 }
             };
+
+            if !termination_request_token.is_cancelled() {
+                termination_request_token.cancel();
+                waker.wake();
+            }
 
             // send termination reason
             let termination_event = WorkerEvents::Shutdown(ShutdownEvent {

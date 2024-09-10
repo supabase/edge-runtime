@@ -422,7 +422,9 @@ mod test {
     }
 
     async fn test_vfs_npm_registry_migration_1_45_x(buf: Vec<u8>) {
-        let eszip = payload_to_eszip(EszipPayloadKind::VecKind(buf)).await;
+        let eszip = payload_to_eszip(EszipPayloadKind::VecKind(buf))
+            .await
+            .unwrap();
         let migrated = try_migrate_if_needed(eszip).await.unwrap();
 
         let vfs_data = migrated

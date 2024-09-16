@@ -6,6 +6,28 @@ console.log('main function started');
 // log system memory usage every 30s
 // setInterval(() => console.log(EdgeRuntime.systemMemoryInfo()), 30 * 1000);
 
+// cleanup unused pipelines every 30s
+// setInterval(async () => {
+// 	const { activeUserWorkersCount } = await EdgeRuntime.getRuntimeMetrics();
+
+// 	if (activeUserWorkersCount > 0) {
+// 		return;
+// 	}
+
+// 	try {
+// 		const result = await EdgeRuntime.ai.tryCleanupUnusedPipeline();
+
+// 		if (result.droppedTaskCount == 0 && result.droppedSessionCount == 0) {
+// 			return;
+// 		}
+
+// 		console.log(result);
+// 	} catch (e) {
+// 		console.error(e.toString());
+// 	}
+
+// }, 30 * 1000);
+
 Deno.serve(async (req: Request) => {
 	const headers = new Headers({
 		'Content-Type': 'application/json',

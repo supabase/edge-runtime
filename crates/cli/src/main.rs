@@ -22,9 +22,10 @@ use std::fs::File;
 use std::io::Write;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::process::ExitCode;
 use std::sync::Arc;
 
-fn main() -> Result<(), anyhow::Error> {
+fn main() -> Result<ExitCode, anyhow::Error> {
     resolve_deno_runtime_env();
 
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -35,7 +36,7 @@ fn main() -> Result<(), anyhow::Error> {
 
     // TODO: Tokio runtime shouldn't be needed here (Address later)
     let local = tokio::task::LocalSet::new();
-    let res: Result<(), Error> = local.block_on(&runtime, async {
+    let res: Result<ExitCode, Error> = local.block_on(&runtime, async {
         let matches = get_cli().get_matches();
         let verbose = matches.get_flag("verbose");
 
@@ -65,7 +66,7 @@ fn main() -> Result<(), anyhow::Error> {
 
         #[allow(clippy::single_match)]
         #[allow(clippy::arc_with_non_send_sync)]
-        match matches.subcommand() {
+        let exit_code = match matches.subcommand() {
             Some(("start", sub_matches)) => {
                 let ip = sub_matches.get_one::<String>("ip").cloned().unwrap();
                 let port = sub_matches.get_one::<u16>("port").copied().unwrap();
@@ -185,7 +186,7 @@ fn main() -> Result<(), anyhow::Error> {
                     request_read_timeout_ms: maybe_request_read_timeout,
                 };
 
-                start_server(
+                let maybe_received_signum = start_server(
                     ip.as_str(),
                     port,
                     maybe_tls,
@@ -230,7 +231,12 @@ fn main() -> Result<(), anyhow::Error> {
                     jsx_module,
                 )
                 .await?;
+
+                maybe_received_signum
+                    .map(|it| ExitCode::from(it as u8))
+                    .unwrap_or_default()
             }
+
             Some(("bundle", sub_matches)) => {
                 let output_path = sub_matches.get_one::<String>("output").cloned().unwrap();
                 let import_map_path = sub_matches.get_one::<String>("import-map").cloned();
@@ -302,7 +308,10 @@ fn main() -> Result<(), anyhow::Error> {
                     let mut file = File::create(output_path.as_str())?;
                     file.write_all(&bin)?
                 }
+
+                ExitCode::SUCCESS
             }
+
             Some(("unbundle", sub_matches)) => {
                 let output_path = sub_matches.get_one::<String>("output").cloned().unwrap();
                 let eszip_path = sub_matches.get_one::<String>("eszip").cloned().unwrap();
@@ -316,12 +325,17 @@ fn main() -> Result<(), anyhow::Error> {
                         output_path.to_str().unwrap()
                     );
                 }
+
+                ExitCode::SUCCESS
             }
+
             _ => {
                 // unrecognized command
+                ExitCode::FAILURE
             }
-        }
-        Ok(())
+        };
+
+        Ok(exit_code)
     });
 
     res

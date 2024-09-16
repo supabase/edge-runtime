@@ -7,4 +7,3 @@ assets/
 
 scripts/*
 !scripts/install_onnx.sh
-!scripts/download_models.sh

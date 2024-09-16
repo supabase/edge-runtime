@@ -21,7 +21,7 @@ import * as response from 'ext:deno_fetch/23_response.js';
 import * as request from 'ext:deno_fetch/23_request.js';
 import * as globalInterfaces from 'ext:deno_web/04_global_interfaces.js';
 import { SUPABASE_ENV } from 'ext:sb_env/env.js';
-import ai from 'ext:sb_ai/js/ai.js';
+import { USER_WORKER_API as ai } from 'ext:sb_ai/js/ai.js';
 import { registerErrors } from 'ext:sb_core_main_js/js/errors.js';
 import {
 	formatException,

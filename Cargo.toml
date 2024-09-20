@@ -148,4 +148,5 @@ inherits = "dev"
 debug-assertions = false
 
 [profile.release]
+debug = "line-tables-only"
 lto = true

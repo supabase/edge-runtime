@@ -343,6 +343,14 @@ fn op_set_raw(
     Ok(())
 }
 
+#[op2(fast)]
+fn op_raise_segfault(_state: &mut OpState) {
+    unsafe {
+        let ptr: *const i32 = std::ptr::null();
+        println!("{}", *ptr);
+    }
+}
+
 #[op2]
 #[serde]
 pub fn op_bootstrap_unstable_args(_state: &mut OpState) -> Vec<String> {
@@ -361,7 +369,8 @@ deno_core::extension!(
         op_schedule_mem_check,
         op_runtime_memory_usage,
         op_set_raw,
-        op_bootstrap_unstable_args
+        op_bootstrap_unstable_args,
+        op_raise_segfault,
     ],
     esm_entry_point = "ext:sb_core_main_js/js/bootstrap.js",
     esm = [

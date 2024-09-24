@@ -1,29 +1,38 @@
 const core = globalThis.Deno.core;
 
-// Workaround to serialize
-BigInt64Array.prototype.toJSON = function () {
-  return [...this].map(Number);
-};
-
 class Tensor {
-  /** @type {number[]} Dimensions of the tensor. */
-  dims;
-
   /** @type {DataType} Type of the tensor. */
   type;
 
   /** @type {DataArray} The data stored in the tensor. */
   data;
 
+  /** @type {number[]} Dimensions of the tensor. */
+  dims;
+
   /** @type {number} The number of elements in the tensor. */
-  size;
+  size = 0;
 
   constructor(type, data, dims) {
     this.type = type;
     this.data = data;
     this.dims = dims;
+  }
 
-    // console.log('onnx.js Tensor:', this);
+  static isTensorLike(object) {
+    return (
+      Object.hasOwn(object, 'type')
+      && Object.hasOwn(object, 'cpuData')
+      && Object.hasOwn(object, 'dims')
+    )
+  }
+
+  static toTuple(tensorLike) {
+    if (!this.isTensorLike(tensorLike)) {
+      throw Error('The given object is not a valid Tensor like.');
+    }
+
+    return [tensorLike.type, tensorLike.cpuData, tensorLike.dims]
   }
 }
 
@@ -39,29 +48,27 @@ class InferenceSession {
   }
 
   static async fromBuffer(modelBuffer) {
-    const {id, inputs, outputs} = await core.ops.op_sb_ai_ort_init_session(modelBuffer);
-
-    console.log('onnx.js fromBuffer:', {id, inputs, outputs});
+    const [id, inputs, outputs] = await core.ops.op_sb_ai_ort_init_session(modelBuffer);
 
     return new InferenceSession(id, inputs, outputs);
   }
 
   async run(inputs) {
-    console.log('onnx.js run: [inputs]', inputs);
+    // We pass values as tuples to avoid string allocation
+    // https://docs.rs/deno_core/latest/deno_core/convert/trait.ToV8.html#structs
+    const tupledTensors = Object.values(inputs).map(tensor => Tensor.toTuple(tensor));
+    const outputTuples = await core.ops.op_sb_ai_ort_run_session(this.sessionId, tupledTensors);
 
-    const outputs = await core.ops.op_sb_ai_ort_run_session(this.sessionId, JSON.parse(JSON.stringify(inputs)));
+    // Since we got outputs as tuples we need to re-map it to an object
+    const result = {};
+    for (let idx = 0; idx < this.outputNames.length; idx++) {
+      const key = this.outputNames[idx];
+      const [type, data, dims] = outputTuples[idx];
 
-    // Parse to Tensor
-    for(const key in outputs) {
-      if(Object.hasOwn(outputs, key)) {
-        const {type, cpuData, dims} = outputs[key];
-        outputs[key] = new Tensor(type, cpuData, dims);
-      }
+      result[key] = new Tensor(type, data, dims);
     }
 
-    console.log('onnx.js run: [outputs]', outputs);
-
-    return outputs;
+    return result;
   }
 }
 

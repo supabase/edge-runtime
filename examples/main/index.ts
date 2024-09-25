@@ -25,6 +25,17 @@ Deno.serve(async (req: Request) => {
 		);
 	}
 
+	// if (pathname === '/_internal/segfault') {
+	// 	EdgeRuntime.raiseSegfault();
+	// 	return new Response(
+	// 		JSON.stringify({ 'message': 'ok' }),
+	// 		{
+	// 			status: STATUS_CODE.OK,
+	// 			headers,
+	// 		},
+	// 	);
+	// }
+
 	if (pathname === '/_internal/metric') {
 		const metric = await EdgeRuntime.getRuntimeMetrics();
 		return Response.json(metric);

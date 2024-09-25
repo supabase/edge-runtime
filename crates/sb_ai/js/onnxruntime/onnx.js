@@ -1,5 +1,20 @@
 const core = globalThis.Deno.core;
 
+const DataTypeMap = Object.freeze({
+    float32: Float32Array,
+    float64: Float64Array,
+    string: Array, // string[]
+    int8: Int8Array,
+    uint8: Uint8Array,
+    int16: Int16Array,
+    uint16: Uint16Array,
+    int32: Int32Array,
+    uint32: Uint32Array,
+    int64: BigInt64Array,
+    uint64: BigUint64Array,
+    bool: Uint8Array,
+});
+
 class Tensor {
   /** @type {DataType} Type of the tensor. */
   type;
@@ -14,25 +29,16 @@ class Tensor {
   size = 0;
 
   constructor(type, data, dims) {
-    this.type = type;
-    this.data = data;
-    this.dims = dims;
-  }
-
-  static isTensorLike(object) {
-    return (
-      Object.hasOwn(object, 'type')
-      && Object.hasOwn(object, 'cpuData')
-      && Object.hasOwn(object, 'dims')
-    )
-  }
-
-  static toTuple(tensorLike) {
-    if (!this.isTensorLike(tensorLike)) {
-      throw Error('The given object is not a valid Tensor like.');
+    if (!Object.hasOwn(DataTypeMap, type)) {
+      throw new Error(`Unsupported type: ${type}`);
     }
 
-    return [tensorLike.type, tensorLike.cpuData, tensorLike.dims]
+    const dataArray = new DataTypeMap[type](data);
+
+    this.type = type;
+    this.data = dataArray;
+    this.dims = dims;
+    this.size = dataArray.length
   }
 }
 
@@ -54,21 +60,18 @@ class InferenceSession {
   }
 
   async run(inputs) {
-    // We pass values as tuples to avoid string allocation
-    // https://docs.rs/deno_core/latest/deno_core/convert/trait.ToV8.html#structs
-    const tupledTensors = Object.values(inputs).map(tensor => Tensor.toTuple(tensor));
-    const outputTuples = await core.ops.op_sb_ai_ort_run_session(this.sessionId, tupledTensors);
+    const outputs = await core.ops.op_sb_ai_ort_run_session(this.sessionId, inputs);
 
-    // Since we got outputs as tuples we need to re-map it to an object
-    const result = {};
-    for (let idx = 0; idx < this.outputNames.length; idx++) {
-      const key = this.outputNames[idx];
-      const [type, data, dims] = outputTuples[idx];
+    // Parse to Tensor
+    for(const key in outputs) {
+      if(Object.hasOwn(outputs, key)) {
+        const {type, data, dims} = outputs[key];
 
-      result[key] = new Tensor(type, data, dims);
+        outputs[key] = new Tensor(type, data.buffer, dims);
+      }
     }
 
-    return result;
+    return outputs;
   }
 }
 

@@ -22,5 +22,7 @@ ENV SB_AI_MODELS_DIR=/etc/sb_ai/models
 RUN curl -fsSL https://ollama.com/install.sh | sh
 
 # Deno
-RUN curl -fsSL https://deno.land/install.sh | sh
-RUN deno upgrade --version $DENO_VERSION
+ENV DENO_INSTALL=/deno
+RUN mkdir -p /deno \
+    && curl -fsSL https://deno.land/install.sh | bash -s -- v$DENO_VERSION \
+    && chown -R vscode /deno

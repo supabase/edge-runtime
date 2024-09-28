@@ -17,9 +17,11 @@ use sb_workers::context::{UserWorkerMsgs, WorkerContextInitOpts, WorkerExit, Wor
 use std::any::Any;
 use std::future::{pending, Future};
 use std::pin::Pin;
+use std::sync::Arc;
 use tokio::io;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot::{self, Receiver, Sender};
+use tokio::sync::Mutex;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -126,10 +128,34 @@ impl Worker {
                     .then(unbounded_channel::<CPUUsageMetrics>)
                     .unzip();
 
+                thread_local! {
+                    // NOTE: Suppose we have met `.await` points while initializing a
+                    // DenoRuntime. In that case, the current v8 isolate's thread-local state can be
+                    // corrupted by a task initializing another DenoRuntime, so we must prevent this
+                    // with a Mutex.
+
+                    // TODO(Nyannyacha): Once the DenoRuntime rewrite based on the Locker API is
+                    // complete, we don't need this Mutex.
+                    static RUNTIME_CREATION_MUTEX: Arc<Mutex<()>> = Arc::default();
+                }
+
+                let lock = RUNTIME_CREATION_MUTEX.with(|v| v.clone()).lock_owned().await;
                 let result = match DenoRuntime::new(opts, inspector).await {
-                    Ok(mut new_runtime) => {
+                    Ok(new_runtime) => {
+                        let mut runtime = scopeguard::guard(new_runtime, |mut runtime| {
+                            unsafe {
+                                runtime.js_runtime.v8_isolate().enter();
+                            }
+                        });
+
+                        unsafe {
+                            runtime.js_runtime.v8_isolate().exit();
+                        }
+
+                        drop(lock);
+
                         let metric_src = {
-                            let js_runtime = &mut new_runtime.js_runtime;
+                            let js_runtime = &mut runtime.js_runtime;
                             let metric_src = WorkerMetricSource::from_js_runtime(js_runtime);
 
                             if worker_kind.is_main_worker() {
@@ -164,7 +190,7 @@ impl Worker {
                             // cputimer is returned from supervisor and assigned here to keep it in scope.
                             let Ok((maybe_timer, cancel_token)) = create_supervisor(
                                 worker_key.unwrap_or(Uuid::nil()),
-                                &mut new_runtime,
+                                &mut runtime,
                                 supervisor_policy,
                                 termination_event_tx,
                                 pool_msg_tx.clone(),
@@ -181,12 +207,12 @@ impl Worker {
 
                             pending().boxed()
                         } else if let Some(token) = termination_token.clone() {
-                            let is_terminated = new_runtime.is_terminated.clone();
+                            let is_terminated = runtime.is_terminated.clone();
                             let termination_request_token =
-                                new_runtime.termination_request_token.clone();
+                                runtime.termination_request_token.clone();
 
                             let (waker, thread_safe_handle) = {
-                                let js_runtime = &mut new_runtime.js_runtime;
+                                let js_runtime = &mut runtime.js_runtime;
                                 (
                                     js_runtime.op_state().borrow().waker.clone(),
                                     js_runtime.v8_isolate().thread_safe_handle(),
@@ -247,11 +273,7 @@ impl Worker {
                             });
                         });
 
-                        let result = unsafe {
-                            let mut runtime = scopeguard::guard(new_runtime, |mut runtime| {
-                                runtime.js_runtime.v8_isolate().enter();
-                            });
-
+                        let result = {
                             let supervise_cancel_token =
                                 scopeguard::guard_on_unwind(supervise_cancel_token, |token| {
                                     if let Some(token) = token {
@@ -259,7 +281,6 @@ impl Worker {
                                     }
                                 });
 
-                            runtime.js_runtime.v8_isolate().exit();
 
                             let result = method_cloner
                                 .handle_creation(
@@ -305,6 +326,8 @@ impl Worker {
                     Err(err) => {
                         let _ = booter_signal
                             .send(Err(anyhow!("worker boot error: {err}")));
+
+                        drop(lock);
                         method_cloner.handle_error(err)
                     }
                 };

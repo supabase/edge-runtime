@@ -2,6 +2,8 @@ use std::num::NonZeroUsize;
 
 use once_cell::sync::Lazy;
 
+pub mod error;
+
 pub const DEFAULT_PRIMARY_WORKER_POOL_SIZE: usize = 2;
 pub const DEFAULT_USER_WORKER_POOL_SIZE: usize = 1;
 

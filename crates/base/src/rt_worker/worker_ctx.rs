@@ -640,19 +640,7 @@ pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
         });
 
         // wait for worker to be successfully booted
-        let worker_boot_result = worker_boot_result_rx.await?;
-
-        match worker_boot_result {
-            Err(err) => {
-                worker_req_handle.abort();
-
-                if let Some(token) = maybe_termination_token.as_ref() {
-                    token.outbound.cancel();
-                }
-
-                bail!(err)
-            }
-
+        match worker_boot_result_rx.await? {
             Ok(metric) => {
                 let elapsed = worker_struct_ref
                     .worker_boot_start_time
@@ -672,6 +660,15 @@ pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
                     msg_tx: worker_req_tx,
                     exit,
                 })
+            }
+            Err(err) => {
+                worker_req_handle.abort();
+
+                if let Some(token) = maybe_termination_token.as_ref() {
+                    token.outbound.cancel();
+                }
+
+                Err(err)
             }
         }
     } else {

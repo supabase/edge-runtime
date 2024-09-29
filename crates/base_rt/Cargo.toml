@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+deno_core.workspace = true
+
 tokio.workspace = true
 once_cell.workspace = true
 tokio-util = { workspace = true, features = ["rt"] }

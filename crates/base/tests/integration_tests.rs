@@ -906,9 +906,7 @@ async fn test_worker_boot_with_0_byte_eszip() {
     let result = create_test_user_worker(opts).await;
 
     assert!(result.is_err());
-    assert!(result
-        .unwrap_err()
-        .to_string()
+    assert!(format!("{:#}", result.unwrap_err())
         .starts_with("worker boot error: unexpected end of file"));
 }
 
@@ -934,10 +932,9 @@ async fn test_worker_boot_with_invalid_entrypoint() {
     let result = create_test_user_worker(opts).await;
 
     assert!(result.is_err());
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .starts_with("worker boot error: failed to read path"));
+    assert!(
+        format!("{:#}", result.unwrap_err()).starts_with("worker boot error: failed to read path")
+    );
 }
 
 #[tokio::test]
@@ -1550,11 +1547,6 @@ async fn test_decorators(ty: Option<DecoratorType>) {
         }),
         TerminationToken::new()
     );
-}
-
-#[derive(Deserialize)]
-struct ErrorResponsePayload {
-    msg: String,
 }
 
 #[tokio::test]
@@ -2346,6 +2338,71 @@ async fn test_issue_420() {
         }),
         TerminationToken::new()
     );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_should_render_detailed_failed_to_create_graph_error() {
+    {
+        integration_test!(
+            "./test_cases/main",
+            NON_SECURE_PORT,
+            "graph-error-1",
+            None,
+            None,
+            None,
+            None,
+            (|resp| async {
+                let (payload, status) = ErrorResponsePayload::assert_error_response(resp).await;
+
+                assert_eq!(status, 500);
+                assert!(payload.msg.starts_with(
+                    "InvalidWorkerCreation: worker boot error: failed to create the graph: \
+                    Relative import path \"oak\" not prefixed with"
+                ));
+            }),
+            TerminationToken::new()
+        );
+    }
+
+    {
+        integration_test!(
+            "./test_cases/main",
+            NON_SECURE_PORT,
+            "graph-error-2",
+            None,
+            None,
+            None,
+            None,
+            (|resp| async {
+                let (payload, status) = ErrorResponsePayload::assert_error_response(resp).await;
+
+                assert_eq!(status, 500);
+                assert!(payload.msg.starts_with(
+                    "InvalidWorkerCreation: worker boot error: failed to create the graph: \
+                    Module not found \"file://"
+                ));
+            }),
+            TerminationToken::new()
+        );
+    }
+}
+
+#[derive(Deserialize)]
+struct ErrorResponsePayload {
+    msg: String,
+}
+
+impl ErrorResponsePayload {
+    async fn assert_error_response(resp: Result<Response, reqwest::Error>) -> (Self, u16) {
+        let res = resp.unwrap();
+        let status = res.status().as_u16();
+        let res = res.json::<Self>().await;
+
+        assert!(res.is_ok());
+
+        (res.unwrap(), status)
+    }
 }
 
 trait AsyncReadWrite: AsyncRead + AsyncWrite + Send + Unpin {}

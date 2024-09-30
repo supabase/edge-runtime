@@ -452,11 +452,10 @@ impl WorkerPool {
 
                     status.demand.fetch_add(1, Ordering::Release);
                 }
-                Err(e) => {
-                    if tx.send(Err(e)).is_err() {
+                Err(err) => {
+                    error!("{err:#}");
+                    if tx.send(Err(err)).is_err() {
                         error!("main worker receiver dropped")
-                    } else {
-                        error!("An error has occured")
                     }
                 }
             }

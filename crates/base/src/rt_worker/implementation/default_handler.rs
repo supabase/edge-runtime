@@ -13,9 +13,9 @@ use tokio::sync::oneshot::Receiver;
 
 impl WorkerHandler for Worker {
     fn handle_error(&self, error: Error) -> Result<WorkerEvents, Error> {
-        log::error!("{}", error);
+        log::error!("{}", format!("{error:#}"));
         Ok(WorkerEvents::BootFailure(BootFailureEvent {
-            msg: error.to_string(),
+            msg: format!("{error:#}"),
         }))
     }
 

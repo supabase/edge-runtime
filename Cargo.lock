@@ -498,6 +498,7 @@ dependencies = [
 name = "base_rt"
 version = "0.1.0"
 dependencies = [
+ "deno_core",
  "once_cell",
  "tokio",
  "tokio-util",

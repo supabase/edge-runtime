@@ -4,8 +4,9 @@ use crate::rt_worker::supervisor;
 use crate::rt_worker::utils::{get_event_metadata, parse_worker_conf};
 use crate::rt_worker::worker_ctx::create_supervisor;
 use crate::utils::send_event_if_event_worker_available;
-use anyhow::{anyhow, Error};
+use anyhow::Error;
 use base_mem_check::MemCheckState;
+use base_rt::error::CloneableError;
 use event_worker::events::{
     EventLoopCompletedEvent, EventMetadata, ShutdownEvent, ShutdownReason, UncaughtExceptionEvent,
     WorkerEventWithMetadata, WorkerEvents, WorkerMemoryUsed,
@@ -313,10 +314,10 @@ impl Worker {
                     Err(err) => {
                         drop(permit);
 
-                        let _ = booter_signal
-                            .send(Err(anyhow!("worker boot error: {err}")));
+                        let err = CloneableError::from(err.context("worker boot error"));
+                        let _ = booter_signal.send(Err(err.clone().into()));
 
-                        method_cloner.handle_error(err)
+                        method_cloner.handle_error(err.into())
                     }
                 };
 

@@ -40,9 +40,10 @@ use std::sync::{Arc, RwLock};
 use std::task::Poll;
 use std::thread::ThreadId;
 use std::time::Duration;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, OwnedSemaphorePermit, Semaphore};
 use tokio::time::interval;
-use tokio_util::sync::CancellationToken;
+use tokio_util::sync::{CancellationToken, PollSemaphore};
+use tracing::debug;
 
 use crate::snapshot;
 use event_worker::events::{EventMetadata, WorkerEventWithMetadata};
@@ -92,6 +93,15 @@ pub static SHOULD_DISABLE_DEPRECATED_API_WARNING: OnceCell<bool> = OnceCell::new
 pub static SHOULD_USE_VERBOSE_DEPRECATED_API_WARNING: OnceCell<bool> = OnceCell::new();
 pub static SHOULD_INCLUDE_MALLOCED_MEMORY_ON_MEMCHECK: OnceCell<bool> = OnceCell::new();
 pub static MAYBE_DENO_VERSION: OnceCell<String> = OnceCell::new();
+
+thread_local! {
+    // NOTE: Suppose we have met `.await` points while initializing a
+    // DenoRuntime. In that case, the current v8 isolate's thread-local state can be
+    // corrupted by a task initializing another DenoRuntime, so we must prevent this
+    // with a Semaphore.
+
+    static RUNTIME_CREATION_SEM: Arc<Semaphore> = Arc::new(Semaphore::new(1));
+}
 
 #[ctor]
 fn init_v8_platform() {
@@ -216,6 +226,16 @@ impl<RuntimeContext> Drop for DenoRuntime<RuntimeContext> {
                 Arc::as_ptr(&self.mem_check) as *mut _,
             );
         }
+    }
+}
+
+impl DenoRuntime<()> {
+    pub async fn acquire() -> OwnedSemaphorePermit {
+        RUNTIME_CREATION_SEM
+            .with(|v| v.clone())
+            .acquire_owned()
+            .await
+            .unwrap()
     }
 }
 
@@ -702,7 +722,7 @@ where
         let mut accumulated_cpu_time_ns = 0i64;
 
         let has_inspector = self.inspector().is_some();
-        let mod_result_rx = unsafe {
+        let mut mod_result_rx = unsafe {
             self.js_runtime.v8_isolate().enter();
 
             if has_inspector {
@@ -750,38 +770,38 @@ where
             };
         }
 
-        // {
-        //     let event_loop_fut = self.run_event_loop(
-        //         name.as_deref(),
-        //         current_thread_id,
-        //         &maybe_cpu_usage_metrics_tx,
-        //         &mut accumulated_cpu_time_ns,
-        //     );
+        {
+            let event_loop_fut = self.run_event_loop(
+                name.as_deref(),
+                current_thread_id,
+                &maybe_cpu_usage_metrics_tx,
+                &mut accumulated_cpu_time_ns,
+            );
 
-        //     let mod_result = tokio::select! {
-        //         // Not using biased mode leads to non-determinism for relatively simple
-        //         // programs.
-        //         biased;
+            let mod_result = tokio::select! {
+                // Not using biased mode leads to non-determinism for relatively simple
+                // programs.
+                biased;
 
-        //         maybe_mod_result = &mut mod_result_rx => {
-        //             debug!("received module evaluate {:#?}", maybe_mod_result);
-        //             maybe_mod_result
+                maybe_mod_result = &mut mod_result_rx => {
+                    debug!("received module evaluate {:#?}", maybe_mod_result);
+                    maybe_mod_result
 
-        //         }
+                }
 
-        //         event_loop_result = event_loop_fut => {
-        //             if let Err(err) = event_loop_result {
-        //                 Err(anyhow!("event loop error while evaluating the module: {}", err))
-        //             } else {
-        //                 mod_result_rx.await
-        //             }
-        //         }
-        //     };
+                event_loop_result = event_loop_fut => {
+                    if let Err(err) = event_loop_result {
+                        Err(anyhow!("event loop error while evaluating the module: {}", err))
+                    } else {
+                        mod_result_rx.await
+                    }
+                }
+            };
 
-        //     if let Err(err) = mod_result {
-        //         return (Err(err), get_accumulated_cpu_time_ms!());
-        //     }
-        // }
+            if let Err(err) = mod_result {
+                return (Err(err), get_accumulated_cpu_time_ms!());
+            }
+        }
 
         if let Err(err) = self
             .run_event_loop(
@@ -796,10 +816,6 @@ where
                 Err(anyhow!("event loop error: {}", err)),
                 get_accumulated_cpu_time_ms!(),
             );
-        }
-
-        if let Err(err) = mod_result_rx.await {
-            return (Err(err), get_accumulated_cpu_time_ms!());
         }
 
         (Ok(()), get_accumulated_cpu_time_ms!())
@@ -818,8 +834,19 @@ where
         let termination_request_token = self.termination_request_token.clone();
 
         let mem_check_state = is_user_worker.then(|| self.mem_check.clone());
+        let mut poll_sem = None::<PollSemaphore>;
 
         poll_fn(move |cx| {
+            if poll_sem.is_none() {
+                poll_sem = Some(RUNTIME_CREATION_SEM.with(|v| PollSemaphore::new(v.clone())));
+            }
+
+            let Poll::Ready(Some(_permit)) = poll_sem.as_mut().unwrap().poll_acquire(cx) else {
+                return Poll::Pending;
+            };
+
+            poll_sem = None;
+
             // INVARIANT: Only can steal current task by other threads when LIFO
             // task scheduler heuristic disabled. Turning off the heuristic is
             // unstable now, so it's not considered.

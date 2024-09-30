@@ -43,6 +43,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::interval;
 use tokio_util::sync::CancellationToken;
+use tracing::debug;
 
 use crate::snapshot;
 use event_worker::events::{EventMetadata, WorkerEventWithMetadata};
@@ -702,7 +703,7 @@ where
         let mut accumulated_cpu_time_ns = 0i64;
 
         let has_inspector = self.inspector().is_some();
-        let mod_result_rx = unsafe {
+        let mut mod_result_rx = unsafe {
             self.js_runtime.v8_isolate().enter();
 
             if has_inspector {
@@ -750,38 +751,38 @@ where
             };
         }
 
-        // {
-        //     let event_loop_fut = self.run_event_loop(
-        //         name.as_deref(),
-        //         current_thread_id,
-        //         &maybe_cpu_usage_metrics_tx,
-        //         &mut accumulated_cpu_time_ns,
-        //     );
+        {
+            let event_loop_fut = self.run_event_loop(
+                name.as_deref(),
+                current_thread_id,
+                &maybe_cpu_usage_metrics_tx,
+                &mut accumulated_cpu_time_ns,
+            );
 
-        //     let mod_result = tokio::select! {
-        //         // Not using biased mode leads to non-determinism for relatively simple
-        //         // programs.
-        //         biased;
+            let mod_result = tokio::select! {
+                // Not using biased mode leads to non-determinism for relatively simple
+                // programs.
+                biased;
 
-        //         maybe_mod_result = &mut mod_result_rx => {
-        //             debug!("received module evaluate {:#?}", maybe_mod_result);
-        //             maybe_mod_result
+                maybe_mod_result = &mut mod_result_rx => {
+                    debug!("received module evaluate {:#?}", maybe_mod_result);
+                    maybe_mod_result
 
-        //         }
+                }
 
-        //         event_loop_result = event_loop_fut => {
-        //             if let Err(err) = event_loop_result {
-        //                 Err(anyhow!("event loop error while evaluating the module: {}", err))
-        //             } else {
-        //                 mod_result_rx.await
-        //             }
-        //         }
-        //     };
+                event_loop_result = event_loop_fut => {
+                    if let Err(err) = event_loop_result {
+                        Err(anyhow!("event loop error while evaluating the module: {}", err))
+                    } else {
+                        mod_result_rx.await
+                    }
+                }
+            };
 
-        //     if let Err(err) = mod_result {
-        //         return (Err(err), get_accumulated_cpu_time_ms!());
-        //     }
-        // }
+            if let Err(err) = mod_result {
+                return (Err(err), get_accumulated_cpu_time_ms!());
+            }
+        }
 
         if let Err(err) = self
             .run_event_loop(
@@ -796,10 +797,6 @@ where
                 Err(anyhow!("event loop error: {}", err)),
                 get_accumulated_cpu_time_ms!(),
             );
-        }
-
-        if let Err(err) = mod_result_rx.await {
-            return (Err(err), get_accumulated_cpu_time_ms!());
         }
 
         (Ok(()), get_accumulated_cpu_time_ms!())

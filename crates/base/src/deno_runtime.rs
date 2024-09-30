@@ -40,9 +40,9 @@ use std::sync::{Arc, RwLock};
 use std::task::Poll;
 use std::thread::ThreadId;
 use std::time::Duration;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, OwnedSemaphorePermit, Semaphore};
 use tokio::time::interval;
-use tokio_util::sync::CancellationToken;
+use tokio_util::sync::{CancellationToken, PollSemaphore};
 use tracing::debug;
 
 use crate::snapshot;
@@ -93,6 +93,15 @@ pub static SHOULD_DISABLE_DEPRECATED_API_WARNING: OnceCell<bool> = OnceCell::new
 pub static SHOULD_USE_VERBOSE_DEPRECATED_API_WARNING: OnceCell<bool> = OnceCell::new();
 pub static SHOULD_INCLUDE_MALLOCED_MEMORY_ON_MEMCHECK: OnceCell<bool> = OnceCell::new();
 pub static MAYBE_DENO_VERSION: OnceCell<String> = OnceCell::new();
+
+thread_local! {
+    // NOTE: Suppose we have met `.await` points while initializing a
+    // DenoRuntime. In that case, the current v8 isolate's thread-local state can be
+    // corrupted by a task initializing another DenoRuntime, so we must prevent this
+    // with a Semaphore.
+
+    static RUNTIME_CREATION_SEM: Arc<Semaphore> = Arc::new(Semaphore::new(1));
+}
 
 #[ctor]
 fn init_v8_platform() {
@@ -217,6 +226,16 @@ impl<RuntimeContext> Drop for DenoRuntime<RuntimeContext> {
                 Arc::as_ptr(&self.mem_check) as *mut _,
             );
         }
+    }
+}
+
+impl DenoRuntime<()> {
+    pub async fn acquire() -> OwnedSemaphorePermit {
+        RUNTIME_CREATION_SEM
+            .with(|v| v.clone())
+            .acquire_owned()
+            .await
+            .unwrap()
     }
 }
 
@@ -815,8 +834,19 @@ where
         let termination_request_token = self.termination_request_token.clone();
 
         let mem_check_state = is_user_worker.then(|| self.mem_check.clone());
+        let mut poll_sem = None::<PollSemaphore>;
 
         poll_fn(move |cx| {
+            if poll_sem.is_none() {
+                poll_sem = Some(RUNTIME_CREATION_SEM.with(|v| PollSemaphore::new(v.clone())));
+            }
+
+            let Poll::Ready(Some(_permit)) = poll_sem.as_mut().unwrap().poll_acquire(cx) else {
+                return Poll::Pending;
+            };
+
+            poll_sem = None;
+
             // INVARIANT: Only can steal current task by other threads when LIFO
             // task scheduler heuristic disabled. Turning off the heuristic is
             // unstable now, so it's not considered.

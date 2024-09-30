@@ -17,11 +17,9 @@ use sb_workers::context::{UserWorkerMsgs, WorkerContextInitOpts, WorkerExit, Wor
 use std::any::Any;
 use std::future::{pending, Future};
 use std::pin::Pin;
-use std::sync::Arc;
 use tokio::io;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot::{self, Receiver, Sender};
-use tokio::sync::Mutex;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -128,18 +126,7 @@ impl Worker {
                     .then(unbounded_channel::<CPUUsageMetrics>)
                     .unzip();
 
-                thread_local! {
-                    // NOTE: Suppose we have met `.await` points while initializing a
-                    // DenoRuntime. In that case, the current v8 isolate's thread-local state can be
-                    // corrupted by a task initializing another DenoRuntime, so we must prevent this
-                    // with a Mutex.
-
-                    // TODO(Nyannyacha): Once the DenoRuntime rewrite based on the Locker API is
-                    // complete, we don't need this Mutex.
-                    static RUNTIME_CREATION_MUTEX: Arc<Mutex<()>> = Arc::default();
-                }
-
-                let lock = RUNTIME_CREATION_MUTEX.with(|v| v.clone()).lock_owned().await;
+                let permit = DenoRuntime::acquire().await;
                 let result = match DenoRuntime::new(opts, inspector).await {
                     Ok(new_runtime) => {
                         let mut runtime = scopeguard::guard(new_runtime, |mut runtime| {
@@ -152,7 +139,7 @@ impl Worker {
                             runtime.js_runtime.v8_isolate().exit();
                         }
 
-                        drop(lock);
+                        drop(permit);
 
                         let metric_src = {
                             let js_runtime = &mut runtime.js_runtime;
@@ -324,10 +311,11 @@ impl Worker {
                     }
 
                     Err(err) => {
+                        drop(permit);
+
                         let _ = booter_signal
                             .send(Err(anyhow!("worker boot error: {err}")));
 
-                        drop(lock);
                         method_cloner.handle_error(err)
                     }
                 };

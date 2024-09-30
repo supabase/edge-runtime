@@ -12,8 +12,8 @@ use deno_core::error::AnyError;
 use deno_core::url::Url;
 use deno_core::v8::{GCCallbackFlags, GCType, HeapStatistics, Isolate};
 use deno_core::{
-    located_script_name, serde_json, JsRuntime, ModuleCodeString, ModuleId, PollEventLoopOptions,
-    RuntimeOptions,
+    located_script_name, serde_json, JsRuntime, ModuleCodeString, ModuleId, ModuleLoader,
+    ModuleSpecifier, PollEventLoopOptions, ResolutionKind, RuntimeOptions,
 };
 use deno_http::DefaultHttpPropertyExtractor;
 use deno_tls::deno_native_certs::load_native_certs;
@@ -529,6 +529,7 @@ where
             compiled_wasm_module_store: None,
             startup_snapshot: snapshot::snapshot(),
             module_loader: Some(module_loader),
+            import_meta_resolve_callback: Some(Box::new(import_meta_resolve_callback)),
             ..Default::default()
         };
 
@@ -999,6 +1000,14 @@ where
 
         guard
     }
+}
+
+pub fn import_meta_resolve_callback(
+    loader: &dyn ModuleLoader,
+    specifier: String,
+    referrer: String,
+) -> Result<ModuleSpecifier, AnyError> {
+    loader.resolve(&specifier, &referrer, ResolutionKind::DynamicImport)
 }
 
 fn get_current_cpu_time_ns() -> Result<i64, Error> {

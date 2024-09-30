@@ -2325,6 +2325,29 @@ async fn test_declarative_style_fetch_handler() {
     );
 }
 
+#[tokio::test]
+#[serial]
+async fn test_issue_420() {
+    integration_test!(
+        "./test_cases/main",
+        NON_SECURE_PORT,
+        "issue-420",
+        None,
+        None,
+        None,
+        None,
+        (|resp| async {
+            let text = resp.unwrap().text().await.unwrap();
+
+            assert!(text.starts_with("file:///"));
+            assert!(text.ends_with(
+                "/node_modules/localhost/@imagemagick/magick-wasm/0.0.30/dist/index.js"
+            ));
+        }),
+        TerminationToken::new()
+    );
+}
+
 trait AsyncReadWrite: AsyncRead + AsyncWrite + Send + Unpin {}
 
 impl<T> AsyncReadWrite for T where T: AsyncRead + AsyncWrite + Send + Unpin {}

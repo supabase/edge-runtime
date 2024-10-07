@@ -2462,8 +2462,7 @@ async fn test_should_be_able_to_bundle_against_various_exts() {
     };
 
     {
-        let buf =
-            get_eszip_buf("./test_cases/eszip-various-ext/npm-supabase/index.js".into()).await;
+        let buf = get_eszip_buf("./test_cases/eszip-various-ext/npm-supabase/index.js").await;
 
         let client = Client::new();
         let req = client
@@ -2496,7 +2495,7 @@ async fn test_should_be_able_to_bundle_against_various_exts() {
         let expected = expected.to_vec();
 
         async move {
-            let buf = get_eszip_buf.clone()(&format!(
+            let buf = get_eszip_buf(&format!(
                 "./test_cases/eszip-various-ext/serve/index.{}",
                 ext
             ))

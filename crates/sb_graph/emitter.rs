@@ -351,7 +351,7 @@ impl EmitterFactory {
             .unwrap()
     }
 
-    pub async fn set_jsx_import_source(&mut self, config: JsxImportSourceConfig) {
+    pub fn set_jsx_import_source(&mut self, config: JsxImportSourceConfig) {
         self.jsx_import_source_config = Some(config);
     }
 

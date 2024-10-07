@@ -334,9 +334,7 @@ where
             emitter_factory.set_decorator_type(maybe_decorator);
 
             if let Some(jsx_import_source_config) = maybe_jsx_import_source_config.clone() {
-                emitter_factory
-                    .set_jsx_import_source(jsx_import_source_config)
-                    .await;
+                emitter_factory.set_jsx_import_source(jsx_import_source_config);
             }
 
             emitter_factory.set_import_map(load_import_map(import_map_path.clone())?);

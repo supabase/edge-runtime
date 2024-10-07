@@ -2432,6 +2432,7 @@ async fn test_js_entrypoint() {
     let get_eszip_buf = |path: &'static str| async move {
         generate_binary_eszip(
             PathBuf::from(path),
+            #[allow(clippy::arc_with_non_send_sync)]
             Arc::new(EmitterFactory::new()),
             None,
             None,

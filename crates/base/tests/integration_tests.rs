@@ -1,10 +1,12 @@
 #[path = "../src/utils/integration_test_helper.rs"]
 mod integration_test_helper;
 
+use deno_config::JsxImportSourceConfig;
 use http_v02 as http;
 use hyper_v014 as hyper;
 use reqwest_v011 as reqwest;
 use sb_graph::{emitter::EmitterFactory, generate_binary_eszip, EszipPayloadKind};
+use url::Url;
 
 use std::{
     borrow::Cow,
@@ -2428,51 +2430,41 @@ async fn test_js_entrypoint() {
             TerminationToken::new()
         );
     }
+}
 
-    let get_eszip_buf = |path: &'static str| async move {
-        generate_binary_eszip(
-            PathBuf::from(path),
-            #[allow(clippy::arc_with_non_send_sync)]
-            Arc::new(EmitterFactory::new()),
-            None,
-            None,
-            None,
-        )
-        .await
-        .unwrap()
-        .into_bytes()
+#[tokio::test]
+#[serial]
+async fn test_should_be_able_to_bundle_against_various_exts() {
+    let get_eszip_buf = |path: &str| {
+        let path = path.to_string();
+        let mut emitter_factory = EmitterFactory::new();
+
+        emitter_factory.set_jsx_import_source(JsxImportSourceConfig {
+            default_specifier: Some("https://esm.sh/preact".to_string()),
+            default_types_specifier: None,
+            module: "jsx-runtime".to_string(),
+            base_url: Url::from_file_path(std::env::current_dir().unwrap()).unwrap(),
+        });
+
+        async {
+            generate_binary_eszip(
+                PathBuf::from(path),
+                #[allow(clippy::arc_with_non_send_sync)]
+                Arc::new(emitter_factory),
+                None,
+                None,
+                None,
+            )
+            .await
+            .unwrap()
+            .into_bytes()
+        }
     };
 
     {
-        let buf = get_eszip_buf("./test_cases/eszip-js/serve-js/index.js").await;
-        let client = Client::new();
-        let req = client
-            .request(
-                Method::POST,
-                format!("http://localhost:{}/meow", NON_SECURE_PORT),
-            )
-            .body(buf);
+        let buf =
+            get_eszip_buf("./test_cases/eszip-various-ext/npm-supabase/index.js".into()).await;
 
-        integration_test!(
-            "./test_cases/main_eszip",
-            NON_SECURE_PORT,
-            "",
-            None,
-            None,
-            Some(req),
-            None,
-            (|resp| async {
-                let resp = resp.unwrap();
-                assert_eq!(resp.status().as_u16(), 200);
-                let msg = resp.text().await.unwrap();
-                assert_eq!(msg, "meow");
-            }),
-            TerminationToken::new()
-        );
-    }
-
-    {
-        let buf = get_eszip_buf("./test_cases/eszip-js/npm-supabase-js/index.js").await;
         let client = Client::new();
         let req = client
             .request(
@@ -2498,6 +2490,53 @@ async fn test_js_entrypoint() {
             TerminationToken::new()
         );
     }
+
+    let test_serve_simple_fn = |ext: &'static str, expected: &'static [u8]| {
+        let ext = ext.to_string();
+        let expected = expected.to_vec();
+
+        async move {
+            let buf = get_eszip_buf.clone()(&format!(
+                "./test_cases/eszip-various-ext/serve/index.{}",
+                ext
+            ))
+            .await;
+
+            let client = Client::new();
+            let req = client
+                .request(
+                    Method::POST,
+                    format!("http://localhost:{}/meow", NON_SECURE_PORT),
+                )
+                .body(buf);
+
+            integration_test!(
+                "./test_cases/main_eszip",
+                NON_SECURE_PORT,
+                "",
+                None,
+                None,
+                Some(req),
+                None,
+                (|resp| async move {
+                    let resp = resp.unwrap();
+                    assert_eq!(resp.status().as_u16(), 200);
+                    let msg = resp.bytes().await.unwrap();
+                    assert_eq!(msg, expected);
+                }),
+                TerminationToken::new()
+            );
+        }
+    };
+
+    test_serve_simple_fn("ts", b"meow").await;
+    test_serve_simple_fn("js", b"meow").await;
+    test_serve_simple_fn("mjs", b"meow").await;
+
+    static REACT_RESULT: &str = r#"{"type":"div","props":{"children":"meow"},"__k":null,"__":null,"__b":0,"__e":null,"__c":null,"__v":-1,"__i":-1,"__u":0}"#;
+
+    test_serve_simple_fn("jsx", REACT_RESULT.as_bytes()).await;
+    test_serve_simple_fn("tsx", REACT_RESULT.as_bytes()).await;
 }
 
 #[derive(Deserialize)]

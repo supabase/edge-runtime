@@ -270,21 +270,25 @@ where
         let drop_token = CancellationToken::default();
 
         let base_dir_path = std::env::current_dir().map(|p| p.join(&service_path))?;
-        let base_url = Url::from_directory_path(&base_dir_path).unwrap();
+        let Ok(mut main_module_url) = Url::from_directory_path(&base_dir_path) else {
+            bail!(
+                "malformed base directory: {}",
+                base_dir_path.to_string_lossy()
+            );
+        };
 
-        let is_user_worker = conf.is_user_worker();
+        static POTENTIAL_EXTS: &[&str] = &["ts", "tsx", "js", "mjs", "jsx"];
 
-        let potential_exts = vec!["ts", "tsx", "js", "jsx"];
-        let mut main_module_url = base_url.join("index.ts")?;
-
-        for potential_ext in potential_exts {
-            main_module_url = base_url.join(format!("index.{}", potential_ext).as_str())?;
+        for ext in POTENTIAL_EXTS.iter() {
+            main_module_url = main_module_url.join(format!("index.{}", ext).as_str())?;
             if main_module_url.to_file_path().unwrap().exists() {
                 break;
             }
         }
 
+        let is_user_worker = conf.is_user_worker();
         let is_some_entry_point = maybe_entrypoint.is_some();
+
         if is_some_entry_point {
             main_module_url = Url::parse(&maybe_entrypoint.unwrap())?;
         }
@@ -292,6 +296,7 @@ where
         let mut net_access_disabled = false;
         let mut allow_net = None;
         let mut allow_remote_modules = true;
+
         if is_user_worker {
             let user_conf = conf.as_user_worker().unwrap();
 
@@ -329,9 +334,7 @@ where
             emitter_factory.set_decorator_type(maybe_decorator);
 
             if let Some(jsx_import_source_config) = maybe_jsx_import_source_config.clone() {
-                emitter_factory
-                    .set_jsx_import_source(jsx_import_source_config)
-                    .await;
+                emitter_factory.set_jsx_import_source(jsx_import_source_config);
             }
 
             emitter_factory.set_import_map(load_import_map(import_map_path.clone())?);

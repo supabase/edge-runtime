@@ -4,14 +4,14 @@ mod integration_test_helper;
 use http_v02 as http;
 use hyper_v014 as hyper;
 use reqwest_v011 as reqwest;
-use sb_graph::EszipPayloadKind;
+use sb_graph::{emitter::EmitterFactory, generate_binary_eszip, EszipPayloadKind};
 
 use std::{
     borrow::Cow,
     collections::HashMap,
     io::{self, Cursor},
     net::{IpAddr, Ipv4Addr, SocketAddr},
-    path::Path,
+    path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
 };
@@ -2382,6 +2382,117 @@ async fn test_should_render_detailed_failed_to_create_graph_error() {
                     "InvalidWorkerCreation: worker boot error: failed to create the graph: \
                     Module not found \"file://"
                 ));
+            }),
+            TerminationToken::new()
+        );
+    }
+}
+
+#[tokio::test]
+#[serial]
+async fn test_js_entrypoint() {
+    {
+        integration_test!(
+            "./test_cases/main",
+            NON_SECURE_PORT,
+            "serve-js",
+            None,
+            None,
+            None,
+            None,
+            (|resp| async {
+                let resp = resp.unwrap();
+                assert_eq!(resp.status().as_u16(), 200);
+                let msg = resp.text().await.unwrap();
+                assert_eq!(msg, "meow");
+            }),
+            TerminationToken::new()
+        );
+    }
+
+    {
+        integration_test!(
+            "./test_cases/main",
+            NON_SECURE_PORT,
+            "serve-declarative-style-js",
+            None,
+            None,
+            None,
+            None,
+            (|resp| async {
+                let resp = resp.unwrap();
+                assert_eq!(resp.status().as_u16(), 200);
+                let msg = resp.text().await.unwrap();
+                assert_eq!(msg, "meow");
+            }),
+            TerminationToken::new()
+        );
+    }
+
+    let get_eszip_buf = |path: &'static str| async move {
+        generate_binary_eszip(
+            PathBuf::from(path),
+            Arc::new(EmitterFactory::new()),
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap()
+        .into_bytes()
+    };
+
+    {
+        let buf = get_eszip_buf("./test_cases/eszip-js/serve-js/index.js").await;
+        let client = Client::new();
+        let req = client
+            .request(
+                Method::POST,
+                format!("http://localhost:{}/meow", NON_SECURE_PORT),
+            )
+            .body(buf);
+
+        integration_test!(
+            "./test_cases/main_eszip",
+            NON_SECURE_PORT,
+            "",
+            None,
+            None,
+            Some(req),
+            None,
+            (|resp| async {
+                let resp = resp.unwrap();
+                assert_eq!(resp.status().as_u16(), 200);
+                let msg = resp.text().await.unwrap();
+                assert_eq!(msg, "meow");
+            }),
+            TerminationToken::new()
+        );
+    }
+
+    {
+        let buf = get_eszip_buf("./test_cases/eszip-js/npm-supabase-js/index.js").await;
+        let client = Client::new();
+        let req = client
+            .request(
+                Method::POST,
+                format!("http://localhost:{}/meow", NON_SECURE_PORT),
+            )
+            .body(buf);
+
+        integration_test!(
+            "./test_cases/main_eszip",
+            NON_SECURE_PORT,
+            "",
+            None,
+            None,
+            Some(req),
+            None,
+            (|resp| async {
+                let resp = resp.unwrap();
+                assert_eq!(resp.status().as_u16(), 200);
+                let msg = resp.text().await.unwrap();
+                assert_eq!(msg, "function");
             }),
             TerminationToken::new()
         );

@@ -18,6 +18,7 @@ use sb_workers::context::{UserWorkerMsgs, WorkerContextInitOpts, WorkerExit, Wor
 use std::any::Any;
 use std::future::{pending, Future};
 use std::pin::Pin;
+use std::time::Duration;
 use tokio::io;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot::{self, Receiver, Sender};
@@ -111,7 +112,6 @@ impl Worker {
         let method_cloner = self.clone();
         let timing = opts.timing.take();
         let worker_kind = opts.conf.to_worker_kind();
-        let maybe_main_worker_opts = opts.conf.as_main_worker().cloned();
 
         let cancel = self.cancel.clone();
         let rt = if worker_kind.is_user_worker() {
@@ -130,10 +130,8 @@ impl Worker {
                 let permit = DenoRuntime::acquire().await;
                 let result = match DenoRuntime::new(opts, inspector).await {
                     Ok(new_runtime) => {
-                        let mut runtime = scopeguard::guard(new_runtime, |mut runtime| {
-                            unsafe {
-                                runtime.js_runtime.v8_isolate().enter();
-                            }
+                        let mut runtime = scopeguard::guard(new_runtime, |mut runtime| unsafe {
+                            runtime.js_runtime.v8_isolate().enter();
                         });
 
                         unsafe {
@@ -143,12 +141,10 @@ impl Worker {
                         drop(permit);
 
                         let metric_src = {
-                            let js_runtime = &mut runtime.js_runtime;
-                            let metric_src = WorkerMetricSource::from_js_runtime(js_runtime);
-
-                            if worker_kind.is_main_worker() {
-                                let opts = maybe_main_worker_opts.unwrap();
-                                let state = js_runtime.op_state();
+                            let metric_src =
+                                WorkerMetricSource::from_js_runtime(&mut runtime.js_runtime);
+                            if let Some(opts) = runtime.conf.as_main_worker().cloned() {
+                                let state = runtime.js_runtime.op_state();
                                 let mut state_mut = state.borrow_mut();
                                 let metric_src = RuntimeMetricSource::new(
                                     metric_src.clone(),
@@ -173,7 +169,6 @@ impl Worker {
                         let _cpu_timer;
                         let mut supervise_cancel_token = None;
 
-                        // TODO: Allow customization of supervisor
                         let termination_fut = if worker_kind.is_user_worker() {
                             // cputimer is returned from supervisor and assigned here to keep it in scope.
                             let Ok((maybe_timer, cancel_token)) = create_supervisor(
@@ -207,27 +202,50 @@ impl Worker {
                                 )
                             };
 
+                            let maybe_event_worker_ctx =
+                                runtime.conf.as_events_worker().map(|it| {
+                                    Duration::from_secs(
+                                        it.event_worker_exit_deadline_sec.unwrap_or(10),
+                                    )
+                                });
+
                             base_rt::SUPERVISOR_RT
                                 .spawn(async move {
                                     token.inbound.cancelled().await;
-                                    termination_request_token.cancel();
 
-                                    let data_ptr_mut =
-                                        Box::into_raw(Box::new(supervisor::IsolateInterruptData {
-                                            should_terminate: true,
-                                            isolate_memory_usage_tx: None,
-                                        }));
-
-                                    if !thread_safe_handle.request_interrupt(
-                                        supervisor::handle_interrupt,
-                                        data_ptr_mut as *mut std::ffi::c_void,
-                                    ) {
-                                        drop(unsafe { Box::from_raw(data_ptr_mut) });
+                                    let mut already_terminated = false;
+                                    if let Some(dur) = maybe_event_worker_ctx {
+                                        already_terminated = tokio::time::timeout(dur, async {
+                                            while !is_terminated.is_raised() {
+                                                waker.wake();
+                                                tokio::task::yield_now().await;
+                                            }
+                                        })
+                                        .await
+                                        .is_ok();
                                     }
 
-                                    while !is_terminated.is_raised() {
-                                        waker.wake();
-                                        tokio::task::yield_now().await;
+                                    if !already_terminated {
+                                        termination_request_token.cancel();
+
+                                        let data_ptr_mut = Box::into_raw(Box::new(
+                                            supervisor::IsolateInterruptData {
+                                                should_terminate: true,
+                                                isolate_memory_usage_tx: None,
+                                            },
+                                        ));
+
+                                        if !thread_safe_handle.request_interrupt(
+                                            supervisor::handle_interrupt,
+                                            data_ptr_mut as *mut std::ffi::c_void,
+                                        ) {
+                                            drop(unsafe { Box::from_raw(data_ptr_mut) });
+                                        }
+
+                                        while !is_terminated.is_raised() {
+                                            waker.wake();
+                                            tokio::task::yield_now().await;
+                                        }
                                     }
 
                                     let _ = termination_event_tx.send(WorkerEvents::Shutdown(
@@ -251,7 +269,9 @@ impl Worker {
                         let _guard = scopeguard::guard((), |_| {
                             worker_key.and_then(|worker_key_unwrapped| {
                                 pool_msg_tx.map(|tx| {
-                                    if let Err(err) = tx.send(UserWorkerMsgs::Shutdown(worker_key_unwrapped)) {
+                                    if let Err(err) =
+                                        tx.send(UserWorkerMsgs::Shutdown(worker_key_unwrapped))
+                                    {
                                         error!(
                                             "failed to send the shutdown signal to user worker pool: {:?}",
                                             err
@@ -269,7 +289,6 @@ impl Worker {
                                     }
                                 });
 
-
                             let result = method_cloner
                                 .handle_creation(
                                     &mut runtime,
@@ -284,10 +303,10 @@ impl Worker {
                                 Ok(WorkerEvents::UncaughtException(ev)) => Some(ev.clone()),
                                 Err(err) => Some(UncaughtExceptionEvent {
                                     cpu_time_used: 0,
-                                    exception: err.to_string()
+                                    exception: err.to_string(),
                                 }),
 
-                                _ => None
+                                _ => None,
                             };
 
                             if let Some(ev) = maybe_uncaught_exception_event {
@@ -342,7 +361,7 @@ impl Worker {
                         };
 
                         send_event_if_event_worker_available(
-                            events_msg_tx.clone(),
+                            events_msg_tx.as_ref(),
                             event,
                             event_metadata.clone(),
                         );

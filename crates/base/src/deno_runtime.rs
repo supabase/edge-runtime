@@ -35,6 +35,7 @@ use std::ffi::c_void;
 use std::fmt;
 use std::future::Future;
 use std::marker::PhantomData;
+use std::mem::ManuallyDrop;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 use std::task::Poll;
@@ -197,8 +198,8 @@ impl GetRuntimeContext for () {
 }
 
 pub struct DenoRuntime<RuntimeContext = ()> {
+    pub js_runtime: ManuallyDrop<JsRuntime>,
     pub drop_token: CancellationToken,
-    pub js_runtime: JsRuntime,
     pub env_vars: HashMap<String, String>, // TODO: does this need to be pub?
     pub conf: WorkerRuntimeOpts,
 
@@ -218,14 +219,18 @@ pub struct DenoRuntime<RuntimeContext = ()> {
 
 impl<RuntimeContext> Drop for DenoRuntime<RuntimeContext> {
     fn drop(&mut self) {
-        self.drop_token.cancel();
-
         if self.conf.is_user_worker() {
             self.js_runtime.v8_isolate().remove_gc_prologue_callback(
                 mem_check_gc_prologue_callback_fn,
                 Arc::as_ptr(&self.mem_check) as *mut _,
             );
         }
+
+        unsafe {
+            ManuallyDrop::drop(&mut self.js_runtime);
+        }
+
+        self.drop_token.cancel();
     }
 }
 
@@ -250,12 +255,11 @@ where
         maybe_inspector: Option<Inspector>,
     ) -> Result<Self, Error> {
         let WorkerContextInitOpts {
+            mut conf,
             service_path,
             no_module_cache,
             import_map_path,
             env_vars,
-            events_rx,
-            conf,
             maybe_eszip,
             maybe_entrypoint,
             maybe_decorator,
@@ -536,7 +540,7 @@ where
             ..Default::default()
         };
 
-        let mut js_runtime = JsRuntime::new(runtime_options);
+        let mut js_runtime = ManuallyDrop::new(JsRuntime::new(runtime_options));
         let version: Option<&str> = option_env!("GIT_V_TAG");
 
         {
@@ -610,10 +614,10 @@ where
 
             let mut env_vars = env_vars.clone();
 
-            if conf.is_events_worker() {
-                // if worker is an events worker, assert events_rx is to be available
-                op_state
-                    .put::<mpsc::UnboundedReceiver<WorkerEventWithMetadata>>(events_rx.unwrap());
+            if let Some(opts) = conf.as_events_worker_mut() {
+                op_state.put::<mpsc::UnboundedReceiver<WorkerEventWithMetadata>>(
+                    opts.events_msg_rx.take().unwrap(),
+                );
             }
 
             if conf.is_main_worker() || conf.is_user_worker() {
@@ -1215,7 +1219,6 @@ mod test {
                     static_patterns,
                     maybe_jsx_import_source_config: jsx_import_source_config,
 
-                    events_rx: None,
                     timing: None,
 
                     import_map_path: None,
@@ -1290,7 +1293,6 @@ mod test {
                 no_module_cache: false,
                 import_map_path: None,
                 env_vars: Default::default(),
-                events_rx: None,
                 timing: None,
                 maybe_eszip: None,
                 maybe_entrypoint: None,
@@ -1337,7 +1339,6 @@ mod test {
                 no_module_cache: false,
                 import_map_path: None,
                 env_vars: Default::default(),
-                events_rx: None,
                 timing: None,
                 maybe_eszip: Some(EszipPayloadKind::VecKind(eszip_code)),
                 maybe_entrypoint: None,
@@ -1401,7 +1402,6 @@ mod test {
                 no_module_cache: false,
                 import_map_path: None,
                 env_vars: Default::default(),
-                events_rx: None,
                 timing: None,
                 maybe_eszip: Some(EszipPayloadKind::VecKind(eszip_code)),
                 maybe_entrypoint: None,

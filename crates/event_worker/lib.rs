@@ -28,7 +28,10 @@ async fn op_event_accept(state: Rc<RefCell<OpState>>) -> Result<RawEvent, Error>
 
     match data {
         Some(event) => Ok(RawEvent::Event(Box::new(event))),
-        None => Ok(RawEvent::Done),
+        None => {
+            op_state.waker.wake();
+            Ok(RawEvent::Done)
+        }
     }
 }
 

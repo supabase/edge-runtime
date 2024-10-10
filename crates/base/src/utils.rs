@@ -4,7 +4,7 @@ use tokio::sync::mpsc;
 pub mod units;
 
 pub fn send_event_if_event_worker_available(
-    maybe_event_worker: Option<mpsc::UnboundedSender<WorkerEventWithMetadata>>,
+    maybe_event_worker: Option<&mpsc::UnboundedSender<WorkerEventWithMetadata>>,
     event: WorkerEvents,
     metadata: EventMetadata,
 ) {

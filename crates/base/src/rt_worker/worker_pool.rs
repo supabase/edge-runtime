@@ -369,7 +369,6 @@ impl WorkerPool {
                                 no_module_cache,
                                 import_map_path,
                                 env_vars,
-                                events_rx: None,
                                 timing: None,
                                 conf,
                                 maybe_eszip,

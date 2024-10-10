@@ -139,6 +139,11 @@ fn main() -> Result<(), anyhow::Error> {
                         }
                     });
 
+                let event_worker_exit_deadline_sec = sub_matches
+                    .get_one::<u64>("event-worker-exit-timeout")
+                    .cloned()
+                    .unwrap_or(0);
+
                 let maybe_max_parallelism =
                     sub_matches.get_one::<usize>("max-parallelism").cloned();
                 let maybe_request_wait_timeout =
@@ -180,6 +185,7 @@ fn main() -> Result<(), anyhow::Error> {
                     tcp_nodelay,
                     graceful_exit_deadline_sec,
                     graceful_exit_keepalive_deadline_ms,
+                    event_worker_exit_deadline_sec,
                     request_wait_timeout_ms: maybe_request_wait_timeout,
                     request_idle_timeout_ms: maybe_request_idle_timeout,
                     request_read_timeout_ms: maybe_request_read_timeout,

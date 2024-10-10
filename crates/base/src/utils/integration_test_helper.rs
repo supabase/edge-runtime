@@ -230,7 +230,6 @@ impl TestBedBuilder {
             no_module_cache: false,
             import_map_path: None,
             env_vars: HashMap::new(),
-            events_rx: None,
             timing: None,
             maybe_eszip: None,
             maybe_entrypoint: None,

@@ -142,7 +142,6 @@ pub async fn op_user_worker_create(
             no_module_cache,
             import_map_path,
             env_vars: env_vars_map,
-            events_rx: None,
             timing: None,
             maybe_eszip: maybe_eszip.map(EszipPayloadKind::JsBufferKind),
             maybe_entrypoint,

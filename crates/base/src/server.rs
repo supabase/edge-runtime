@@ -6,7 +6,6 @@ use crate::rt_worker::worker_pool::WorkerPoolPolicy;
 use crate::InspectorOption;
 use anyhow::{anyhow, bail, Context, Error};
 use deno_config::JsxImportSourceConfig;
-use event_worker::events::WorkerEventWithMetadata;
 use futures_util::future::{poll_fn, BoxFuture};
 use futures_util::{FutureExt, Stream};
 use hyper_v014::{server::conn::Http, service::Service, Body, Request, Response};
@@ -105,12 +104,12 @@ impl TerminationTokens {
     }
 
     async fn terminate(&self) {
+        self.pool.cancel_and_wait().await;
+        self.main.cancel_and_wait().await;
+
         if let Some(token) = self.event.as_ref() {
             token.cancel_and_wait().await;
         }
-
-        self.pool.cancel_and_wait().await;
-        self.main.cancel_and_wait().await;
 
         if let Some(token) = self.input.as_ref() {
             assert!(token.inbound.is_cancelled());
@@ -246,6 +245,7 @@ pub struct ServerFlags {
     pub tcp_nodelay: bool,
     pub graceful_exit_deadline_sec: u64,
     pub graceful_exit_keepalive_deadline_ms: Option<u64>,
+    pub event_worker_exit_deadline_sec: u64,
     pub request_wait_timeout_ms: Option<u64>,
     pub request_idle_timeout_ms: Option<u64>,
     pub request_read_timeout_ms: Option<u64>,
@@ -351,7 +351,8 @@ impl Server {
         jsx_specifier: Option<String>,
         jsx_module: Option<String>,
     ) -> Result<Self, Error> {
-        let mut worker_events_tx: Option<mpsc::UnboundedSender<WorkerEventWithMetadata>> = None;
+        let mut worker_events_tx = None;
+
         let maybe_events_entrypoint = entrypoints.events;
         let maybe_main_entrypoint = entrypoints.main;
         let termination_tokens =
@@ -363,9 +364,9 @@ impl Server {
             let events_path_buf = events_path.to_path_buf();
 
             let (ctx, sender) = create_events_worker(
+                &flags,
                 events_path_buf,
                 import_map_path.clone(),
-                flags.no_module_cache,
                 maybe_events_entrypoint,
                 maybe_decorator,
                 Some(termination_tokens.event.clone().unwrap()),
@@ -457,7 +458,6 @@ impl Server {
         let metric_src = self.metric_src.clone();
         let termination_tokens = &self.termination_tokens;
         let input_termination_token = termination_tokens.input.as_ref();
-        let flags = self.flags;
 
         let mut can_receive_event = false;
         let mut interrupted = false;
@@ -488,7 +488,7 @@ impl Server {
             mut graceful_exit_deadline_sec,
             mut graceful_exit_keepalive_deadline_ms,
             ..
-        } = flags;
+        } = self.flags;
 
         let request_read_timeout_dur = request_read_timeout_ms.map(Duration::from_millis);
         let mut terminate_signal_fut = get_termination_signal();

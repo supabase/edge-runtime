@@ -1,5 +1,6 @@
 use crate::deno_runtime::DenoRuntime;
 use crate::inspector_server::Inspector;
+use crate::server::ServerFlags;
 use crate::timeout::{self, CancelOnWriteTimeout, ReadTimeoutStream};
 use crate::utils::send_event_if_event_worker_available;
 
@@ -75,7 +76,7 @@ impl TerminationToken {
     pub fn child_token(&self) -> Self {
         Self {
             inbound: self.inbound.child_token(),
-            outbound: self.outbound.clone(),
+            outbound: self.outbound.child_token(),
         }
     }
 
@@ -648,7 +649,7 @@ pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
                     .as_millis();
 
                 send_event_if_event_worker_available(
-                    worker_struct_ref.events_msg_tx.clone(),
+                    worker_struct_ref.events_msg_tx.as_ref(),
                     WorkerEvents::Boot(BootEvent {
                         boot_time: elapsed as usize,
                     }),
@@ -749,7 +750,6 @@ pub async fn create_main_worker(
                 service_path,
                 import_map_path,
                 no_module_cache,
-                events_rx: None,
                 timing: None,
                 maybe_eszip,
                 maybe_entrypoint,
@@ -772,9 +772,9 @@ pub async fn create_main_worker(
 }
 
 pub async fn create_events_worker(
+    flags: &ServerFlags,
     events_worker_path: PathBuf,
     import_map_path: Option<String>,
-    no_module_cache: bool,
     maybe_entrypoint: Option<String>,
     maybe_decorator: Option<DecoratorType>,
     termination_token: Option<TerminationToken>,
@@ -796,16 +796,18 @@ pub async fn create_events_worker(
         (
             WorkerContextInitOpts {
                 service_path,
-                no_module_cache,
+                no_module_cache: flags.no_module_cache,
                 import_map_path,
                 env_vars: std::env::vars().collect(),
-                events_rx: Some(events_rx),
                 timing: None,
                 maybe_eszip,
                 maybe_entrypoint,
                 maybe_decorator,
                 maybe_module_code: None,
-                conf: WorkerRuntimeOpts::EventsWorker(EventWorkerRuntimeOpts {}),
+                conf: WorkerRuntimeOpts::EventsWorker(EventWorkerRuntimeOpts {
+                    events_msg_rx: Some(events_rx),
+                    event_worker_exit_deadline_sec: Some(flags.event_worker_exit_deadline_sec),
+                }),
                 static_patterns: vec![],
                 maybe_jsx_import_source_config: None,
             },
@@ -885,7 +887,7 @@ pub async fn create_user_worker_pool(
                                         }
                                     },
                                     ..worker_options
-                                }, tx, termination_token.as_ref().map(|it| it.child_token()));
+                                }, tx, token.map(TerminationToken::child_token));
                             }
 
                             Some(UserWorkerMsgs::Created(key, profile)) => {
@@ -915,6 +917,8 @@ pub async fn create_user_worker_pool(
                     }
                 }
             }
+
+            worker_pool.worker_event_sender.take();
 
             Ok(())
         }

@@ -17,3 +17,5 @@ for await (const data of eventManager) {
 		}
 	}
 }
+
+console.log('event manager exiting');

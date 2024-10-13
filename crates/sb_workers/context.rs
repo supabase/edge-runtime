@@ -114,10 +114,13 @@ pub struct MainWorkerRuntimeOpts {
     pub event_worker_metric_src: Option<MetricSource>,
 }
 
-#[derive(Debug, Clone)]
-pub struct EventWorkerRuntimeOpts {}
+#[derive(Debug)]
+pub struct EventWorkerRuntimeOpts {
+    pub events_msg_rx: Option<mpsc::UnboundedReceiver<WorkerEventWithMetadata>>,
+    pub event_worker_exit_deadline_sec: Option<u64>,
+}
 
-#[derive(Debug, Clone, EnumAsInner)]
+#[derive(Debug, EnumAsInner)]
 pub enum WorkerRuntimeOpts {
     UserWorker(UserWorkerRuntimeOpts),
     MainWorker(MainWorkerRuntimeOpts),
@@ -190,7 +193,6 @@ pub struct WorkerContextInitOpts {
     pub no_module_cache: bool,
     pub import_map_path: Option<String>,
     pub env_vars: HashMap<String, String>,
-    pub events_rx: Option<mpsc::UnboundedReceiver<WorkerEventWithMetadata>>,
     pub timing: Option<Timing>,
     pub conf: WorkerRuntimeOpts,
     pub maybe_eszip: Option<EszipPayloadKind>,

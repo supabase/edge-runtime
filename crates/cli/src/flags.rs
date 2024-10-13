@@ -131,6 +131,15 @@ fn get_start_command() -> Command {
                 .value_parser(value_parser!(u64).range(..u64::MAX)),
         )
         .arg(
+            arg!(--"event-worker-exit-timeout" [SECONDS])
+                .help(concat!(
+                    "Maximum time in seconds that can wait for the event worker before terminating ",
+                    "forcibly. (graceful exit)"
+                ))
+                .default_value("10")
+                .value_parser(value_parser!(u64).range(..u64::MAX))
+        )
+        .arg(
             arg!(
                 --"experimental-graceful-exit-keepalive-deadline-ratio"
                 <PERCENTAGE>

@@ -36,3 +36,4 @@ base64.workspace = true
 tracing.workspace = true
 eszip.workspace = true
 futures-util.workspace = true
+rkyv.workspace = true

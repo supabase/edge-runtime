@@ -333,6 +333,12 @@ where
                 CacheSetting::Use
             };
 
+            let npmrc_path = base_dir_path.join(".npmrc");
+            if npmrc_path.exists() {
+                emitter_factory.set_npmrc_path(npmrc_path);
+                emitter_factory.set_npmrc_env_vars(env_vars.clone());
+            }
+
             emitter_factory.set_file_fetcher_allow_remote(allow_remote_modules);
             emitter_factory.set_file_fetcher_cache_strategy(cache_strategy);
             emitter_factory.set_decorator_type(maybe_decorator);

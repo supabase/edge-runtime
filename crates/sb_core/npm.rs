@@ -1,9 +1,11 @@
-use std::sync::Arc;
+use std::{collections::HashMap, path::Path, sync::Arc};
 
 use deno_core::url::Url;
+use deno_npm::npm_rc::{NpmRc, ResolvedNpmRc};
 
-use deno_npm::npm_rc::ResolvedNpmRc;
+use anyhow::Context;
 use once_cell::sync::Lazy;
+use tokio::fs;
 
 pub fn npm_registry_url() -> &'static Url {
     static NPM_REGISTRY_DEFAULT_URL: Lazy<Url> = Lazy::new(|| {
@@ -36,4 +38,25 @@ pub fn create_default_npmrc() -> Arc<ResolvedNpmRc> {
         scopes: Default::default(),
         registry_configs: Default::default(),
     })
+}
+
+pub async fn create_npmrc<P>(
+    path: P,
+    maybe_env_vars: Option<&HashMap<String, String>>,
+) -> Result<Arc<ResolvedNpmRc>, anyhow::Error>
+where
+    P: AsRef<Path>,
+{
+    let get_env_fn = |k: &str| maybe_env_vars.as_ref().and_then(|it| it.get(k).cloned());
+    NpmRc::parse(
+        fs::read_to_string(path)
+            .await
+            .context("failed to read path")?
+            .as_str(),
+        &get_env_fn,
+    )
+    .context("failed to parse .npmrc file")?
+    .as_resolved(npm_registry_url())
+    .context("failed to resolve .npmrc file")
+    .map(Arc::new)
 }

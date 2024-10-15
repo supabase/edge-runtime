@@ -69,7 +69,8 @@ impl NpmCacheDir {
         registry_url: &Url,
     ) -> PathBuf {
         if folder_id.copy_index == 0 {
-            self.package_folder_for_nv(&folder_id.nv, registry_url)
+            self.package_name_folder(&folder_id.nv.name, registry_url)
+                .join(folder_id.nv.version.to_string())
         } else {
             self.package_name_folder(&folder_id.nv.name, registry_url)
                 .join(format!("{}_{}", folder_id.nv.version, folder_id.copy_index))

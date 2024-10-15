@@ -136,7 +136,9 @@ where
                 // but also don't make this dependent on the registry url
                 let root_path = npm_resolver.global_cache_root_folder();
                 let mut builder = VfsBuilder::new(root_path, add_content_callback_fn)?;
-                for package in npm_resolver.all_system_packages(&NpmSystemInfo::default()) {
+                let mut packages = npm_resolver.all_system_packages(&NpmSystemInfo::default());
+                packages.sort_by(|a, b| a.id.cmp(&b.id)); // determinism
+                for package in packages {
                     let folder = npm_resolver.resolve_pkg_folder_from_pkg_id(&package.id)?;
                     builder.add_dir_recursive(&folder)?;
                 }

@@ -11,6 +11,7 @@ use deno_core::error::AnyError;
 use deno_core::futures::FutureExt;
 use deno_core::parking_lot::Mutex;
 use deno_lockfile::Lockfile;
+use deno_npm::npm_rc::ResolvedNpmRc;
 use deno_npm::resolution::ValidSerializedNpmResolutionSnapshot;
 use eszip::deno_graph::source::Loader;
 use import_map::ImportMap;
@@ -34,7 +35,7 @@ use sb_npm::{
 };
 use std::collections::HashMap;
 use std::future::Future;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 struct Deferred<T>(once_cell::unsync::OnceCell<T>);
@@ -91,13 +92,16 @@ pub struct EmitterFactory {
     node_resolver: Deferred<Arc<NodeResolver>>,
     cli_node_resolver: Deferred<Arc<CliNodeResolver>>,
     npm_resolver: Deferred<Arc<dyn CliNpmResolver>>,
+    resolved_npm_rc: Deferred<Arc<ResolvedNpmRc>>,
     workspace_resolver: Deferred<Arc<WorkspaceResolver>>,
     resolver: Deferred<Arc<CliGraphResolver>>,
     file_fetcher: Deferred<Arc<FileFetcher>>,
     file_fetcher_cache_strategy: Option<CacheSetting>,
-    jsx_import_source_config: Option<JsxImportSourceConfig>,
     file_fetcher_allow_remote: bool,
+    jsx_import_source_config: Option<JsxImportSourceConfig>,
     pub maybe_import_map: Option<ImportMap>,
+    maybe_npmrc_path: Option<PathBuf>,
+    maybe_npmrc_env_vars: Option<HashMap<String, String>>,
     module_info_cache: Deferred<Arc<ModuleInfoCache>>,
 }
 
@@ -123,13 +127,16 @@ impl EmitterFactory {
             node_resolver: Default::default(),
             cli_node_resolver: Default::default(),
             npm_resolver: Default::default(),
+            resolved_npm_rc: Default::default(),
             workspace_resolver: Default::default(),
             resolver: Default::default(),
             file_fetcher: Default::default(),
             file_fetcher_cache_strategy: None,
             file_fetcher_allow_remote: true,
-            maybe_import_map: None,
             jsx_import_source_config: None,
+            maybe_import_map: None,
+            maybe_npmrc_path: None,
+            maybe_npmrc_env_vars: None,
         }
     }
 
@@ -143,6 +150,17 @@ impl EmitterFactory {
 
     pub fn set_import_map(&mut self, import_map: Option<ImportMap>) {
         self.maybe_import_map = import_map;
+    }
+
+    pub fn set_npmrc_path<P>(&mut self, path: P)
+    where
+        P: AsRef<Path>,
+    {
+        self.maybe_npmrc_path = Some(path.as_ref().to_path_buf());
+    }
+
+    pub fn set_npmrc_env_vars(&mut self, vars: HashMap<String, String>) {
+        self.maybe_npmrc_env_vars = Some(vars);
     }
 
     pub fn set_decorator_type(&mut self, decorator_type: Option<DecoratorType>) {
@@ -286,9 +304,21 @@ impl EmitterFactory {
                     maybe_node_modules_path: None,
                     npm_system_info: Default::default(),
                     package_json_deps_provider: Default::default(),
-                    npmrc: npm::create_default_npmrc(),
+                    npmrc: self.resolved_npm_rc().await?.clone(),
                 })
                 .await
+            })
+            .await
+    }
+
+    pub async fn resolved_npm_rc(&self) -> Result<&Arc<ResolvedNpmRc>, AnyError> {
+        self.resolved_npm_rc
+            .get_or_try_init_async(async {
+                if let Some(path) = self.maybe_npmrc_path.clone() {
+                    npm::create_npmrc(path, self.maybe_npmrc_env_vars.as_ref()).await
+                } else {
+                    Ok(npm::create_default_npmrc())
+                }
             })
             .await
     }

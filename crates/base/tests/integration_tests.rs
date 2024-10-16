@@ -2537,6 +2537,12 @@ async fn test_should_be_able_to_bundle_against_various_exts() {
 #[tokio::test]
 #[serial]
 async fn test_private_npm_package_import() {
+    // Required because test_cases/main_with_registry/registry/registry-handler.ts:58
+    std::env::set_var("EDGE_RUNTIME_PORT", NON_SECURE_PORT.to_string());
+    let _guard = scopeguard::guard((), |_| {
+        std::env::remove_var("EDGE_RUNTIME_PORT");
+    });
+
     let client = Client::new();
     let run_server_fn = |main: &'static str, token| async move {
         let (tx, mut rx) = mpsc::channel(1);

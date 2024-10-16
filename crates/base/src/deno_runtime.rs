@@ -334,7 +334,7 @@ where
             };
 
             let npmrc_path = base_dir_path.join(".npmrc");
-            if npmrc_path.exists() {
+            if npmrc_path.exists() && npmrc_path.is_file() {
                 emitter_factory.set_npmrc_path(npmrc_path);
                 emitter_factory.set_npmrc_env_vars(env_vars.clone());
             }

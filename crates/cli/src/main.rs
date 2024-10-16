@@ -265,6 +265,7 @@ fn main() -> Result<(), anyhow::Error> {
                 let entrypoint_dir_path = entrypoint_script_path.parent().unwrap();
 
                 let mut emitter_factory = EmitterFactory::new();
+
                 let maybe_import_map = load_import_map(import_map_path.clone())
                     .map_err(|e| anyhow!("import map path is invalid ({})", e))?;
                 let mut maybe_import_map_url = None;
@@ -277,6 +278,13 @@ fn main() -> Result<(), anyhow::Error> {
                             .to_string(),
                     );
                 }
+
+                let entrypoint_npmrc_path = entrypoint_dir_path.join(".npmrc");
+                if entrypoint_npmrc_path.exists() && entrypoint_npmrc_path.is_file() {
+                    emitter_factory.set_npmrc_path(entrypoint_npmrc_path);
+                    emitter_factory.set_npmrc_env_vars(std::env::vars().collect());
+                }
+
                 let maybe_checksum_kind = sub_matches
                     .get_one::<EszipV2ChecksumKind>("checksum")
                     .copied()

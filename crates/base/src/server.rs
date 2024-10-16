@@ -6,6 +6,8 @@ use crate::rt_worker::worker_pool::WorkerPoolPolicy;
 use crate::InspectorOption;
 use anyhow::{anyhow, bail, Context, Error};
 use deno_config::JsxImportSourceConfig;
+use enum_as_inner::EnumAsInner;
+use event_worker::events::WorkerEventWithMetadata;
 use futures_util::future::{poll_fn, BoxFuture};
 use futures_util::{FutureExt, Stream};
 use hyper_v014::{server::conn::Http, service::Service, Body, Request, Response};
@@ -52,6 +54,7 @@ pub enum ServerEvent {
     Draining,
 }
 
+#[derive(Debug, EnumAsInner)]
 pub enum ServerHealth {
     Listening(mpsc::UnboundedReceiver<ServerEvent>, SharedMetricSource),
     Failure,
@@ -233,6 +236,7 @@ impl Service<Request<Body>> for WorkerService {
     }
 }
 
+#[derive(Default)]
 pub struct WorkerEntrypoints {
     pub main: Option<String>,
     pub events: Option<String>,

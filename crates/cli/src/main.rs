@@ -10,7 +10,7 @@ use base::commands::start_server;
 use base::rt_worker::worker_pool::{SupervisorPolicy, WorkerPoolPolicy};
 use base::server::{ServerFlags, Tls, WorkerEntrypoints};
 use base::utils::path::find_up;
-use base::{DecoratorType, InspectorOption};
+use base::{CacheSetting, DecoratorType, InspectorOption};
 use clap::ArgMatches;
 use deno_core::url::Url;
 use env::resolve_deno_runtime_env;
@@ -278,6 +278,14 @@ fn main() -> Result<(), anyhow::Error> {
                             .map_err(|_| anyhow!("failed get import map url"))?
                             .to_string(),
                     );
+                }
+
+                if sub_matches
+                    .get_one::<bool>("disable-module-cache")
+                    .cloned()
+                    .unwrap()
+                {
+                    emitter_factory.set_cache_strategy(CacheSetting::ReloadAll);
                 }
 
                 if let Some(npmrc_path) = find_up(".npmrc", entrypoint_dir_path) {

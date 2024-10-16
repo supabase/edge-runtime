@@ -24,7 +24,7 @@ Deno.serve(async (req: Request) => {
     const workerTimeoutMs = 10 * 60 * 1000;
     const cpuTimeSoftLimitMs = 10 * 60 * 1000;
     const cpuTimeHardLimitMs = 10 * 60 * 1000;
-    const noModuleCache = false;
+    const noModuleCache = true;
     const importMapPath = null;
     const envVarsObj = Deno.env.toObject();
     const envVars = Object.keys(envVarsObj).map(k => [k, envVarsObj[k]]);

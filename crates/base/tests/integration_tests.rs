@@ -2615,6 +2615,33 @@ async fn test_private_npm_package_import() {
 
     {
         let token = TerminationToken::new();
+        let handle = run_server_fn("./test_cases/main_with_registry", token.clone()).await;
+
+        let resp = client
+            .request(
+                Method::GET,
+                format!("http://localhost:{}/meow", NON_SECURE_PORT),
+            )
+            .header("x-service-path", "private-npm-package-import-2/inner")
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status().as_u16(), 200);
+
+        let body = resp.json::<serde_json::Value>().await.unwrap();
+        let body = body.as_object().unwrap();
+
+        assert_eq!(body.len(), 2);
+        assert_eq!(body.get("meow"), Some(&json!("function")));
+        assert_eq!(body.get("odd"), Some(&json!(true)));
+
+        token.cancel();
+        handle.await.unwrap();
+    }
+
+    {
+        let token = TerminationToken::new();
         let handle = run_server_fn("./test_cases/main_eszip", token.clone()).await;
 
         let buf = {

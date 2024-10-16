@@ -7,7 +7,11 @@ Deno.serve(async (req: Request) => {
   const url = new URL(req.url);
   const { pathname } = url;
   const path_parts = pathname.split("/");
-  const service_name = path_parts[1];
+  let service_name = path_parts[1];
+
+  if (req.headers.has('x-service-path')) {
+    service_name = req.headers.get('x-service-path')!;
+  }
 
   const REGISTRY_PREFIX = '/_internal/registry';
   if (pathname.startsWith(REGISTRY_PREFIX)) {
@@ -30,7 +34,7 @@ Deno.serve(async (req: Request) => {
     const workerTimeoutMs = 10 * 60 * 1000;
     const cpuTimeSoftLimitMs = 10 * 60 * 1000;
     const cpuTimeHardLimitMs = 10 * 60 * 1000;
-    const noModuleCache = false;
+    const noModuleCache = true;
     const importMapPath = null;
     const envVarsObj = Deno.env.toObject();
     const envVars = Object.keys(envVarsObj).map(k => [k, envVarsObj[k]]);

@@ -1,6 +1,7 @@
 use crate::inspector_server::Inspector;
 use crate::rt_worker::supervisor::{CPUUsage, CPUUsageMetrics};
 use crate::rt_worker::worker::DuplexStreamEntry;
+use crate::utils::path::find_up;
 use crate::utils::units::{bytes_to_display, mib_to_bytes};
 
 use anyhow::{anyhow, bail, Context, Error};
@@ -333,10 +334,11 @@ where
                 CacheSetting::Use
             };
 
-            let npmrc_path = base_dir_path.join(".npmrc");
-            if npmrc_path.exists() && npmrc_path.is_file() {
-                emitter_factory.set_npmrc_path(npmrc_path);
-                emitter_factory.set_npmrc_env_vars(env_vars.clone());
+            if let Some(npmrc_path) = find_up(".npmrc", &base_dir_path) {
+                if npmrc_path.exists() && npmrc_path.is_file() {
+                    emitter_factory.set_npmrc_path(npmrc_path);
+                    emitter_factory.set_npmrc_env_vars(env_vars.clone());
+                }
             }
 
             emitter_factory.set_file_fetcher_allow_remote(allow_remote_modules);

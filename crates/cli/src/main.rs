@@ -9,6 +9,7 @@ use base::commands::start_server;
 
 use base::rt_worker::worker_pool::{SupervisorPolicy, WorkerPoolPolicy};
 use base::server::{ServerFlags, Tls, WorkerEntrypoints};
+use base::utils::path::find_up;
 use base::{DecoratorType, InspectorOption};
 use clap::ArgMatches;
 use deno_core::url::Url;
@@ -279,10 +280,11 @@ fn main() -> Result<(), anyhow::Error> {
                     );
                 }
 
-                let entrypoint_npmrc_path = entrypoint_dir_path.join(".npmrc");
-                if entrypoint_npmrc_path.exists() && entrypoint_npmrc_path.is_file() {
-                    emitter_factory.set_npmrc_path(entrypoint_npmrc_path);
-                    emitter_factory.set_npmrc_env_vars(std::env::vars().collect());
+                if let Some(npmrc_path) = find_up(".npmrc", entrypoint_dir_path) {
+                    if npmrc_path.exists() && npmrc_path.is_file() {
+                        emitter_factory.set_npmrc_path(npmrc_path);
+                        emitter_factory.set_npmrc_env_vars(std::env::vars().collect());
+                    }
                 }
 
                 let maybe_checksum_kind = sub_matches

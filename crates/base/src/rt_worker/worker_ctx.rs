@@ -1,8 +1,8 @@
+use super::utils::send_event_if_event_worker_available;
 use crate::deno_runtime::DenoRuntime;
 use crate::inspector_server::Inspector;
 use crate::server::ServerFlags;
 use crate::timeout::{self, CancelOnWriteTimeout, ReadTimeoutStream};
-use crate::utils::send_event_if_event_worker_available;
 
 use crate::rt_worker::worker::{Worker, WorkerHandler};
 use crate::rt_worker::worker_pool::WorkerPool;

@@ -342,7 +342,7 @@ where
             }
 
             emitter_factory.set_file_fetcher_allow_remote(allow_remote_modules);
-            emitter_factory.set_file_fetcher_cache_strategy(cache_strategy);
+            emitter_factory.set_cache_strategy(cache_strategy);
             emitter_factory.set_decorator_type(maybe_decorator);
 
             if let Some(jsx_import_source_config) = maybe_jsx_import_source_config.clone() {

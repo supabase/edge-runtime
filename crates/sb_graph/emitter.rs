@@ -95,8 +95,8 @@ pub struct EmitterFactory {
     resolved_npm_rc: Deferred<Arc<ResolvedNpmRc>>,
     workspace_resolver: Deferred<Arc<WorkspaceResolver>>,
     resolver: Deferred<Arc<CliGraphResolver>>,
+    cache_strategy: Option<CacheSetting>,
     file_fetcher: Deferred<Arc<FileFetcher>>,
-    file_fetcher_cache_strategy: Option<CacheSetting>,
     file_fetcher_allow_remote: bool,
     jsx_import_source_config: Option<JsxImportSourceConfig>,
     pub maybe_import_map: Option<ImportMap>,
@@ -130,8 +130,8 @@ impl EmitterFactory {
             resolved_npm_rc: Default::default(),
             workspace_resolver: Default::default(),
             resolver: Default::default(),
+            cache_strategy: None,
             file_fetcher: Default::default(),
-            file_fetcher_cache_strategy: None,
             file_fetcher_allow_remote: true,
             jsx_import_source_config: None,
             maybe_import_map: None,
@@ -140,8 +140,8 @@ impl EmitterFactory {
         }
     }
 
-    pub fn set_file_fetcher_cache_strategy(&mut self, strategy: CacheSetting) {
-        self.file_fetcher_cache_strategy = Some(strategy);
+    pub fn set_cache_strategy(&mut self, strategy: CacheSetting) {
+        self.cache_strategy = Some(strategy);
     }
 
     pub fn set_file_fetcher_allow_remote(&mut self, allow_remote: bool) {
@@ -300,7 +300,7 @@ impl EmitterFactory {
                     fs: self.real_fs(),
                     http_client_provider: self.http_client_provider().clone(),
                     npm_global_cache_dir: self.deno_dir.npm_folder_path().clone(),
-                    cache_setting: CacheSetting::Use,
+                    cache_setting: self.cache_strategy.clone().unwrap_or(CacheSetting::Use),
                     maybe_node_modules_path: None,
                     npm_system_info: Default::default(),
                     package_json_deps_provider: Default::default(),
@@ -396,7 +396,7 @@ impl EmitterFactory {
 
             Ok(Arc::new(FileFetcher::new(
                 global_cache.clone(),
-                self.file_fetcher_cache_strategy
+                self.cache_strategy
                     .clone()
                     .unwrap_or(CacheSetting::ReloadAll),
                 self.file_fetcher_allow_remote,

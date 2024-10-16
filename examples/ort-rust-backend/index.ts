@@ -1,7 +1,4 @@
-import {
-  env,
-  pipeline,
-} from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.0-alpha.21/dist/transformers.min.js';
+import { env, pipeline } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.1';
 
 // Ensure we do not use browser cache
 env.useBrowserCache = false;

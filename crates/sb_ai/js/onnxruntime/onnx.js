@@ -81,9 +81,6 @@ const onnxruntime = {
   },
   Tensor,
   env: {
-    wasm: {
-      proxy: false
-    }
   }
 };
 

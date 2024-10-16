@@ -2830,6 +2830,197 @@ async fn test_tmp_fs_should_not_be_available_in_import_stmt() {
     );
 }
 
+// -- sb_ai: ORT @huggingface/transformers
+#[tokio::test]
+#[serial]
+async fn test_ort_feature_extraction() {
+    integration_test!(
+        "./test_cases/ai-ort-rust-backend/main",
+        NON_SECURE_PORT,
+        "transformers-js/feature-extraction",
+        None,
+        None,
+        None,
+        None,
+        (|resp| async {
+            let res = resp.unwrap();
+            assert_eq!(res.status().as_u16(), StatusCode::OK);
+        }),
+        TerminationToken::new()
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_ort_fill_mask() {
+    integration_test!(
+        "./test_cases/ai-ort-rust-backend/main",
+        NON_SECURE_PORT,
+        "transformers-js/fill-mask",
+        None,
+        None,
+        None,
+        None,
+        (|resp| async {
+            let res = resp.unwrap();
+            assert_eq!(res.status().as_u16(), StatusCode::OK);
+        }),
+        TerminationToken::new()
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_ort_question_answering() {
+    integration_test!(
+        "./test_cases/ai-ort-rust-backend/main",
+        NON_SECURE_PORT,
+        "transformers-js/question-answering",
+        None,
+        None,
+        None,
+        None,
+        (|resp| async {
+            let res = resp.unwrap();
+            assert_eq!(res.status().as_u16(), StatusCode::OK);
+        }),
+        TerminationToken::new()
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_ort_summarization() {
+    integration_test!(
+        "./test_cases/ai-ort-rust-backend/main",
+        NON_SECURE_PORT,
+        "transformers-js/summarization",
+        None,
+        None,
+        None,
+        None,
+        (|resp| async {
+            let res = resp.unwrap();
+            assert_eq!(res.status().as_u16(), StatusCode::OK);
+        }),
+        TerminationToken::new()
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_ort_text_classification() {
+    integration_test!(
+        "./test_cases/ai-ort-rust-backend/main",
+        NON_SECURE_PORT,
+        "transformers-js/text-classification",
+        None,
+        None,
+        None,
+        None,
+        (|resp| async {
+            let res = resp.unwrap();
+            assert_eq!(res.status().as_u16(), StatusCode::OK);
+        }),
+        TerminationToken::new()
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_ort_text_generation() {
+    integration_test!(
+        "./test_cases/ai-ort-rust-backend/main",
+        NON_SECURE_PORT,
+        "transformers-js/text-generation",
+        None,
+        None,
+        None,
+        None,
+        (|resp| async {
+            let res = resp.unwrap();
+            assert_eq!(res.status().as_u16(), StatusCode::OK);
+        }),
+        TerminationToken::new()
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_ort_text2text_generation() {
+    integration_test!(
+        "./test_cases/ai-ort-rust-backend/main",
+        NON_SECURE_PORT,
+        "transformers-js/text2text-generation",
+        None,
+        None,
+        None,
+        None,
+        (|resp| async {
+            let res = resp.unwrap();
+            assert_eq!(res.status().as_u16(), StatusCode::OK);
+        }),
+        TerminationToken::new()
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_ort_token_classification() {
+    integration_test!(
+        "./test_cases/ai-ort-rust-backend/main",
+        NON_SECURE_PORT,
+        "transformers-js/token-classification",
+        None,
+        None,
+        None,
+        None,
+        (|resp| async {
+            let res = resp.unwrap();
+            assert_eq!(res.status().as_u16(), StatusCode::OK);
+        }),
+        TerminationToken::new()
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_ort_translation() {
+    integration_test!(
+        "./test_cases/ai-ort-rust-backend/main",
+        NON_SECURE_PORT,
+        "transformers-js/translation",
+        None,
+        None,
+        None,
+        None,
+        (|resp| async {
+            let res = resp.unwrap();
+            assert_eq!(res.status().as_u16(), StatusCode::OK);
+        }),
+        TerminationToken::new()
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_ort_zero_shot_classification() {
+    integration_test!(
+        "./test_cases/ai-ort-rust-backend/main",
+        NON_SECURE_PORT,
+        "transformers-js/zero-shot-classification",
+        None,
+        None,
+        None,
+        None,
+        (|resp| async {
+            let res = resp.unwrap();
+            assert_eq!(res.status().as_u16(), StatusCode::OK);
+        }),
+        TerminationToken::new()
+    );
+}
+
 #[derive(Deserialize)]
 struct ErrorResponsePayload {
     msg: String,

@@ -28,6 +28,7 @@ pub fn op_sb_ai_ort_run_session<'a>(
     let model = ModelSession::from_id(model_id).unwrap();
     let model_session = model.inner();
 
+    // println!("{model_session:?}");
     let input_values = input_values
         .into_iter()
         .map(|(key, value)| value.as_ort_input().map(|value| (Cow::from(key), value)))

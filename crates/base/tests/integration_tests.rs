@@ -1,3 +1,6 @@
+#![allow(clippy::arc_with_non_send_sync)]
+#![allow(clippy::async_yields_async)]
+
 #[path = "../src/utils/integration_test_helper.rs"]
 mod integration_test_helper;
 
@@ -23,10 +26,10 @@ use async_tungstenite::WebSocketStream;
 use base::{
     integration_test, integration_test_listen_fut, integration_test_with_server_flag,
     rt_worker::worker_ctx::{create_user_worker_pool, create_worker, TerminationToken},
-    server::{ServerEvent, ServerFlags, ServerHealth, Tls},
+    server::{Server, ServerEvent, ServerFlags, ServerHealth, Tls},
     DecoratorType,
 };
-use deno_core::serde_json;
+use deno_core::serde_json::{self, json};
 use futures_util::{future::BoxFuture, Future, FutureExt, SinkExt, StreamExt};
 use http::{Method, Request, Response as HttpResponse, StatusCode};
 use http_utils::utils::get_upgrade_type;
@@ -2443,7 +2446,6 @@ async fn test_should_be_able_to_bundle_against_various_exts() {
         async {
             generate_binary_eszip(
                 PathBuf::from(path),
-                #[allow(clippy::arc_with_non_send_sync)]
                 Arc::new(emitter_factory),
                 None,
                 None,
@@ -2530,6 +2532,124 @@ async fn test_should_be_able_to_bundle_against_various_exts() {
 
     test_serve_simple_fn("jsx", REACT_RESULT.as_bytes()).await;
     test_serve_simple_fn("tsx", REACT_RESULT.as_bytes()).await;
+}
+
+#[tokio::test]
+#[serial]
+async fn test_private_npm_package_import() {
+    let client = Client::new();
+    let run_server_fn = |main: &'static str, token| async move {
+        let (tx, mut rx) = mpsc::channel(1);
+        let handle = tokio::task::spawn({
+            async move {
+                Server::new(
+                    "127.0.0.1",
+                    NON_SECURE_PORT,
+                    None,
+                    main.to_string(),
+                    None,
+                    None,
+                    None,
+                    None,
+                    Default::default(),
+                    Some(tx),
+                    Default::default(),
+                    Some(token),
+                    vec![],
+                    None,
+                    None,
+                    None,
+                )
+                .await
+                .unwrap()
+                .listen()
+                .await
+                .unwrap();
+            }
+        });
+
+        let _ev = loop {
+            match rx.recv().await {
+                Some(health) => break health.into_listening().unwrap(),
+                _ => continue,
+            }
+        };
+
+        handle
+    };
+
+    {
+        let token = TerminationToken::new();
+        let handle = run_server_fn("./test_cases/main_with_registry", token.clone()).await;
+
+        let resp = client
+            .request(
+                Method::GET,
+                format!(
+                    "http://localhost:{}/private-npm-package-import",
+                    NON_SECURE_PORT
+                ),
+            )
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status().as_u16(), 200);
+
+        let body = resp.json::<serde_json::Value>().await.unwrap();
+        let body = body.as_object().unwrap();
+
+        assert_eq!(body.len(), 2);
+        assert_eq!(body.get("meow"), Some(&json!("function")));
+        assert_eq!(body.get("odd"), Some(&json!(true)));
+
+        token.cancel();
+        handle.await.unwrap();
+    }
+
+    {
+        let token = TerminationToken::new();
+        let handle = run_server_fn("./test_cases/main_eszip", token.clone()).await;
+
+        let buf = {
+            let mut emitter_factory = EmitterFactory::new();
+
+            emitter_factory.set_npmrc_path("./test_cases/private-npm-package-import/.npmrc");
+
+            generate_binary_eszip(
+                PathBuf::from("./test_cases/private-npm-package-import/index.js"),
+                Arc::new(emitter_factory),
+                None,
+                None,
+                None,
+            )
+            .await
+            .unwrap()
+            .into_bytes()
+        };
+
+        let resp = client
+            .request(
+                Method::POST,
+                format!("http://localhost:{}/meow", NON_SECURE_PORT),
+            )
+            .body(buf)
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status().as_u16(), 200);
+
+        let body = resp.json::<serde_json::Value>().await.unwrap();
+        let body = body.as_object().unwrap();
+
+        assert_eq!(body.len(), 2);
+        assert_eq!(body.get("meow"), Some(&json!("function")));
+        assert_eq!(body.get("odd"), Some(&json!(true)));
+
+        token.cancel();
+        handle.await.unwrap();
+    }
 }
 
 #[derive(Deserialize)]

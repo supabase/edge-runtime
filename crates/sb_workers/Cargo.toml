@@ -15,6 +15,7 @@ deno_core.workspace = true
 deno_http.workspace = true
 deno_config.workspace = true
 
+base_rt = { version = "0.1.0", path = "../base_rt" }
 http_utils = { version = "0.1.0", path = "../http_utils" }
 event_worker = { version = "0.1.0", path = "../event_worker" }
 

@@ -44,4 +44,5 @@ ort = { git = "https://github.com/pykeio/ort", default-features = false, feature
   "ndarray",
   "half",
   "load-dynamic",
+  "cuda",
 ] }

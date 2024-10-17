@@ -1,4 +1,6 @@
 mod onnx;
+mod session;
+
 use anyhow::anyhow;
 use anyhow::{bail, Error};
 use deno_core::error::AnyError;
@@ -8,9 +10,10 @@ use log::error;
 use ndarray::{Array1, Array2, ArrayView3, Axis, Ix3};
 use ndarray_linalg::norm::{normalize, NormalizeAxis};
 use onnx::ensure_onnx_env_init;
-use ort::{inputs, GraphOptimizationLevel, Session};
+use ort::inputs;
+use session::load_session_from_file;
 use std::cell::RefCell;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
 use tokenizers::Tokenizer;
@@ -37,15 +40,6 @@ struct GteModelRequest {
     result_tx: mpsc::UnboundedSender<Result<Vec<f32>, Error>>,
 }
 
-fn create_session(model_file_path: PathBuf) -> Result<Session, Error> {
-    let session = Session::builder()?
-        .with_optimization_level(GraphOptimizationLevel::Level3)?
-        .with_intra_threads(1)?
-        .commit_from_file(model_file_path)?;
-
-    Ok(session)
-}
-
 fn mean_pool(last_hidden_states: ArrayView3<f32>, attention_mask: ArrayView3<i64>) -> Array2<f32> {
     let masked_hidden_states = last_hidden_states.into_owned() * &attention_mask.mapv(|x| x as f32);
     let sum_hidden_states = masked_hidden_states.sum_axis(Axis(1));
@@ -55,10 +49,6 @@ fn mean_pool(last_hidden_states: ArrayView3<f32>, attention_mask: ArrayView3<i64
 }
 
 fn init_gte(state: &mut OpState) -> Result<(), Error> {
-    if let Some(err) = ensure_onnx_env_init() {
-        return Err(anyhow!("failed to create onnx environment: {err}"));
-    }
-
     let spawner = state.borrow::<V8TaskSpawner>().clone();
     let cross_thread_spawner = state.borrow::<V8CrossThreadTaskSpawner>().clone();
 
@@ -69,7 +59,8 @@ fn init_gte(state: &mut OpState) -> Result<(), Error> {
     state.put::<mpsc::UnboundedSender<GteModelRequest>>(req_tx);
 
     spawner.spawn(move |_| {
-        let session = create_session(Path::new(&models_dir).join("gte-small").join("model.onnx"));
+        let session =
+            load_session_from_file(Path::new(&models_dir).join("gte-small").join("model.onnx"));
 
         if session.is_err() {
             let err = session.as_ref().unwrap_err();
@@ -77,7 +68,7 @@ fn init_gte(state: &mut OpState) -> Result<(), Error> {
             return;
         }
 
-        let session = session.unwrap();
+        let (_, session) = session.unwrap();
         let tokenizer = Tokenizer::from_file(
             Path::new(&models_dir)
                 .join("gte-small")

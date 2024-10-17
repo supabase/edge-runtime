@@ -139,7 +139,7 @@ fn init_gte(state: &mut OpState) -> Result<(), Error> {
                     }?)
                 })?;
 
-                let embeddings = outputs["last_hidden_state"].extract_tensor()?;
+                let embeddings = outputs["last_hidden_state"].try_extract_tensor()?;
                 let embeddings = embeddings.into_dimensionality::<Ix3>()?;
 
                 let result = if do_mean_pooling {

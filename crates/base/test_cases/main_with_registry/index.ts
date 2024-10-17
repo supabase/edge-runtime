@@ -1,3 +1,5 @@
+import { handleRegistryRequest } from "./registry/mod.ts";
+
 console.log('main function started');
 
 Deno.serve(async (req: Request) => {
@@ -5,8 +7,16 @@ Deno.serve(async (req: Request) => {
   const url = new URL(req.url);
   const { pathname } = url;
   const path_parts = pathname.split("/");
-  const service_name = path_parts[1];
-  const maybeEszip = new Uint8Array(await req.arrayBuffer());
+  let service_name = path_parts[1];
+
+  if (req.headers.has('x-service-path')) {
+    service_name = req.headers.get('x-service-path')!;
+  }
+
+  const REGISTRY_PREFIX = '/_internal/registry';
+  if (pathname.startsWith(REGISTRY_PREFIX)) {
+    return await handleRegistryRequest(REGISTRY_PREFIX, req);
+  }
 
   if (!service_name || service_name === "") {
     const error = { msg: "missing function name in request" }
@@ -37,8 +47,7 @@ Deno.serve(async (req: Request) => {
       cpuTimeHardLimitMs,
       noModuleCache,
       importMapPath,
-      envVars,
-      maybeEszip
+      envVars
     });
   }
 

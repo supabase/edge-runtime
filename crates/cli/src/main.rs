@@ -9,7 +9,8 @@ use base::commands::start_server;
 
 use base::rt_worker::worker_pool::{SupervisorPolicy, WorkerPoolPolicy};
 use base::server::{ServerFlags, Tls, WorkerEntrypoints};
-use base::{DecoratorType, InspectorOption};
+use base::utils::path::find_up;
+use base::{CacheSetting, DecoratorType, InspectorOption};
 use clap::ArgMatches;
 use deno_core::url::Url;
 use env::resolve_deno_runtime_env;
@@ -265,6 +266,7 @@ fn main() -> Result<(), anyhow::Error> {
                 let entrypoint_dir_path = entrypoint_script_path.parent().unwrap();
 
                 let mut emitter_factory = EmitterFactory::new();
+
                 let maybe_import_map = load_import_map(import_map_path.clone())
                     .map_err(|e| anyhow!("import map path is invalid ({})", e))?;
                 let mut maybe_import_map_url = None;
@@ -277,6 +279,22 @@ fn main() -> Result<(), anyhow::Error> {
                             .to_string(),
                     );
                 }
+
+                if sub_matches
+                    .get_one::<bool>("disable-module-cache")
+                    .cloned()
+                    .unwrap()
+                {
+                    emitter_factory.set_cache_strategy(CacheSetting::ReloadAll);
+                }
+
+                if let Some(npmrc_path) = find_up(".npmrc", entrypoint_dir_path) {
+                    if npmrc_path.exists() && npmrc_path.is_file() {
+                        emitter_factory.set_npmrc_path(npmrc_path);
+                        emitter_factory.set_npmrc_env_vars(std::env::vars().collect());
+                    }
+                }
+
                 let maybe_checksum_kind = sub_matches
                     .get_one::<EszipV2ChecksumKind>("checksum")
                     .copied()

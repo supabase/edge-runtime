@@ -6,7 +6,7 @@ use deno_config::workspace::{PackageJsonDepResolution, WorkspaceResolver};
 use deno_core::error::AnyError;
 use deno_core::url::Url;
 use deno_core::{FastString, ModuleSpecifier};
-use deno_npm::npm_rc::ResolvedNpmRc;
+use deno_npm::npm_rc::{RegistryConfigWithUrl, ResolvedNpmRc};
 use deno_tls::rustls::RootCertStore;
 use deno_tls::RootCertStoreProvider;
 use futures_util::future::OptionFuture;
@@ -18,7 +18,9 @@ use sb_core::cache::CacheSetting;
 use sb_core::cert::{get_root_cert_store, CaData};
 use sb_core::node::CliCjsCodeAnalyzer;
 use sb_core::util::http_util::HttpClientProvider;
-use sb_eszip_shared::{AsyncEszipDataRead, SOURCE_CODE_ESZIP_KEY, VFS_ESZIP_KEY};
+use sb_eszip_shared::{
+    AsyncEszipDataRead, NPM_RC_SCOPES_KEY, SOURCE_CODE_ESZIP_KEY, VFS_ESZIP_KEY,
+};
 use sb_fs::file_system::DenoCompileFileSystem;
 use sb_fs::{extract_static_files_from_eszip, load_npm_vfs};
 use sb_graph::resolver::{CjsResolutionStore, CliNodeResolver, NpmModuleLoader};
@@ -33,6 +35,7 @@ use sb_npm::{
 };
 use standalone_module_loader::WorkspaceEszip;
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -93,7 +96,36 @@ where
         root_node_modules_path.clone(),
         vec![npm_registry_url.clone()],
     );
+
     let npm_global_cache_dir = npm_cache_dir.get_cache_location();
+    let scopes = if let Some(maybe_scopes) = OptionFuture::<_>::from(
+        eszip
+            .ensure_module(NPM_RC_SCOPES_KEY)
+            .map(|it| async move { it.take_source().await }),
+    )
+    .await
+    .flatten()
+    .map(|it| {
+        rkyv::from_bytes::<HashMap<String, String>>(it.as_ref())
+            .context("failed to deserialize npm scopes data from eszip")
+    }) {
+        maybe_scopes?
+            .into_iter()
+            .map(
+                |(k, v)| -> Result<(String, RegistryConfigWithUrl), AnyError> {
+                    Ok((
+                        k,
+                        RegistryConfigWithUrl {
+                            registry_url: Url::parse(&v).context("failed to parse registry url")?,
+                            config: Default::default(),
+                        },
+                    ))
+                },
+            )
+            .collect::<Result<HashMap<_, _>, _>>()?
+    } else {
+        Default::default()
+    };
 
     let entry_module_source = OptionFuture::<_>::from(
         eszip
@@ -147,7 +179,7 @@ where
                 registry_url: npm_registry_url.clone(),
                 config: Default::default(),
             },
-            scopes: Default::default(),
+            scopes,
             registry_configs: Default::default(),
         }),
     })

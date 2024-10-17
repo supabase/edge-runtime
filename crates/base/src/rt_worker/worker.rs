@@ -1,9 +1,11 @@
 use crate::deno_runtime::DenoRuntime;
 use crate::inspector_server::Inspector;
 use crate::rt_worker::supervisor;
-use crate::rt_worker::utils::{get_event_metadata, parse_worker_conf};
+use crate::rt_worker::utils::{
+    get_event_metadata, parse_worker_conf, send_event_if_event_worker_available,
+};
 use crate::rt_worker::worker_ctx::create_supervisor;
-use crate::utils::send_event_if_event_worker_available;
+
 use anyhow::Error;
 use base_mem_check::MemCheckState;
 use base_rt::error::CloneableError;

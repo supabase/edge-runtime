@@ -5144,6 +5144,7 @@ dependencies = [
  "log",
  "monch",
  "once_cell",
+ "rkyv",
  "sb_core",
  "sb_eszip_shared",
  "sb_fs",

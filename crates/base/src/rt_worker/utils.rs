@@ -1,6 +1,6 @@
-use event_worker::events::{EventMetadata, WorkerEventWithMetadata};
+use event_worker::events::{EventMetadata, WorkerEventWithMetadata, WorkerEvents};
 use sb_workers::context::{UserWorkerMsgs, WorkerRuntimeOpts};
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc::{self, UnboundedSender};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -45,4 +45,14 @@ pub fn get_event_metadata(conf: &WorkerRuntimeOpts) -> EventMetadata {
     }
 
     event_metadata
+}
+
+pub fn send_event_if_event_worker_available(
+    maybe_event_worker: Option<&mpsc::UnboundedSender<WorkerEventWithMetadata>>,
+    event: WorkerEvents,
+    metadata: EventMetadata,
+) {
+    if let Some(event_worker) = maybe_event_worker {
+        let _ = event_worker.send(WorkerEventWithMetadata { event, metadata });
+    }
 }

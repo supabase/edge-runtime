@@ -1,6 +1,8 @@
 // @ts-ignore
 import { STATUS_CODE } from 'https://deno.land/std/http/status.ts';
 
+import { handleRegistryRequest } from './registry/mod.ts';
+
 console.log('main function started');
 
 // log system memory usage every 30s
@@ -62,6 +64,11 @@ Deno.serve(async (req: Request) => {
 
 	// 	return response; // 101 (Switching Protocols)
 	// }
+
+	const REGISTRY_PREFIX = '/_internal/registry';
+	if (pathname.startsWith(REGISTRY_PREFIX)) {
+		return await handleRegistryRequest(REGISTRY_PREFIX, req);
+	}
 
 	const path_parts = pathname.split('/');
 	const service_name = path_parts[1];

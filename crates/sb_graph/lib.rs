@@ -15,8 +15,8 @@ use futures::{AsyncReadExt, AsyncSeekExt};
 use glob::glob;
 use log::error;
 use sb_eszip_shared::{
-    AsyncEszipDataRead, SOURCE_CODE_ESZIP_KEY, STATIC_FILES_ESZIP_KEY, SUPABASE_ESZIP_VERSION,
-    SUPABASE_ESZIP_VERSION_KEY, VFS_ESZIP_KEY,
+    AsyncEszipDataRead, NPM_RC_SCOPES_KEY, SOURCE_CODE_ESZIP_KEY, STATIC_FILES_ESZIP_KEY,
+    SUPABASE_ESZIP_VERSION, SUPABASE_ESZIP_VERSION_KEY, VFS_ESZIP_KEY,
 };
 use sb_fs::{build_vfs, VfsOpts};
 use sb_npm::InnerCliNpmResolverRef;
@@ -733,6 +733,44 @@ where
             ),
         );
     };
+
+    let resolved_npm_rc = emitter_factory.resolved_npm_rc().await?;
+    let modified_scopes = resolved_npm_rc
+        .scopes
+        .iter()
+        .filter_map(|(k, v)| {
+            Some((k.clone(), {
+                let mut url = v.registry_url.clone();
+
+                if url.scheme() != "http" && url.scheme() != "https" {
+                    return None;
+                }
+                if url.port().is_none() && url.path() == "/" {
+                    return None;
+                }
+                if url.set_port(None).is_err() {
+                    return None;
+                }
+                if url.set_host(Some("localhost")).is_err() {
+                    return None;
+                }
+                if url.set_scheme("https").is_err() {
+                    return None;
+                }
+
+                url.to_string()
+            }))
+        })
+        .collect::<HashMap<_, _>>();
+
+    eszip.add_opaque_data(
+        String::from(NPM_RC_SCOPES_KEY),
+        Arc::from(
+            rkyv::to_bytes::<_, 1024>(&modified_scopes)
+                .with_context(|| "cannot serialize vfs data")?
+                .into_boxed_slice(),
+        ),
+    );
 
     Ok(eszip)
 }

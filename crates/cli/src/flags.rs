@@ -249,6 +249,12 @@ fn get_bundle_command() -> Command {
                 .help("Hash function to use when checksum the contents")
                 .value_parser(value_parser!(EszipV2ChecksumKind))
         )
+        .arg(
+            arg!(--"disable-module-cache")
+                .help("Disable using module cache")
+                .default_value("false")
+                .value_parser(FalseyValueParser::new())
+        )
 }
 
 fn get_unbundle_command() -> Command {

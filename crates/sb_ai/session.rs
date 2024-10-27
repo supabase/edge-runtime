@@ -1,10 +1,13 @@
 use deno_core::error::AnyError;
+use deno_core::serde_json;
 use once_cell::sync::Lazy;
+use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::Mutex;
+use std::usize;
 use std::{path::PathBuf, sync::Arc};
 
-use anyhow::{anyhow, Error};
+use anyhow::{anyhow, Context, Error};
 use ort::{
     CPUExecutionProvider, ExecutionProviderDispatch, GraphOptimizationLevel, Session,
     SessionBuilder,
@@ -82,4 +85,29 @@ pub(crate) fn load_session_from_file(
     sessions.insert(session_id.to_owned(), session.clone());
 
     Ok((session_id, session))
+}
+
+pub fn cleanup() -> Result<usize, AnyError> {
+    let mut remove_counter = 0;
+    {
+        let mut guard = SESSIONS.lock().unwrap();
+        let mut to_be_removed = vec![];
+
+        for (key, session) in &mut *guard {
+            if Arc::strong_count(session) > 1 {
+                continue;
+            }
+
+            to_be_removed.push(key.clone());
+        }
+
+        for key in to_be_removed {
+            let old_store = guard.remove(&key);
+            debug_assert!(old_store.is_some());
+
+            remove_counter += 1;
+        }
+    }
+
+    Ok(remove_counter)
 }

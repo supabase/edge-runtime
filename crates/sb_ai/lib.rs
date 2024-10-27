@@ -1,15 +1,13 @@
 mod onnx;
 mod session;
 
-use anyhow::anyhow;
 use anyhow::{bail, Error};
 use deno_core::error::AnyError;
-use deno_core::OpState;
 use deno_core::{op2, V8CrossThreadTaskSpawner, V8TaskSpawner};
+use deno_core::{serde_json, OpState};
 use log::error;
 use ndarray::{Array1, Array2, ArrayView3, Axis, Ix3};
 use ndarray_linalg::norm::{normalize, NormalizeAxis};
-use onnx::ensure_onnx_env_init;
 use ort::inputs;
 use session::load_session_from_file;
 use std::cell::RefCell;
@@ -24,7 +22,11 @@ use tracing::trace_span;
 
 deno_core::extension!(
     sb_ai,
-    ops = [op_sb_ai_run_model, op_sb_ai_init_model],
+    ops = [
+        op_sb_ai_run_model,
+        op_sb_ai_init_model,
+        op_sb_ai_try_cleanup_unused_session
+    ],
     esm_entry_point = "ext:sb_ai/js/ai.js",
     esm = [
         "js/ai.js",
@@ -227,4 +229,10 @@ pub async fn op_sb_ai_run_model(
     } else {
         bail!("model not supported")
     }
+}
+
+#[op2(fast)]
+#[bigint]
+pub fn op_sb_ai_try_cleanup_unused_session() -> Result<usize, anyhow::Error> {
+    session::cleanup()
 }

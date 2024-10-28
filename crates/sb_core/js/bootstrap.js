@@ -405,29 +405,6 @@ const DENIED_DENO_FS_API_LIST = ObjectKeys(fsVars)
 		{}
 	);
 
-const PATCH_DENO_API_LIST = {
-	...DENIED_DENO_FS_API_LIST,
-
-	'cwd': true,
-
-	'open': true,
-	'create': true,
-	'remove': true,
-	'writeFile': true,
-	'writeTextFile': true,
-	'readFile': true,
-	'readTextFile': true,
-
-	'kill': MOCK_FN,
-	'exit': MOCK_FN,
-	'addSignalListener': MOCK_FN,
-	'removeSignalListener': MOCK_FN,
-
-	// TODO: use a non-hardcoded path
-	'execPath': () => '/bin/edge-runtime',
-	'memoryUsage': () => ops.op_runtime_memory_usage(),
-};
-
 globalThis.bootstrapSBEdge = (opts, extraCtx) => {
 	globalThis_ = globalThis;
 
@@ -533,6 +510,34 @@ globalThis.bootstrapSBEdge = (opts, extraCtx) => {
 
 	if (isUserWorker) {
 		delete globalThis.EdgeRuntime;
+
+		const PATCH_DENO_API_LIST = {
+			...DENIED_DENO_FS_API_LIST,
+
+			'cwd': true,
+
+			'open': true,
+			'create': true,
+			'remove': true,
+			'writeFile': true,
+			'writeTextFile': true,
+			'readFile': true,
+			'readTextFile': true,
+
+			'kill': MOCK_FN,
+			'exit': MOCK_FN,
+			'addSignalListener': MOCK_FN,
+			'removeSignalListener': MOCK_FN,
+
+			// TODO: use a non-hardcoded path
+			'execPath': () => '/bin/edge-runtime',
+			'memoryUsage': () => ops.op_runtime_memory_usage(),
+		};
+
+		if (extraCtx?.useSyncFileAPI) {
+			PATCH_DENO_API_LIST['readFileSync'] = true;
+			PATCH_DENO_API_LIST['readTextFileSync'] = true;
+		}
 
 		// override console
 		ObjectDefineProperties(globalThis, {

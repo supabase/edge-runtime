@@ -1330,6 +1330,16 @@ mod test {
         }
     }
 
+    struct WithSyncFileAPI;
+
+    impl GetRuntimeContext for WithSyncFileAPI {
+        fn get_runtime_context() -> impl Serialize {
+            serde_json::json!({
+                "useSyncFileAPI": true,
+            })
+        }
+    }
+
     #[tokio::test]
     #[serial]
     async fn test_module_code_no_eszip() {
@@ -1542,7 +1552,11 @@ mod test {
     #[tokio::test]
     #[serial]
     async fn test_main_rt_fs() {
-        let mut main_rt = RuntimeBuilder::new().set_std_env().build().await;
+        let mut main_rt = RuntimeBuilder::new()
+            .set_std_env()
+            .set_context::<WithSyncFileAPI>()
+            .build()
+            .await;
 
         let global_value_deno_read_file_script = main_rt
             .js_runtime
@@ -1638,6 +1652,7 @@ mod test {
         let mut user_rt = RuntimeBuilder::new()
             .set_worker_runtime_conf(WorkerRuntimeOpts::UserWorker(Default::default()))
             .add_static_pattern("./test_cases/**/*.md")
+            .set_context::<WithSyncFileAPI>()
             .build()
             .await;
 
@@ -1934,6 +1949,7 @@ mod test {
             worker_timeout_ms,
             static_patterns,
         )
+        .set_context::<WithSyncFileAPI>()
         .build()
         .await;
 
@@ -2032,6 +2048,7 @@ mod test {
         impl GetRuntimeContext for Ctx {
             fn get_runtime_context() -> impl Serialize {
                 serde_json::json!({
+                    "useSyncFileAPI": true,
                     "shouldBootstrapMockFnThrowError": true,
                 })
             }

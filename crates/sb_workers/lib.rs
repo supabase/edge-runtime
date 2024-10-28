@@ -26,10 +26,10 @@ use hyper_v014::{Body, Method, Request};
 use log::error;
 use once_cell::sync::Lazy;
 use sb_core::conn_sync::ConnWatcher;
+use sb_fs::s3_fs::S3FsConfig;
 use sb_graph::{DecoratorType, EszipPayloadKind};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::rc::Rc;
@@ -82,6 +82,7 @@ pub struct UserWorkerCreateOptions {
     cpu_time_hard_limit_ms: Option<u64>,
 
     decorator_type: Option<DecoratorType>,
+    s3_fs_config: Option<S3FsConfig>,
     jsx_import_source_config: Option<JsxImportBaseConfig>,
 }
 
@@ -117,6 +118,7 @@ pub async fn op_user_worker_create(
             cpu_time_hard_limit_ms,
 
             decorator_type: maybe_decorator,
+            s3_fs_config: maybe_s3_fs_config,
             jsx_import_source_config,
         } = opts;
 
@@ -158,6 +160,7 @@ pub async fn op_user_worker_create(
             maybe_module_code: maybe_module_code.map(String::into),
             maybe_entrypoint,
             maybe_decorator,
+            maybe_s3_fs_config,
             maybe_jsx_import_source_config: jsx_import_source_config
                 .map(|it| -> Result<_, AnyError> {
                     Ok(JsxImportSourceConfig {

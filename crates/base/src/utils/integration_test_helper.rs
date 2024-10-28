@@ -241,6 +241,7 @@ impl TestBedBuilder {
                 event_worker_metric_src: None,
             }),
             static_patterns: vec![],
+            maybe_s3_fs_config: None,
             maybe_jsx_import_source_config: None,
         };
 

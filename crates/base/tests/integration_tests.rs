@@ -212,6 +212,7 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
             event_worker_metric_src: None,
         }),
         static_patterns: vec![],
+        maybe_s3_fs_config: None,
         maybe_jsx_import_source_config: None,
     };
 
@@ -370,6 +371,7 @@ async fn test_main_worker_boot_error() {
             event_worker_metric_src: None,
         }),
         static_patterns: vec![],
+        maybe_s3_fs_config: None,
         maybe_jsx_import_source_config: None,
     };
 
@@ -495,6 +497,7 @@ async fn test_main_worker_user_worker_mod_evaluate_exception() {
             event_worker_metric_src: None,
         }),
         static_patterns: vec![],
+        maybe_s3_fs_config: None,
         maybe_jsx_import_source_config: None,
     };
 
@@ -873,6 +876,7 @@ async fn test_worker_boot_invalid_imports() {
         maybe_module_code: None,
         conf: WorkerRuntimeOpts::UserWorker(test_user_runtime_opts()),
         static_patterns: vec![],
+        maybe_s3_fs_config: None,
         maybe_jsx_import_source_config: None,
     };
 
@@ -900,6 +904,7 @@ async fn test_worker_boot_with_0_byte_eszip() {
         maybe_module_code: None,
         conf: WorkerRuntimeOpts::UserWorker(test_user_runtime_opts()),
         static_patterns: vec![],
+        maybe_s3_fs_config: None,
         maybe_jsx_import_source_config: None,
     };
 
@@ -925,6 +930,7 @@ async fn test_worker_boot_with_invalid_entrypoint() {
         maybe_module_code: None,
         conf: WorkerRuntimeOpts::UserWorker(test_user_runtime_opts()),
         static_patterns: vec![],
+        maybe_s3_fs_config: None,
         maybe_jsx_import_source_config: None,
     };
 

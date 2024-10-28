@@ -14,9 +14,12 @@ use url::Url;
 use virtual_fs::VfsEntry;
 
 pub mod file_system;
-mod rt;
+pub mod prefix_fs;
+pub mod s3_fs;
 pub mod static_fs;
 pub mod virtual_fs;
+
+mod rt;
 
 pub struct VfsOpts {
     pub npm_resolver: Arc<dyn CliNpmResolver>,

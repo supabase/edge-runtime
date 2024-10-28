@@ -6,6 +6,7 @@ use event_worker::events::{UncaughtExceptionEvent, WorkerEventWithMetadata};
 use hyper_v014::{Body, Request, Response};
 use sb_core::util::sync::AtomicFlag;
 use sb_core::{MetricSource, SharedMetricSource};
+use sb_fs::s3_fs::S3FsConfig;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicUsize;
 use std::{collections::HashMap, sync::Arc};
@@ -205,7 +206,7 @@ pub struct WorkerContextInitOpts {
     pub maybe_module_code: Option<FastString>,
     pub maybe_entrypoint: Option<String>,
     pub maybe_decorator: Option<DecoratorType>,
-    pub static_patterns: Vec<String>,
+    pub maybe_s3_fs_config: Option<S3FsConfig>,
     pub maybe_jsx_import_source_config: Option<JsxImportSourceConfig>,
 }
 

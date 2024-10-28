@@ -4,7 +4,6 @@ chown
 chownSync
 copyFile
 copyFileSync
-create
 createSync
 fdatasync
 fdatasyncSync
@@ -30,7 +29,6 @@ makeTempFile
 makeTempFileSync
 mkdir
 mkdirSync
-open
 openSync
 readDir
 readDirSync
@@ -38,7 +36,6 @@ readLink
 readLinkSync
 realPath
 realPathSync
-remove
 removeSync
 rename
 renameSync
@@ -52,9 +49,7 @@ umask
 utime
 utimeSync
 watchFs
-writeFile
 writeFileSync
-writeTextFile
 writeTextFileSync
 chdir
 dlopen

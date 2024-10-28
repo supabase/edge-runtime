@@ -409,10 +409,14 @@ const PATCH_DENO_API_LIST = {
 	...DENIED_DENO_FS_API_LIST,
 
 	'cwd': true,
+
+	'open': true,
+	'create': true,
+	'remove': true,
+	'writeFile': true,
+	'writeTextFile': true,
 	'readFile': true,
-	'readFileSync': true,
 	'readTextFile': true,
-	'readTextFileSync': true,
 
 	'kill': MOCK_FN,
 	'exit': MOCK_FN,

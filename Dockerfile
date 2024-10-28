@@ -26,20 +26,53 @@ RUN objcopy --strip-debug \
   --add-gnu-debuglink=/root/edge-runtime.debug \
   /root/edge-runtime
 
-RUN ./scripts/install_onnx.sh $ONNXRUNTIME_VERSION $TARGETPLATFORM /root/onnxruntime
-RUN ./scripts/download_models.sh
 
-FROM debian:bookworm-slim
+# Application runtime without ONNX
+FROM debian:bookworm-slim as edge-runtime-base
 
 RUN apt-get update && apt-get install -y libssl-dev && rm -rf /var/lib/apt/lists/*
 RUN apt-get remove -y perl && apt-get autoremove -y
 
 COPY --from=builder /root/edge-runtime /usr/local/bin/edge-runtime
 COPY --from=builder /root/edge-runtime.debug /usr/local/bin/edge-runtime.debug
-COPY --from=builder /root/onnxruntime /usr/local/bin/onnxruntime
-COPY --from=builder /usr/src/edge-runtime/models /etc/sb_ai/models
 
 ENV ORT_DYLIB_PATH=/usr/local/bin/onnxruntime/lib/libonnxruntime.so
-ENV SB_AI_MODELS_DIR=/etc/sb_ai/models
+
+
+# ONNX Runtime provider
+# Application runtime with ONNX
+FROM builder as ort
+RUN ./scripts/install_onnx.sh $ONNXRUNTIME_VERSION $TARGETPLATFORM /root/onnxruntime
+
+
+# ONNX Runtime CUDA provider
+# Application runtime with ONNX CUDA
+FROM builder as ort-cuda
+RUN ./scripts/install_onnx.sh $ONNXRUNTIME_VERSION $TARGETPLATFORM /root/onnxruntime --gpu
+
+
+FROM builder as preload-models
+RUN ./scripts/download_models.sh
+
+
+# With CUDA
+FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04 as edge-runtime-cuda
+
+COPY --from=edge-runtime-base /usr/local/bin/edge-runtime /usr/local/bin/edge-runtime
+COPY --from=builder /root/edge-runtime.debug /usr/local/bin/edge-runtime.debug
+COPY --from=ort-cuda /root/onnxruntime /usr/local/bin/onnxruntime
+COPY --from=preload-models /usr/src/edge-runtime/models /etc/sb_ai/models
+
+ENV ORT_DYLIB_PATH=/usr/local/bin/onnxruntime/lib/libonnxruntime.so
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
+ENTRYPOINT ["edge-runtime"]
+
+
+# Base
+FROM edge-runtime-base as edge-runtime
+COPY --from=ort /root/onnxruntime /usr/local/bin/onnxruntime
+COPY --from=preload-models /usr/src/edge-runtime/models /etc/sb_ai/models
 
 ENTRYPOINT ["edge-runtime"]

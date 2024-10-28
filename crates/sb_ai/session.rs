@@ -3,11 +3,12 @@ use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::{path::PathBuf, sync::Arc};
+use tracing::debug;
 
 use anyhow::{anyhow, Error};
 use ort::{
-    CPUExecutionProvider, ExecutionProviderDispatch, GraphOptimizationLevel, Session,
-    SessionBuilder,
+    CPUExecutionProvider, CUDAExecutionProvider, ExecutionProvider, ExecutionProviderDispatch,
+    GraphOptimizationLevel, Session, SessionBuilder,
 };
 
 use crate::onnx::ensure_onnx_env_init;
@@ -49,6 +50,24 @@ fn cpu_execution_provider() -> Box<dyn Iterator<Item = ExecutionProviderDispatch
     )
 }
 
+fn cuda_execution_provider() -> Box<dyn Iterator<Item = ExecutionProviderDispatch>> {
+    let cuda = CUDAExecutionProvider::default();
+    let providers = match cuda.is_available() {
+        Ok(is_cuda_available) => {
+            debug!(cuda_support = is_cuda_available);
+            if is_cuda_available {
+                vec![cuda.build()]
+            } else {
+                vec![]
+            }
+        }
+
+        _ => vec![],
+    };
+
+    Box::new(providers.into_iter().chain(cpu_execution_provider()))
+}
+
 fn create_session(model_bytes: &[u8]) -> Result<Arc<Session>, Error> {
     let session = {
         if let Some(err) = ensure_onnx_env_init() {
@@ -56,7 +75,7 @@ fn create_session(model_bytes: &[u8]) -> Result<Arc<Session>, Error> {
         }
 
         get_session_builder()?
-            .with_execution_providers(cpu_execution_provider())?
+            .with_execution_providers(cuda_execution_provider())?
             .commit_from_memory(model_bytes)?
     };
 

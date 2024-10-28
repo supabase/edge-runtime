@@ -66,18 +66,21 @@ pub struct UserWorkerRuntimeOpts {
     pub force_create: bool,
     pub net_access_disabled: bool,
     pub allow_net: Option<Vec<String>>,
-    pub custom_module_root: Option<String>,
     pub allow_remote_modules: bool,
+    pub custom_module_root: Option<String>,
 }
 
 impl Default for UserWorkerRuntimeOpts {
     fn default() -> UserWorkerRuntimeOpts {
         UserWorkerRuntimeOpts {
-            memory_limit_mb: 512,
-            worker_timeout_ms: 5 * 60 * 1000,
-            low_memory_multiplier: 5,
-            cpu_time_soft_limit_ms: 50,
-            cpu_time_hard_limit_ms: 100,
+            memory_limit_mb: env!("SUPABASE_RESOURCE_LIMIT_MEM_MB").parse().unwrap(),
+            low_memory_multiplier: env!("SUPABASE_RESOURCE_LIMIT_LOW_MEM_MULTIPLIER")
+                .parse()
+                .unwrap(),
+
+            worker_timeout_ms: env!("SUPABASE_RESOURCE_LIMIT_TIMEOUT_MS").parse().unwrap(),
+            cpu_time_soft_limit_ms: env!("SUPABASE_RESOURCE_LIMIT_CPU_SOFT_MS").parse().unwrap(),
+            cpu_time_hard_limit_ms: env!("SUPABASE_RESOURCE_LIMIT_CPU_HARD_MS").parse().unwrap(),
 
             force_create: false,
             key: None,
@@ -187,14 +190,17 @@ impl Default for Timing {
     }
 }
 
+// TODO: Refactor this. Some members remove the `Default` trait bounds,
+// increasing complexity.
 #[derive(Debug)]
 pub struct WorkerContextInitOpts {
     pub service_path: PathBuf,
     pub no_module_cache: bool,
-    pub import_map_path: Option<String>,
     pub env_vars: HashMap<String, String>,
-    pub timing: Option<Timing>,
     pub conf: WorkerRuntimeOpts,
+    pub static_patterns: Vec<String>,
+    pub import_map_path: Option<String>,
+    pub timing: Option<Timing>,
     pub maybe_eszip: Option<EszipPayloadKind>,
     pub maybe_module_code: Option<FastString>,
     pub maybe_entrypoint: Option<String>,

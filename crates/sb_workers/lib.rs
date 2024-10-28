@@ -24,6 +24,7 @@ use hyper_v014::header::{HeaderName, HeaderValue, CONTENT_LENGTH};
 use hyper_v014::upgrade::OnUpgrade;
 use hyper_v014::{Body, Method, Request};
 use log::error;
+use once_cell::sync::Lazy;
 use sb_core::conn_sync::ConnWatcher;
 use sb_graph::{DecoratorType, EszipPayloadKind};
 use serde::{Deserialize, Serialize};
@@ -60,26 +61,28 @@ pub struct JsxImportBaseConfig {
 #[serde(rename_all = "camelCase")]
 pub struct UserWorkerCreateOptions {
     service_path: String,
+    env_vars: Vec<(String, String)>,
     no_module_cache: bool,
     import_map_path: Option<String>,
-    env_vars: Vec<(String, String)>,
+
     force_create: bool,
-    allow_remote_modules: bool,
     net_access_disabled: bool,
     allow_net: Option<Vec<String>>,
+    allow_remote_modules: bool,
     custom_module_root: Option<String>,
+
     maybe_eszip: Option<JsBuffer>,
     maybe_entrypoint: Option<String>,
     maybe_module_code: Option<String>,
 
-    memory_limit_mb: u64,
-    low_memory_multiplier: u64,
-    worker_timeout_ms: u64,
-    cpu_time_soft_limit_ms: u64,
-    cpu_time_hard_limit_ms: u64,
+    memory_limit_mb: Option<u64>,
+    low_memory_multiplier: Option<u64>,
+    worker_timeout_ms: Option<u64>,
+    cpu_time_soft_limit_ms: Option<u64>,
+    cpu_time_hard_limit_ms: Option<u64>,
 
-    jsx_import_source_config: Option<JsxImportBaseConfig>,
     decorator_type: Option<DecoratorType>,
+    jsx_import_source_config: Option<JsxImportBaseConfig>,
 }
 
 #[op2(async)]
@@ -95,9 +98,9 @@ pub async fn op_user_worker_create(
 
         let UserWorkerCreateOptions {
             service_path,
+            env_vars,
             no_module_cache,
             import_map_path,
-            env_vars,
             force_create,
             net_access_disabled,
             allow_net,
@@ -112,79 +115,83 @@ pub async fn op_user_worker_create(
             worker_timeout_ms,
             cpu_time_soft_limit_ms,
             cpu_time_hard_limit_ms,
-            jsx_import_source_config,
+
             decorator_type: maybe_decorator,
+            jsx_import_source_config,
         } = opts;
-
-        let mut env_vars_map = HashMap::new();
-        for (key, value) in env_vars {
-            env_vars_map.insert(key, value);
-        }
-
-        let jsx_import_conf = {
-            if let Some(jsx_import_source_config) = jsx_import_source_config {
-                Some(JsxImportSourceConfig {
-                    default_specifier: jsx_import_source_config.default_specifier,
-                    default_types_specifier: None,
-                    module: jsx_import_source_config.module,
-                    base_url: {
-                        let main = op_state.borrow::<ModuleSpecifier>().to_string();
-                        deno_core::resolve_url_or_path(&main, std::env::current_dir()?.as_path())?
-                    },
-                })
-            } else {
-                None
-            }
-        };
 
         let user_worker_options = WorkerContextInitOpts {
             service_path: PathBuf::from(service_path),
             no_module_cache,
-            import_map_path,
-            env_vars: env_vars_map,
-            timing: None,
-            maybe_eszip: maybe_eszip.map(EszipPayloadKind::JsBufferKind),
-            maybe_entrypoint,
-            maybe_module_code: maybe_module_code.map(|v| v.into()),
-            maybe_decorator,
-            conf: WorkerRuntimeOpts::UserWorker(UserWorkerRuntimeOpts {
-                memory_limit_mb,
-                low_memory_multiplier,
-                worker_timeout_ms,
-                cpu_time_soft_limit_ms,
-                cpu_time_hard_limit_ms,
-                force_create,
-                net_access_disabled,
-                allow_net,
-                allow_remote_modules,
-                custom_module_root,
-                key: None,
-                pool_msg_tx: None,
-                events_msg_tx: None,
-                cancel: None,
-                service_path: None,
+
+            env_vars: env_vars.into_iter().collect(),
+            conf: WorkerRuntimeOpts::UserWorker({
+                static DEFAULT: Lazy<UserWorkerRuntimeOpts> = Lazy::new(Default::default);
+
+                UserWorkerRuntimeOpts {
+                    memory_limit_mb: memory_limit_mb.unwrap_or(DEFAULT.memory_limit_mb),
+                    low_memory_multiplier: low_memory_multiplier
+                        .unwrap_or(DEFAULT.low_memory_multiplier),
+
+                    worker_timeout_ms: worker_timeout_ms.unwrap_or(DEFAULT.worker_timeout_ms),
+                    cpu_time_soft_limit_ms: cpu_time_soft_limit_ms
+                        .unwrap_or(DEFAULT.cpu_time_soft_limit_ms),
+
+                    cpu_time_hard_limit_ms: cpu_time_hard_limit_ms
+                        .unwrap_or(DEFAULT.cpu_time_hard_limit_ms),
+
+                    force_create,
+                    net_access_disabled,
+                    allow_net,
+                    allow_remote_modules,
+                    custom_module_root,
+
+                    ..Default::default()
+                }
             }),
+
             static_patterns: vec![],
-            maybe_jsx_import_source_config: jsx_import_conf,
+            import_map_path,
+            timing: None,
+
+            maybe_eszip: maybe_eszip.map(EszipPayloadKind::JsBufferKind),
+            maybe_module_code: maybe_module_code.map(String::into),
+            maybe_entrypoint,
+            maybe_decorator,
+            maybe_jsx_import_source_config: jsx_import_source_config
+                .map(|it| -> Result<_, AnyError> {
+                    Ok(JsxImportSourceConfig {
+                        default_specifier: it.default_specifier,
+                        default_types_specifier: None,
+                        module: it.module,
+                        base_url: {
+                            deno_core::resolve_url_or_path(
+                                // FIXME: The type alias does not have a unique
+                                // type id and should not be used here.
+                                op_state.borrow::<ModuleSpecifier>().as_str(),
+                                std::env::current_dir()?.as_path(),
+                            )?
+                        },
+                    })
+                })
+                .transpose()?,
         };
 
         tx.send(UserWorkerMsgs::Create(user_worker_options, result_tx))?;
         result_rx
     };
 
-    let result = result_rx.await;
-    if result.is_err() {
-        return Err(custom_error(
+    match result_rx.await {
+        Err(err) => Err(custom_error(
             "InvalidWorkerCreation",
-            "failed to create worker",
-        ));
-    }
+            format!(
+                "{:#}",
+                AnyError::from(err).context("failed to create worker")
+            ),
+        )),
 
-    // channel returns a Result<T, E>, we need to unwrap it first;
-    let result = result.unwrap();
-    match result {
-        Err(e) => Err(custom_error("InvalidWorkerCreation", format!("{e:#}"))),
-        Ok(res) => Ok(res.key.to_string()),
+        Ok(Err(err)) => Err(custom_error("InvalidWorkerCreation", format!("{err:#}"))),
+        Ok(Ok(v)) => Ok(v.key.to_string()),
     }
 }
 

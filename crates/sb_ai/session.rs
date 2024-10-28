@@ -2,7 +2,6 @@ use deno_core::error::AnyError;
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::sync::Mutex;
-use std::usize;
 use std::{path::PathBuf, sync::Arc};
 
 use anyhow::{anyhow, Error};

@@ -346,17 +346,7 @@ impl deno_fs::FileSystem for S3Fs {
             }
         }
 
-        if !errors.is_empty() {
-            let combined_message = errors
-                .into_iter()
-                .map(|it| it.to_string())
-                .collect::<Vec<_>>()
-                .join("\n");
-
-            return Err(io::Error::other(combined_message).into());
-        }
-
-        Ok(())
+        to_combined_message(errors)
     }
 
     fn chmod_sync(&self, _path: &Path, _mode: u32) -> FsResult<()> {
@@ -455,24 +445,14 @@ impl deno_fs::FileSystem for S3Fs {
                 }
             }
 
-            if !errors.is_empty() {
-                let combined_message = errors
-                    .into_iter()
-                    .map(|it| {
-                        format!(
-                            "{}({}): {}",
-                            it.key().unwrap_or("null"),
-                            it.code().unwrap_or("unknown"),
-                            it.message().unwrap_or("unknown error message")
-                        )
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n");
-
-                return Err(io::Error::other(combined_message).into());
-            }
-
-            return Ok(());
+            return to_combined_message(errors.into_iter().map(|it| {
+                format!(
+                    "{}({}): {}",
+                    it.key().unwrap_or("null"),
+                    it.code().unwrap_or("unknown"),
+                    it.message().unwrap_or("unknown error message")
+                )
+            }));
         }
 
         let _resp = self
@@ -807,6 +787,46 @@ struct S3MultiPartUploadMethod {
     tasks: FuturesUnordered<BoxedUploadPartTask>,
 }
 
+impl S3MultiPartUploadMethod {
+    async fn sync(&mut self) -> FsResult<()> {
+        let mut errors = vec![];
+
+        while let Some(result) = self.tasks.next().await {
+            match result {
+                Err(err) => errors.push(S3WriteErrorSubject::Join(err)),
+                Ok((part_idx, resp)) => match resp {
+                    Ok(output) => {
+                        let Some(e_tag) = output.e_tag else {
+                            errors.push(S3WriteErrorSubject::MultiPartUploadTask((
+                                part_idx,
+                                io::Error::other(
+                                    "no e-tag field was found in upload part response",
+                                ),
+                            )));
+
+                            continue;
+                        };
+
+                        self.parts.push(
+                            CompletedPart::builder()
+                                .e_tag(e_tag)
+                                .part_number(part_idx)
+                                .build(),
+                        );
+                    }
+
+                    Err(err) => errors.push(S3WriteErrorSubject::MultiPartUploadTask((
+                        part_idx,
+                        io::Error::other(err),
+                    ))),
+                },
+            }
+        }
+
+        to_combined_message(errors)
+    }
+}
+
 #[derive(Debug, EnumAsInner)]
 enum S3WriteUploadMethod {
     PutObject,
@@ -815,50 +835,8 @@ enum S3WriteUploadMethod {
 
 impl S3WriteUploadMethod {
     async fn sync(&mut self) -> FsResult<()> {
-        let mut errors = vec![];
-
         if let Self::MultiPartUpload(multi_part) = self {
-            while let Some(result) = multi_part.tasks.next().await {
-                match result {
-                    Err(err) => errors.push(S3WriteErrorSubject::Join(err)),
-                    Ok((part_idx, resp)) => match resp {
-                        Ok(output) => {
-                            let Some(e_tag) = output.e_tag else {
-                                errors.push(S3WriteErrorSubject::MultiPartUploadTask((
-                                    part_idx,
-                                    io::Error::other(
-                                        "no e-tag field was found in upload part response",
-                                    ),
-                                )));
-
-                                continue;
-                            };
-
-                            multi_part.parts.push(
-                                CompletedPart::builder()
-                                    .e_tag(e_tag)
-                                    .part_number(part_idx)
-                                    .build(),
-                            );
-                        }
-
-                        Err(err) => errors.push(S3WriteErrorSubject::MultiPartUploadTask((
-                            part_idx,
-                            io::Error::other(err),
-                        ))),
-                    },
-                }
-            }
-        }
-
-        if !errors.is_empty() {
-            let combined_message = errors
-                .into_iter()
-                .map(|it| it.to_string())
-                .collect::<Vec<_>>()
-                .join("\n");
-
-            return Err(io::Error::other(combined_message).into());
+            multi_part.sync().await?
         }
 
         Ok(())
@@ -873,6 +851,48 @@ impl S3WriteUploadMethod {
     ) -> FsResult<()> {
         match self {
             Self::MultiPartUpload(multi_part) => {
+                if state.buf.cursor.get_ref().position() > 0 {
+                    state.buf.raw.flush_async()?;
+                    multi_part.tasks.push(
+                        tokio::task::spawn({
+                            let upload_id = multi_part.upload_id.clone();
+                            let client = fs.client.clone();
+                            let bucket_name = bucket_name.clone();
+                            let key = key.clone();
+                            let part_idx = multi_part.recent_part_idx;
+                            let data = unsafe {
+                                slice::from_raw_parts(
+                                    state.buf.raw.as_ptr(),
+                                    state.buf.cursor.get_ref().position() as usize,
+                                )
+                            };
+
+                            multi_part.recent_part_idx += 1;
+
+                            async move {
+                                client
+                                    .upload_part()
+                                    .bucket(bucket_name)
+                                    .key(key)
+                                    .upload_id(upload_id)
+                                    .part_number(part_idx)
+                                    .body(ByteStream::new(data.into()))
+                                    .send()
+                                    .map(|it| (part_idx, it))
+                                    .await
+                            }
+                            .instrument(debug_span!(
+                                "upload part",
+                                last = true,
+                                part = part_idx
+                            ))
+                        })
+                        .boxed(),
+                    );
+
+                    multi_part.sync().await?;
+                }
+
                 if multi_part.parts.is_empty() {
                     return Ok(());
                 }
@@ -1398,4 +1418,19 @@ fn to_msec(maybe_time: DateTime) -> Option<u64> {
         ),
         Err(_) => None,
     }
+}
+
+fn to_combined_message<I, E>(errors: I) -> FsResult<()>
+where
+    I: IntoIterator<Item = E>,
+    E: ToString,
+{
+    let iter = errors.into_iter();
+    let messages = iter.map(|err| err.to_string()).collect::<Vec<_>>();
+
+    if messages.is_empty() {
+        return Ok(());
+    }
+
+    Err(io::Error::other(messages.join("\n")).into())
 }

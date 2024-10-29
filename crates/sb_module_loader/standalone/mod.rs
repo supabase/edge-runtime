@@ -36,7 +36,7 @@ use sb_npm::{
 use standalone_module_loader::WorkspaceEszip;
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -87,7 +87,12 @@ where
 
     // use a dummy npm registry url
     let npm_registry_url = ModuleSpecifier::parse("https://localhost/").unwrap();
-    let root_path = std::env::temp_dir().join(format!("sb-compile-{}", current_exe_name));
+    let root_path = if cfg!(target_family = "unix") {
+        PathBuf::from("/var/tmp")
+    } else {
+        std::env::temp_dir()
+    }
+    .join(format!("sb-compile-{}", current_exe_name));
 
     let root_dir_url = ModuleSpecifier::from_directory_path(&root_path).unwrap();
     let root_node_modules_path = root_path.join("node_modules");

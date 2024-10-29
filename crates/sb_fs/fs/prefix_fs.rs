@@ -768,4 +768,155 @@ where
             Err(FsError::NotSupported)
         }
     }
+
+    fn write_file_sync(
+        &self,
+        path: &Path,
+        options: OpenOptions,
+        access_check: Option<AccessCheckCb>,
+        data: &[u8],
+    ) -> FsResult<()> {
+        if path.starts_with(&self.prefix) {
+            self.fs.write_file_sync(
+                path.strip_prefix(&self.prefix).unwrap(),
+                options,
+                access_check,
+                data,
+            )
+        } else {
+            self.base_fs
+                .as_ref()
+                .map(|it| it.write_file_sync(path, options, access_check, data))
+                .unwrap_or_else(|| Err(FsError::NotSupported))
+        }
+    }
+
+    async fn write_file_async<'a>(
+        &'a self,
+        path: PathBuf,
+        options: OpenOptions,
+        access_check: Option<AccessCheckCb<'a>>,
+        data: Vec<u8>,
+    ) -> FsResult<()> {
+        if path.starts_with(&self.prefix) {
+            self.fs
+                .write_file_async(
+                    path.strip_prefix(&self.prefix).unwrap().to_owned(),
+                    options,
+                    access_check,
+                    data,
+                )
+                .await
+        } else if let Some(fs) = self.base_fs.as_ref() {
+            fs.write_file_async(path, options, access_check, data).await
+        } else {
+            Err(FsError::NotSupported)
+        }
+    }
+
+    fn read_file_sync(
+        &self,
+        path: &Path,
+        access_check: Option<AccessCheckCb>,
+    ) -> FsResult<Vec<u8>> {
+        if path.starts_with(&self.prefix) {
+            self.fs
+                .read_file_sync(path.strip_prefix(&self.prefix).unwrap(), access_check)
+        } else {
+            self.base_fs
+                .as_ref()
+                .map(|it| it.read_file_sync(path, access_check))
+                .unwrap_or_else(|| Err(FsError::NotSupported))
+        }
+    }
+
+    async fn read_file_async<'a>(
+        &'a self,
+        path: PathBuf,
+        access_check: Option<AccessCheckCb<'a>>,
+    ) -> FsResult<Vec<u8>> {
+        if path.starts_with(&self.prefix) {
+            self.fs
+                .read_file_async(
+                    path.strip_prefix(&self.prefix).unwrap().to_owned(),
+                    access_check,
+                )
+                .await
+        } else if let Some(fs) = self.base_fs.as_ref() {
+            fs.read_file_async(path, access_check).await
+        } else {
+            Err(FsError::NotSupported)
+        }
+    }
+
+    fn is_file_sync(&self, path: &Path) -> bool {
+        if path.starts_with(&self.prefix) {
+            self.fs
+                .is_file_sync(path.strip_prefix(&self.prefix).unwrap())
+        } else {
+            self.base_fs
+                .as_ref()
+                .map(|it| it.is_file_sync(path))
+                .unwrap_or_default()
+        }
+    }
+
+    fn is_dir_sync(&self, path: &Path) -> bool {
+        if path.starts_with(&self.prefix) {
+            self.fs
+                .is_dir_sync(path.strip_prefix(&self.prefix).unwrap())
+        } else {
+            self.base_fs
+                .as_ref()
+                .map(|it| it.is_dir_sync(path))
+                .unwrap_or_default()
+        }
+    }
+
+    fn exists_sync(&self, path: &Path) -> bool {
+        if path.starts_with(&self.prefix) {
+            self.fs
+                .exists_sync(path.strip_prefix(&self.prefix).unwrap())
+        } else {
+            self.base_fs
+                .as_ref()
+                .map(|it| it.exists_sync(path))
+                .unwrap_or_default()
+        }
+    }
+
+    fn read_text_file_lossy_sync(
+        &self,
+        path: &Path,
+        access_check: Option<AccessCheckCb>,
+    ) -> FsResult<String> {
+        if path.starts_with(&self.prefix) {
+            self.fs
+                .read_text_file_lossy_sync(path.strip_prefix(&self.prefix).unwrap(), access_check)
+        } else {
+            self.base_fs
+                .as_ref()
+                .map(|it| it.read_text_file_lossy_sync(path, access_check))
+                .unwrap_or_else(|| Err(FsError::NotSupported))
+        }
+    }
+
+    async fn read_text_file_lossy_async<'a>(
+        &'a self,
+        path: PathBuf,
+        access_check: Option<AccessCheckCb<'a>>,
+    ) -> FsResult<String> {
+        if path.starts_with(&self.prefix) {
+            self.fs
+                .read_text_file_lossy_async(
+                    path.strip_prefix(&self.prefix).unwrap().to_owned(),
+                    access_check,
+                )
+                .await
+        } else if let Some(fs) = self.base_fs.as_ref() {
+            fs.read_text_file_lossy_async(path, access_check).await
+        } else {
+            Err(FsError::NotSupported)
+        }
+    }
 }

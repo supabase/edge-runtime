@@ -545,7 +545,7 @@ mod test {
 
     fn get_tmp_fs() -> TmpFs {
         TmpFsConfig {
-            prefix: Some(format!("meowmeow")),
+            prefix: Some("meowmeow".to_string()),
             ..Default::default()
         }
         .try_into()

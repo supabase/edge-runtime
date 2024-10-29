@@ -27,6 +27,7 @@ use log::error;
 use once_cell::sync::Lazy;
 use sb_core::conn_sync::ConnWatcher;
 use sb_fs::s3_fs::S3FsConfig;
+use sb_fs::tmp_fs::TmpFsConfig;
 use sb_graph::{DecoratorType, EszipPayloadKind};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
@@ -82,8 +83,10 @@ pub struct UserWorkerCreateOptions {
     cpu_time_hard_limit_ms: Option<u64>,
 
     decorator_type: Option<DecoratorType>,
-    s3_fs_config: Option<S3FsConfig>,
     jsx_import_source_config: Option<JsxImportBaseConfig>,
+
+    s3_fs_config: Option<S3FsConfig>,
+    tmp_fs_config: Option<TmpFsConfig>,
 }
 
 #[op2(async)]
@@ -118,8 +121,10 @@ pub async fn op_user_worker_create(
             cpu_time_hard_limit_ms,
 
             decorator_type: maybe_decorator,
-            s3_fs_config: maybe_s3_fs_config,
             jsx_import_source_config,
+
+            s3_fs_config: maybe_s3_fs_config,
+            tmp_fs_config: maybe_tmp_fs_config,
         } = opts;
 
         let user_worker_options = WorkerContextInitOpts {
@@ -160,7 +165,6 @@ pub async fn op_user_worker_create(
             maybe_module_code: maybe_module_code.map(String::into),
             maybe_entrypoint,
             maybe_decorator,
-            maybe_s3_fs_config,
             maybe_jsx_import_source_config: jsx_import_source_config
                 .map(|it| -> Result<_, AnyError> {
                     Ok(JsxImportSourceConfig {
@@ -178,6 +182,9 @@ pub async fn op_user_worker_create(
                     })
                 })
                 .transpose()?,
+
+            maybe_s3_fs_config,
+            maybe_tmp_fs_config,
         };
 
         tx.send(UserWorkerMsgs::Create(user_worker_options, result_tx))?;

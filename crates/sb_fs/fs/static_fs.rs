@@ -5,6 +5,7 @@ use deno_fs::{AccessCheckCb, FsDirEntry, FsFileType, OpenOptions};
 use deno_io::fs::{File, FsError, FsResult, FsStat};
 use deno_npm::resolution::ValidSerializedNpmResolutionSnapshot;
 use std::fmt::Debug;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -72,7 +73,7 @@ impl deno_fs::FileSystem for StaticFs {
         if self.vfs.is_path_within(path) {
             Ok(self.vfs.open_file(path)?)
         } else {
-            Err(FsError::NotSupported)
+            Err(FsError::Io(io::Error::from(io::ErrorKind::NotFound)))
         }
     }
 
@@ -85,7 +86,7 @@ impl deno_fs::FileSystem for StaticFs {
         if self.vfs.is_path_within(&path) {
             Ok(self.vfs.open_file(&path)?)
         } else {
-            Err(FsError::NotSupported)
+            Err(FsError::Io(io::Error::from(io::ErrorKind::NotFound)))
         }
     }
 

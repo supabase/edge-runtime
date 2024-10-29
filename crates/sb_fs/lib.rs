@@ -13,13 +13,15 @@ use std::sync::Arc;
 use url::Url;
 use virtual_fs::VfsEntry;
 
-pub mod file_system;
-pub mod prefix_fs;
-pub mod s3_fs;
-pub mod static_fs;
-pub mod virtual_fs;
-
+mod fs;
 mod rt;
+
+pub use fs::prefix_fs;
+pub use fs::s3_fs;
+pub use fs::static_fs;
+pub use fs::tmp_fs;
+pub use fs::virtual_fs;
+pub use fs::deno_compile_fs;
 
 pub struct VfsOpts {
     pub npm_resolver: Arc<dyn CliNpmResolver>,

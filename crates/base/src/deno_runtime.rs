@@ -31,6 +31,7 @@ use sb_core::util::sync::AtomicFlag;
 use sb_fs::prefix_fs::PrefixFs;
 use sb_fs::s3_fs::S3Fs;
 use sb_fs::static_fs::StaticFs;
+use sb_fs::tmp_fs::TmpFs;
 use serde::Serialize;
 use std::borrow::Cow;
 use std::cell::RefCell;
@@ -64,7 +65,7 @@ use sb_core::permissions::{sb_core_permissions, Permissions};
 use sb_core::runtime::sb_core_runtime;
 use sb_core::{sb_core_main_js, MemCheckWaker};
 use sb_env::sb_env as sb_env_op;
-use sb_fs::file_system::DenoCompileFileSystem;
+use sb_fs::deno_compile_fs::DenoCompileFileSystem;
 use sb_graph::emitter::EmitterFactory;
 use sb_graph::import_map::load_import_map;
 use sb_graph::{generate_binary_eszip, include_glob_patterns_in_eszip, EszipPayloadKind};
@@ -271,8 +272,9 @@ where
             maybe_decorator,
             maybe_module_code,
             static_patterns,
-            maybe_s3_fs_config,
             maybe_jsx_import_source_config,
+            maybe_s3_fs_config,
+            maybe_tmp_fs_config,
             ..
         } = opts;
 
@@ -460,12 +462,15 @@ where
         let mut maybe_s3_fs = None;
         let build_file_system_fn =
             |base_fs: Arc<dyn deno_fs::FileSystem>| -> Result<Arc<dyn deno_fs::FileSystem>, AnyError> {
-                if let Some(s3_fs) = maybe_s3_fs_config.map(S3Fs::new).transpose()? {
+                let tmp_fs = TmpFs::try_from(maybe_tmp_fs_config.unwrap_or_default())?;
+                let fs = PrefixFs::new("/tmp", tmp_fs, Some(base_fs));
+
+                Ok(if let Some(s3_fs) = maybe_s3_fs_config.map(S3Fs::new).transpose()? {
                     maybe_s3_fs = Some(s3_fs.clone());
-                    Ok(Arc::new(PrefixFs::new("/s3", s3_fs, Some(base_fs))))
+                    Arc::new(fs.add_fs("/s3", s3_fs))
                 } else {
-                    Ok(base_fs)
-                }
+                    Arc::new(fs)
+                })
             };
 
         let file_system = build_file_system_fn(if is_user_worker {
@@ -1135,7 +1140,6 @@ extern "C" fn mem_check_gc_prologue_callback_fn(
 
 #[cfg(test)]
 mod test {
-
     use crate::deno_runtime::DenoRuntime;
     use crate::rt_worker::worker::DuplexStreamEntry;
     use anyhow::Context;
@@ -1143,6 +1147,7 @@ mod test {
     use deno_core::error::AnyError;
     use deno_core::{serde_json, serde_v8, v8, FastString, ModuleCodeString, PollEventLoopOptions};
     use sb_fs::s3_fs::S3FsConfig;
+    use sb_fs::tmp_fs::TmpFsConfig;
     use sb_graph::emitter::EmitterFactory;
     use sb_graph::{generate_binary_eszip, EszipPayloadKind};
     use sb_workers::context::{
@@ -1184,8 +1189,9 @@ mod test {
         env_vars: Option<HashMap<String, String>>,
         worker_runtime_conf: Option<WorkerRuntimeOpts>,
         static_patterns: Vec<String>,
-        s3_fs_config: Option<S3FsConfig>,
         jsx_import_source_config: Option<JsxImportSourceConfig>,
+        s3_fs_config: Option<S3FsConfig>,
+        tmp_fs_config: Option<TmpFsConfig>,
         _phantom_context: PhantomData<C>,
     }
 
@@ -1206,8 +1212,9 @@ mod test {
                 env_vars: self.env_vars,
                 worker_runtime_conf: self.worker_runtime_conf,
                 static_patterns: self.static_patterns,
-                s3_fs_config: self.s3_fs_config,
                 jsx_import_source_config: self.jsx_import_source_config,
+                s3_fs_config: self.s3_fs_config,
+                tmp_fs_config: self.tmp_fs_config,
                 _phantom_context: PhantomData,
             }
         }
@@ -1224,8 +1231,9 @@ mod test {
                 env_vars,
                 worker_runtime_conf,
                 static_patterns,
-                s3_fs_config,
                 jsx_import_source_config,
+                s3_fs_config,
+                tmp_fs_config,
                 _phantom_context,
             } = self;
 
@@ -1258,12 +1266,13 @@ mod test {
                     env_vars: env_vars.unwrap_or_default(),
 
                     static_patterns,
-                    maybe_s3_fs_config: s3_fs_config,
                     maybe_jsx_import_source_config: jsx_import_source_config,
 
                     timing: None,
-
                     import_map_path: None,
+
+                    maybe_s3_fs_config: s3_fs_config,
+                    maybe_tmp_fs_config: tmp_fs_config,
                 },
                 None,
             )
@@ -1366,8 +1375,10 @@ mod test {
                     })
                 },
                 static_patterns: vec![],
-                maybe_s3_fs_config: None,
+
                 maybe_jsx_import_source_config: None,
+                maybe_s3_fs_config: None,
+                maybe_tmp_fs_config: None,
             },
             None,
         )
@@ -1411,8 +1422,10 @@ mod test {
                     })
                 },
                 static_patterns: vec![],
-                maybe_s3_fs_config: None,
+
                 maybe_jsx_import_source_config: None,
+                maybe_s3_fs_config: None,
+                maybe_tmp_fs_config: None,
             },
             None,
         )
@@ -1475,8 +1488,10 @@ mod test {
                     })
                 },
                 static_patterns: vec![],
-                maybe_s3_fs_config: None,
+
                 maybe_jsx_import_source_config: None,
+                maybe_s3_fs_config: None,
+                maybe_tmp_fs_config: None,
             },
             None,
         )

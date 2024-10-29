@@ -21,7 +21,7 @@ use sb_core::util::http_util::HttpClientProvider;
 use sb_eszip_shared::{
     AsyncEszipDataRead, NPM_RC_SCOPES_KEY, SOURCE_CODE_ESZIP_KEY, VFS_ESZIP_KEY,
 };
-use sb_fs::file_system::DenoCompileFileSystem;
+use sb_fs::deno_compile_fs::DenoCompileFileSystem;
 use sb_fs::{extract_static_files_from_eszip, load_npm_vfs};
 use sb_graph::resolver::{CjsResolutionStore, CliNodeResolver, NpmModuleLoader};
 use sb_graph::{eszip_migrate, payload_to_eszip, EszipPayloadKind, LazyLoadableEszip};

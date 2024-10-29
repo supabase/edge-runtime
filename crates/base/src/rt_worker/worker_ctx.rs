@@ -758,8 +758,10 @@ pub async fn create_main_worker(
                 conf: WorkerRuntimeOpts::MainWorker(runtime_opts),
                 env_vars: std::env::vars().collect(),
                 static_patterns: vec![],
-                maybe_s3_fs_config: None,
+
                 maybe_jsx_import_source_config: jsx,
+                maybe_s3_fs_config: None,
+                maybe_tmp_fs_config: None,
             },
             termination_token,
         ),
@@ -810,8 +812,10 @@ pub async fn create_events_worker(
                     event_worker_exit_deadline_sec: Some(flags.event_worker_exit_deadline_sec),
                 }),
                 static_patterns: vec![],
-                maybe_s3_fs_config: None,
+
                 maybe_jsx_import_source_config: None,
+                maybe_s3_fs_config: None,
+                maybe_tmp_fs_config: None,
             },
             termination_token,
         ),

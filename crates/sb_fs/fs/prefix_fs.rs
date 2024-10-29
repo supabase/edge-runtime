@@ -1,4 +1,5 @@
 use std::{
+    io,
     path::{Path, PathBuf},
     rc::Rc,
     sync::Arc,
@@ -104,7 +105,7 @@ where
             self.base_fs
                 .as_ref()
                 .map(|it| it.open_sync(path, options, access_check))
-                .unwrap_or_else(|| Err(FsError::NotSupported))
+                .unwrap_or_else(|| Err(FsError::Io(io::Error::from(io::ErrorKind::NotFound))))
         }
     }
 
@@ -125,7 +126,7 @@ where
         } else if let Some(fs) = self.base_fs.as_ref() {
             fs.open_async(path, options, access_check).await
         } else {
-            Err(FsError::NotSupported)
+            Err(FsError::Io(io::Error::from(io::ErrorKind::NotFound)))
         }
     }
 

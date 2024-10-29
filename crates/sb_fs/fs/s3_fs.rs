@@ -48,6 +48,8 @@ use tokio::{
 };
 use tracing::{debug, debug_span, error, info_span, instrument, warn, Instrument};
 
+use super::TryNormalizePath;
+
 const MIN_PART_SIZE: usize = 1024 * 1024 * 5;
 
 type BackgroundTask = Shared<BoxFuture<'static, Result<(), Arc<JoinError>>>>;
@@ -94,17 +96,6 @@ impl S3CredentialsObject {
             "EdgeRuntime",
         )
     }
-}
-
-#[derive(Deserialize, Serialize, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct S3FsConfig {
-    app_name: Option<Cow<'static, str>>,
-    endpoint_url: Option<Cow<'static, str>>,
-    region: Option<Cow<'static, str>>,
-    credentials: S3CredentialsObject,
-    force_path_style: Option<bool>,
-    retry_config: Option<S3ClientRetryConfig>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Default, Clone, Copy)]
@@ -179,6 +170,25 @@ impl S3ClientRetryConfig {
     }
 }
 
+#[derive(Deserialize, Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct S3FsConfig {
+    app_name: Option<Cow<'static, str>>,
+    endpoint_url: Option<Cow<'static, str>>,
+    region: Option<Cow<'static, str>>,
+    credentials: S3CredentialsObject,
+    force_path_style: Option<bool>,
+    retry_config: Option<S3ClientRetryConfig>,
+}
+
+impl TryInto<S3Fs> for S3FsConfig {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<S3Fs, Self::Error> {
+        S3Fs::new(self)
+    }
+}
+
 impl S3FsConfig {
     fn try_into_s3_config(self) -> Result<Config, anyhow::Error> {
         let mut builder = Config::builder();
@@ -228,7 +238,7 @@ impl S3Fs {
 #[async_trait::async_trait(?Send)]
 impl deno_fs::FileSystem for S3Fs {
     fn cwd(&self) -> FsResult<PathBuf> {
-        Ok(PathBuf::new())
+        Err(FsError::NotSupported)
     }
 
     fn tmp_dir(&self) -> FsResult<PathBuf> {
@@ -258,11 +268,7 @@ impl deno_fs::FileSystem for S3Fs {
         options: OpenOptions,
         _access_check: Option<AccessCheckCb<'a>>,
     ) -> FsResult<Rc<dyn File>> {
-        let (bucket_name, key) = try_get_bucket_name_and_key(path)?;
-
-        if key.ends_with('/') {
-            return Err(io::Error::other("folder can't be opened").into());
-        }
+        let (bucket_name, key) = try_get_bucket_name_and_key(path.try_normalize()?)?;
 
         Ok(Rc::new(S3Object {
             bucket_name,
@@ -278,7 +284,7 @@ impl deno_fs::FileSystem for S3Fs {
     }
 
     async fn mkdir_async(&self, path: PathBuf, recursive: bool, _mode: u32) -> FsResult<()> {
-        let (bucket_name, key) = try_get_bucket_name_and_key(path)?;
+        let (bucket_name, key) = try_get_bucket_name_and_key(path.try_normalize()?)?;
         let keys = if recursive {
             PathBuf::from(key)
                 .iter()
@@ -392,21 +398,15 @@ impl deno_fs::FileSystem for S3Fs {
     }
 
     async fn remove_async(&self, path: PathBuf, recursive: bool) -> FsResult<()> {
-        let (bucket_name, key) = try_get_bucket_name_and_key(path)?;
-
-        if recursive && !key.ends_with('/') {
-            return Err(io::Error::other(
-                "recursive removal is only possible if the given path ends in a slash",
-            )
-            .into());
-        }
+        let had_slash = path.ends_with("/");
+        let (bucket_name, key) = try_get_bucket_name_and_key(path.try_normalize()?)?;
 
         if recursive {
             let builder = self
                 .client
                 .list_objects_v2()
                 .bucket(&bucket_name)
-                .prefix(key);
+                .prefix(format!("{}/", key));
 
             let mut errors = vec![];
             let mut stream = builder.into_paginator().send();
@@ -479,7 +479,7 @@ impl deno_fs::FileSystem for S3Fs {
             .client
             .delete_object()
             .bucket(bucket_name)
-            .key(key)
+            .key(if had_slash { format!("{}/", key) } else { key })
             .send()
             .await
             .map_err(io::Error::other)?;
@@ -510,7 +510,7 @@ impl deno_fs::FileSystem for S3Fs {
     }
 
     async fn stat_async(&self, path: PathBuf) -> FsResult<FsStat> {
-        self.open_async(path, OpenOptions::read(), None)
+        self.open_async(path.try_normalize()?, OpenOptions::read(), None)
             .and_then(|it| it.stat_async())
             .await
     }
@@ -536,11 +536,10 @@ impl deno_fs::FileSystem for S3Fs {
     }
 
     async fn read_dir_async(&self, path: PathBuf) -> FsResult<Vec<FsDirEntry>> {
-        let (bucket_name, mut key) = try_get_bucket_name_and_key(path)?;
+        let (bucket_name, mut key) = try_get_bucket_name_and_key(path.try_normalize()?)?;
 
-        if !key.ends_with('/') {
-            key.push('/');
-        }
+        debug_assert!(!key.ends_with('/'));
+        key.push('/');
 
         let builder = self
             .client

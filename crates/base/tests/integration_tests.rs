@@ -212,8 +212,10 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
             event_worker_metric_src: None,
         }),
         static_patterns: vec![],
-        maybe_s3_fs_config: None,
+
         maybe_jsx_import_source_config: None,
+        maybe_s3_fs_config: None,
+        maybe_tmp_fs_config: None,
     };
 
     let ctx = create_worker((opts, main_termination_token.clone()), None, None)
@@ -371,8 +373,10 @@ async fn test_main_worker_boot_error() {
             event_worker_metric_src: None,
         }),
         static_patterns: vec![],
-        maybe_s3_fs_config: None,
+
         maybe_jsx_import_source_config: None,
+        maybe_s3_fs_config: None,
+        maybe_tmp_fs_config: None,
     };
 
     let result = create_worker((opts, main_termination_token.clone()), None, None).await;
@@ -497,8 +501,10 @@ async fn test_main_worker_user_worker_mod_evaluate_exception() {
             event_worker_metric_src: None,
         }),
         static_patterns: vec![],
-        maybe_s3_fs_config: None,
+
         maybe_jsx_import_source_config: None,
+        maybe_s3_fs_config: None,
+        maybe_tmp_fs_config: None,
     };
 
     let ctx = create_worker((opts, main_termination_token.clone()), None, None)
@@ -876,8 +882,10 @@ async fn test_worker_boot_invalid_imports() {
         maybe_module_code: None,
         conf: WorkerRuntimeOpts::UserWorker(test_user_runtime_opts()),
         static_patterns: vec![],
-        maybe_s3_fs_config: None,
+
         maybe_jsx_import_source_config: None,
+        maybe_s3_fs_config: None,
+        maybe_tmp_fs_config: None,
     };
 
     let result = create_test_user_worker(opts).await;
@@ -904,8 +912,10 @@ async fn test_worker_boot_with_0_byte_eszip() {
         maybe_module_code: None,
         conf: WorkerRuntimeOpts::UserWorker(test_user_runtime_opts()),
         static_patterns: vec![],
-        maybe_s3_fs_config: None,
+
         maybe_jsx_import_source_config: None,
+        maybe_s3_fs_config: None,
+        maybe_tmp_fs_config: None,
     };
 
     let result = create_test_user_worker(opts).await;
@@ -930,8 +940,10 @@ async fn test_worker_boot_with_invalid_entrypoint() {
         maybe_module_code: None,
         conf: WorkerRuntimeOpts::UserWorker(test_user_runtime_opts()),
         static_patterns: vec![],
-        maybe_s3_fs_config: None,
+
         maybe_jsx_import_source_config: None,
+        maybe_s3_fs_config: None,
+        maybe_tmp_fs_config: None,
     };
 
     let result = create_test_user_worker(opts).await;
@@ -2689,6 +2701,34 @@ async fn test_private_npm_package_import() {
         token.cancel();
         handle.await.unwrap();
     }
+}
+
+#[tokio::test]
+#[serial]
+async fn test_tmp_fs_should_not_be_available_in_import_stmt() {
+    // The s3 fs and tmp fs are not currently attached to the module loader, so the import statement
+    // should not recognize their prefixes. (But, depending on the case, they may be attached in the
+    // future)
+    integration_test!(
+        "./test_cases/main",
+        NON_SECURE_PORT,
+        "use-tmp-fs-in-import-stmt",
+        None,
+        None,
+        None,
+        None,
+        (|resp| async {
+            let (payload, status) = ErrorResponsePayload::assert_error_response(resp).await;
+
+            assert_eq!(status, 500);
+            dbg!(&payload.msg);
+            assert!(payload.msg.starts_with(
+                "InvalidWorkerResponse: event loop error while evaluating the module: \
+                TypeError: Module not found: file:///tmp/meowmeow.ts"
+            ));
+        }),
+        TerminationToken::new()
+    );
 }
 
 #[derive(Deserialize)]

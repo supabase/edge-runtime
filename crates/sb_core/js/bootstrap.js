@@ -511,7 +511,16 @@ globalThis.bootstrapSBEdge = (opts, extraCtx) => {
 	if (isUserWorker) {
 		delete globalThis.EdgeRuntime;
 
-		const PATCH_DENO_API_LIST = {
+		// override console
+		ObjectDefineProperties(globalThis, {
+			console: nonEnumerable(
+				new console.Console((msg, level) => {
+					return ops.op_user_worker_log(msg, level > 1);
+				}),
+			),
+		});
+
+		const apisToBeOverridden = {
 			...DENIED_DENO_FS_API_LIST,
 
 			'cwd': true,
@@ -535,23 +544,14 @@ globalThis.bootstrapSBEdge = (opts, extraCtx) => {
 		};
 
 		if (extraCtx?.useSyncFileAPI) {
-			PATCH_DENO_API_LIST['readFileSync'] = true;
-			PATCH_DENO_API_LIST['readTextFileSync'] = true;
+			apisToBeOverridden['readFileSync'] = true;
+			apisToBeOverridden['readTextFileSync'] = true;
 		}
 
-		// override console
-		ObjectDefineProperties(globalThis, {
-			console: nonEnumerable(
-				new console.Console((msg, level) => {
-					return ops.op_user_worker_log(msg, level > 1);
-				}),
-			),
-		});
-
-		const apiNames = ObjectKeys(PATCH_DENO_API_LIST);
+		const apiNames = ObjectKeys(apisToBeOverridden);
 
 		for (const name of apiNames) {
-			const value = PATCH_DENO_API_LIST[name];
+			const value = apisToBeOverridden[name];
 
 			if (value === false) {
 				delete Deno[name];

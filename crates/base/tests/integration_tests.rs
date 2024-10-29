@@ -2705,6 +2705,33 @@ async fn test_private_npm_package_import() {
 
 #[tokio::test]
 #[serial]
+async fn test_simple_tmp_fs_usage() {
+    integration_test!(
+        "./test_cases/main",
+        NON_SECURE_PORT,
+        "use-tmp-fs",
+        None,
+        None,
+        None,
+        None,
+        (|resp| async {
+            let resp = resp.unwrap();
+
+            assert_eq!(resp.status().as_u16(), 200);
+
+            let body = resp.json::<serde_json::Value>().await.unwrap();
+            let body = body.as_object().unwrap();
+
+            assert_eq!(body.len(), 2);
+            assert_eq!(body.get("written"), Some(&json!(8)));
+            assert_eq!(body.get("content"), Some(&json!("meowmeow")));
+        }),
+        TerminationToken::new()
+    );
+}
+
+#[tokio::test]
+#[serial]
 async fn test_tmp_fs_should_not_be_available_in_import_stmt() {
     // The s3 fs and tmp fs are not currently attached to the module loader, so the import statement
     // should not recognize their prefixes. (But, depending on the case, they may be attached in the

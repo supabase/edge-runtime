@@ -34,12 +34,10 @@ readDir
 readDirSync
 readLink
 readLinkSync
-realPath
 realPathSync
 removeSync
 rename
 renameSync
-stat
 statSync
 symlink
 symlinkSync

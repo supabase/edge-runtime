@@ -14,7 +14,7 @@ use url::Url;
 use std::{
     borrow::Cow,
     collections::HashMap,
-    io::{self, Cursor},
+    io::{self, BufRead, Cursor},
     net::{IpAddr, Ipv4Addr, SocketAddr},
     path::{Path, PathBuf},
     sync::Arc,
@@ -47,6 +47,7 @@ use sb_workers::context::{
 use serde::Deserialize;
 use serial_test::serial;
 use tokio::{
+    fs,
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     join,
     net::TcpStream,
@@ -2705,29 +2706,100 @@ async fn test_private_npm_package_import() {
 
 #[tokio::test]
 #[serial]
-async fn test_simple_tmp_fs_usage() {
-    integration_test!(
-        "./test_cases/main",
-        NON_SECURE_PORT,
-        "use-tmp-fs",
-        None,
-        None,
-        None,
-        None,
-        (|resp| async {
-            let resp = resp.unwrap();
+async fn test_tmp_fs_usage() {
+    {
+        integration_test!(
+            "./test_cases/main",
+            NON_SECURE_PORT,
+            "use-tmp-fs",
+            None,
+            None,
+            None,
+            None,
+            (|resp| async {
+                let resp = resp.unwrap();
 
-            assert_eq!(resp.status().as_u16(), 200);
+                assert_eq!(resp.status().as_u16(), 200);
 
-            let body = resp.json::<serde_json::Value>().await.unwrap();
-            let body = body.as_object().unwrap();
+                let body = resp.json::<serde_json::Value>().await.unwrap();
+                let body = body.as_object().unwrap();
 
-            assert_eq!(body.len(), 2);
-            assert_eq!(body.get("written"), Some(&json!(8)));
-            assert_eq!(body.get("content"), Some(&json!("meowmeow")));
-        }),
-        TerminationToken::new()
-    );
+                assert_eq!(body.len(), 4);
+                assert_eq!(body.get("written"), Some(&json!(8)));
+                assert_eq!(body.get("content"), Some(&json!("meowmeow")));
+                assert_eq!(body.get("deleted"), Some(&json!(true)));
+
+                let steps = body.get("steps").unwrap().as_array().unwrap();
+
+                assert_eq!(&steps[0], &json!(true));
+                assert_eq!(&steps[1], &json!(false));
+            }),
+            TerminationToken::new()
+        );
+    }
+
+    {
+        integration_test!(
+            "./test_cases/main",
+            NON_SECURE_PORT,
+            "use-tmp-fs-2",
+            None,
+            None,
+            None,
+            None,
+            (|resp| async {
+                let resp = resp.unwrap();
+
+                assert_eq!(resp.status().as_u16(), 200);
+
+                let body = resp.json::<serde_json::Value>().await.unwrap();
+                let body = body.as_object().unwrap();
+
+                assert_eq!(body.len(), 2);
+                assert_eq!(body.get("hadExisted"), Some(&json!(true)));
+
+                let path = body.get("path").unwrap().as_str().unwrap();
+                let f = fs::read(path).await.unwrap();
+                let mut cursor = Cursor::new(&f);
+
+                let client = Client::new();
+                let resp2 = client
+                    .request(Method::GET, "https://httpbin.org/stream/20".to_string())
+                    .send()
+                    .await
+                    .unwrap();
+
+                assert_eq!(resp2.status().as_u16(), 200);
+
+                let body2 = resp2.bytes().await.unwrap();
+                let mut cursor2 = Cursor::new(&*body2);
+                let mut count = 0;
+
+                loop {
+                    use serde_json::*;
+
+                    let mut buf = String::new();
+
+                    cursor.read_line(&mut buf).unwrap();
+                    let mut msg = from_str::<Map<String, Value>>(&buf).unwrap();
+
+                    buf.clear();
+                    cursor2.read_line(&mut buf).unwrap();
+                    let mut msg2 = from_str::<Map<String, Value>>(&buf).unwrap();
+
+                    assert!(msg.remove("headers").is_some());
+                    assert!(msg2.remove("headers").is_some());
+                    assert_eq!(msg, msg2);
+
+                    count += 1;
+                    if count >= 20 {
+                        break;
+                    }
+                }
+            }),
+            TerminationToken::new()
+        );
+    }
 }
 
 #[tokio::test]

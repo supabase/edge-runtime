@@ -526,6 +526,8 @@ globalThis.bootstrapSBEdge = (opts, extraCtx) => {
 			'cwd': true,
 
 			'open': true,
+			'stat': true,
+			'realPath': true,
 			'create': true,
 			'remove': true,
 			'writeFile': true,

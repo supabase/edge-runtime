@@ -5689,6 +5689,7 @@ dependencies = [
  "memmap2",
  "normalize-path",
  "once_cell",
+ "rand",
  "rkyv",
  "sb_core",
  "sb_eszip_shared",

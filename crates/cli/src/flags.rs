@@ -207,7 +207,11 @@ fn get_start_command() -> Command {
                 .requires("inspector")
                 .action(ArgAction::SetTrue),
         )
-        .arg(arg!(--"static" <Path>).help("Glob pattern for static files to be included"))
+        .arg(
+            arg!(--"static" <Path>)
+                .help("Glob pattern for static files to be included")
+                .action(ArgAction::Append)
+        )
         .arg(arg!(--"jsx-specifier" <Path> "A valid JSX specifier"))
         .arg(
             arg!(--"jsx-module" <Path> "A valid JSX module")
@@ -236,7 +240,11 @@ fn get_bundle_command() -> Command {
                 .help("Path to entrypoint to bundle as an eszip")
                 .required(true),
         )
-        .arg(arg!(--"static" <Path>).help("Glob pattern for static files to be included"))
+        .arg(
+            arg!(--"static" <Path>)
+                .help("Glob pattern for static files to be included")
+                .action(ArgAction::Append)
+        )
         .arg(arg!(--"import-map" <Path>).help("Path to import map file"))
         .arg(
             arg!(--"decorator" <TYPE>)

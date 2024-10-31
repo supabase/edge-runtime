@@ -483,7 +483,7 @@ impl EszipDataSection {
             if !need_load {
                 read += length + checksum_size;
 
-                io.seek(SeekFrom::Current((length + 32) as i64))
+                io.seek(SeekFrom::Current((length + checksum_size) as i64))
                     .await
                     .unwrap();
 

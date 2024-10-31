@@ -337,7 +337,7 @@ impl deno_fs::FileSystem for TmpFs {
 
     fn copy_file_sync(&self, oldpath: &Path, newpath: &Path) -> FsResult<()> {
         self.quota
-            .blocking_check(self.stat_sync(&oldpath)?.size as usize)?;
+            .blocking_check(self.stat_sync(oldpath)?.size as usize)?;
 
         RealFs.copy_file_sync(
             &self.root.path().join(oldpath.try_normalize()?),
@@ -360,7 +360,7 @@ impl deno_fs::FileSystem for TmpFs {
 
     fn cp_sync(&self, path: &Path, new_path: &Path) -> FsResult<()> {
         self.quota
-            .blocking_check(self.stat_sync(&path)?.size as usize)?;
+            .blocking_check(self.stat_sync(path)?.size as usize)?;
 
         RealFs.cp_sync(
             &self.root.path().join(path.try_normalize()?),
@@ -492,7 +492,7 @@ impl deno_fs::FileSystem for TmpFs {
     }
 
     fn truncate_sync(&self, path: &Path, len: u64) -> FsResult<()> {
-        let size = self.stat_sync(&path)?.size;
+        let size = self.stat_sync(path)?.size;
 
         self.quota
             .blocking_try_add_delta((len as i64) - (size as i64))?;
@@ -895,8 +895,8 @@ mod test {
 
     #[tokio::test]
     async fn write_exceeding_quota() {
-        let fs = get_tmp_fs_with_quota(Some(1 * MIB));
-        let mut arr = vec![0u8; (1 * MIB) + 1];
+        let fs = get_tmp_fs_with_quota(Some(MIB));
+        let mut arr = vec![0u8; MIB + 1];
 
         rand::thread_rng().fill_bytes(&mut arr);
 
@@ -910,8 +910,8 @@ mod test {
 
     #[tokio::test]
     async fn write_exceeding_quota_2() {
-        let fs = get_tmp_fs_with_quota(Some(1 * MIB));
-        let mut arr = vec![0u8; 1 * MIB];
+        let fs = get_tmp_fs_with_quota(Some(MIB));
+        let mut arr = vec![0u8; MIB];
 
         rand::thread_rng().fill_bytes(&mut arr);
 
@@ -929,8 +929,8 @@ mod test {
 
     #[tokio::test]
     async fn restore_quota_after_remove_op() {
-        let fs = get_tmp_fs_with_quota(Some(1 * MIB));
-        let mut arr = vec![0u8; 1 * MIB];
+        let fs = get_tmp_fs_with_quota(Some(MIB));
+        let mut arr = vec![0u8; MIB];
 
         rand::thread_rng().fill_bytes(&mut arr);
 
@@ -938,7 +938,7 @@ mod test {
 
         f.clone().write_all(arr.into()).await.unwrap();
 
-        assert_eq!(fs.quota.load(Ordering::Relaxed), 1 * MIB);
+        assert_eq!(fs.quota.load(Ordering::Relaxed), MIB);
 
         drop(f);
 
@@ -947,8 +947,8 @@ mod test {
             .unwrap();
 
         // Because sync is performed optimistically.
-        assert_eq!(fs.quota.load(Ordering::Relaxed), 1 * MIB);
-        assert_eq!(fs.quota.sync.do_opt.is_raised(), true);
+        assert_eq!(fs.quota.load(Ordering::Relaxed), MIB);
+        assert!(fs.quota.sync.do_opt.is_raised());
 
         let mut arr2 = vec![0u8; 512 * KIB];
 
@@ -958,11 +958,11 @@ mod test {
 
         f2.clone().write_all(arr2.clone().into()).await.unwrap();
         assert_eq!(fs.quota.load(Ordering::Relaxed), 512 * KIB);
-        assert_eq!(fs.quota.sync.do_opt.is_raised(), false);
+        assert!(!fs.quota.sync.do_opt.is_raised());
 
         f2.clone().write_all(arr2.into()).await.unwrap();
-        assert_eq!(fs.quota.load(Ordering::Relaxed), 1 * MIB);
-        assert_eq!(fs.quota.sync.do_opt.is_raised(), false);
+        assert_eq!(fs.quota.load(Ordering::Relaxed), MIB);
+        assert!(fs.quota.sync.do_opt.is_raised());
 
         assert_filesystem_quota_exceeded(
             f2.write_all(b"m".to_vec().into())
@@ -974,7 +974,7 @@ mod test {
 
     #[tokio::test]
     async fn cp_exceeding_quota() {
-        let fs = get_tmp_fs_with_quota(Some(1 * MIB));
+        let fs = get_tmp_fs_with_quota(Some(MIB));
         let mut arr = vec![0u8; 513 * KIB];
 
         rand::thread_rng().fill_bytes(&mut arr);
@@ -995,8 +995,8 @@ mod test {
 
     #[tokio::test]
     async fn truncate_exceeding_quota_fs() {
-        let fs = get_tmp_fs_with_quota(Some(1 * MIB));
-        let mut arr = vec![0u8; 1 * MIB];
+        let fs = get_tmp_fs_with_quota(Some(MIB));
+        let mut arr = vec![0u8; MIB];
 
         rand::thread_rng().fill_bytes(&mut arr);
 
@@ -1004,10 +1004,10 @@ mod test {
             .await
             .unwrap();
 
-        assert_eq!(fs.quota.load(Ordering::Relaxed), 1 * MIB);
+        assert_eq!(fs.quota.load(Ordering::Relaxed), MIB);
 
         assert_filesystem_quota_exceeded(
-            fs.truncate_async(PathBuf::from("meowmeow"), ((1 * MIB) + 1) as u64)
+            fs.truncate_async(PathBuf::from("meowmeow"), (MIB + 1) as u64)
                 .await
                 .unwrap_err()
                 .into_io_error(),
@@ -1016,18 +1016,18 @@ mod test {
 
     #[tokio::test]
     async fn truncate_exceeding_quota_file() {
-        let fs = get_tmp_fs_with_quota(Some(1 * MIB));
-        let mut arr = vec![0u8; 1 * MIB];
+        let fs = get_tmp_fs_with_quota(Some(MIB));
+        let mut arr = vec![0u8; MIB];
 
         rand::thread_rng().fill_bytes(&mut arr);
 
         let f = create_file(&fs, "meowmeow").await;
 
         f.clone().write_all(arr.into()).await.unwrap();
-        assert_eq!(fs.quota.load(Ordering::Relaxed), 1 * MIB);
+        assert_eq!(fs.quota.load(Ordering::Relaxed), MIB);
 
         assert_filesystem_quota_exceeded(
-            f.truncate_async(((1 * MIB) + 1) as u64)
+            f.truncate_async((MIB + 1) as u64)
                 .await
                 .unwrap_err()
                 .into_io_error(),
@@ -1036,15 +1036,12 @@ mod test {
 
     #[tokio::test]
     async fn truncate_size_shrink() {
-        let fs = get_tmp_fs_with_quota(Some(1 * MIB));
+        let fs = get_tmp_fs_with_quota(Some(MIB));
         let f = create_file(&fs, "meowmeow").await;
 
-        f.clone()
-            .write_all(vec![1u8; 1 * MIB].into())
-            .await
-            .unwrap();
+        f.clone().write_all(vec![1u8; MIB].into()).await.unwrap();
 
-        assert_eq!(fs.quota.load(Ordering::Relaxed), 1 * MIB);
+        assert_eq!(fs.quota.load(Ordering::Relaxed), MIB);
 
         f.truncate_async((128 * KIB) as u64).await.unwrap();
         assert_eq!(fs.quota.load(Ordering::Relaxed), 128 * KIB);
@@ -1052,7 +1049,7 @@ mod test {
 
     #[tokio::test]
     async fn truncate_size_extend() {
-        let fs = get_tmp_fs_with_quota(Some(1 * MIB));
+        let fs = get_tmp_fs_with_quota(Some(MIB));
         let f = create_file(&fs, "meowmeow").await;
 
         f.clone()
@@ -1062,8 +1059,8 @@ mod test {
 
         assert_eq!(fs.quota.load(Ordering::Relaxed), 512 * KIB);
 
-        f.clone().truncate_async((1 * MIB) as u64).await.unwrap();
-        assert_eq!(fs.quota.load(Ordering::Relaxed), 1 * MIB);
+        f.clone().truncate_async(MIB as u64).await.unwrap();
+        assert_eq!(fs.quota.load(Ordering::Relaxed), MIB);
 
         f.clone().seek_async(io::SeekFrom::Start(0)).await.unwrap();
 

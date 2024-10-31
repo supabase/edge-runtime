@@ -10,13 +10,12 @@ use std::{
 };
 
 use anyhow::Context;
-use deno_core::{BufMutView, BufView, ResourceHandleFd, WriteOutcome};
+use deno_core::{unsync::AtomicFlag, BufMutView, BufView, ResourceHandleFd, WriteOutcome};
 use deno_fs::{AccessCheckCb, FsDirEntry, FsFileType, RealFs};
 use deno_io::fs::{File, FsError, FsResult, FsStat};
 use serde::{Deserialize, Serialize};
 use tempfile::TempDir;
-use tokio::sync::Mutex;
-use tracing::{error, instrument};
+use tracing::instrument;
 
 use super::TryNormalizePath;
 
@@ -65,8 +64,16 @@ impl TryFrom<TmpFsConfig> for TmpFs {
 struct Quota {
     root: Arc<TempDir>,
     usage: Arc<AtomicUsize>,
-    lock: Mutex<()>,
+    sync: Arc<QuotaSyncFlags>,
     limit: usize,
+}
+
+#[derive(Debug, Default)]
+struct QuotaSyncFlags {
+    /// Perform quota sync optimistically
+    do_opt: AtomicFlag,
+    /// Perform quota sync immediately
+    do_imm: AtomicFlag,
 }
 
 impl std::ops::Deref for Quota {
@@ -82,32 +89,19 @@ impl Quota {
         Self {
             root,
             usage: Arc::default(),
-            lock: Mutex::default(),
+            sync: Arc::default(),
             limit: limit.unwrap_or(usize::MAX),
         }
     }
 
-    async fn check<A>(&self, buf: A) -> FsResult<()>
-    where
-        A: AsRef<[u8]>,
-    {
-        let _guard = self.lock.lock().await;
-        self.check_inner(buf)
-    }
+    async fn check(&self, len: usize) -> FsResult<()> {
+        if self.sync.do_imm.lower() {
+            self.sync().await?;
+        }
 
-    fn blocking_check<A>(&self, buf: A) -> FsResult<()>
-    where
-        A: AsRef<[u8]>,
-    {
-        let _guard = self.lock.blocking_lock();
-        self.check_inner(buf)
-    }
-
-    fn check_inner<A>(&self, buf: A) -> FsResult<()>
-    where
-        A: AsRef<[u8]>,
-    {
-        if self.usage.load(Ordering::Acquire) + buf.as_ref().len() > self.limit {
+        if self.usage.load(Ordering::Acquire) + len > self.limit
+            && (!self.sync.do_opt.is_raised() || self.sync().await? + len > self.limit)
+        {
             // NOTE: `ErrorKind::FilesystemQuotaExceeded` is not stable yet, so replace it with
             // `ErrorKind::Other`.
             //
@@ -118,30 +112,37 @@ impl Quota {
         Ok(())
     }
 
-    #[instrument(level = "info", skip(self))]
-    async fn sync(&self) {
-        let _guard = self.lock.lock().await;
+    fn blocking_check(&self, len: usize) -> FsResult<()> {
+        if self.sync.do_imm.lower() {
+            self.blocking_sync()?;
+        }
 
-        match tokio::task::spawn_blocking(self.make_sync_inner_fn()).await {
-            Ok(Err(err)) => error!(?err),
-            Err(err) => error!(?err),
-            _ => {}
+        if self.usage.load(Ordering::Acquire) + len > self.limit
+            && (!self.sync.do_opt.is_raised() || self.blocking_sync()? + len > self.limit)
+        {
+            // NOTE: `ErrorKind::FilesystemQuotaExceeded` is not stable yet, so replace it with
+            // `ErrorKind::Other`.
+            //
+            // [1]: https://github.com/rust-lang/rust/issues/86442
+            return Err(FsError::Io(io::Error::other("filesystem quota exceeded")));
+        }
+
+        Ok(())
+    }
+
+    async fn sync(&self) -> FsResult<usize> {
+        match tokio::task::spawn_blocking(self.make_sync_fn()).await {
+            Ok(v) => v,
+            Err(err) => Err(FsError::Io(io::Error::other(err))),
         }
     }
 
-    #[instrument(level = "info", skip(self))]
-    fn blocking_sync(&self) {
-        let _guard = self.lock.blocking_lock();
-
-        if let Err(err) = self.make_sync_inner_fn()() {
-            error!(?err);
-        }
+    fn blocking_sync(&self) -> FsResult<usize> {
+        self.make_sync_fn()()
     }
 
-    fn make_sync_inner_fn(&self) -> impl FnOnce() -> FsResult<()> {
-        let root_path = self.root.path().to_path_buf();
-        let usage = self.usage.clone();
-
+    #[instrument(level = "info", skip(self))]
+    fn make_sync_fn(&self) -> impl FnOnce() -> FsResult<usize> {
         fn get_dir_size(path: PathBuf) -> io::Result<u64> {
             use std::fs;
 
@@ -162,22 +163,53 @@ impl Quota {
             Ok(size)
         }
 
-        move || -> FsResult<()> {
-            usage.fetch_add(
-                get_dir_size(root_path).map_err(FsError::Io)? as usize,
-                Ordering::Release,
-            );
+        let root_path = self.root.path().to_path_buf();
+        let usage = self.usage.clone();
+        let flag = self.sync.clone();
 
-            Ok(())
+        move || {
+            debug_assert!(flag.do_opt.lower());
+
+            let dir_size = get_dir_size(root_path).map_err(FsError::Io)? as usize;
+
+            usage.swap(dir_size, Ordering::Release);
+
+            Ok(dir_size)
         }
     }
 
-    fn fetch_delta(&self, val: i64, order: Ordering) -> usize {
-        match val.cmp(&0) {
-            std::cmp::Ordering::Greater => self.fetch_add(val as usize, order),
-            std::cmp::Ordering::Less => self.fetch_sub(i64::abs(val) as usize, order),
-            std::cmp::Ordering::Equal => self.load(Ordering::Acquire),
+    async fn try_add_delta(&self, amount: i64) -> FsResult<()> {
+        match amount.cmp(&0) {
+            std::cmp::Ordering::Greater => {
+                self.check(amount as usize).await?;
+                self.fetch_add(amount as usize, Ordering::Release);
+            }
+
+            std::cmp::Ordering::Less => {
+                self.fetch_sub(i64::abs(amount) as usize, Ordering::Release);
+            }
+
+            _ => {}
         }
+
+        Ok(())
+    }
+
+    fn blocking_try_add_delta(&self, amount: i64) -> FsResult<()> {
+        match amount.cmp(&0) {
+            std::cmp::Ordering::Greater => {
+                self.blocking_check(amount as usize)?;
+                self.fetch_add(amount as usize, Ordering::Release);
+            }
+
+            std::cmp::Ordering::Less => {
+                self.fetch_sub(i64::abs(amount) as usize, Ordering::Release);
+            }
+
+            _ => {}
+        }
+
+        Ok(())
     }
 }
 
@@ -292,63 +324,61 @@ impl deno_fs::FileSystem for TmpFs {
     }
 
     fn remove_sync(&self, path: &Path, recursive: bool) -> FsResult<()> {
-        let result = RealFs.remove_sync(&self.root.path().join(path.try_normalize()?), recursive);
-
-        self.quota.blocking_sync();
-        result
+        self.quota.sync.do_opt.raise();
+        RealFs.remove_sync(&self.root.path().join(path.try_normalize()?), recursive)
     }
 
     async fn remove_async(&self, path: PathBuf, recursive: bool) -> FsResult<()> {
-        let result = RealFs
+        self.quota.sync.do_opt.raise();
+        RealFs
             .remove_async(self.root.path().join(path.try_normalize()?), recursive)
-            .await;
-
-        self.quota.sync().await;
-        result
+            .await
     }
 
     fn copy_file_sync(&self, oldpath: &Path, newpath: &Path) -> FsResult<()> {
-        let result = RealFs.copy_file_sync(
+        self.quota
+            .blocking_check(self.stat_sync(&oldpath)?.size as usize)?;
+
+        RealFs.copy_file_sync(
             &self.root.path().join(oldpath.try_normalize()?),
             &self.root.path().join(newpath.try_normalize()?),
-        );
-
-        self.quota.blocking_sync();
-        result
+        )
     }
 
     async fn copy_file_async(&self, oldpath: PathBuf, newpath: PathBuf) -> FsResult<()> {
-        let result = RealFs
+        self.quota
+            .check(self.stat_async(oldpath.clone()).await?.size as usize)
+            .await?;
+
+        RealFs
             .copy_file_async(
                 self.root.path().join(oldpath.try_normalize()?),
                 self.root.path().join(newpath.try_normalize()?),
             )
-            .await;
-
-        self.quota.sync().await;
-        result
+            .await
     }
 
     fn cp_sync(&self, path: &Path, new_path: &Path) -> FsResult<()> {
-        let result = RealFs.cp_sync(
+        self.quota
+            .blocking_check(self.stat_sync(&path)?.size as usize)?;
+
+        RealFs.cp_sync(
             &self.root.path().join(path.try_normalize()?),
             &self.root.path().join(new_path.try_normalize()?),
-        );
-
-        self.quota.blocking_sync();
-        result
+        )
     }
 
     async fn cp_async(&self, path: PathBuf, new_path: PathBuf) -> FsResult<()> {
-        let result = RealFs
+        self.quota
+            .check(self.stat_async(path.clone()).await?.size as usize)
+            .await?;
+
+        RealFs
             .cp_async(
-                self.root.path().join(path),
+                self.root.path().join(path.try_normalize()?),
                 self.root.path().join(new_path.try_normalize()?),
             )
-            .await;
-
-        self.quota.sync().await;
-        result
+            .await
     }
 
     fn stat_sync(&self, path: &Path) -> FsResult<FsStat> {
@@ -462,23 +492,24 @@ impl deno_fs::FileSystem for TmpFs {
     }
 
     fn truncate_sync(&self, path: &Path, len: u64) -> FsResult<()> {
-        let path = self.root.path().join(path.try_normalize()?);
         let size = self.stat_sync(&path)?.size;
 
-        RealFs.truncate_sync(&path, len).inspect(|_| {
-            self.quota
-                .fetch_delta((len as i64) - (size as i64), Ordering::Release);
-        })
+        self.quota
+            .blocking_try_add_delta((len as i64) - (size as i64))?;
+
+        RealFs.truncate_sync(&self.root.path().join(path.try_normalize()?), len)
     }
 
     async fn truncate_async(&self, path: PathBuf, len: u64) -> FsResult<()> {
-        let path = self.root.path().join(path.try_normalize()?);
         let size = self.stat_async(path.clone()).await?.size;
 
-        RealFs.truncate_async(path, len).await.inspect(|_| {
-            self.quota
-                .fetch_delta((len as i64) - (size as i64), Ordering::Release);
-        })
+        self.quota
+            .try_add_delta((len as i64) - (size as i64))
+            .await?;
+
+        RealFs
+            .truncate_async(self.root.path().join(path.try_normalize()?), len)
+            .await
     }
 
     fn utime_sync(
@@ -570,14 +601,14 @@ impl deno_io::fs::File for TmpObject {
     }
 
     fn write_sync(self: Rc<Self>, buf: &[u8]) -> FsResult<usize> {
-        self.fs.quota.blocking_check(buf)?;
+        self.fs.quota.blocking_check(buf.len())?;
         self.file.clone().write_sync(buf).inspect(|it| {
             self.fs.quota.fetch_add(*it, Ordering::Release);
         })
     }
 
     async fn write(self: Rc<Self>, buf: BufView) -> FsResult<WriteOutcome> {
-        self.fs.quota.check(&*buf).await?;
+        self.fs.quota.check(buf.len()).await?;
         self.file.clone().write(buf).await.inspect(|it| match it {
             WriteOutcome::Partial { nwritten, .. } | WriteOutcome::Full { nwritten } => {
                 self.fs.quota.fetch_add(*nwritten, Ordering::Release);
@@ -586,7 +617,7 @@ impl deno_io::fs::File for TmpObject {
     }
 
     fn write_all_sync(self: Rc<Self>, buf: &[u8]) -> FsResult<()> {
-        self.fs.quota.blocking_check(buf)?;
+        self.fs.quota.blocking_check(buf.len())?;
         self.file.clone().write_all_sync(buf).inspect(|_| {
             self.fs.quota.fetch_add(buf.len(), Ordering::Release);
         })
@@ -595,7 +626,7 @@ impl deno_io::fs::File for TmpObject {
     async fn write_all(self: Rc<Self>, buf: BufView) -> FsResult<()> {
         let len = buf.len();
 
-        self.fs.quota.check(&*buf).await?;
+        self.fs.quota.check(len).await?;
         self.file.clone().write_all(buf).await.inspect(|_| {
             self.fs.quota.fetch_add(len, Ordering::Release);
         })
@@ -626,18 +657,22 @@ impl deno_io::fs::File for TmpObject {
     }
 
     fn datasync_sync(self: Rc<Self>) -> FsResult<()> {
+        self.fs.quota.sync.do_imm.raise();
         self.file.clone().datasync_sync()
     }
 
     async fn datasync_async(self: Rc<Self>) -> FsResult<()> {
+        self.fs.quota.sync.do_imm.raise();
         self.file.clone().datasync_async().await
     }
 
     fn sync_sync(self: Rc<Self>) -> FsResult<()> {
+        self.fs.quota.sync.do_imm.raise();
         self.file.clone().sync_sync()
     }
 
     async fn sync_async(self: Rc<Self>) -> FsResult<()> {
+        self.fs.quota.sync.do_imm.raise();
         self.file.clone().sync_async().await
     }
 
@@ -668,21 +703,22 @@ impl deno_io::fs::File for TmpObject {
     fn truncate_sync(self: Rc<Self>, len: u64) -> FsResult<()> {
         let size = self.file.clone().stat_sync()?.size;
 
-        self.file.clone().truncate_sync(len).inspect(|_| {
-            self.fs
-                .quota
-                .fetch_delta((len as i64) - (size as i64), Ordering::Release);
-        })
+        self.fs
+            .quota
+            .blocking_try_add_delta((len as i64) - (size as i64))?;
+
+        self.file.clone().truncate_sync(len)
     }
 
     async fn truncate_async(self: Rc<Self>, len: u64) -> FsResult<()> {
         let size = self.file.clone().stat_sync()?.size;
 
-        self.file.clone().truncate_async(len).await.inspect(|_| {
-            self.fs
-                .quota
-                .fetch_delta((len as i64) - (size as i64), Ordering::Release);
-        })
+        self.fs
+            .quota
+            .try_add_delta((len as i64) - (size as i64))
+            .await?;
+
+        self.file.clone().truncate_async(len).await
     }
 
     fn utime_sync(
@@ -725,18 +761,40 @@ impl deno_io::fs::File for TmpObject {
 
 #[cfg(test)]
 mod test {
-    use std::{io, path::PathBuf};
+    use std::{
+        io,
+        path::{Path, PathBuf},
+        rc::Rc,
+        sync::atomic::Ordering,
+    };
 
     use deno_fs::{FileSystem, OpenOptions};
+    use deno_io::fs::File;
     use once_cell::sync::Lazy;
+    use rand::RngCore;
     use tokio::fs::read;
 
     use super::{TmpFs, TmpFsConfig};
 
-    static OPEN_CREATE: Lazy<OpenOptions> =
-        Lazy::new(|| OpenOptions::write(false, false, true, None));
+    const KIB: usize = 1024;
+    const MIB: usize = KIB * 1024;
+
+    static OPEN_CREATE: Lazy<OpenOptions> = Lazy::new(|| OpenOptions {
+        read: true,
+        write: true,
+        create: true,
+        truncate: true,
+        append: true,
+        create_new: true,
+        mode: None,
+    });
 
     static DATA: &[u8] = b"meowmeow";
+
+    fn assert_filesystem_quota_exceeded(err: io::Error) {
+        assert_eq!(err.kind(), io::ErrorKind::Other);
+        assert_eq!(err.to_string(), "filesystem quota exceeded");
+    }
 
     fn get_tmp_fs() -> TmpFs {
         TmpFsConfig {
@@ -745,6 +803,25 @@ mod test {
         }
         .try_into()
         .unwrap()
+    }
+
+    fn get_tmp_fs_with_quota(quota: Option<usize>) -> TmpFs {
+        TmpFsConfig {
+            prefix: Some("meowmeow".to_string()),
+            quota,
+            ..Default::default()
+        }
+        .try_into()
+        .unwrap()
+    }
+
+    async fn create_file<P>(fs: &TmpFs, path: P) -> Rc<dyn File>
+    where
+        P: AsRef<Path>,
+    {
+        fs.open_async(path.as_ref().to_path_buf(), *OPEN_CREATE, None)
+            .await
+            .unwrap()
     }
 
     #[tokio::test]
@@ -786,8 +863,7 @@ mod test {
                 DATA.to_vec(),
             )
             .await
-            .err()
-            .unwrap()
+            .unwrap_err()
             .kind(),
             io::ErrorKind::InvalidInput
         );
@@ -811,10 +887,189 @@ mod test {
         assert_eq!(
             fs.mkdir_async(PathBuf::from("meowmeow/a/b"), true, 0o100)
                 .await
-                .err()
-                .unwrap()
+                .unwrap_err()
                 .kind(),
             io::ErrorKind::PermissionDenied
         );
+    }
+
+    #[tokio::test]
+    async fn write_exceeding_quota() {
+        let fs = get_tmp_fs_with_quota(Some(1 * MIB));
+        let mut arr = vec![0u8; (1 * MIB) + 1];
+
+        rand::thread_rng().fill_bytes(&mut arr);
+
+        assert_filesystem_quota_exceeded(
+            fs.write_file_async(PathBuf::from("meowmeow"), *OPEN_CREATE, None, arr)
+                .await
+                .unwrap_err()
+                .into_io_error(),
+        );
+    }
+
+    #[tokio::test]
+    async fn write_exceeding_quota_2() {
+        let fs = get_tmp_fs_with_quota(Some(1 * MIB));
+        let mut arr = vec![0u8; 1 * MIB];
+
+        rand::thread_rng().fill_bytes(&mut arr);
+
+        let f = create_file(&fs, "meowmeow").await;
+
+        f.clone().write_all(arr.into()).await.unwrap();
+
+        assert_filesystem_quota_exceeded(
+            f.write_all(b"m".to_vec().into())
+                .await
+                .unwrap_err()
+                .into_io_error(),
+        );
+    }
+
+    #[tokio::test]
+    async fn restore_quota_after_remove_op() {
+        let fs = get_tmp_fs_with_quota(Some(1 * MIB));
+        let mut arr = vec![0u8; 1 * MIB];
+
+        rand::thread_rng().fill_bytes(&mut arr);
+
+        let f = create_file(&fs, "meowmeow").await;
+
+        f.clone().write_all(arr.into()).await.unwrap();
+
+        assert_eq!(fs.quota.load(Ordering::Relaxed), 1 * MIB);
+
+        drop(f);
+
+        fs.remove_async(PathBuf::from("meowmeow"), false)
+            .await
+            .unwrap();
+
+        // Because sync is performed optimistically.
+        assert_eq!(fs.quota.load(Ordering::Relaxed), 1 * MIB);
+        assert_eq!(fs.quota.sync.do_opt.is_raised(), true);
+
+        let mut arr2 = vec![0u8; 512 * KIB];
+
+        rand::thread_rng().fill_bytes(&mut arr2);
+
+        let f2 = create_file(&fs, "meowmeow2").await;
+
+        f2.clone().write_all(arr2.clone().into()).await.unwrap();
+        assert_eq!(fs.quota.load(Ordering::Relaxed), 512 * KIB);
+        assert_eq!(fs.quota.sync.do_opt.is_raised(), false);
+
+        f2.clone().write_all(arr2.into()).await.unwrap();
+        assert_eq!(fs.quota.load(Ordering::Relaxed), 1 * MIB);
+        assert_eq!(fs.quota.sync.do_opt.is_raised(), false);
+
+        assert_filesystem_quota_exceeded(
+            f2.write_all(b"m".to_vec().into())
+                .await
+                .unwrap_err()
+                .into_io_error(),
+        );
+    }
+
+    #[tokio::test]
+    async fn cp_exceeding_quota() {
+        let fs = get_tmp_fs_with_quota(Some(1 * MIB));
+        let mut arr = vec![0u8; 513 * KIB];
+
+        rand::thread_rng().fill_bytes(&mut arr);
+
+        let f = create_file(&fs, "meowmeow").await;
+
+        f.clone().write_all(arr.into()).await.unwrap();
+
+        drop(f);
+
+        assert_filesystem_quota_exceeded(
+            fs.cp_async(PathBuf::from("meowmeow"), PathBuf::from("meowmeow2"))
+                .await
+                .unwrap_err()
+                .into_io_error(),
+        );
+    }
+
+    #[tokio::test]
+    async fn truncate_exceeding_quota_fs() {
+        let fs = get_tmp_fs_with_quota(Some(1 * MIB));
+        let mut arr = vec![0u8; 1 * MIB];
+
+        rand::thread_rng().fill_bytes(&mut arr);
+
+        fs.write_file_async(PathBuf::from("meowmeow"), *OPEN_CREATE, None, arr)
+            .await
+            .unwrap();
+
+        assert_eq!(fs.quota.load(Ordering::Relaxed), 1 * MIB);
+
+        assert_filesystem_quota_exceeded(
+            fs.truncate_async(PathBuf::from("meowmeow"), ((1 * MIB) + 1) as u64)
+                .await
+                .unwrap_err()
+                .into_io_error(),
+        );
+    }
+
+    #[tokio::test]
+    async fn truncate_exceeding_quota_file() {
+        let fs = get_tmp_fs_with_quota(Some(1 * MIB));
+        let mut arr = vec![0u8; 1 * MIB];
+
+        rand::thread_rng().fill_bytes(&mut arr);
+
+        let f = create_file(&fs, "meowmeow").await;
+
+        f.clone().write_all(arr.into()).await.unwrap();
+        assert_eq!(fs.quota.load(Ordering::Relaxed), 1 * MIB);
+
+        assert_filesystem_quota_exceeded(
+            f.truncate_async(((1 * MIB) + 1) as u64)
+                .await
+                .unwrap_err()
+                .into_io_error(),
+        );
+    }
+
+    #[tokio::test]
+    async fn truncate_size_shrink() {
+        let fs = get_tmp_fs_with_quota(Some(1 * MIB));
+        let f = create_file(&fs, "meowmeow").await;
+
+        f.clone()
+            .write_all(vec![1u8; 1 * MIB].into())
+            .await
+            .unwrap();
+
+        assert_eq!(fs.quota.load(Ordering::Relaxed), 1 * MIB);
+
+        f.truncate_async((128 * KIB) as u64).await.unwrap();
+        assert_eq!(fs.quota.load(Ordering::Relaxed), 128 * KIB);
+    }
+
+    #[tokio::test]
+    async fn truncate_size_extend() {
+        let fs = get_tmp_fs_with_quota(Some(1 * MIB));
+        let f = create_file(&fs, "meowmeow").await;
+
+        f.clone()
+            .write_all(vec![1u8; 512 * KIB].into())
+            .await
+            .unwrap();
+
+        assert_eq!(fs.quota.load(Ordering::Relaxed), 512 * KIB);
+
+        f.clone().truncate_async((1 * MIB) as u64).await.unwrap();
+        assert_eq!(fs.quota.load(Ordering::Relaxed), 1 * MIB);
+
+        f.clone().seek_async(io::SeekFrom::Start(0)).await.unwrap();
+
+        let vec = f.read_all_async().await.unwrap();
+        let half = &vec[512 * KIB..];
+
+        assert!(half.iter().all(|it| *it == 0));
     }
 }

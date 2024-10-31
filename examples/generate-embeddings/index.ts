@@ -7,17 +7,17 @@ env.allowLocalModels = false;
 const pipe = await pipeline('feature-extraction', 'Supabase/gte-small');
 
 Deno.serve(async (req) => {
-	const params = new URL(req.url).searchParams;
-	const input = params.get('text');
+  const params = new URL(req.url).searchParams;
+  const input = params.get('text');
 
-	const output = await pipe(input, {
-		pooling: 'mean',
-		normalize: true,
-	});
+  const output = await pipe(input, {
+    pooling: 'mean',
+    normalize: true,
+  });
 
-	const embedding = Array.from(output.data);
+  const embedding = Array.from(output.data);
 
-	return new Response(JSON.stringify(embedding), {
-		headers: { 'Content-Type': 'application/json' },
-	});
+  return new Response(JSON.stringify(embedding), {
+    headers: { 'Content-Type': 'application/json' },
+  });
 });

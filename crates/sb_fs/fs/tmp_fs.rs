@@ -962,7 +962,7 @@ mod test {
 
         f2.clone().write_all(arr2.into()).await.unwrap();
         assert_eq!(fs.quota.load(Ordering::Relaxed), MIB);
-        assert!(fs.quota.sync.do_opt.is_raised());
+        assert!(!fs.quota.sync.do_opt.is_raised());
 
         assert_filesystem_quota_exceeded(
             f2.write_all(b"m".to_vec().into())

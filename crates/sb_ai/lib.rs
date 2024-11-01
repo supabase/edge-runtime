@@ -6,7 +6,6 @@ use base_rt::BlockingScopeCPUUsageMetricExt;
 use deno_core::error::AnyError;
 use deno_core::OpState;
 use deno_core::{op2, JsRuntime, V8CrossThreadTaskSpawner, V8TaskSpawner};
-use log::error;
 use ndarray::{Array1, Array2, ArrayView3, Axis, Ix3};
 use ndarray_linalg::norm::{normalize, NormalizeAxis};
 use ort::inputs;
@@ -19,7 +18,7 @@ use tokenizers::Tokenizer;
 use tokio::sync::mpsc;
 use tokio::task;
 
-use tracing::trace_span;
+use tracing::{error, trace_span};
 
 deno_core::extension!(
     sb_ai,
@@ -75,7 +74,7 @@ fn init_gte(state: &mut OpState) -> Result<(), Error> {
 
         if session.is_err() {
             let err = session.as_ref().unwrap_err();
-            error!("sb_ai: failed to create session - {}", err);
+            error!(reason = ?err, "failed to create session");
             return;
         }
 
@@ -89,7 +88,7 @@ fn init_gte(state: &mut OpState) -> Result<(), Error> {
 
         if tokenizer.is_err() {
             let err = tokenizer.as_ref().unwrap_err();
-            error!("sb_ai: failed to create tokenizer: {}", err);
+            error!(reason = ?err, "failed to create tokenizer");
             return;
         }
 
@@ -177,8 +176,8 @@ fn init_gte(state: &mut OpState) -> Result<(), Error> {
                         .spawn_cpu_accumul_blocking_scope(move || {
                             let result = run_inference_fn(req.prompt, req.mean_pool, req.normalize);
 
-                            if req.result_tx.send(result).is_err() {
-                                error!("sb_ai: failed to send inference results (channel error)");
+                            if let Err(err) = req.result_tx.send(result) {
+                                error!(reason = ?err, "failed to send inference results");
                             };
                         });
                 });

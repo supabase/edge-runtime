@@ -3,7 +3,7 @@ use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::{path::PathBuf, sync::Arc};
-use tracing::debug;
+use tracing::{debug, instrument, trace};
 
 use anyhow::{anyhow, Error};
 use ort::{
@@ -84,6 +84,7 @@ fn create_session(model_bytes: &[u8]) -> Result<Arc<Session>, Error> {
     Ok(session)
 }
 
+#[instrument(level = "debug", ret)]
 pub(crate) fn load_session_from_file(
     model_file_path: PathBuf,
 ) -> Result<(String, Arc<Session>), Error> {
@@ -92,17 +93,20 @@ pub(crate) fn load_session_from_file(
     let mut sessions = SESSIONS.lock().unwrap();
 
     if let Some(session) = sessions.get(&session_id) {
+        trace!(session_id, "use existing session");
         return Ok((session_id, session.clone()));
     }
     let model_bytes = std::fs::read(model_file_path)?;
 
     let session = create_session(model_bytes.as_slice())?;
 
+    trace!(session_id, "new session");
     sessions.insert(session_id.to_owned(), session.clone());
 
     Ok((session_id, session))
 }
 
+#[instrument(level = "debug", ret)]
 pub fn cleanup() -> Result<usize, AnyError> {
     let mut remove_counter = 0;
     {

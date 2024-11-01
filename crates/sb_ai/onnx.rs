@@ -4,9 +4,8 @@ use std::sync::{
 };
 
 use ctor::ctor;
-use log::error;
 use scopeguard::guard;
-use tracing::instrument;
+use tracing::{error, instrument};
 
 static ONNX_INIT_ONNX_ENV_DONE: AtomicBool = AtomicBool::new(false);
 static ONNX_INIT_RESULT: Mutex<Option<Arc<ort::Error>>> = Mutex::new(None);
@@ -48,7 +47,7 @@ fn init_onnx_env() {
         }
 
         Ok(Err(err)) => {
-            error!("sb_ai: failed to create environment: {}", err);
+            error!(reason = ?err, "failed to create environment");
             let _ = guard1.insert(Arc::new(err));
         }
 

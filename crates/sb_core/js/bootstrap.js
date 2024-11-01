@@ -247,6 +247,7 @@ const globalScope = {
 	performance: writable(performance.performance),
 
 	// messagePort
+	MessageChannel: nonEnumerable(messagePort.MessageChannel),
 	structuredClone: writable(messagePort.structuredClone),
 
 	// Branding as a WebIDL object

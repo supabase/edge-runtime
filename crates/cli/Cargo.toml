@@ -21,9 +21,9 @@ log.workspace = true
 tokio.workspace = true
 glob.workspace = true
 once_cell.workspace = true
-tracing-subscriber = { workspace = true, optional = true, features = ["env-filter", "tracing-log"] }
+clap.workspace = true
+tracing-subscriber = { workspace = true, optional = true }
 
-clap = { version = "4.0.29", features = ["cargo", "string", "env", "derive"] }
 env_logger = "0.10.0"
 
 [features]

@@ -1,3 +1,4 @@
+use base_rt::DenoRuntimeDropToken;
 use deno_core::error::bad_resource;
 use deno_core::error::AnyError;
 use deno_core::op2;
@@ -19,8 +20,6 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::span;
 use tracing::Level;
-
-use crate::conn_sync::DenoRuntimeDropToken;
 
 pub struct TokioDuplexResource {
     id: usize,

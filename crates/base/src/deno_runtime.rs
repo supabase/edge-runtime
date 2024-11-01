@@ -4,17 +4,18 @@ use crate::rt_worker::worker::DuplexStreamEntry;
 use crate::utils::path::find_up;
 use crate::utils::units::{bytes_to_display, mib_to_bytes};
 
-use anyhow::{anyhow, bail, Context, Error};
+use anyhow::{anyhow, bail, Error};
 use base_mem_check::{MemCheckState, WorkerHeapStatistics};
+use base_rt::DenoRuntimeDropToken;
+use base_rt::{get_current_cpu_time_ns, BlockingScopeCPUUsage};
 use cooked_waker::{IntoWaker, WakeRef};
-use cpu_timer::get_thread_time;
 use ctor::ctor;
 use deno_core::error::AnyError;
 use deno_core::url::Url;
 use deno_core::v8::{GCCallbackFlags, GCType, HeapStatistics, Isolate};
 use deno_core::{
     located_script_name, serde_json, JsRuntime, ModuleCodeString, ModuleId, ModuleLoader,
-    ModuleSpecifier, PollEventLoopOptions, ResolutionKind, RuntimeOptions,
+    ModuleSpecifier, OpState, PollEventLoopOptions, ResolutionKind, RuntimeOptions,
 };
 use deno_http::DefaultHttpPropertyExtractor;
 use deno_tls::deno_native_certs::load_native_certs;
@@ -22,21 +23,22 @@ use deno_tls::rustls::RootCertStore;
 use deno_tls::RootCertStoreProvider;
 use futures_util::future::poll_fn;
 use futures_util::task::AtomicWaker;
-use log::{error, trace};
+use log::error;
 use once_cell::sync::{Lazy, OnceCell};
-use sb_core::conn_sync::DenoRuntimeDropToken;
 use sb_core::http::sb_core_http;
 use sb_core::http_start::sb_core_http_start;
 use sb_core::util::sync::AtomicFlag;
 use sb_fs::static_fs::StaticFs;
 use serde::Serialize;
 use std::borrow::Cow;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::fmt;
 use std::future::Future;
 use std::marker::PhantomData;
 use std::mem::ManuallyDrop;
+use std::rc::Rc;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 use std::task::Poll;
@@ -45,7 +47,7 @@ use std::time::Duration;
 use tokio::sync::{mpsc, OwnedSemaphorePermit, Semaphore};
 use tokio::time::interval;
 use tokio_util::sync::{CancellationToken, PollSemaphore};
-use tracing::debug;
+use tracing::{debug, debug_span, instrument, trace, Instrument};
 
 use crate::snapshot;
 use event_worker::events::{EventMetadata, WorkerEventWithMetadata};
@@ -737,11 +739,12 @@ where
         let current_thread_id = std::thread::current().id();
         let mut accumulated_cpu_time_ns = 0i64;
 
-        let has_inspector = self.inspector().is_some();
+        let span = debug_span!("runtime", ?name, thread_id = ?current_thread_id);
+        let inspector = self.inspector();
         let mut mod_result_rx = unsafe {
             self.js_runtime.v8_isolate().enter();
 
-            if has_inspector {
+            if inspector.is_some() {
                 let is_terminated = self.is_terminated.clone();
                 let mut this = scopeguard::guard_on_unwind(&mut *self, |this| {
                     this.js_runtime.v8_isolate().exit();
@@ -774,11 +777,13 @@ where
 
             with_cpu_metrics_guard(
                 current_thread_id,
+                js_runtime.op_state(),
                 &maybe_cpu_usage_metrics_tx,
                 &mut accumulated_cpu_time_ns,
                 || js_runtime.mod_evaluate(self.main_module_id),
             )
-        };
+        }
+        .instrument(span.clone());
 
         macro_rules! get_accumulated_cpu_time_ms {
             () => {
@@ -787,12 +792,13 @@ where
         }
 
         {
-            let event_loop_fut = self.run_event_loop(
-                name.as_deref(),
-                current_thread_id,
-                &maybe_cpu_usage_metrics_tx,
-                &mut accumulated_cpu_time_ns,
-            );
+            let event_loop_fut = self
+                .run_event_loop(
+                    current_thread_id,
+                    &maybe_cpu_usage_metrics_tx,
+                    &mut accumulated_cpu_time_ns,
+                )
+                .instrument(span.clone());
 
             let mod_result = tokio::select! {
                 // Not using biased mode leads to non-determinism for relatively simple
@@ -821,11 +827,11 @@ where
 
         if let Err(err) = self
             .run_event_loop(
-                name.as_deref(),
                 current_thread_id,
                 &maybe_cpu_usage_metrics_tx,
                 &mut accumulated_cpu_time_ns,
             )
+            .instrument(span)
             .await
         {
             return (
@@ -839,7 +845,6 @@ where
 
     fn run_event_loop<'l>(
         &'l mut self,
-        name: Option<&'l str>,
         #[allow(unused_variables)] current_thread_id: ThreadId,
         maybe_cpu_usage_metrics_tx: &'l Option<mpsc::UnboundedSender<CPUUsageMetrics>>,
         accumulated_cpu_time_ns: &'l mut i64,
@@ -880,6 +885,7 @@ where
             let js_runtime = &mut this.js_runtime;
             let cpu_metrics_guard = get_cpu_metrics_guard(
                 thread_id,
+                js_runtime.op_state(),
                 maybe_cpu_usage_metrics_tx,
                 accumulated_cpu_time_ns,
             );
@@ -927,13 +933,7 @@ where
 
                 mem_state.waker.register(waker);
 
-                trace!(
-                    "name: {:?}, thread_id: {:?}, accumulated_cpu_time: {}ms, malloced: {}",
-                    name.as_ref(),
-                    thread_id,
-                    *accumulated_cpu_time_ns / 1_000_000,
-                    bytes_to_display(total_malloced_bytes as u64)
-                );
+                trace!(malloced_mb = bytes_to_display(total_malloced_bytes as u64));
             }
 
             // NOTE(Nyannyacha): If tasks are empty or V8 is not evaluating the
@@ -986,8 +986,11 @@ where
         }));
     }
 
+    #[instrument(level = "debug", skip(self))]
     fn wait_for_inspector_session(&mut self) {
+        debug!(has_inspector = self.maybe_inspector.is_some());
         if let Some(inspector) = self.maybe_inspector.as_ref() {
+            debug!(addr = %inspector.server.host, server.inspector = ?inspector.option);
             let inspector_impl = self.js_runtime.inspector();
             let mut inspector_impl_ref = inspector_impl.borrow_mut();
 
@@ -1025,12 +1028,9 @@ pub fn import_meta_resolve_callback(
     loader.resolve(&specifier, &referrer, ResolutionKind::DynamicImport)
 }
 
-fn get_current_cpu_time_ns() -> Result<i64, Error> {
-    get_thread_time().context("can't get current thread time")
-}
-
 fn with_cpu_metrics_guard<'l, F, R>(
     thread_id: ThreadId,
+    op_state: Rc<RefCell<OpState>>,
     maybe_cpu_usage_metrics_tx: &'l Option<mpsc::UnboundedSender<CPUUsageMetrics>>,
     accumulated_cpu_time_ns: &'l mut i64,
     work_fn: F,
@@ -1040,6 +1040,7 @@ where
 {
     let _cpu_metrics_guard = get_cpu_metrics_guard(
         thread_id,
+        op_state,
         maybe_cpu_usage_metrics_tx,
         accumulated_cpu_time_ns,
     );
@@ -1049,6 +1050,7 @@ where
 
 fn get_cpu_metrics_guard<'l>(
     thread_id: ThreadId,
+    op_state: Rc<RefCell<OpState>>,
     maybe_cpu_usage_metrics_tx: &'l Option<mpsc::UnboundedSender<CPUUsageMetrics>>,
     accumulated_cpu_time_ns: &'l mut i64,
 ) -> scopeguard::ScopeGuard<(), impl FnOnce(()) + 'l> {
@@ -1066,14 +1068,23 @@ fn get_cpu_metrics_guard<'l>(
         debug_assert_eq!(thread_id, std::thread::current().id());
 
         let cpu_time_after_drop_ns = get_current_cpu_time_ns().unwrap_or(current_cpu_time_ns);
+        let blocking_cpu_time_ns =
+            BlockingScopeCPUUsage::get_cpu_usage_ns_and_reset(&mut op_state.borrow_mut());
+
         let diff_cpu_time_ns = cpu_time_after_drop_ns - current_cpu_time_ns;
 
         *accumulated_cpu_time_ns += diff_cpu_time_ns;
+        *accumulated_cpu_time_ns += blocking_cpu_time_ns;
 
         send_cpu_metrics_fn(CPUUsageMetrics::Leave(CPUUsage {
             accumulated: *accumulated_cpu_time_ns,
             diff: diff_cpu_time_ns,
         }));
+
+        debug!(
+            accumulated_cpu_time_ms = *accumulated_cpu_time_ns / 1_000_000,
+            blocking_cpu_time_ms = blocking_cpu_time_ns / 1_000_000,
+        );
     })
 }
 

@@ -26,7 +26,7 @@ pub async fn start_server(
     inspector_option: Option<InspectorOption>,
     jsx_specifier: Option<String>,
     jsx_module: Option<String>,
-) -> Result<(), Error> {
+) -> Result<Option<i32>, Error> {
     let mut server = Server::new(
         ip,
         port,

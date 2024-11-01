@@ -239,4 +239,15 @@ class Session {
     }
 }
 
-export default { Session };
+const MAIN_WORKER_API = {
+    tryCleanupUnusedSession: () => core.ops.op_sb_ai_try_cleanup_unused_session(),
+};
+
+const USER_WORKER_API = {
+    Session,
+};
+
+export {
+    MAIN_WORKER_API,
+    USER_WORKER_API,
+};

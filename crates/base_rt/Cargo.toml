@@ -7,6 +7,7 @@ edition = "2021"
 deno_core.workspace = true
 
 cpu_timer = { version = "0.1.0", path = "../cpu_timer" }
+
 tokio.workspace = true
 once_cell.workspace = true
 tracing.workspace = true

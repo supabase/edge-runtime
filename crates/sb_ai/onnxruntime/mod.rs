@@ -21,7 +21,7 @@ pub fn op_sb_ai_ort_init_session(#[buffer] model_bytes: &[u8]) -> Result<ModelIn
 
 #[op2]
 #[serde]
-pub fn op_sb_ai_ort_run_session<'a>(
+pub fn op_sb_ai_ort_run_session(
     #[string] model_id: String,
     #[serde] input_values: HashMap<String, JsTensor>,
 ) -> Result<HashMap<String, ToJsTensor>> {
@@ -31,7 +31,11 @@ pub fn op_sb_ai_ort_run_session<'a>(
     // println!("{model_session:?}");
     let input_values = input_values
         .into_iter()
-        .map(|(key, value)| value.as_ort_input().map(|value| (Cow::from(key), value)))
+        .map(|(key, value)| {
+            value
+                .extract_ort_input()
+                .map(|value| (Cow::from(key), value))
+        })
         .collect::<Result<Vec<_>>>()?;
 
     let mut outputs = model_session.run(input_values)?;

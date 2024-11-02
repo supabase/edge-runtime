@@ -135,7 +135,7 @@ pub(crate) fn load_session_from_bytes(model_bytes: &[u8]) -> Result<(String, Arc
 pub(crate) fn get_session(session_id: &String) -> Option<Arc<Session>> {
     let sessions = SESSIONS.lock().unwrap();
 
-    sessions.get(session_id).map(|session| session.clone())
+    sessions.get(session_id).cloned()
 }
 
 pub fn cleanup() -> Result<usize, AnyError> {

@@ -105,7 +105,7 @@ pub struct JsTensor {
 }
 
 impl JsTensor {
-    pub fn as_ort_tensor_ref<'a, T: IntoTensorElementType + Debug>(
+    pub fn extract_ort_tensor_ref<'a, T: IntoTensorElementType + Debug>(
         mut self,
     ) -> anyhow::Result<ValueRefMut<'a, DynValueTypeMarker>> {
         // Same impl. as the Tensor::from_array()
@@ -128,23 +128,23 @@ impl JsTensor {
         Ok(tensor.into_dyn())
     }
 
-    pub fn as_ort_input<'a>(self) -> anyhow::Result<SessionInputValue<'a>> {
+    pub fn extract_ort_input<'a>(self) -> anyhow::Result<SessionInputValue<'a>> {
         let input_value = match self.data_type {
-            TensorElementType::Float32 => self.as_ort_tensor_ref::<f32>()?.into(),
-            TensorElementType::Float64 => self.as_ort_tensor_ref::<f64>()?.into(),
+            TensorElementType::Float32 => self.extract_ort_tensor_ref::<f32>()?.into(),
+            TensorElementType::Float64 => self.extract_ort_tensor_ref::<f64>()?.into(),
             TensorElementType::String => {
                 // TODO: Handle string[] tensors from 'v8::Array'
                 return Err(anyhow!("Can't extract tensor from it: 'String' does not implement the 'IntoTensorElementType' trait."));
             }
-            TensorElementType::Int8 => self.as_ort_tensor_ref::<i8>()?.into(),
-            TensorElementType::Uint8 => self.as_ort_tensor_ref::<u8>()?.into(),
-            TensorElementType::Int16 => self.as_ort_tensor_ref::<i16>()?.into(),
-            TensorElementType::Uint16 => self.as_ort_tensor_ref::<u16>()?.into(),
-            TensorElementType::Int32 => self.as_ort_tensor_ref::<i32>()?.into(),
-            TensorElementType::Uint32 => self.as_ort_tensor_ref::<u32>()?.into(),
-            TensorElementType::Int64 => self.as_ort_tensor_ref::<i64>()?.into(),
-            TensorElementType::Uint64 => self.as_ort_tensor_ref::<u64>()?.into(),
-            TensorElementType::Bool => self.as_ort_tensor_ref::<bool>()?.into(),
+            TensorElementType::Int8 => self.extract_ort_tensor_ref::<i8>()?.into(),
+            TensorElementType::Uint8 => self.extract_ort_tensor_ref::<u8>()?.into(),
+            TensorElementType::Int16 => self.extract_ort_tensor_ref::<i16>()?.into(),
+            TensorElementType::Uint16 => self.extract_ort_tensor_ref::<u16>()?.into(),
+            TensorElementType::Int32 => self.extract_ort_tensor_ref::<i32>()?.into(),
+            TensorElementType::Uint32 => self.extract_ort_tensor_ref::<u32>()?.into(),
+            TensorElementType::Int64 => self.extract_ort_tensor_ref::<i64>()?.into(),
+            TensorElementType::Uint64 => self.extract_ort_tensor_ref::<u64>()?.into(),
+            TensorElementType::Bool => self.extract_ort_tensor_ref::<bool>()?.into(),
             TensorElementType::Float16 => {
                 return Err(anyhow!("'half::f16' is not supported by JS tensor."))
             }
@@ -172,8 +172,7 @@ impl ToJsTensor {
         let ValueType::Tensor { ty, dimensions } = ort_type else {
             return Err(anyhow!(
                 "JS only support 'ort::Value' of 'Tensor' type, got '{ort_type:?}'."
-            )
-            .into());
+            ));
         };
 
         let buffer_slice = match ty {

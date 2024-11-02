@@ -2833,7 +2833,7 @@ async fn test_tmp_fs_should_not_be_available_in_import_stmt() {
 // -- sb_ai: ORT @huggingface/transformers
 #[tokio::test]
 #[serial]
-async fn test_ort_feature_extraction() {
+async fn test_ort_nlp_feature_extraction() {
     integration_test!(
         "./test_cases/ai-ort-rust-backend/main",
         NON_SECURE_PORT,
@@ -2852,7 +2852,7 @@ async fn test_ort_feature_extraction() {
 
 #[tokio::test]
 #[serial]
-async fn test_ort_fill_mask() {
+async fn test_ort_nlp_fill_mask() {
     integration_test!(
         "./test_cases/ai-ort-rust-backend/main",
         NON_SECURE_PORT,
@@ -2871,7 +2871,7 @@ async fn test_ort_fill_mask() {
 
 #[tokio::test]
 #[serial]
-async fn test_ort_question_answering() {
+async fn test_ort_nlp_question_answering() {
     integration_test!(
         "./test_cases/ai-ort-rust-backend/main",
         NON_SECURE_PORT,
@@ -2890,7 +2890,7 @@ async fn test_ort_question_answering() {
 
 #[tokio::test]
 #[serial]
-async fn test_ort_summarization() {
+async fn test_ort_nlp_summarization() {
     integration_test!(
         "./test_cases/ai-ort-rust-backend/main",
         NON_SECURE_PORT,
@@ -2909,7 +2909,7 @@ async fn test_ort_summarization() {
 
 #[tokio::test]
 #[serial]
-async fn test_ort_text_classification() {
+async fn test_ort_nlp_text_classification() {
     integration_test!(
         "./test_cases/ai-ort-rust-backend/main",
         NON_SECURE_PORT,
@@ -2928,7 +2928,7 @@ async fn test_ort_text_classification() {
 
 #[tokio::test]
 #[serial]
-async fn test_ort_text_generation() {
+async fn test_ort_nlp_text_generation() {
     integration_test!(
         "./test_cases/ai-ort-rust-backend/main",
         NON_SECURE_PORT,
@@ -2947,7 +2947,7 @@ async fn test_ort_text_generation() {
 
 #[tokio::test]
 #[serial]
-async fn test_ort_text2text_generation() {
+async fn test_ort_nlp_text2text_generation() {
     integration_test!(
         "./test_cases/ai-ort-rust-backend/main",
         NON_SECURE_PORT,
@@ -2966,7 +2966,7 @@ async fn test_ort_text2text_generation() {
 
 #[tokio::test]
 #[serial]
-async fn test_ort_token_classification() {
+async fn test_ort_nlp_token_classification() {
     integration_test!(
         "./test_cases/ai-ort-rust-backend/main",
         NON_SECURE_PORT,
@@ -2985,7 +2985,7 @@ async fn test_ort_token_classification() {
 
 #[tokio::test]
 #[serial]
-async fn test_ort_translation() {
+async fn test_ort_nlp_translation() {
     integration_test!(
         "./test_cases/ai-ort-rust-backend/main",
         NON_SECURE_PORT,
@@ -3004,11 +3004,68 @@ async fn test_ort_translation() {
 
 #[tokio::test]
 #[serial]
-async fn test_ort_zero_shot_classification() {
+async fn test_ort_nlp_zero_shot_classification() {
     integration_test!(
         "./test_cases/ai-ort-rust-backend/main",
         NON_SECURE_PORT,
         "transformers-js/zero-shot-classification",
+        None,
+        None,
+        None,
+        None,
+        (|resp| async {
+            let res = resp.unwrap();
+            assert_eq!(res.status().as_u16(), StatusCode::OK);
+        }),
+        TerminationToken::new()
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_ort_vision_image_feature_extraction() {
+    integration_test!(
+        "./test_cases/ai-ort-rust-backend/main",
+        NON_SECURE_PORT,
+        "transformers-js/image-feature-extraction",
+        None,
+        None,
+        None,
+        None,
+        (|resp| async {
+            let res = resp.unwrap();
+            assert_eq!(res.status().as_u16(), StatusCode::OK);
+        }),
+        TerminationToken::new()
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_ort_vision_image_classification() {
+    integration_test!(
+        "./test_cases/ai-ort-rust-backend/main",
+        NON_SECURE_PORT,
+        "transformers-js/image-classification",
+        None,
+        None,
+        None,
+        None,
+        (|resp| async {
+            let res = resp.unwrap();
+            assert_eq!(res.status().as_u16(), StatusCode::OK);
+        }),
+        TerminationToken::new()
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_ort_vision_zero_shot_image_classification() {
+    integration_test!(
+        "./test_cases/ai-ort-rust-backend/main",
+        NON_SECURE_PORT,
+        "transformers-js/zero-shot-image-classification",
         None,
         None,
         None,

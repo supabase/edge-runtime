@@ -21,7 +21,7 @@ use sb_core::util::http_util::HttpClientProvider;
 use sb_eszip_shared::{
     AsyncEszipDataRead, NPM_RC_SCOPES_KEY, SOURCE_CODE_ESZIP_KEY, VFS_ESZIP_KEY,
 };
-use sb_fs::file_system::DenoCompileFileSystem;
+use sb_fs::deno_compile_fs::DenoCompileFileSystem;
 use sb_fs::{extract_static_files_from_eszip, load_npm_vfs};
 use sb_graph::resolver::{CjsResolutionStore, CliNodeResolver, NpmModuleLoader};
 use sb_graph::{eszip_migrate, payload_to_eszip, EszipPayloadKind, LazyLoadableEszip};
@@ -36,7 +36,7 @@ use sb_npm::{
 use standalone_module_loader::WorkspaceEszip;
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -87,7 +87,12 @@ where
 
     // use a dummy npm registry url
     let npm_registry_url = ModuleSpecifier::parse("https://localhost/").unwrap();
-    let root_path = std::env::temp_dir().join(format!("sb-compile-{}", current_exe_name));
+    let root_path = if cfg!(target_family = "unix") {
+        PathBuf::from("/var/tmp")
+    } else {
+        std::env::temp_dir()
+    }
+    .join(format!("sb-compile-{}", current_exe_name));
 
     let root_dir_url = ModuleSpecifier::from_directory_path(&root_path).unwrap();
     let root_node_modules_path = root_path.join("node_modules");

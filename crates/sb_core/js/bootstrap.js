@@ -405,25 +405,6 @@ const DENIED_DENO_FS_API_LIST = ObjectKeys(fsVars)
 		{}
 	);
 
-const PATCH_DENO_API_LIST = {
-	...DENIED_DENO_FS_API_LIST,
-
-	'cwd': true,
-	'readFile': true,
-	'readFileSync': true,
-	'readTextFile': true,
-	'readTextFileSync': true,
-
-	'kill': MOCK_FN,
-	'exit': MOCK_FN,
-	'addSignalListener': MOCK_FN,
-	'removeSignalListener': MOCK_FN,
-
-	// TODO: use a non-hardcoded path
-	'execPath': () => '/bin/edge-runtime',
-	'memoryUsage': () => ops.op_runtime_memory_usage(),
-};
-
 globalThis.bootstrapSBEdge = (opts, extraCtx) => {
 	globalThis_ = globalThis;
 
@@ -539,10 +520,40 @@ globalThis.bootstrapSBEdge = (opts, extraCtx) => {
 			),
 		});
 
-		const apiNames = ObjectKeys(PATCH_DENO_API_LIST);
+		const apisToBeOverridden = {
+			...DENIED_DENO_FS_API_LIST,
+
+			'cwd': true,
+
+			'open': true,
+			'stat': true,
+			'realPath': true,
+			'create': true,
+			'remove': true,
+			'writeFile': true,
+			'writeTextFile': true,
+			'readFile': true,
+			'readTextFile': true,
+
+			'kill': MOCK_FN,
+			'exit': MOCK_FN,
+			'addSignalListener': MOCK_FN,
+			'removeSignalListener': MOCK_FN,
+
+			// TODO: use a non-hardcoded path
+			'execPath': () => '/bin/edge-runtime',
+			'memoryUsage': () => ops.op_runtime_memory_usage(),
+		};
+
+		if (extraCtx?.useSyncFileAPI) {
+			apisToBeOverridden['readFileSync'] = true;
+			apisToBeOverridden['readTextFileSync'] = true;
+		}
+
+		const apiNames = ObjectKeys(apisToBeOverridden);
 
 		for (const name of apiNames) {
-			const value = PATCH_DENO_API_LIST[name];
+			const value = apisToBeOverridden[name];
 
 			if (value === false) {
 				delete Deno[name];

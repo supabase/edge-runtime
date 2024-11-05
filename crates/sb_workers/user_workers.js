@@ -30,7 +30,7 @@ class UserWorker {
 
 	async fetch(request, options = {}) {
 		const tag = getSupabaseTag(request);
-		
+
 		const { method, url, headers, body, bodyUsed } = request;
 		const { signal } = options;
 
@@ -38,7 +38,7 @@ class UserWorker {
 
 		if (tag === void 0) {
 			console.warn(NO_SUPABASE_TAG_WARN_MSG);
-		} 
+		}
 
 		const headersArray = Array.from(headers.entries());
 		const hasBody = !bodyUsed && !!body;
@@ -58,8 +58,7 @@ class UserWorker {
 		let requestBodyPromise = null;
 
 		if (hasBody) {
-			let writableStream = writableStreamForRid(requestBodyRid);
-			requestBodyPromise = body.pipeTo(writableStream, { signal });
+			requestBodyPromise = body.pipeTo(writableStreamForRid(requestBodyRid), { signal });
 		}
 
 		const responsePromise = op_user_worker_fetch_send(
@@ -103,7 +102,7 @@ class UserWorker {
 				signal?.addEventListener("abort", () => {
 					core.tryClose(result.bodyRid);
 				});
-				
+
 				response.body = stream;
 			}
 		}
@@ -117,11 +116,6 @@ class UserWorker {
 
 	static async create(opts) {
 		const readyOptions = {
-			memoryLimitMb: 512,
-			lowMemoryMultiplier: 5,
-			workerTimeoutMs: 5 * 60 * 1000,
-			cpuTimeSoftLimitMs: 50,
-			cpuTimeHardLimitMs: 100,
 			noModuleCache: false,
 			importMapPath: null,
 			envVars: [],

@@ -20,6 +20,7 @@ event_worker = { version = "0.1.0", path = "../event_worker" }
 
 sb_core = { version = "0.1.0", path = "../sb_core" }
 sb_graph = { version = "0.1.0", path = "../sb_graph" }
+sb_fs = { version = "0.1.0", path = "../sb_fs" }
 
 anyhow.workspace = true
 uuid.workspace = true
@@ -33,3 +34,4 @@ futures-util.workspace = true
 tokio-util.workspace = true
 thiserror.workspace = true
 scopeguard.workspace = true
+once_cell.workspace = true

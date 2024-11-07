@@ -2,11 +2,7 @@
   "name": "Rust",
   "build": {
     "dockerfile": "Dockerfile",
-    "context": "..",
-    "args": {
-      "ONNXRUNTIME_VERSION": "1.19.2",
-      "DENO_VERSION": "1.45.2"
-    }
+    "context": ".."
   },
   "containerEnv": {
     "PATH": "${localEnv:PATH}:/deno/bin"
@@ -16,6 +12,8 @@
     "ghcr.io/jungaretti/features/make:1": {}
   },
   "runArgs": [
+    "--env-file",
+    "../.env",
     "--rm",
     "--privileged",
     "--security-opt",

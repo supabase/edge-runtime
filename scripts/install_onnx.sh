@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-ONNX_VERSION=${1:-1.19.2}
+ONNX_VERSION=$1
 TARGETPLATFORM=$2
 SAVE_PATH=${3:-"./onnx-runtime"}
 

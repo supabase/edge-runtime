@@ -3,8 +3,8 @@
 FROM rust:1.79.0-bookworm as builder
 
 ARG TARGETPLATFORM
-ARG GIT_V_VERSION
-ARG ONNXRUNTIME_VERSION=1.19.2
+ARG GIT_V_TAG
+ARG ONNXRUNTIME_VERSION
 ARG PROFILE=release
 ARG FEATURES
 
@@ -15,7 +15,7 @@ WORKDIR /usr/src/edge-runtime
 COPY . .
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry,id=${TARGETPLATFORM} --mount=type=cache,target=/usr/src/edge-runtime/target,id=${TARGETPLATFORM} \
-    GIT_V_TAG=${GIT_V_VERSION} cargo build --profile ${PROFILE} --features "${FEATURES}" && \
+    ${GIT_V_TAG} cargo build --profile ${PROFILE} --features "${FEATURES}" && \
     mv /usr/src/edge-runtime/target/${PROFILE}/edge-runtime /root
 
 RUN objcopy --compress-debug-sections \

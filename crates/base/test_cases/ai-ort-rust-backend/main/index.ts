@@ -17,7 +17,7 @@ Deno.serve(async (req: Request) => {
   const servicePath = path.join("test_cases/ai-ort-rust-backend", pathname);
 
   const createWorker = async () => {
-    const memoryLimitMb = 750;
+    const memoryLimitMb = 1500;
     const workerTimeoutMs = 10 * 60 * 1000;
     const cpuTimeSoftLimitMs = 10 * 60 * 1000;
     const cpuTimeHardLimitMs = 10 * 60 * 1000;

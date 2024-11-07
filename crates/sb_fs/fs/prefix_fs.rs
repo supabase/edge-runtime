@@ -11,6 +11,8 @@ use deno_io::fs::{File, FsError, FsResult, FsStat};
 #[derive(Debug, Clone)]
 pub struct PrefixFs<FileSystem> {
     prefix: PathBuf,
+    cwd: Option<PathBuf>,
+    tmp_dir: Option<PathBuf>,
     fs: Arc<FileSystem>,
     base_fs: Option<Arc<dyn deno_fs::FileSystem>>,
 }
@@ -25,9 +27,43 @@ where
     {
         Self {
             prefix: prefix.as_ref().to_path_buf(),
+            cwd: None,
+            tmp_dir: None,
             fs: Arc::new(fs),
             base_fs,
         }
+    }
+
+    pub fn cwd<P>(mut self, v: P) -> Self
+    where
+        P: AsRef<Path>,
+    {
+        self.cwd = Some(v.as_ref().to_path_buf());
+        self
+    }
+
+    pub fn tmp_dir<P>(mut self, v: P) -> Self
+    where
+        P: AsRef<Path>,
+    {
+        self.tmp_dir = Some(v.as_ref().to_path_buf());
+        self
+    }
+
+    pub fn set_cwd<P>(&mut self, v: P) -> &mut Self
+    where
+        P: AsRef<Path>,
+    {
+        self.cwd = Some(v.as_ref().to_path_buf());
+        self
+    }
+
+    pub fn set_tmp_dir<P>(&mut self, v: P) -> &mut Self
+    where
+        P: AsRef<Path>,
+    {
+        self.tmp_dir = Some(v.as_ref().to_path_buf());
+        self
     }
 }
 
@@ -36,7 +72,7 @@ where
     FileSystem: deno_fs::FileSystem + 'static,
 {
     pub fn add_fs<P, FileSystemInner>(
-        self,
+        mut self,
         prefix: P,
         fs: FileSystemInner,
     ) -> PrefixFs<FileSystemInner>
@@ -47,6 +83,8 @@ where
         PrefixFs {
             prefix: prefix.as_ref().to_path_buf(),
             fs: Arc::new(fs),
+            cwd: self.cwd.take(),
+            tmp_dir: self.tmp_dir.take(),
             base_fs: Some(Arc::new(self)),
         }
     }
@@ -58,16 +96,18 @@ where
     FileSystem: deno_fs::FileSystem,
 {
     fn cwd(&self) -> FsResult<PathBuf> {
-        self.base_fs
-            .as_ref()
-            .map(|it| it.cwd())
+        self.cwd
+            .clone()
+            .map(Ok)
+            .or_else(|| self.base_fs.as_ref().map(|it| it.cwd()))
             .unwrap_or_else(|| Ok(PathBuf::new()))
     }
 
     fn tmp_dir(&self) -> FsResult<PathBuf> {
-        self.base_fs
-            .as_ref()
-            .map(|it| it.tmp_dir())
+        self.tmp_dir
+            .clone()
+            .map(Ok)
+            .or_else(|| self.base_fs.as_ref().map(|it| it.tmp_dir()))
             .unwrap_or_else(|| Err(FsError::NotSupported))
     }
 

@@ -1,7 +1,11 @@
+// TODO: Remove the line below after updating the rust toolchain to v1.81.
+#![allow(clippy::blocks_in_conditions)]
+
 use core::slice;
 use std::{
     borrow::Cow,
     ffi::OsStr,
+    fmt::Debug,
     io::{self, Cursor},
     mem,
     os::fd::AsRawFd,
@@ -46,7 +50,7 @@ use tokio::{
     io::{AsyncBufRead, AsyncReadExt},
     task::JoinError,
 };
-use tracing::{debug, debug_span, error, info_span, instrument, warn, Instrument};
+use tracing::{debug, error, info_span, instrument, trace, trace_span, warn, Instrument};
 
 use super::TryNormalizePath;
 
@@ -61,8 +65,8 @@ pub struct S3Fs {
 }
 
 impl S3Fs {
-    pub async fn try_flush_background_tasks(&self) -> bool {
-        let Ok(mut background_tasks) = Arc::try_unwrap(self.background_tasks.clone()) else {
+    pub async fn try_flush_background_tasks(self) -> bool {
+        let Ok(mut background_tasks) = Arc::try_unwrap(self.background_tasks) else {
             return false;
         };
 
@@ -262,6 +266,12 @@ impl deno_fs::FileSystem for S3Fs {
         Err(FsError::NotSupported)
     }
 
+    #[instrument(
+        level = "trace", 
+        skip(self, options, _access_check),
+        fields(?options, has_access_check = _access_check.is_some()),
+        err(Debug)
+    )]
     async fn open_async<'a>(
         &'a self,
         path: PathBuf,
@@ -283,6 +293,7 @@ impl deno_fs::FileSystem for S3Fs {
         Err(FsError::NotSupported)
     }
 
+    #[instrument(level = "trace", skip(self), fields(mode = _mode) ret, err(Debug))]
     async fn mkdir_async(&self, path: PathBuf, recursive: bool, _mode: u32) -> FsResult<()> {
         let (bucket_name, key) = try_get_bucket_name_and_key(path.try_normalize()?)?;
         let keys = if recursive {
@@ -387,6 +398,7 @@ impl deno_fs::FileSystem for S3Fs {
         Err(FsError::NotSupported)
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     async fn remove_async(&self, path: PathBuf, recursive: bool) -> FsResult<()> {
         let had_slash = path.ends_with("/");
         let (bucket_name, key) = try_get_bucket_name_and_key(path.try_normalize()?)?;
@@ -400,6 +412,7 @@ impl deno_fs::FileSystem for S3Fs {
 
             let mut errors = vec![];
             let mut stream = builder.into_paginator().send();
+            let mut ids = vec![];
 
             while let Some(resp) = stream.next().await {
                 let v = match resp {
@@ -413,36 +426,37 @@ impl deno_fs::FileSystem for S3Fs {
                     _ => {}
                 }
 
-                let delete = Delete::builder()
-                    .set_quiet(Some(true))
-                    .set_objects(Some(
-                        v.contents()
-                            .iter()
-                            .filter_map(|it| {
-                                it.key()
-                                    .and_then(|it| ObjectIdentifier::builder().key(it).build().ok())
-                            })
-                            .collect::<Vec<_>>(),
-                    ))
-                    .build()
-                    .map_err(io::Error::other)?;
+                ids.extend(v.contents().iter().filter_map(|it| {
+                    it.key()
+                        .and_then(|it| ObjectIdentifier::builder().key(it).build().ok())
+                }));
+            }
 
-                let resp = self
-                    .client
-                    .delete_objects()
-                    .bucket(&bucket_name)
-                    .delete(delete)
-                    .send()
-                    .await;
+            if ids.is_empty() {
+                return Ok(());
+            }
 
-                let v = match resp {
-                    Ok(v) => v,
-                    Err(err) => return Err(io::Error::other(err).into()),
-                };
+            let delete = Delete::builder()
+                .set_quiet(Some(true))
+                .set_objects(Some(ids))
+                .build()
+                .map_err(io::Error::other)?;
 
-                if !v.errors().is_empty() {
-                    errors.extend_from_slice(v.errors());
-                }
+            let resp = self
+                .client
+                .delete_objects()
+                .bucket(&bucket_name)
+                .delete(delete)
+                .send()
+                .await;
+
+            let v = match resp {
+                Ok(v) => v,
+                Err(err) => return Err(io::Error::other(err).into()),
+            };
+
+            if !v.errors().is_empty() {
+                errors.extend_from_slice(v.errors());
             }
 
             return to_combined_message(errors.into_iter().map(|it| {
@@ -455,11 +469,29 @@ impl deno_fs::FileSystem for S3Fs {
             }));
         }
 
-        let _resp = self
+        let key = if had_slash { format!("{}/", key) } else { key };
+        let resp = self
             .client
+            .head_object()
+            .bucket(&bucket_name)
+            .key(&key)
+            .send()
+            .await;
+
+        if resp
+            .as_ref()
+            .err()
+            .and_then(|it| it.as_service_error())
+            .map(|it| it.is_not_found())
+            .unwrap_or_default()
+        {
+            return Err(FsError::Io(io::Error::from(io::ErrorKind::NotFound)));
+        }
+
+        self.client
             .delete_object()
             .bucket(bucket_name)
-            .key(if had_slash { format!("{}/", key) } else { key })
+            .key(key)
             .send()
             .await
             .map_err(io::Error::other)?;
@@ -489,6 +521,7 @@ impl deno_fs::FileSystem for S3Fs {
         Err(FsError::NotSupported)
     }
 
+    #[instrument(level = "trace", skip(self), err(Debug))]
     async fn stat_async(&self, path: PathBuf) -> FsResult<FsStat> {
         self.open_async(path.try_normalize()?, OpenOptions::read(), None)
             .and_then(|it| it.stat_async())
@@ -499,6 +532,7 @@ impl deno_fs::FileSystem for S3Fs {
         Err(FsError::NotSupported)
     }
 
+    #[instrument(level = "trace", skip(self), err(Debug))]
     async fn lstat_async(&self, path: PathBuf) -> FsResult<FsStat> {
         self.stat_async(path).await
     }
@@ -515,6 +549,7 @@ impl deno_fs::FileSystem for S3Fs {
         Err(FsError::NotSupported)
     }
 
+    #[instrument(level = "trace", skip(self), err(Debug))]
     async fn read_dir_async(&self, path: PathBuf) -> FsResult<Vec<FsDirEntry>> {
         let (bucket_name, mut key) = try_get_bucket_name_and_key(path.try_normalize()?)?;
 
@@ -586,13 +621,16 @@ impl deno_fs::FileSystem for S3Fs {
             }
         }
 
-        Ok(entries)
+        Ok(entries).inspect(|it| {
+            trace!(len = it.len());
+        })
     }
 
     fn rename_sync(&self, _oldpath: &Path, _newpath: &Path) -> FsResult<()> {
         Err(FsError::NotSupported)
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     async fn rename_async(&self, _oldpath: PathBuf, _newpath: PathBuf) -> FsResult<()> {
         Err(FsError::NotSupported)
     }
@@ -701,9 +739,14 @@ struct FileBackedMmapBuffer {
 
 impl FileBackedMmapBuffer {
     fn new() -> Result<Self, anyhow::Error> {
-        let file = tempfile().context("could not create a temp file")?;
+        let file = {
+            let f = tempfile().context("could not create a temp file")?;
+
+            f.set_len(MIN_PART_SIZE as u64)?;
+            f
+        };
+
         let raw = MmapOptions::new()
-            .len(MIN_PART_SIZE)
             .map_raw(file.as_raw_fd())
             .context("failed to create a file backed memory buffer")?;
 
@@ -762,7 +805,7 @@ enum S3WriteErrorSubject {
 impl std::fmt::Display for S3WriteErrorSubject {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::MultiPartUploadTask((idx, inner)) => write!(f, "{idx}: {inner}"),
+            Self::MultiPartUploadTask((idx, inner)) => write!(f, "{idx}: {inner:?}"),
             Self::Join(inner) => write!(f, "{inner:?}: {inner}"),
         }
     }
@@ -779,7 +822,7 @@ type BoxedUploadPartTask = BoxFuture<
     >,
 >;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct S3MultiPartUploadMethod {
     recent_part_idx: i32,
     upload_id: String,
@@ -787,7 +830,19 @@ struct S3MultiPartUploadMethod {
     tasks: FuturesUnordered<BoxedUploadPartTask>,
 }
 
+impl Default for S3MultiPartUploadMethod {
+    fn default() -> Self {
+        Self {
+            recent_part_idx: 1,
+            upload_id: String::default(),
+            parts: Vec::default(),
+            tasks: FuturesUnordered::default(),
+        }
+    }
+}
+
 impl S3MultiPartUploadMethod {
+    #[instrument(level = "trace", skip(self), fields(upload_id = self.upload_id) ret, err(Debug))]
     async fn sync(&mut self) -> FsResult<()> {
         let mut errors = vec![];
 
@@ -834,6 +889,7 @@ enum S3WriteUploadMethod {
 }
 
 impl S3WriteUploadMethod {
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     async fn sync(&mut self) -> FsResult<()> {
         if let Self::MultiPartUpload(multi_part) = self {
             multi_part.sync().await?
@@ -842,6 +898,13 @@ impl S3WriteUploadMethod {
         Ok(())
     }
 
+    #[instrument(
+        level = "trace",
+        skip(self, state),
+        fields(fs, bucket_name, key),
+        ret,
+        err(Debug)
+    )]
     async fn cleanup(
         &mut self,
         fs: S3Fs,
@@ -881,7 +944,7 @@ impl S3WriteUploadMethod {
                                     .map(|it| (part_idx, it))
                                     .await
                             }
-                            .instrument(debug_span!(
+                            .instrument(trace_span!(
                                 "upload part",
                                 last = true,
                                 part = part_idx
@@ -898,7 +961,28 @@ impl S3WriteUploadMethod {
                 }
 
                 debug_assert!(multi_part.tasks.is_empty());
-                debug_assert!(multi_part.recent_part_idx > 0);
+                debug_assert!(multi_part.recent_part_idx > 1);
+
+                if multi_part.parts.len() != (multi_part.recent_part_idx - 1) as usize {
+                    error!(
+                        parts.len = multi_part.parts.len(),
+                        recent_part_idx = multi_part.recent_part_idx - 1,
+                        "mismatch with recent part idx"
+                    );
+
+                    fs.client
+                        .abort_multipart_upload()
+                        .bucket(bucket_name)
+                        .key(key)
+                        .upload_id(mem::take(&mut multi_part.upload_id))
+                        .send()
+                        .await
+                        .map_err(io::Error::other)?;
+
+                    return Err(FsError::Io(io::Error::other(
+                        "upload was aborted because some parts were not successfully uploaded",
+                    )));
+                }
 
                 fs.client
                     .complete_multipart_upload()
@@ -993,7 +1077,7 @@ impl deno_io::fs::File for S3Object {
         Err(FsError::NotSupported)
     }
 
-    #[instrument(level = "info", skip_all, fields(self.bucket_name, self.key))]
+    #[instrument(level = "trace", skip_all, fields(self.bucket_name, self.key), err(Debug))]
     async fn read_byob(self: Rc<Self>, mut buf: BufMutView) -> FsResult<(usize, BufMutView)> {
         let mut op_slot = RcRef::map(&self, |r| &r.op_slot).borrow_mut().await;
         let Some(op_slot_mut) = op_slot.as_mut() else {
@@ -1015,6 +1099,7 @@ impl deno_io::fs::File for S3Object {
                 nread,
             )));
 
+            trace!(nread);
             return Ok((nread, buf));
         };
 
@@ -1030,6 +1115,7 @@ impl deno_io::fs::File for S3Object {
                     op_slot.take();
                 }
 
+                trace!(nread);
                 return Ok((nread, buf));
             }
 
@@ -1069,6 +1155,8 @@ impl deno_io::fs::File for S3Object {
 
             state.1 += nread;
             state.0 = Box::pin(body_buf);
+
+            trace!(nread);
             Ok((nread, buf))
         } else {
             op_slot.take();
@@ -1080,7 +1168,7 @@ impl deno_io::fs::File for S3Object {
         Err(FsError::NotSupported)
     }
 
-    #[instrument(level = "info", skip_all, fields(self.bucket_name, self.key))]
+    #[instrument(level = "trace", skip_all, fields(self.bucket_name, self.key, len = buf.len()), err(Debug))]
     async fn write(self: Rc<Self>, buf: BufView) -> FsResult<WriteOutcome> {
         let mut op_slot = RcRef::map(&self, |r| &r.op_slot).borrow_mut().await;
         let Some(op_slot_mut) = op_slot.as_mut() else {
@@ -1102,6 +1190,7 @@ impl deno_io::fs::File for S3Object {
 
             *op_slot = Some(S3ObjectOpSlot::Write(state));
 
+            trace!(nwritten);
             return Ok(written);
         };
 
@@ -1181,11 +1270,12 @@ impl deno_io::fs::File for S3Object {
                             .map(|it| (part_idx, it))
                             .await
                     }
-                    .instrument(debug_span!("upload part", part = part_idx))
+                    .instrument(trace_span!("upload part", part = part_idx))
                 })
                 .boxed(),
             );
 
+            trace!(nwritten);
             return Ok(WriteOutcome::Partial {
                 nwritten,
                 view: buf,
@@ -1193,6 +1283,7 @@ impl deno_io::fs::File for S3Object {
         }
 
         assert_eq!(nwritten, size);
+        trace!(nwritten);
         Ok(WriteOutcome::Full { nwritten })
     }
 
@@ -1200,7 +1291,7 @@ impl deno_io::fs::File for S3Object {
         Err(FsError::NotSupported)
     }
 
-    #[instrument(level = "info", skip_all, fields(self.bucket_name, self.key))]
+    #[instrument(level = "trace", skip_all, fields(self.bucket_name, self.key), err(Debug))]
     async fn write_all(self: Rc<Self>, mut buf: BufView) -> FsResult<()> {
         loop {
             match self.clone().write(buf).await? {
@@ -1217,7 +1308,7 @@ impl deno_io::fs::File for S3Object {
         Err(FsError::NotSupported)
     }
 
-    #[instrument(level = "info", skip_all, fields(self.bucket_name, self.key))]
+    #[instrument(level = "trace", skip_all, fields(self.bucket_name, self.key), err(Debug))]
     async fn read_all_async(self: Rc<Self>) -> FsResult<Vec<u8>> {
         let resp = self
             .fs
@@ -1232,6 +1323,9 @@ impl deno_io::fs::File for S3Object {
             Ok(v) => Ok(v.body.collect().await.map_err(io::Error::other)?.to_vec()),
             Err(err) => Err(io::Error::other(err).into()),
         }
+        .inspect(|it| {
+            trace!(nread = it.len());
+        })
     }
 
     fn chmod_sync(self: Rc<Self>, _pathmode: u32) -> FsResult<()> {

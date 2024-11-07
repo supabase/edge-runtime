@@ -106,7 +106,7 @@ async fn handle_request(
     let request_idle_timeout_ms = flags.request_idle_timeout_ms;
     let request_buf_size = flags.request_buffer_size.unwrap_or_else(|| {
         const KIB: usize = 1024;
-        static CHECK: Lazy<AtomicFlag> = Lazy::new(|| AtomicFlag::default());
+        static CHECK: Lazy<AtomicFlag> = Lazy::new(AtomicFlag::default);
 
         if !CHECK.is_raised() {
             CHECK.raise();

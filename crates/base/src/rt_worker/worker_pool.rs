@@ -206,13 +206,13 @@ impl ActiveWorkerRegistry {
 // retires current one adds new one)
 // send_request is called with UUID
 pub struct WorkerPool {
+    pub flags: Arc<ServerFlags>,
     pub policy: WorkerPoolPolicy,
     pub metric_src: SharedMetricSource,
     pub user_workers: HashMap<Uuid, UserWorkerProfile>,
     pub active_workers: HashMap<String, ActiveWorkerRegistry>,
     pub worker_pool_msgs_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
     pub maybe_inspector: Option<Inspector>,
-    pub maybe_request_idle_timeout: Option<u64>,
 
     // TODO: refactor this out of worker pool
     pub worker_event_sender: Option<mpsc::UnboundedSender<WorkerEventWithMetadata>>,
@@ -220,21 +220,21 @@ pub struct WorkerPool {
 
 impl WorkerPool {
     pub(crate) fn new(
+        flags: Arc<ServerFlags>,
         policy: WorkerPoolPolicy,
         metric_src: SharedMetricSource,
         worker_event_sender: Option<UnboundedSender<WorkerEventWithMetadata>>,
         worker_pool_msgs_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
         inspector: Option<Inspector>,
-        request_idle_timeout: Option<u64>,
     ) -> Self {
         Self {
+            flags,
             policy,
             metric_src,
             worker_event_sender,
             user_workers: HashMap::new(),
             active_workers: HashMap::new(),
             maybe_inspector: inspector,
-            maybe_request_idle_timeout: request_idle_timeout,
             worker_pool_msgs_tx,
         }
     }
@@ -253,8 +253,6 @@ impl WorkerPool {
 
         let is_oneshot_policy = self.policy.supervisor_policy.is_oneshot();
         let inspector = self.maybe_inspector.clone();
-        let request_idle_timeout = self.maybe_request_idle_timeout;
-
         let force_create = worker_options
             .conf
             .as_user_worker()
@@ -340,6 +338,7 @@ impl WorkerPool {
             }
         };
 
+        let flags = self.flags.clone();
         let worker_pool_msgs_tx = self.worker_pool_msgs_tx.clone();
         let events_msg_tx = self.worker_event_sender.clone();
         let supervisor_policy = self.policy.supervisor_policy;
@@ -427,9 +426,9 @@ impl WorkerPool {
             worker_options.conf = WorkerRuntimeOpts::UserWorker(user_worker_rt_opts);
 
             match create_worker(
+                flags,
                 (worker_options, supervisor_policy, termination_token.clone()),
                 inspector,
-                request_idle_timeout,
             )
             .await
             {

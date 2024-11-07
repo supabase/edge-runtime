@@ -10,6 +10,7 @@ use anyhow::{anyhow, bail, Error};
 use base_mem_check::MemCheckState;
 use cpu_timer::CPUTimer;
 use deno_config::JsxImportSourceConfig;
+use deno_core::unsync::AtomicFlag;
 use deno_core::{InspectorSessionProxy, LocalInspectorSession};
 use event_worker::events::{
     BootEvent, ShutdownEvent, WorkerEventWithMetadata, WorkerEvents, WorkerMemoryUsed,
@@ -22,6 +23,7 @@ use hyper_v014::client::conn::http1;
 use hyper_v014::upgrade::OnUpgrade;
 use hyper_v014::{Body, Request, Response};
 use log::{debug, error};
+use once_cell::sync::Lazy;
 use sb_core::{MetricSource, SharedMetricSource};
 use sb_graph::{DecoratorType, EszipPayloadKind};
 use sb_workers::context::{
@@ -41,6 +43,7 @@ use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::time::sleep;
 use tokio_rustls::server::TlsStream;
 use tokio_util::sync::CancellationToken;
+use tracing::warn;
 use uuid::Uuid;
 
 use super::supervisor::{self, CPUTimerParam, CPUUsageMetrics};
@@ -95,12 +98,25 @@ impl TerminationToken {
 }
 
 async fn handle_request(
+    flags: Arc<ServerFlags>,
     worker_kind: WorkerKind,
     duplex_stream_tx: mpsc::UnboundedSender<DuplexStreamEntry>,
     msg: WorkerRequestMsg,
-    maybe_request_idle_timeout: Option<u64>,
 ) -> Result<(), Error> {
-    let (ours, theirs) = io::duplex(1024);
+    let request_idle_timeout_ms = flags.request_idle_timeout_ms;
+    let request_buf_size = flags.request_buffer_size.unwrap_or_else(|| {
+        const KIB: usize = 1024;
+        static CHECK: Lazy<AtomicFlag> = Lazy::new(|| AtomicFlag::default());
+
+        if !CHECK.is_raised() {
+            CHECK.raise();
+            warn!("request buffer size is not specified, so it will be set to 1 KiB");
+        }
+
+        KIB as u64
+    });
+
+    let (ours, theirs) = io::duplex(request_buf_size as usize);
     let WorkerRequestMsg {
         mut req,
         res_tx,
@@ -138,7 +154,7 @@ async fn handle_request(
                                 tokio::spawn(relay_upgraded_request_and_response(
                                     req_upgrade,
                                     parts,
-                                    maybe_request_idle_timeout,
+                                    request_idle_timeout_ms,
                                 ));
 
                                 return;
@@ -157,7 +173,7 @@ async fn handle_request(
     tokio::task::yield_now().await;
 
     let maybe_cancel_fut = async move {
-        if let Some(timeout_ms) = maybe_request_idle_timeout {
+        if let Some(timeout_ms) = request_idle_timeout_ms {
             sleep(Duration::from_millis(timeout_ms)).await;
         } else {
             pending::<()>().await;
@@ -190,7 +206,7 @@ async fn handle_request(
         }
     }
 
-    if let Some(timeout_ms) = maybe_request_idle_timeout {
+    if let Some(timeout_ms) = flags.request_idle_timeout_ms {
         let headers = res.headers();
         let is_streamed_response = !headers.contains_key(http_v02::header::CONTENT_LENGTH);
 
@@ -576,9 +592,9 @@ pub struct WorkerCtx {
 }
 
 pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
+    flags: Arc<ServerFlags>,
     init_opts: Opt,
     inspector: Option<Inspector>,
-    maybe_request_idle_timeout: Option<u64>,
 ) -> Result<WorkerCtx, Error> {
     let (duplex_stream_tx, duplex_stream_rx) = mpsc::unbounded_channel::<DuplexStreamEntry>();
     let (worker_boot_result_tx, worker_boot_result_rx) =
@@ -620,15 +636,11 @@ pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
             async move {
                 while let Some(msg) = worker_req_rx.recv().await {
                     tokio::task::spawn({
+                        let flags = flags.clone();
                         let stream_tx_inner = stream_tx.clone();
                         async move {
-                            if let Err(err) = handle_request(
-                                worker_kind,
-                                stream_tx_inner,
-                                msg,
-                                maybe_request_idle_timeout,
-                            )
-                            .await
+                            if let Err(err) =
+                                handle_request(flags, worker_kind, stream_tx_inner, msg).await
                             {
                                 error!("worker failed to handle request: {:?}", err);
                             }
@@ -725,6 +737,7 @@ pub async fn send_user_worker_request(
 // Todo: Fix
 #[allow(clippy::too_many_arguments)]
 pub async fn create_main_worker(
+    flags: Arc<ServerFlags>,
     main_worker_path: PathBuf,
     import_map_path: Option<String>,
     no_module_cache: bool,
@@ -745,6 +758,7 @@ pub async fn create_main_worker(
     }
 
     let ctx = create_worker(
+        flags,
         (
             WorkerContextInitOpts {
                 service_path,
@@ -766,7 +780,6 @@ pub async fn create_main_worker(
             termination_token,
         ),
         inspector,
-        None,
     )
     .await
     .map_err(|err| anyhow!("main worker boot error: {}", err))?;
@@ -775,7 +788,7 @@ pub async fn create_main_worker(
 }
 
 pub async fn create_events_worker(
-    flags: &ServerFlags,
+    flags: Arc<ServerFlags>,
     events_worker_path: PathBuf,
     import_map_path: Option<String>,
     maybe_entrypoint: Option<String>,
@@ -784,8 +797,12 @@ pub async fn create_events_worker(
 ) -> Result<(WorkerCtx, mpsc::UnboundedSender<WorkerEventWithMetadata>), Error> {
     let (events_tx, events_rx) = mpsc::unbounded_channel::<WorkerEventWithMetadata>();
 
+    let no_module_cache = flags.no_module_cache;
+    let event_worker_exit_deadline_sec = flags.event_worker_exit_deadline_sec;
+
     let mut service_path = events_worker_path.clone();
     let mut maybe_eszip = None;
+
     if let Some(ext) = events_worker_path.extension() {
         if ext == "eszip" {
             service_path = events_worker_path.parent().unwrap().to_path_buf();
@@ -796,10 +813,11 @@ pub async fn create_events_worker(
     }
 
     let ctx = create_worker(
+        flags,
         (
             WorkerContextInitOpts {
                 service_path,
-                no_module_cache: flags.no_module_cache,
+                no_module_cache,
                 import_map_path,
                 env_vars: std::env::vars().collect(),
                 timing: None,
@@ -809,7 +827,7 @@ pub async fn create_events_worker(
                 maybe_module_code: None,
                 conf: WorkerRuntimeOpts::EventsWorker(EventWorkerRuntimeOpts {
                     events_msg_rx: Some(events_rx),
-                    event_worker_exit_deadline_sec: Some(flags.event_worker_exit_deadline_sec),
+                    event_worker_exit_deadline_sec: Some(event_worker_exit_deadline_sec),
                 }),
                 static_patterns: vec![],
 
@@ -820,7 +838,6 @@ pub async fn create_events_worker(
             termination_token,
         ),
         None,
-        None,
     )
     .await
     .map_err(|err| anyhow!("events worker boot error: {}", err))?;
@@ -829,13 +846,13 @@ pub async fn create_events_worker(
 }
 
 pub async fn create_user_worker_pool(
+    flags: Arc<ServerFlags>,
     policy: WorkerPoolPolicy,
     worker_event_sender: Option<mpsc::UnboundedSender<WorkerEventWithMetadata>>,
     termination_token: Option<TerminationToken>,
     static_patterns: Vec<String>,
     inspector: Option<Inspector>,
     jsx: Option<JsxImportSourceConfig>,
-    request_idle_timeout: Option<u64>,
 ) -> Result<(SharedMetricSource, mpsc::UnboundedSender<UserWorkerMsgs>), Error> {
     let metric_src = SharedMetricSource::default();
     let (user_worker_msgs_tx, mut user_worker_msgs_rx) =
@@ -849,12 +866,12 @@ pub async fn create_user_worker_pool(
             let token = termination_token.as_ref();
             let mut termination_requested = false;
             let mut worker_pool = WorkerPool::new(
+                flags,
                 policy,
                 metric_src_inner,
                 worker_event_sender,
                 user_worker_msgs_tx_clone,
                 inspector,
-                request_idle_timeout,
             );
 
             // Note: Keep this loop non-blocking. Spawn a task to run blocking calls.

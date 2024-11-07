@@ -186,11 +186,11 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
 
     // create a user worker pool
     let (_, worker_pool_tx) = create_user_worker_pool(
+        Arc::default(),
         integration_test_helper::test_user_worker_pool_policy(),
         None,
         Some(pool_termination_token.clone()),
         vec![],
-        None,
         None,
         None,
     )
@@ -219,7 +219,7 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
         maybe_tmp_fs_config: None,
     };
 
-    let ctx = create_worker((opts, main_termination_token.clone()), None, None)
+    let ctx = create_worker(Arc::default(), (opts, main_termination_token.clone()), None)
         .await
         .unwrap();
 
@@ -347,11 +347,11 @@ async fn test_main_worker_boot_error() {
 
     // create a user worker pool
     let (_, worker_pool_tx) = create_user_worker_pool(
+        Arc::default(),
         test_user_worker_pool_policy(),
         None,
         Some(pool_termination_token.clone()),
         vec![],
-        None,
         None,
         None,
     )
@@ -380,7 +380,7 @@ async fn test_main_worker_boot_error() {
         maybe_tmp_fs_config: None,
     };
 
-    let result = create_worker((opts, main_termination_token.clone()), None, None).await;
+    let result = create_worker(Arc::default(), (opts, main_termination_token.clone()), None).await;
 
     assert!(result.is_err());
     assert!(result
@@ -475,11 +475,11 @@ async fn test_main_worker_user_worker_mod_evaluate_exception() {
 
     // create a user worker pool
     let (_, worker_pool_tx) = create_user_worker_pool(
+        Arc::default(),
         test_user_worker_pool_policy(),
         None,
         Some(pool_termination_token.clone()),
         vec![],
-        None,
         None,
         None,
     )
@@ -508,7 +508,7 @@ async fn test_main_worker_user_worker_mod_evaluate_exception() {
         maybe_tmp_fs_config: None,
     };
 
-    let ctx = create_worker((opts, main_termination_token.clone()), None, None)
+    let ctx = create_worker(Arc::default(), (opts, main_termination_token.clone()), None)
         .await
         .unwrap();
 

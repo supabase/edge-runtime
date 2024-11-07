@@ -252,6 +252,7 @@ pub struct ServerFlags {
     pub request_wait_timeout_ms: Option<u64>,
     pub request_idle_timeout_ms: Option<u64>,
     pub request_read_timeout_ms: Option<u64>,
+    pub request_buffer_size: Option<u64>,
 }
 
 #[derive(Debug)]
@@ -330,7 +331,7 @@ pub struct Server {
     main_worker_req_tx: mpsc::UnboundedSender<WorkerRequestMsg>,
     callback_tx: Option<Sender<ServerHealth>>,
     termination_tokens: TerminationTokens,
-    flags: ServerFlags,
+    flags: Arc<ServerFlags>,
     metric_src: SharedMetricSource,
 }
 
@@ -356,6 +357,7 @@ impl Server {
     ) -> Result<Self, Error> {
         let mut worker_events_tx = None;
 
+        let flags = Arc::new(flags);
         let maybe_events_entrypoint = entrypoints.events;
         let maybe_main_entrypoint = entrypoints.main;
         let termination_tokens =
@@ -367,7 +369,7 @@ impl Server {
             let events_path_buf = events_path.to_path_buf();
 
             let (ctx, sender) = create_events_worker(
-                &flags,
+                flags.clone(),
                 events_path_buf,
                 import_map_path.clone(),
                 maybe_events_entrypoint,
@@ -391,19 +393,20 @@ impl Server {
 
         // Create a user worker pool
         let (shared_metric_src, worker_pool_tx) = create_user_worker_pool(
+            flags.clone(),
             maybe_user_worker_policy.unwrap_or_default(),
             worker_events_tx,
             Some(termination_tokens.pool.clone()),
             static_patterns,
             inspector.clone(),
             jsx_config.clone(),
-            flags.request_idle_timeout_ms,
         )
         .await?;
 
         // create main worker
         let main_worker_path = Path::new(&main_service_path).to_path_buf();
         let main_worker_req_tx = create_main_worker(
+            flags.clone(),
             main_worker_path,
             import_map_path.clone(),
             flags.no_module_cache,
@@ -492,7 +495,7 @@ impl Server {
             mut graceful_exit_deadline_sec,
             mut graceful_exit_keepalive_deadline_ms,
             ..
-        } = self.flags;
+        } = *self.flags;
 
         let request_read_timeout_dur = request_read_timeout_ms.map(Duration::from_millis);
         let mut terminate_signal_fut = get_termination_signal();

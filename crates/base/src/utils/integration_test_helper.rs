@@ -132,7 +132,7 @@ pub struct TestBedBuilder {
     main_service_path: PathBuf,
     worker_pool_policy: Option<WorkerPoolPolicy>,
     main_worker_init_opts: Option<WorkerContextInitOpts>,
-    request_idle_timeout: Option<u64>,
+    flags: ServerFlags,
 }
 
 impl TestBedBuilder {
@@ -144,7 +144,7 @@ impl TestBedBuilder {
             main_service_path: main_service_path.into(),
             worker_pool_policy: None,
             main_worker_init_opts: None,
-            request_idle_timeout: None,
+            flags: ServerFlags::default(),
         }
     }
 
@@ -200,8 +200,8 @@ impl TestBedBuilder {
         self
     }
 
-    pub fn with_request_idle_timeout(mut self, request_idle_timeout: u64) -> Self {
-        self.request_idle_timeout = Some(request_idle_timeout);
+    pub fn with_server_flags(mut self, flags: ServerFlags) -> Self {
+        self.flags = flags;
         self
     }
 
@@ -210,6 +210,7 @@ impl TestBedBuilder {
             let token = TerminationToken::new();
             (
                 create_user_worker_pool(
+                    Arc::new(self.flags),
                     self.worker_pool_policy
                         .unwrap_or_else(test_user_worker_pool_policy),
                     None,
@@ -217,7 +218,6 @@ impl TestBedBuilder {
                     vec![],
                     None,
                     None,
-                    self.request_idle_timeout,
                 )
                 .await
                 .unwrap(),
@@ -249,8 +249,8 @@ impl TestBedBuilder {
 
         let main_termination_token = TerminationToken::new();
         let ctx = create_worker(
+            Arc::new(self.flags),
             (main_worker_init_opts, main_termination_token.clone()),
-            None,
             None,
         )
         .await
@@ -330,9 +330,9 @@ pub async fn create_test_user_worker<Opt: Into<CreateTestUserWorkerArgs>>(
 
     Ok({
         let ctx = create_worker(
+            Arc::default(),
             opts.with_policy(policy)
                 .with_termination_token(termination_token.clone()),
-            None,
             None,
         )
         .await?;

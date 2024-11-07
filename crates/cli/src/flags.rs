@@ -226,6 +226,12 @@ fn get_start_command() -> Command {
                 .default_value("true")
                 .default_missing_value("true"),
         )
+        .arg(
+            arg!(--"request-buffer-size" <BYTES>)
+            .help("The buffer size of the stream that is used to forward a request to the worker")
+            .value_parser(value_parser!(u64))
+            .default_value("16384"),
+        )
 }
 
 fn get_bundle_command() -> Command {

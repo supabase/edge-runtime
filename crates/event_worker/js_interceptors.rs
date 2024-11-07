@@ -5,6 +5,7 @@ use deno_core::op2;
 use deno_core::OpState;
 use log::error;
 use tokio::sync::mpsc;
+use tracing::trace;
 
 #[op2(fast)]
 fn op_user_worker_log(
@@ -24,15 +25,16 @@ fn op_user_worker_log(
             .unwrap_or(&EventMetadata::default())
             .clone();
 
-        let metadata = EventMetadata { ..event_metadata };
-
-        tx.send(WorkerEventWithMetadata {
+        let metadata = WorkerEventWithMetadata {
             event: WorkerEvents::Log(LogEvent {
                 msg: msg.to_string(),
                 level,
             }),
-            metadata,
-        })?;
+            metadata: EventMetadata { ..event_metadata },
+        };
+
+        trace!(?metadata);
+        tx.send(metadata)?;
     } else {
         error!("[{:?}] {}", level, msg.to_string());
     }

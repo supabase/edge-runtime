@@ -534,6 +534,8 @@ globalThis.bootstrapSBEdge = (opts, extraCtx) => {
 			'writeTextFile': true,
 			'readFile': true,
 			'readTextFile': true,
+			'mkdir': true,
+			'makeTempDir': true,
 
 			'kill': MOCK_FN,
 			'exit': MOCK_FN,

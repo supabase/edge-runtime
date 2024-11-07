@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
+set -e
 
-export $(grep -v '^#' ../.env | xargs)
+SCRIPT=$(readlink -f "$0")
+SCRIPTPATH=$(dirname "$SCRIPT")
+
+export $(grep -v '^#' $SCRIPTPATH/../.env | xargs)
 
 # --features cli/tracing
 cargo build --features cli/tracing && \

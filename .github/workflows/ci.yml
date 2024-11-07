@@ -12,7 +12,7 @@ env:
   CARGO_NET_RETRY: 10
   CARGO_TERM_COLOR: always
   RUSTUP_MAX_RETRIES: 10
-  ORT_DYLIB_PATH: /usr/local/bin/libonnxruntime.so
+  ORT_DYLIB_PATH: /usr/local/bin/onnxruntime/lib/libonnxruntime.so
 
 jobs:
   cargo-fmt:
@@ -54,5 +54,5 @@ jobs:
         with:
           envFile: ".env"
       - name: Install ONNX Runtime Library
-        run: ./scripts/install_onnx.sh ${{ env.ONNXRUNTIME_VERSION }} x64 /usr/local/bin/libonnxruntime.so
+        run: ./scripts/install_onnx.sh ${{ env.ONNXRUNTIME_VERSION }} x64 /usr/local/bin/onnxruntime
       - run: ./scripts/test.sh

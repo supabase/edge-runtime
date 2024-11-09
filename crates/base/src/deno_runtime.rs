@@ -1,6 +1,7 @@
 use crate::inspector_server::Inspector;
 use crate::rt_worker::supervisor::{CPUUsage, CPUUsageMetrics};
 use crate::rt_worker::worker::DuplexStreamEntry;
+use crate::utils::json;
 use crate::utils::path::find_up;
 use crate::utils::units::{bytes_to_display, mib_to_bytes};
 
@@ -610,7 +611,20 @@ where
                     .copied()
                     .unwrap_or_default(),
             ]),
-            serde_json::json!(RuntimeContext::get_runtime_context())
+            {
+                let mut runtime_context = serde_json::json!(RuntimeContext::get_runtime_context());
+
+                json::merge_object(
+                    &mut runtime_context,
+                    &conf
+                        .as_user_worker()
+                        .and_then(|it| it.context.clone())
+                        .map(serde_json::Value::Object)
+                        .unwrap_or_else(|| serde_json::json!({})),
+                );
+
+                runtime_context
+            }
         );
 
         if let Some(inspector) = maybe_inspector.clone() {
@@ -1344,7 +1358,7 @@ mod test {
     impl GetRuntimeContext for WithSyncFileAPI {
         fn get_runtime_context() -> impl Serialize {
             serde_json::json!({
-                "useSyncFileAPI": true,
+                "useReadSyncFileAPI": true,
             })
         }
     }
@@ -2063,7 +2077,7 @@ mod test {
         impl GetRuntimeContext for Ctx {
             fn get_runtime_context() -> impl Serialize {
                 serde_json::json!({
-                    "useSyncFileAPI": true,
+                    "useReadSyncFileAPI": true,
                     "shouldBootstrapMockFnThrowError": true,
                 })
             }

@@ -70,6 +70,8 @@ pub struct UserWorkerRuntimeOpts {
     pub allow_net: Option<Vec<String>>,
     pub allow_remote_modules: bool,
     pub custom_module_root: Option<String>,
+
+    pub context: Option<crate::JsonMap>,
 }
 
 impl Default for UserWorkerRuntimeOpts {
@@ -94,6 +96,8 @@ impl Default for UserWorkerRuntimeOpts {
             allow_remote_modules: true,
             custom_module_root: None,
             service_path: None,
+
+            context: None,
         }
     }
 }

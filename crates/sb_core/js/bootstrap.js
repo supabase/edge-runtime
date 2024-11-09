@@ -545,7 +545,7 @@ globalThis.bootstrapSBEdge = (opts, extraCtx) => {
 			'memoryUsage': () => ops.op_runtime_memory_usage(),
 		};
 
-		if (extraCtx?.useSyncFileAPI) {
+		if (extraCtx?.useReadSyncFileAPI) {
 			apisToBeOverridden['readFileSync'] = true;
 			apisToBeOverridden['readTextFileSync'] = true;
 		}

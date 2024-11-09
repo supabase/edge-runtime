@@ -13,7 +13,7 @@
   },
   "runArgs": [
     "--env-file",
-    "../.env",
+    ".env",
     "--rm",
     "--privileged",
     "--security-opt",

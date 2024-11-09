@@ -11,7 +11,7 @@ use deno_config::JsxImportSourceConfig;
 use deno_core::error::{custom_error, type_error, AnyError};
 use deno_core::futures::stream::Peekable;
 use deno_core::futures::{FutureExt, Stream, StreamExt};
-use deno_core::{op2, ModuleSpecifier};
+use deno_core::{op2, serde_json, ModuleSpecifier};
 use deno_core::{
     AsyncRefCell, AsyncResult, BufView, ByteString, CancelFuture, CancelHandle, CancelTryFuture,
     JsBuffer, OpState, RcRef, Resource, ResourceId, WriteOutcome,
@@ -58,6 +58,8 @@ pub struct JsxImportBaseConfig {
     base_url: String,
 }
 
+pub type JsonMap = serde_json::Map<String, serde_json::Value>;
+
 #[derive(Deserialize, Serialize, Default, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct UserWorkerCreateOptions {
@@ -87,6 +89,8 @@ pub struct UserWorkerCreateOptions {
 
     s3_fs_config: Option<S3FsConfig>,
     tmp_fs_config: Option<TmpFsConfig>,
+
+    context: Option<JsonMap>,
 }
 
 #[op2(async)]
@@ -125,6 +129,8 @@ pub async fn op_user_worker_create(
 
             s3_fs_config: maybe_s3_fs_config,
             tmp_fs_config: maybe_tmp_fs_config,
+
+            context,
         } = opts;
 
         let user_worker_options = WorkerContextInitOpts {
@@ -152,6 +158,8 @@ pub async fn op_user_worker_create(
                     allow_net,
                     allow_remote_modules,
                     custom_module_root,
+
+                    context,
 
                     ..Default::default()
                 }

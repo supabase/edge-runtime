@@ -1,24 +1,22 @@
 #!/usr/bin/env bash
+set -e
 
-GIT_V_TAG=0.1.1
-EDGE_RUNTIME_PORT=9998
-ONNXRUNTIME_VERSION=1.19.2
 FEATURES=cli/tracing
 RUST_BACKTRACE=full
 
-PWD=$(pwd)
 PROFILE=${1:-dind}
 SCRIPT=$(readlink -f "$0")
 SCRIPTPATH=$(dirname "$SCRIPT")
 
-cd "$SCRIPTPATH" &&
-  docker build \
-    -t edge_runtime \
-    --build-arg GIT_V_TAG=$GIT_V_TAG \
-    --build-arg ONNXRUNTIME_VERSION=$ONNXRUNTIME_VERSION \
-    --build-arg PROFILE=$PROFILE \
-    --build-arg FEATURES=$FEATURES \
-    "$SCRIPTPATH/.."
+export $(grep -v '^#' $SCRIPTPATH/../.env | xargs)
+
+docker build \
+  -t edge_runtime \
+  --build-arg GIT_V_TAG=$GIT_V_TAG \
+  --build-arg ONNXRUNTIME_VERSION=$ONNXRUNTIME_VERSION \
+  --build-arg PROFILE=$PROFILE \
+  --build-arg FEATURES=$FEATURES \
+  "$SCRIPTPATH/.."
 
 docker run \
   --privileged \
@@ -36,5 +34,3 @@ docker run \
   --main-service ./examples/main \
   --event-worker ./examples/event-manager \
   --static "./examples/**/*.bin"
-
-cd $PWD

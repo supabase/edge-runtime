@@ -74,6 +74,7 @@ notify.workspace = true
 pin-project.workspace = true
 rustls-pemfile.workspace = true
 tracing.workspace = true
+tracing-subscriber = { workspace = true, optional = true, features = ["env-filter", "tracing-log"] }
 
 reqwest_v011 = { package = "reqwest", version = "0.11", features = ["stream", "json", "multipart"] }
 tls-listener = { version = "0.10", features = ["rustls"] }
@@ -129,4 +130,5 @@ tokio.workspace = true
 url.workspace = true
 
 [features]
+tracing = ["dep:tracing-subscriber"]
 termination-signal-ext = []

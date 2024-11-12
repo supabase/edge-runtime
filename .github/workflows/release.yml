@@ -52,6 +52,9 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
+      - uses: cardinalby/export-env-action@v2
+        with:
+          envFile: ".env"
       - id: build
         uses: docker/build-push-action@v3
         with:
@@ -61,7 +64,8 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
-            GIT_V_VERSION=${{ needs.release.outputs.version }}
+            GIT_V_TAG=${{ needs.release.outputs.version }}
+            ONNXRUNTIME_VERSION=${{ env.ONNXRUNTIME_VERSION }}
 
   publish_arm:
     needs:
@@ -95,6 +99,9 @@ jobs:
             image=moby/buildkit:master
             network=host
 
+      - uses: cardinalby/export-env-action@v2
+        with:
+          envFile: ".env"
       - id: build
         uses: docker/build-push-action@v3
         with:
@@ -104,7 +111,8 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           no-cache: true
           build-args: |
-            GIT_V_VERSION=${{ needs.release.outputs.version }}
+            GIT_V_TAG=${{ needs.release.outputs.version }}
+            ONNXRUNTIME_VERSION=${{ env.ONNXRUNTIME_VERSION }}
 
   merge_manifest:
     needs: [release, publish_x86, publish_arm]

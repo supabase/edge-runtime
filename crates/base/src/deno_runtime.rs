@@ -190,6 +190,7 @@ impl MemCheck {
             }
         }
 
+        trace!(malloced_mb = bytes_to_display(total_bytes as u64));
         total_bytes
     }
 }
@@ -965,11 +966,9 @@ where
 
             if is_user_worker {
                 let mem_state = mem_check_state.as_ref().unwrap();
-                let total_malloced_bytes = mem_state.check(js_runtime.v8_isolate().as_mut());
 
+                mem_state.check(js_runtime.v8_isolate().as_mut());
                 mem_state.waker.register(waker);
-
-                trace!(malloced_mb = bytes_to_display(total_malloced_bytes as u64));
             }
 
             // NOTE(Nyannyacha): If tasks are empty or V8 is not evaluating the

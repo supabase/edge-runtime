@@ -15,5 +15,5 @@ pub use inspector_server::InspectorOption;
 pub use sb_core::cache::CacheSetting;
 pub use sb_graph::DecoratorType;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "tracing"))]
 mod tracing_subscriber;

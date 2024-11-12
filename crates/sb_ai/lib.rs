@@ -1,5 +1,4 @@
-mod onnx;
-mod session;
+mod onnxruntime;
 
 use anyhow::{anyhow, bail, Error};
 use base_rt::BlockingScopeCPUUsageMetricExt;
@@ -8,8 +7,8 @@ use deno_core::OpState;
 use deno_core::{op2, JsRuntime, V8CrossThreadTaskSpawner, V8TaskSpawner};
 use ndarray::{Array1, Array2, ArrayView3, Axis, Ix3};
 use ndarray_linalg::norm::{normalize, NormalizeAxis};
+use onnxruntime::session::load_session_from_file;
 use ort::inputs;
-use session::load_session_from_file;
 use std::cell::RefCell;
 use std::path::Path;
 use std::rc::Rc;
@@ -18,6 +17,7 @@ use tokenizers::Tokenizer;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task;
 
+use onnxruntime::*;
 use tracing::{error, trace_span};
 
 deno_core::extension!(
@@ -25,13 +25,16 @@ deno_core::extension!(
     ops = [
         op_sb_ai_run_model,
         op_sb_ai_init_model,
-        op_sb_ai_try_cleanup_unused_session
+        op_sb_ai_try_cleanup_unused_session,
+        op_sb_ai_ort_init_session,
+        op_sb_ai_ort_run_session,
     ],
     esm_entry_point = "ext:sb_ai/js/ai.js",
     esm = [
         "js/ai.js",
         "js/util/event_stream_parser.mjs",
-        "js/util/event_source_stream.mjs"
+        "js/util/event_source_stream.mjs",
+        "js/onnxruntime/onnx.js"
     ]
 );
 

@@ -1,9 +1,11 @@
 use deno_core::error::AnyError;
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
+use std::hash::Hasher;
 use std::sync::Mutex;
 use std::{path::PathBuf, sync::Arc};
 use tracing::{debug, instrument, trace};
+use xxhash_rust::xxh3::Xxh3;
 
 use anyhow::{anyhow, Error};
 use ort::{
@@ -107,6 +109,35 @@ pub(crate) fn load_session_from_file(
 }
 
 #[instrument(level = "debug", ret)]
+pub(crate) fn load_session_from_bytes(model_bytes: &[u8]) -> Result<(String, Arc<Session>), Error> {
+    let session_id = {
+        let mut model_bytes = model_bytes;
+        let mut hasher = Xxh3::new();
+        let _ = std::io::copy(&mut model_bytes, &mut hasher);
+
+        let hash = hasher.finish().to_be_bytes();
+        faster_hex::hex_string(&hash)
+    };
+
+    let mut sessions = SESSIONS.lock().unwrap();
+
+    if let Some(session) = sessions.get(&session_id) {
+        return Ok((session_id, session.clone()));
+    }
+
+    let session = create_session(model_bytes)?;
+
+    sessions.insert(session_id.to_owned(), session.clone());
+
+    Ok((session_id, session))
+}
+
+pub(crate) fn get_session(session_id: &String) -> Option<Arc<Session>> {
+    let sessions = SESSIONS.lock().unwrap();
+
+    sessions.get(session_id).cloned()
+}
+
 pub fn cleanup() -> Result<usize, AnyError> {
     let mut remove_counter = 0;
     {

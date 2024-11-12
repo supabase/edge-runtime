@@ -21,7 +21,7 @@ pub fn op_sb_ai_ort_init_session(
     let mut state = state.borrow_mut();
     let model_info = ModelSession::from_bytes(model_bytes)?;
 
-    let mut sessions = { state.try_take::<Vec<Arc<Session>>>().unwrap_or(Vec::new()) };
+    let mut sessions = { state.try_take::<Vec<Arc<Session>>>().unwrap_or_default() };
 
     sessions.push(model_info.inner());
     state.put(sessions);

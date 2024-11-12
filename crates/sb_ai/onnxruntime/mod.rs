@@ -5,7 +5,7 @@ mod tensor;
 
 use std::{borrow::Cow, collections::HashMap};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use deno_core::op2;
 
 use model_session::{ModelInfo, ModelSession};
@@ -25,10 +25,11 @@ pub fn op_sb_ai_ort_run_session(
     #[string] model_id: String,
     #[serde] input_values: HashMap<String, JsTensor>,
 ) -> Result<HashMap<String, ToJsTensor>> {
-    let model = ModelSession::from_id(model_id).unwrap();
+    let model = ModelSession::from_id(model_id.to_owned())
+        .ok_or(anyhow!("could not found session for id={model_id:?}"))?;
+
     let model_session = model.inner();
 
-    // println!("{model_session:?}");
     let input_values = input_values
         .into_iter()
         .map(|(key, value)| {
@@ -44,7 +45,9 @@ pub fn op_sb_ai_ort_run_session(
     // We need to `pop` over outputs to get 'value' ownership, since keys are attached to 'model_session' lifetime
     // it can't be iterated with `into_iter()`
     for _ in 0..outputs.len() {
-        let (key, value) = outputs.pop_first().unwrap();
+        let (key, value) = outputs.pop_first().ok_or(anyhow!(
+            "could not retrieve output value from model session"
+        ))?;
 
         let value = ToJsTensor::from_ort_tensor(value)?;
 

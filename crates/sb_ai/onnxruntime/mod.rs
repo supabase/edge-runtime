@@ -3,18 +3,28 @@ pub(crate) mod onnx;
 pub(crate) mod session;
 mod tensor;
 
-use std::{borrow::Cow, collections::HashMap};
+use std::{borrow::Cow, cell::RefCell, collections::HashMap, rc::Rc, sync::Arc};
 
 use anyhow::{anyhow, Result};
-use deno_core::op2;
+use deno_core::{op2, OpState};
 
 use model_session::{ModelInfo, ModelSession};
+use ort::Session;
 use tensor::{JsTensor, ToJsTensor};
 
 #[op2]
 #[to_v8]
-pub fn op_sb_ai_ort_init_session(#[buffer] model_bytes: &[u8]) -> Result<ModelInfo> {
+pub fn op_sb_ai_ort_init_session(
+    state: Rc<RefCell<OpState>>,
+    #[buffer] model_bytes: &[u8],
+) -> Result<ModelInfo> {
+    let mut state = state.borrow_mut();
     let model_info = ModelSession::from_bytes(model_bytes)?;
+
+    let mut sessions = { state.try_take::<Vec<Arc<Session>>>().unwrap_or(Vec::new()) };
+
+    sessions.push(model_info.inner());
+    state.put(sessions);
 
     Ok(model_info.info())
 }

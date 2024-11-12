@@ -15,7 +15,7 @@ WORKDIR /usr/src/edge-runtime
 COPY . .
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry,id=${TARGETPLATFORM} --mount=type=cache,target=/usr/src/edge-runtime/target,id=${TARGETPLATFORM} \
-    ${GIT_V_TAG} cargo build --profile ${PROFILE} --features "${FEATURES}" && \
+    GIT_V_TAG=${GIT_V_TAG} cargo build --profile ${PROFILE} --features "${FEATURES}" && \
     mv /usr/src/edge-runtime/target/${PROFILE}/edge-runtime /root
 
 RUN objcopy --compress-debug-sections \

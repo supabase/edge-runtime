@@ -10,10 +10,6 @@ console.log('main function started');
 
 // cleanup unused sessions every 30s
 // setInterval(async () => {
-//     const { activeUserWorkersCount } = await EdgeRuntime.getRuntimeMetrics();
-//     if (activeUserWorkersCount > 0) {
-//         return;
-//     }
 //     try {
 //         const cleanupCount = await EdgeRuntime.ai.tryCleanupUnusedSession();
 //         if (cleanupCount == 0) {

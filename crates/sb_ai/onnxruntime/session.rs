@@ -145,6 +145,8 @@ pub fn cleanup() -> Result<usize, AnyError> {
         let mut to_be_removed = vec![];
 
         for (key, session) in &mut *guard {
+            // Since we're currently referencing the session at this point
+            // It also will increments the counter, so we need to check: counter > 1
             if Arc::strong_count(session) > 1 {
                 continue;
             }

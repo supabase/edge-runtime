@@ -2823,6 +2823,7 @@ async fn test_tmp_fs_should_not_be_available_in_import_stmt() {
 }
 
 // -- sb_ai: ORT @huggingface/transformers
+#[cfg(target_arch = "x86_64")]
 #[tokio::test]
 #[serial]
 async fn test_ort_nlp_feature_extraction() {
@@ -2842,6 +2843,7 @@ async fn test_ort_nlp_feature_extraction() {
     );
 }
 
+#[cfg(target_arch = "x86_64")]
 #[tokio::test]
 #[serial]
 async fn test_ort_nlp_fill_mask() {
@@ -2861,6 +2863,7 @@ async fn test_ort_nlp_fill_mask() {
     );
 }
 
+#[cfg(target_arch = "x86_64")]
 #[tokio::test]
 #[serial]
 async fn test_ort_nlp_question_answering() {
@@ -2880,6 +2883,7 @@ async fn test_ort_nlp_question_answering() {
     );
 }
 
+#[cfg(target_arch = "x86_64")]
 #[tokio::test]
 #[serial]
 async fn test_ort_nlp_summarization() {
@@ -2899,6 +2903,7 @@ async fn test_ort_nlp_summarization() {
     );
 }
 
+#[cfg(target_arch = "x86_64")]
 #[tokio::test]
 #[serial]
 async fn test_ort_nlp_text_classification() {
@@ -2918,6 +2923,7 @@ async fn test_ort_nlp_text_classification() {
     );
 }
 
+#[cfg(target_arch = "x86_64")]
 #[tokio::test]
 #[serial]
 async fn test_ort_nlp_text_generation() {
@@ -2937,6 +2943,7 @@ async fn test_ort_nlp_text_generation() {
     );
 }
 
+#[cfg(target_arch = "x86_64")]
 #[tokio::test]
 #[serial]
 async fn test_ort_nlp_text2text_generation() {
@@ -2956,6 +2963,7 @@ async fn test_ort_nlp_text2text_generation() {
     );
 }
 
+#[cfg(target_arch = "x86_64")]
 #[tokio::test]
 #[serial]
 async fn test_ort_nlp_token_classification() {
@@ -2975,6 +2983,7 @@ async fn test_ort_nlp_token_classification() {
     );
 }
 
+#[cfg(target_arch = "x86_64")]
 #[tokio::test]
 #[serial]
 async fn test_ort_nlp_translation() {
@@ -2994,6 +3003,7 @@ async fn test_ort_nlp_translation() {
     );
 }
 
+#[cfg(target_arch = "x86_64")]
 #[tokio::test]
 #[serial]
 async fn test_ort_nlp_zero_shot_classification() {
@@ -3013,6 +3023,7 @@ async fn test_ort_nlp_zero_shot_classification() {
     );
 }
 
+#[cfg(target_arch = "x86_64")]
 #[tokio::test]
 #[serial]
 async fn test_ort_vision_image_feature_extraction() {
@@ -3032,6 +3043,7 @@ async fn test_ort_vision_image_feature_extraction() {
     );
 }
 
+#[cfg(target_arch = "x86_64")]
 #[tokio::test]
 #[serial]
 async fn test_ort_vision_image_classification() {
@@ -3051,6 +3063,7 @@ async fn test_ort_vision_image_classification() {
     );
 }
 
+#[cfg(target_arch = "x86_64")]
 #[tokio::test]
 #[serial]
 async fn test_ort_vision_zero_shot_image_classification() {

@@ -513,5 +513,5 @@ async fn test_mkdir_recursive_and_remove_recursive() {
 }
 
 fn is_supabase_storage_being_tested() -> bool {
-    std::env::var("SFFS_TEST_SUPABASE_STORAGE").unwrap_or_default() == "true"
+    std::env::var("S3FS_TEST_SUPABASE_STORAGE").unwrap_or_default() == "true"
 }

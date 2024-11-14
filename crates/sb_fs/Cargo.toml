@@ -49,4 +49,13 @@ aws-smithy-runtime = "1.7"
 aws-smithy-runtime-api = "1.7"
 
 [dev-dependencies]
+base = { version = "0.1.0", path = "../base" }
+event_worker = { version = "0.1.0", path = "../event_worker" }
+
+ctor.workspace = true
 rand.workspace = true
+serial_test.workspace = true
+
+dotenvy = "0.15"
+aws-smithy-runtime = { version = "1.7", features = ["test-util"] }
+aws-smithy-runtime-api = { version = "1.7", features = ["test-util"] }

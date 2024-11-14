@@ -48,6 +48,7 @@ use serde::{Deserialize, Serialize};
 use tempfile::tempfile;
 use tokio::{
     io::{AsyncBufRead, AsyncReadExt},
+    sync::RwLock,
     task::JoinError,
 };
 use tracing::{debug, error, info_span, instrument, trace, trace_span, warn, Instrument};
@@ -61,26 +62,29 @@ type BackgroundTask = Shared<BoxFuture<'static, Result<(), Arc<JoinError>>>>;
 #[derive(Debug, Clone)]
 pub struct S3Fs {
     client: aws_sdk_s3::Client,
-    background_tasks: Arc<FuturesUnordered<BackgroundTask>>,
+    background_tasks: Arc<RwLock<FuturesUnordered<BackgroundTask>>>,
+
+    #[allow(unused)]
+    config: Arc<S3FsConfig>,
 }
 
 impl S3Fs {
-    pub async fn try_flush_background_tasks(self) -> bool {
-        let Ok(mut background_tasks) = Arc::try_unwrap(self.background_tasks) else {
-            return false;
-        };
+    pub async fn flush_background_tasks(&self) {
+        if self.background_tasks.read().await.is_empty() {
+            return;
+        }
+
+        let mut background_tasks = self.background_tasks.write().await;
 
         loop {
             if background_tasks.next().await.is_none() {
                 break;
             }
         }
-
-        true
     }
 }
 
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct S3CredentialsObject {
     access_key_id: Cow<'static, str>,
@@ -142,7 +146,7 @@ impl ReconnectMode {
     }
 }
 
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct S3ClientRetryConfig {
     mode: RetryMode,
@@ -174,7 +178,7 @@ impl S3ClientRetryConfig {
     }
 }
 
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct S3FsConfig {
     app_name: Option<Cow<'static, str>>,
@@ -233,8 +237,9 @@ impl S3FsConfig {
 impl S3Fs {
     pub fn new(config: S3FsConfig) -> Result<Self, anyhow::Error> {
         Ok(Self {
-            client: aws_sdk_s3::Client::from_conf(config.try_into_s3_config()?),
+            client: aws_sdk_s3::Client::from_conf(config.clone().try_into_s3_config()?),
             background_tasks: Arc::default(),
+            config: Arc::new(config),
         })
     }
 }
@@ -278,24 +283,67 @@ impl deno_fs::FileSystem for S3Fs {
         options: OpenOptions,
         _access_check: Option<AccessCheckCb<'a>>,
     ) -> FsResult<Rc<dyn File>> {
+        self.flush_background_tasks().await;
+
         let (bucket_name, key) = try_get_bucket_name_and_key(path.try_normalize()?)?;
 
-        Ok(Rc::new(S3Object {
+        if key.is_empty() {
+            return Err(FsError::Io(io::Error::from(io::ErrorKind::InvalidInput)));
+        }
+
+        let resp = self
+            .client
+            .head_object()
+            .bucket(&bucket_name)
+            .key(&key)
+            .send()
+            .await;
+
+        let mut not_found = false;
+
+        if let Some(err) = resp.err() {
+            not_found = err
+                .as_service_error()
+                .map(|it| it.is_not_found())
+                .unwrap_or_default();
+
+            if not_found {
+                if !(options.create || options.create_new) {
+                    return Err(FsError::Io(io::Error::from(io::ErrorKind::NotFound)));
+                }
+            } else {
+                return Err(FsError::Io(io::Error::other(err)));
+            }
+        }
+
+        let file = Rc::new(S3Object {
             bucket_name,
             key,
             fs: self.clone(),
-            open_options: options,
             op_slot: AsyncRefCell::default(),
-        }))
+        });
+
+        if not_found || options.truncate {
+            file.clone().write(BufView::empty()).await?;
+        } else if options.create_new {
+            return Err(FsError::Io(io::Error::from(io::ErrorKind::AlreadyExists)));
+        }
+
+        Ok(file)
     }
 
     fn mkdir_sync(&self, _path: &Path, _recursive: bool, _mode: u32) -> FsResult<()> {
         Err(FsError::NotSupported)
     }
 
-    #[instrument(level = "trace", skip(self), fields(mode = _mode) ret, err(Debug))]
+    #[instrument(level = "trace", skip(self, _mode), fields(mode = _mode) ret, err(Debug))]
     async fn mkdir_async(&self, path: PathBuf, recursive: bool, _mode: u32) -> FsResult<()> {
         let (bucket_name, key) = try_get_bucket_name_and_key(path.try_normalize()?)?;
+
+        if key.is_empty() {
+            return Err(FsError::Io(io::Error::from(io::ErrorKind::InvalidInput)));
+        }
+
         let keys = if recursive {
             PathBuf::from(key)
                 .iter()
@@ -319,8 +367,10 @@ impl deno_fs::FileSystem for S3Fs {
         let mut futs = FuturesUnordered::new();
         let mut errors = vec![];
 
-        for folder_key in keys {
-            debug_assert!(folder_key.ends_with('/'));
+        for mut folder_key in keys {
+            if !folder_key.ends_with('/') {
+                folder_key.push('/');
+            }
 
             let client = self.client.clone();
             let bucket_name = bucket_name.clone();
@@ -400,15 +450,21 @@ impl deno_fs::FileSystem for S3Fs {
 
     #[instrument(level = "trace", skip(self), ret, err(Debug))]
     async fn remove_async(&self, path: PathBuf, recursive: bool) -> FsResult<()> {
-        let had_slash = path.ends_with("/");
+        self.flush_background_tasks().await;
+
+        let had_slash = path.to_string_lossy().ends_with('/');
         let (bucket_name, key) = try_get_bucket_name_and_key(path.try_normalize()?)?;
 
         if recursive {
-            let builder = self
-                .client
-                .list_objects_v2()
-                .bucket(&bucket_name)
-                .prefix(format!("{}/", key));
+            let builder =
+                self.client
+                    .list_objects_v2()
+                    .bucket(&bucket_name)
+                    .prefix(if key.is_empty() {
+                        Cow::Borrowed("")
+                    } else {
+                        Cow::Owned(format!("{}/", key))
+                    });
 
             let mut errors = vec![];
             let mut stream = builder.into_paginator().send();
@@ -469,6 +525,10 @@ impl deno_fs::FileSystem for S3Fs {
             }));
         }
 
+        if key.is_empty() {
+            return Err(FsError::Io(io::Error::from(io::ErrorKind::InvalidInput)));
+        }
+
         let key = if had_slash { format!("{}/", key) } else { key };
         let resp = self
             .client
@@ -478,14 +538,16 @@ impl deno_fs::FileSystem for S3Fs {
             .send()
             .await;
 
-        if resp
-            .as_ref()
-            .err()
-            .and_then(|it| it.as_service_error())
-            .map(|it| it.is_not_found())
-            .unwrap_or_default()
-        {
-            return Err(FsError::Io(io::Error::from(io::ErrorKind::NotFound)));
+        if let Some(err) = resp.err() {
+            if err
+                .as_service_error()
+                .map(|it| it.is_not_found())
+                .unwrap_or_default()
+            {
+                return Err(FsError::Io(io::Error::from(io::ErrorKind::NotFound)));
+            }
+
+            return Err(FsError::Io(io::Error::other(err)));
         }
 
         self.client
@@ -523,6 +585,7 @@ impl deno_fs::FileSystem for S3Fs {
 
     #[instrument(level = "trace", skip(self), err(Debug))]
     async fn stat_async(&self, path: PathBuf) -> FsResult<FsStat> {
+        self.flush_background_tasks().await;
         self.open_async(path.try_normalize()?, OpenOptions::read(), None)
             .and_then(|it| it.stat_async())
             .await
@@ -551,7 +614,10 @@ impl deno_fs::FileSystem for S3Fs {
 
     #[instrument(level = "trace", skip(self), err(Debug))]
     async fn read_dir_async(&self, path: PathBuf) -> FsResult<Vec<FsDirEntry>> {
+        self.flush_background_tasks().await;
+
         let (bucket_name, mut key) = try_get_bucket_name_and_key(path.try_normalize()?)?;
+        let is_root = key.is_empty();
 
         debug_assert!(!key.ends_with('/'));
         key.push('/');
@@ -561,7 +627,7 @@ impl deno_fs::FileSystem for S3Fs {
             .list_objects_v2()
             .set_bucket(Some(bucket_name))
             .set_delimiter(Some("/".into()))
-            .set_prefix(Some(key));
+            .set_prefix((!is_root).then_some(key));
 
         let mut entries = vec![];
         let mut stream = builder.into_paginator().send();
@@ -730,11 +796,18 @@ enum S3ObjectOpSlot {
 
 struct S3ObjectReadState(Pin<Box<dyn AsyncBufRead>>, usize);
 
-#[derive(Debug)]
 struct FileBackedMmapBuffer {
     cursor: AllowStdIo<Cursor<&'static mut [u8]>>,
     raw: MmapRaw,
-    _file: std::fs::File,
+    file: std::fs::File,
+}
+
+impl std::fmt::Debug for FileBackedMmapBuffer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("FileBackedMmapBuffer")
+            .field(&self.file)
+            .finish()
+    }
 }
 
 impl FileBackedMmapBuffer {
@@ -754,11 +827,7 @@ impl FileBackedMmapBuffer {
             slice::from_raw_parts_mut(raw.as_mut_ptr(), raw.len())
         }));
 
-        Ok(Self {
-            cursor,
-            raw,
-            _file: file,
-        })
+        Ok(Self { cursor, raw, file })
     }
 }
 
@@ -792,6 +861,7 @@ impl S3ObjectWriteState {
         })
     }
 
+    #[instrument(level = "trace", skip(self), fields(file = ?self.buf.file), ret, err(Debug))]
     fn try_swap_buffer(&mut self) -> Result<FileBackedMmapBuffer, anyhow::Error> {
         Ok(mem::replace(&mut self.buf, FileBackedMmapBuffer::new()?))
     }
@@ -901,13 +971,13 @@ impl S3WriteUploadMethod {
     #[instrument(
         level = "trace",
         skip(self, state),
-        fields(fs, bucket_name, key),
+        fields(client, bucket_name, key),
         ret,
         err(Debug)
     )]
     async fn cleanup(
         &mut self,
-        fs: S3Fs,
+        client: aws_sdk_s3::Client,
         bucket_name: String,
         key: String,
         state: S3ObjectWriteState,
@@ -918,8 +988,8 @@ impl S3WriteUploadMethod {
                     state.buf.raw.flush_async()?;
                     multi_part.tasks.push(
                         tokio::task::spawn({
+                            let client = client.clone();
                             let upload_id = multi_part.upload_id.clone();
-                            let client = fs.client.clone();
                             let bucket_name = bucket_name.clone();
                             let key = key.clone();
                             let part_idx = multi_part.recent_part_idx;
@@ -970,7 +1040,7 @@ impl S3WriteUploadMethod {
                         "mismatch with recent part idx"
                     );
 
-                    fs.client
+                    client
                         .abort_multipart_upload()
                         .bucket(bucket_name)
                         .key(key)
@@ -984,7 +1054,7 @@ impl S3WriteUploadMethod {
                     )));
                 }
 
-                fs.client
+                client
                     .complete_multipart_upload()
                     .bucket(bucket_name)
                     .key(key)
@@ -1000,7 +1070,7 @@ impl S3WriteUploadMethod {
             }
 
             Self::PutObject => {
-                fs.client
+                client
                     .put_object()
                     .bucket(bucket_name)
                     .key(key)
@@ -1023,10 +1093,6 @@ impl S3WriteUploadMethod {
 pub struct S3Object {
     fs: S3Fs,
     op_slot: AsyncRefCell<Option<S3ObjectOpSlot>>,
-
-    #[allow(unused)]
-    open_options: OpenOptions,
-
     bucket_name: String,
     key: String,
 }
@@ -1051,22 +1117,27 @@ impl Drop for S3Object {
                 key = key.as_str()
             );
 
-            self.fs.background_tasks.push(
-                tokio::task::spawn(
-                    async move {
-                        if let Err(err) = method.sync().await {
-                            error!(reason = ?err, "sync operation failed");
+            drop(tokio::spawn(async move {
+                fs.background_tasks.write().await.push(
+                    tokio::task::spawn(
+                        async move {
+                            if let Err(err) = method.sync().await {
+                                error!(reason = ?err, "sync operation failed");
+                            }
+                            if let Err(err) = method
+                                .cleanup(fs.client.clone(), bucket_name, key, state)
+                                .await
+                            {
+                                error!(reason = ?err, "cleanup operation failed");
+                            }
                         }
-                        if let Err(err) = method.cleanup(fs, bucket_name, key, state).await {
-                            error!(reason = ?err, "cleanup operation failed");
-                        }
-                    }
-                    .instrument(span),
-                )
-                .map_err(Arc::new)
-                .boxed()
-                .shared(),
-            );
+                        .instrument(span),
+                    )
+                    .map_err(Arc::new)
+                    .boxed()
+                    .shared(),
+                );
+            }));
         }
     }
 }
@@ -1088,8 +1159,11 @@ impl deno_io::fs::File for S3Object {
                 .bucket(&self.bucket_name)
                 .key(&self.key)
                 .send()
-                .await
-                .map_err(io::Error::other)?;
+                .await;
+
+            let Ok(resp) = resp else {
+                return Ok((0, buf));
+            };
 
             let mut body_buf = resp.body.into_async_read();
             let nread = body_buf.read(&mut buf).await?;
@@ -1414,7 +1488,6 @@ impl deno_io::fs::File for S3Object {
             mtime: resp.last_modified.and_then(to_msec),
             atime: None,
             birthtime: None,
-
             dev: 0,
             ino: 0,
             mode: 0,
@@ -1527,4 +1600,72 @@ where
     }
 
     Err(io::Error::other(messages.join("\n")).into())
+}
+
+#[cfg(test)]
+mod test {
+    use std::{io, path::PathBuf, sync::Arc};
+
+    use aws_config::BehaviorVersion;
+    use aws_sdk_s3::{self as s3};
+    use aws_smithy_runtime::client::http::test_util::{ReplayEvent, StaticReplayClient};
+    use deno_fs::{FileSystem, OpenOptions};
+    use once_cell::sync::Lazy;
+
+    static OPEN_CREATE: Lazy<OpenOptions> = Lazy::new(|| OpenOptions {
+        read: true,
+        write: true,
+        create: true,
+        truncate: true,
+        append: true,
+        create_new: true,
+        mode: None,
+    });
+
+    fn get_s3_credentials() -> s3::config::SharedCredentialsProvider {
+        s3::config::SharedCredentialsProvider::new(s3::config::Credentials::new(
+            "AKIMEOWMEOW",
+            "+meowmeowmeeeeeeow/",
+            None,
+            None,
+            "meowmeow",
+        ))
+    }
+
+    fn get_s3_fs<I>(events: I) -> (super::S3Fs, StaticReplayClient)
+    where
+        I: IntoIterator<Item = ReplayEvent>,
+    {
+        let client = StaticReplayClient::new(events.into_iter().collect());
+
+        (
+            super::S3Fs {
+                background_tasks: Default::default(),
+                config: Arc::default(),
+                client: s3::Client::from_conf(
+                    s3::Config::builder()
+                        .behavior_version(BehaviorVersion::latest())
+                        .credentials_provider(get_s3_credentials())
+                        .region(s3::config::Region::new("us-east-1"))
+                        .http_client(client.clone())
+                        .build(),
+                ),
+            },
+            client,
+        )
+    }
+
+    #[tokio::test]
+    async fn should_not_be_open_when_object_key_is_empty() {
+        let (fs, _) = get_s3_fs([]);
+
+        assert_eq!(
+            fs.open_async(PathBuf::from("meowmeow"), *OPEN_CREATE, None)
+                .await
+                .err()
+                .unwrap()
+                .kind(),
+            io::ErrorKind::InvalidInput
+        );
+    }
 }

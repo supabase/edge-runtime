@@ -52,7 +52,7 @@ pub struct LogEvent {
     pub level: LogLevel,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub enum LogLevel {
     Debug,
     Info,

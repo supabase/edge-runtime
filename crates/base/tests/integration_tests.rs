@@ -1314,7 +1314,11 @@ async fn test_oak_file_upload<F, R>(
     let original = RequestBuilder::from_parts(client, req);
     let request_builder = Some(original);
 
-    integration_test!(
+    integration_test_with_server_flag!(
+        ServerFlags {
+            request_buffer_size: Some(1024),
+            ..Default::default()
+        },
         main_service,
         NON_SECURE_PORT,
         "",

@@ -776,6 +776,7 @@ dependencies = [
  "ctor",
  "deno_ast",
  "deno_broadcast_channel",
+ "deno_cache",
  "deno_canvas",
  "deno_config",
  "deno_console",
@@ -1762,6 +1763,20 @@ dependencies = [
  "deno_core",
  "tokio",
  "uuid",
+]
+
+[[package]]
+name = "deno_cache"
+version = "0.93.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "726d73bd8ca30f1c3f9c59a561c9080f19f3a4b2a53c193abb564f4266713d05"
+dependencies = [
+ "async-trait",
+ "deno_core",
+ "rusqlite",
+ "serde",
+ "sha2",
+ "tokio",
 ]
 
 [[package]]

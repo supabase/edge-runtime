@@ -1,9 +1,6 @@
 #![allow(clippy::arc_with_non_send_sync)]
 #![allow(clippy::async_yields_async)]
 
-#[path = "../src/utils/integration_test_helper.rs"]
-mod integration_test_helper;
-
 use deno_config::JsxImportSourceConfig;
 use http_v02 as http;
 use hyper_v014 as hyper;
@@ -23,6 +20,10 @@ use std::{
 
 use anyhow::Context;
 use async_tungstenite::WebSocketStream;
+use base::utils::test_utils::{
+    self, create_test_user_worker, test_user_runtime_opts, test_user_worker_pool_policy,
+    TestBedBuilder,
+};
 use base::{
     integration_test, integration_test_listen_fut, integration_test_with_server_flag,
     rt_worker::worker_ctx::{create_user_worker_pool, create_worker, TerminationToken},
@@ -61,10 +62,6 @@ use tokio_rustls::{
 use tokio_util::{compat::TokioAsyncReadCompatExt, sync::CancellationToken};
 use tungstenite::Message;
 use urlencoding::encode;
-
-use crate::integration_test_helper::{
-    create_test_user_worker, test_user_runtime_opts, test_user_worker_pool_policy, TestBedBuilder,
-};
 
 const MB: usize = 1024 * 1024;
 const NON_SECURE_PORT: u16 = 8498;
@@ -187,7 +184,7 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
     // create a user worker pool
     let (_, worker_pool_tx) = create_user_worker_pool(
         Arc::default(),
-        integration_test_helper::test_user_worker_pool_policy(),
+        test_utils::test_user_worker_pool_policy(),
         None,
         Some(pool_termination_token.clone()),
         vec![],
@@ -961,13 +958,12 @@ async fn req_failure_case_timeout() {
     let tb = TestBedBuilder::new("./test_cases/main")
         // NOTE: It should be small enough that the worker pool rejects the
         // request.
-        .with_oneshot_policy(10)
+        .with_oneshot_policy(Some(10))
         .build()
         .await;
 
-    let req_body_fn = || {
-        Request::builder()
-            .uri("/slow_resp")
+    let req_body_fn = |b: http::request::Builder| {
+        b.uri("/slow_resp")
             .method("GET")
             .body(Body::empty())
             .context("can't make request")
@@ -999,14 +995,13 @@ async fn req_failure_case_timeout() {
 #[serial]
 async fn req_failure_case_cpu_time_exhausted() {
     let tb = TestBedBuilder::new("./test_cases/main_small_cpu_time")
-        .with_oneshot_policy(100000)
+        .with_oneshot_policy(None)
         .build()
         .await;
 
     let mut res = tb
-        .request(|| {
-            Request::builder()
-                .uri("/slow_resp")
+        .request(|b| {
+            b.uri("/slow_resp")
                 .method("GET")
                 .body(Body::empty())
                 .context("can't make request")
@@ -1028,14 +1023,13 @@ async fn req_failure_case_cpu_time_exhausted() {
 #[serial]
 async fn req_failure_case_cpu_time_exhausted_2() {
     let tb = TestBedBuilder::new("./test_cases/main_small_cpu_time")
-        .with_oneshot_policy(100000)
+        .with_oneshot_policy(None)
         .build()
         .await;
 
     let mut res = tb
-        .request(|| {
-            Request::builder()
-                .uri("/cpu-sync")
+        .request(|b| {
+            b.uri("/cpu-sync")
                 .method("GET")
                 .body(Body::empty())
                 .context("can't make request")
@@ -1057,14 +1051,13 @@ async fn req_failure_case_cpu_time_exhausted_2() {
 #[serial]
 async fn req_failure_case_wall_clock_reached() {
     let tb = TestBedBuilder::new("./test_cases/main_small_wall_clock")
-        .with_oneshot_policy(100000)
+        .with_oneshot_policy(None)
         .build()
         .await;
 
     let mut res = tb
-        .request(|| {
-            Request::builder()
-                .uri("/slow_resp")
+        .request(|b| {
+            b.uri("/slow_resp")
                 .method("GET")
                 .body(Body::empty())
                 .context("can't make request")
@@ -1087,14 +1080,13 @@ async fn req_failure_case_wall_clock_reached() {
 #[serial]
 async fn req_failture_case_memory_limit_1() {
     let tb = TestBedBuilder::new("./test_cases/main")
-        .with_oneshot_policy(100000)
+        .with_oneshot_policy(None)
         .build()
         .await;
 
     let mut res = tb
-        .request(|| {
-            Request::builder()
-                .uri("/array-alloc-sync")
+        .request(|b| {
+            b.uri("/array-alloc-sync")
                 .method("GET")
                 .body(Body::empty())
                 .context("can't make request")
@@ -1116,14 +1108,13 @@ async fn req_failture_case_memory_limit_1() {
 #[serial]
 async fn req_failture_case_memory_limit_2() {
     let tb = TestBedBuilder::new("./test_cases/main")
-        .with_oneshot_policy(100000)
+        .with_oneshot_policy(None)
         .build()
         .await;
 
     let mut res = tb
-        .request(|| {
-            Request::builder()
-                .uri("/array-alloc")
+        .request(|b| {
+            b.uri("/array-alloc")
                 .method("GET")
                 .body(Body::empty())
                 .context("can't make request")
@@ -1148,14 +1139,13 @@ async fn req_failure_case_wall_clock_reached_less_than_100ms() {
     // dozens of times on the local machine, it will fail with a timeout.
 
     let tb = TestBedBuilder::new("./test_cases/main_small_wall_clock_less_than_100ms")
-        .with_oneshot_policy(100000)
+        .with_oneshot_policy(None)
         .build()
         .await;
 
     let mut res = tb
-        .request(|| {
-            Request::builder()
-                .uri("/slow_resp")
+        .request(|b| {
+            b.uri("/slow_resp")
                 .method("GET")
                 .body(Body::empty())
                 .context("can't make request")
@@ -1589,14 +1579,13 @@ async fn test_decorator_parse_typescript_experimental_with_metadata() {
 #[serial]
 async fn send_partial_payload_into_closed_pipe_should_not_be_affected_worker_stability() {
     let tb = TestBedBuilder::new("./test_cases/main")
-        .with_oneshot_policy(100000)
+        .with_oneshot_policy(None)
         .build()
         .await;
 
     let mut resp1 = tb
-        .request(|| {
-            Request::builder()
-                .uri("/chunked-char-1000ms")
+        .request(|b| {
+            b.uri("/chunked-char-1000ms")
                 .method("GET")
                 .body(Body::empty())
                 .context("can't make request")
@@ -1619,9 +1608,8 @@ async fn send_partial_payload_into_closed_pipe_should_not_be_affected_worker_sta
     // of `Deno.serve` failing to properly handle an exception from a previous
     // request.
     let resp2 = tb
-        .request(|| {
-            Request::builder()
-                .uri("/empty-response")
+        .request(|b| {
+            b.uri("/empty-response")
                 .method("GET")
                 .body(Body::empty())
                 .context("can't make request")

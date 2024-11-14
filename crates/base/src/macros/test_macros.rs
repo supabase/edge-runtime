@@ -1,11 +1,14 @@
 #[macro_export]
 macro_rules! integration_test_listen_fut {
     ($port:expr, $tls:expr, $main_file:expr, $policy:expr, $import_map:expr, $flag:expr, $tx:expr, $token:expr) => {{
-        use futures_util::FutureExt;
+        use $crate::macros::test_macros::__private;
 
-        let tls: Option<base::server::Tls> = $tls.clone();
+        use __private::futures_util::FutureExt;
+        use __private::Tls;
 
-        base::commands::start_server(
+        let tls: Option<Tls> = $tls.clone();
+
+        __private::start_server(
             "0.0.0.0",
             $port,
             tls,
@@ -33,16 +36,20 @@ macro_rules! integration_test_listen_fut {
 #[macro_export]
 macro_rules! integration_test_with_server_flag {
     ($flag:expr, $main_file:expr, $port:expr, $url:expr, $policy:expr, $import_map:expr, $req_builder:expr, $tls:expr, ($($function:tt)+) $(, $($token:tt)+)?) => {
-        use futures_util::FutureExt;
         use $crate::macros::test_macros::__private;
 
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<base::server::ServerHealth>(1);
+        use __private::futures_util::FutureExt;
+        use __private::ServerHealth;
+        use __private::Tls;
+        use __private::reqwest_v011;
+
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<ServerHealth>(1);
 
         let req_builder: Option<reqwest_v011::RequestBuilder> = $req_builder;
-        let tls: Option<base::server::Tls> = $tls;
+        let tls: Option<Tls> = $tls;
         let schema = if tls.is_some() { "https" } else { "http" };
         let signal = tokio::spawn(async move {
-            while let Some(base::server::ServerHealth::Listening(event_rx, metric_src)) = rx.recv().await {
+            while let Some(ServerHealth::Listening(event_rx, metric_src)) = rx.recv().await {
                 $crate::integration_test_with_server_flag!(@req event_rx, metric_src, schema, $port, $url, req_builder, ($($function)+));
             }
             None
@@ -166,7 +173,7 @@ macro_rules! integration_test_with_server_flag {
 macro_rules! integration_test {
     ($main_file:expr, $port:expr, $url:expr, $policy:expr, $import_map:expr, $req_builder:expr, $tls:expr, ($($function:tt)+) $(, $($token:tt)+)?) => {
         $crate::integration_test_with_server_flag!(
-            $crate::server::ServerFlags::default(),
+            ServerFlags::default(),
             $main_file,
             $port,
             $url,
@@ -189,6 +196,14 @@ pub mod __private {
     use tokio::sync::mpsc;
 
     use crate::server::ServerEvent;
+
+    pub use crate::commands::start_server;
+    pub use crate::rt_worker::worker_ctx::TerminationToken;
+    pub use crate::server::ServerFlags;
+    pub use crate::server::ServerHealth;
+    pub use crate::server::Tls;
+    pub use futures_util;
+    pub use reqwest_v011;
 
     /// NOTE(Nyannyacha): This was defined to enable pattern matching in closure
     /// argument positions.

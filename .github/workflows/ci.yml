@@ -57,3 +57,11 @@ jobs:
       - name: Install ONNX Runtime Library
         run: ./scripts/install_onnx.sh ${{ env.ONNXRUNTIME_VERSION }} x64 /tmp/onnxruntime
       - run: ./scripts/test.sh --features base/tracing
+        env: 
+          S3FS_TEST_SUPABASE_STORAGE: true
+          S3FS_TEST_APP_NAME: edge_runtime_github_ci
+          S3FS_TEST_BUCKET_NAME: ${{ env.SUPABASE_S3_BUCKET_NAME }}
+          S3FS_TEST_ENDPOINT_URL: ${{ env.SUPABASE_S3_ENTRYPOINT }}
+          S3FS_TEST_REGION: ${{ env.SUPABASE_S3_REGION }}
+          S3FS_TEST_ACCESS_KEY_ID: ${{ env.SUPABASE_S3_ACCESS_KEY }}
+          S3FS_TEST_SECRET_ACCESS_KEY: ${{ env.SUPABASE_S3_SECRET }}

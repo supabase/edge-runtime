@@ -361,6 +361,37 @@ impl deno_fs::FileSystem for S3Fs {
                 })
                 .collect::<Vec<_>>()
         } else {
+            'scope: {
+                if let Some(parent) = PathBuf::from(&key).parent() {
+                    if parent == Path::new("") {
+                        break 'scope;
+                    }
+
+                    let resp = self
+                        .client
+                        .head_object()
+                        .bucket(&bucket_name)
+                        .key(parent.to_string_lossy())
+                        .send()
+                        .await;
+
+                    if let Some(err) = resp.err() {
+                        if err
+                            .as_service_error()
+                            .map(|it| it.is_not_found())
+                            .unwrap_or_default()
+                        {
+                            return Err(FsError::Io(io::Error::other(format!(
+                                "No such file or directory: {}",
+                                parent.to_string_lossy()
+                            ))));
+                        }
+
+                        return Err(FsError::Io(io::Error::other(err)));
+                    }
+                }
+            }
+
             vec![key]
         };
 
@@ -491,6 +522,8 @@ impl deno_fs::FileSystem for S3Fs {
             if ids.is_empty() {
                 return Ok(());
             }
+
+            trace!(ids = ?ids.iter().map(|it| it.key()).collect::<Vec<_>>());
 
             let delete = Delete::builder()
                 .set_quiet(Some(true))

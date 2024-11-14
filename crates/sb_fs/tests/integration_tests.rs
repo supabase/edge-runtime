@@ -1,12 +1,13 @@
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
 
 use anyhow::Context;
 use base::{server::ServerFlags, utils::test_utils::TestBedBuilder};
 use ctor::ctor;
-use deno_core::serde_json::{self, json};
+use deno_core::serde_json;
 use event_worker::events::{LogLevel, WorkerEvents};
 use hyper_v014::{body::to_bytes, Body, StatusCode};
 use rand::RngCore;
+use serde::Deserialize;
 use serial_test::serial;
 use tokio::sync::mpsc;
 
@@ -176,6 +177,24 @@ async fn test_write_and_get_over_50_mib() {
     }
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DenoDirEntry {
+    name: String,
+    is_file: bool,
+    is_directory: bool,
+}
+
+impl DenoDirEntry {
+    fn from_json_unchecked(slice: &[u8]) -> HashMap<String, Self> {
+        serde_json::from_slice::<Vec<DenoDirEntry>>(slice)
+            .unwrap()
+            .into_iter()
+            .map(|it| (it.name.clone(), it))
+            .collect()
+    }
+}
+
 #[tokio::test]
 #[serial]
 async fn test_mkdir_and_read_dir() {
@@ -212,22 +231,11 @@ async fn test_mkdir_and_read_dir() {
         assert_eq!(resp.status().as_u16(), StatusCode::OK);
 
         let buf = to_bytes(resp.body_mut()).await.unwrap();
-        let value = serde_json::from_slice::<serde_json::Value>(&buf).unwrap();
-        let arr = value.as_array().unwrap();
-        let mut found = false;
+        let value = DenoDirEntry::from_json_unchecked(&buf);
 
-        for i in arr {
-            let entry = i.as_object().unwrap();
+        assert!(value.contains_key("a"));
+        assert!(value.get("a").unwrap().is_directory);
 
-            if entry.get("name") != Some(&json!("a")) {
-                continue;
-            }
-
-            found = entry.get("isDirectory") == Some(&json!(true));
-            break;
-        }
-
-        assert!(found);
         tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
     }
 }
@@ -241,7 +249,7 @@ async fn test_mkdir_recursive_and_read_dir() {
         let tb = get_tb_builder().build().await;
         let resp = tb
             .request(|b| {
-                b.uri("/mkdir/a/b/c/meow")
+                b.uri("/mkdir/a/b/c/meow?recursive=true")
                     .method("GET")
                     .body(Body::empty())
                     .context("can't make request")
@@ -270,24 +278,240 @@ async fn test_mkdir_recursive_and_read_dir() {
             assert_eq!(resp.status().as_u16(), StatusCode::OK);
 
             let buf = to_bytes(resp.body_mut()).await.unwrap();
-            let value = serde_json::from_slice::<serde_json::Value>(&buf).unwrap();
-            let arr = value.as_array().unwrap();
-            let mut found = false;
+            let value = DenoDirEntry::from_json_unchecked(&buf);
 
-            for i in arr {
-                let entry = i.as_object().unwrap();
-
-                if entry.get("name") != Some(&json!(expected)) {
-                    continue;
-                }
-
-                found = entry.get("isDirectory") == Some(&json!(true));
-                break;
-            }
-
-            assert!(found);
+            assert!(value.contains_key(expected));
+            assert!(value.get(expected).unwrap().is_directory);
         }
 
         tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
     }
+}
+
+#[tokio::test]
+#[serial]
+async fn test_mkdir_with_no_recursive_opt_must_check_parent_path_exists() {
+    remove("", true).await;
+
+    {
+        let tb = get_tb_builder().build().await;
+        let resp = tb
+            .request(|b| {
+                b.uri("/mkdir/a")
+                    .method("GET")
+                    .body(Body::empty())
+                    .context("can't make request")
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status().as_u16(), StatusCode::OK);
+        tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
+    }
+
+    {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let tb = get_tb_builder()
+            .with_worker_event_sender(Some(tx))
+            .build()
+            .await;
+        let resp = tb
+            .request(|b| {
+                b.uri("/mkdir/a/b/c")
+                    .method("GET")
+                    .body(Body::empty())
+                    .context("can't make request")
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status().as_u16(), StatusCode::INTERNAL_SERVER_ERROR);
+        tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
+
+        let mut found_no_such_file_or_directory_error = false;
+
+        while let Some(ev) = rx.recv().await {
+            let WorkerEvents::Log(ev) = ev.event else {
+                continue;
+            };
+            if ev.level != LogLevel::Error {
+                continue;
+            }
+
+            found_no_such_file_or_directory_error =
+                ev.msg.contains("No such file or directory: a/b");
+
+            if found_no_such_file_or_directory_error {
+                break;
+            }
+        }
+
+        assert!(found_no_such_file_or_directory_error);
+    }
+}
+
+#[tokio::test]
+#[serial]
+async fn test_mkdir_recursive_and_remove_recursive() {
+    remove("", true).await;
+
+    {
+        let tb = get_tb_builder().build().await;
+        let resp = tb
+            .request(|b| {
+                b.uri("/mkdir/a/b/c/meow?recursive=true")
+                    .method("GET")
+                    .body(Body::empty())
+                    .context("can't make request")
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status().as_u16(), StatusCode::OK);
+        tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
+    }
+
+    {
+        let arr = vec![0u8; 11 * MIB];
+        let tb = get_tb_builder()
+            .with_server_flags(ServerFlags {
+                request_buffer_size: Some(64 * 1024),
+                ..Default::default()
+            })
+            .build()
+            .await;
+
+        let resp = tb
+            .request(|b| {
+                b.uri("/write/a/b/c/meeeeow.bin")
+                    .method("POST")
+                    .body(arr.clone().into())
+                    .context("can't make request")
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status().as_u16(), StatusCode::OK);
+        tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
+    }
+
+    {
+        let tb = get_tb_builder().build().await;
+        let mut resp = tb
+            .request(|b| {
+                b.uri("/read-dir/a/b/c")
+                    .method("GET")
+                    .body(Body::empty())
+                    .context("can't make request")
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status().as_u16(), StatusCode::OK);
+
+        let buf = to_bytes(resp.body_mut()).await.unwrap();
+        let value = DenoDirEntry::from_json_unchecked(&buf);
+
+        assert_eq!(
+            value.len(),
+            if is_supabase_storage_being_tested() {
+                // .emptyFolderPlaceholder in Supabase Storage
+                3
+            } else {
+                2
+            }
+        );
+
+        assert!(value.contains_key("meow"));
+        assert!(value.get("meow").unwrap().is_directory);
+        assert!(value.contains_key("meeeeow.bin"));
+        assert!(value.get("meeeeow.bin").unwrap().is_file);
+
+        tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
+    }
+
+    remove("a/b/c", true).await;
+    remove("a/b", true).await;
+
+    {
+        let tb = get_tb_builder().build().await;
+        let mut resp = tb
+            .request(|b| {
+                b.uri("/read-dir/a")
+                    .method("GET")
+                    .body(Body::empty())
+                    .context("can't make request")
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status().as_u16(), StatusCode::OK);
+
+        let buf = to_bytes(resp.body_mut()).await.unwrap();
+        let value = DenoDirEntry::from_json_unchecked(&buf);
+
+        assert_eq!(
+            value.len(),
+            if is_supabase_storage_being_tested() {
+                // .emptyFolderPlaceholder in Supabase Storage
+                1
+            } else {
+                0
+            }
+        );
+
+        tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
+    }
+
+    {
+        let tb = get_tb_builder().build().await;
+        let mut resp = tb
+            .request(|b| {
+                b.uri("/read-dir")
+                    .method("GET")
+                    .body(Body::empty())
+                    .context("can't make request")
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status().as_u16(), StatusCode::OK);
+
+        let buf = to_bytes(resp.body_mut()).await.unwrap();
+        let value = DenoDirEntry::from_json_unchecked(&buf);
+
+        assert_eq!(value.len(), 1);
+        assert!(value.contains_key("a"));
+        assert!(value.get("a").unwrap().is_directory);
+
+        tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
+    }
+
+    remove("a", true).await;
+
+    {
+        let tb = get_tb_builder().build().await;
+        let mut resp = tb
+            .request(|b| {
+                b.uri("/read-dir")
+                    .method("GET")
+                    .body(Body::empty())
+                    .context("can't make request")
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status().as_u16(), StatusCode::OK);
+
+        let buf = to_bytes(resp.body_mut()).await.unwrap();
+        let value = DenoDirEntry::from_json_unchecked(&buf);
+
+        assert_eq!(value.len(), 0);
+
+        tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
+    }
+}
+
+fn is_supabase_storage_being_tested() -> bool {
+    std::env::var("SFFS_TEST_SUPABASE_STORAGE").unwrap_or_default() == "true"
 }

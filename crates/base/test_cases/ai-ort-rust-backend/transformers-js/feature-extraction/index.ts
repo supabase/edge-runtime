@@ -1,8 +1,11 @@
+import os from 'node:os';
 import { assertEquals, assertAlmostEquals } from 'jsr:@std/assert';
 import {
   env,
   pipeline,
 } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.1';
+
+import { predicts } from './predicts.ts';
 
 // Ensure we do not use browser cache
 env.useBrowserCache = false;
@@ -22,8 +25,7 @@ Deno.serve(async () => {
   assertEquals(output.size, 3 * 384);
   assertEquals(output.dims.length, 2);
 
-  // Comparing first 3 predictions
-  [-0.050660304725170135, -0.006694655399769545, 0.003071750048547983]
+  predicts[os.arch()]
     .map((expected, idx) => {
       assertAlmostEquals(output.data[idx], expected);
     });

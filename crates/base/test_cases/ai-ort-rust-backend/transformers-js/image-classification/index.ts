@@ -1,3 +1,4 @@
+import os from 'node:os';
 import { assertAlmostEquals, assertEquals } from 'jsr:@std/assert';
 import {
   Gravity,
@@ -13,6 +14,8 @@ import {
   pipeline,
   RawImage,
 } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.1';
+
+import { predicts } from './predicts.ts';
 
 const wasmBytes = await Deno.readFile(
   new URL(
@@ -81,11 +84,8 @@ Deno.serve(async () => {
 
   const output = await pipe(imageInput);
 
-  // Comparing first 2 predictions
-  [
-    { label: 'bee', score: 0.9869289994239807 },
-    { label: 'fly', score: 0.005201293155550957 },
-  ].map((expected, idx) => {
+  predicts[os.arch()]
+  .map((expected, idx) => {
     assertEquals(output[idx].label, expected.label);
     assertAlmostEquals(output[idx].score, expected.score);
   });

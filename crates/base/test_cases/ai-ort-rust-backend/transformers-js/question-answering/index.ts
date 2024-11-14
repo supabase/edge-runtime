@@ -1,8 +1,11 @@
+import os from 'node:os';
 import { assertAlmostEquals, assertEquals } from 'jsr:@std/assert';
 import {
   env,
   pipeline,
 } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.1';
+
+import { predicts } from './predicts.ts';
 
 // Ensure we do not use browser cache
 env.useBrowserCache = false;
@@ -16,8 +19,10 @@ Deno.serve(async () => {
 
   const output = await pipe(input, context);
 
-  assertEquals(output.answer, 'a nice puppet');
-  assertAlmostEquals(output.score, 0.7828674695785575);
+  const expectedPredict = predicts[os.arch()];
+
+  assertEquals(output.answer, expectedPredict.answer);
+  assertAlmostEquals(output.score,expectedPredict.score);
 
   return new Response();
 });

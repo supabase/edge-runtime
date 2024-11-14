@@ -1,8 +1,10 @@
+import os from 'node:os';
 import { assertAlmostEquals, assertEquals } from 'jsr:@std/assert';
 import {
   env,
   pipeline,
 } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.1';
+import { predicts } from './predicts.ts';
 
 // Ensure we do not use browser cache
 env.useBrowserCache = false;
@@ -17,30 +19,12 @@ Deno.serve(async () => {
 
   assertEquals(output.length, 3);
 
-  [
-    {
-      entity: 'B-PER',
-      score: 0.9930744171142578,
-      index: 4,
-      word: 'Kalle',
-    },
-    {
-      entity: 'I-PER',
-      score: 0.9974944591522217,
-      index: 5,
-      word: '##by',
-    },
-    {
-      entity: 'B-LOC',
-      score: 0.9998322129249573,
-      index: 11,
-      word: 'Brazil',
-    },
-  ].map((expected, idx) => {
-    assertEquals(output[idx].entity, expected.entity);
-    assertAlmostEquals(output[idx].score, expected.score);
-    assertEquals(output[idx].index, expected.index);
-    assertEquals(output[idx].word, expected.word);
+  predicts[os.arch()]
+    .map((expected, idx) => {
+      assertEquals(output[idx].entity, expected.entity);
+      assertAlmostEquals(output[idx].score, expected.score);
+      assertEquals(output[idx].index, expected.index);
+      assertEquals(output[idx].word, expected.word);
   });
 
   return new Response();

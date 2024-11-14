@@ -13,6 +13,7 @@ env:
   CARGO_TERM_COLOR: always
   RUSTUP_MAX_RETRIES: 10
   ORT_DYLIB_PATH: /tmp/onnxruntime/lib/libonnxruntime.so
+  RUST_LOG: event_worker=trace
 
 jobs:
   cargo-fmt:
@@ -55,4 +56,4 @@ jobs:
           envFile: ".env"
       - name: Install ONNX Runtime Library
         run: ./scripts/install_onnx.sh ${{ env.ONNXRUNTIME_VERSION }} x64 /tmp/onnxruntime
-      - run: ./scripts/test.sh
+      - run: ./scripts/test.sh --features base/trace

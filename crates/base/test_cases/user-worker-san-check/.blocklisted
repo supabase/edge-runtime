@@ -28,7 +28,6 @@ makeTempFile
 makeTempFileSync
 mkdirSync
 openSync
-readDir
 readDirSync
 readLink
 readLinkSync

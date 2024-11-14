@@ -13,6 +13,7 @@ use base_rt::DenoRuntimeDropToken;
 use base_rt::{get_current_cpu_time_ns, BlockingScopeCPUUsage};
 use cooked_waker::{IntoWaker, WakeRef};
 use ctor::ctor;
+use deno_cache::{CreateCache, SqliteBackedCache};
 use deno_core::error::{AnyError, JsError};
 use deno_core::url::Url;
 use deno_core::v8::{self, GCCallbackFlags, GCType, HeapStatistics, Isolate};
@@ -526,6 +527,10 @@ where
             Arc::new(DenoCompileFileSystem::from_rc(vfs))
         })?;
 
+        // TODO: Better file path
+        let create_cache = move || SqliteBackedCache::new("./temp/cache".into());
+        let create_cache = CreateCache(Arc::new(create_cache));
+
         let mod_code = module_code;
         let extensions = vec![
             sb_core_permissions::init_ops(net_access_disabled, allow_net),
@@ -575,6 +580,7 @@ where
                 Some(npm_resolver),
                 file_system,
             ),
+            deno_cache::deno_cache::init_ops::<SqliteBackedCache>(Some(create_cache)),
             sb_core_runtime::init_ops(Some(main_module_url.clone())),
         ];
 

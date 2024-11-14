@@ -6,6 +6,7 @@ import { DOMException } from 'ext:deno_web/01_dom_exception.js';
 import * as encoding from 'ext:deno_web/08_text_encoding.js';
 import * as event from 'ext:deno_web/02_event.js';
 import * as fetch from 'ext:deno_fetch/26_fetch.js';
+import * as caches from 'ext:deno_cache/01_cache.js';
 import * as file from 'ext:deno_web/09_file.js';
 import * as fileReader from 'ext:deno_web/10_filereader.js';
 import * as formData from 'ext:deno_fetch/21_formdata.js';
@@ -134,6 +135,8 @@ const globalScope = {
 		new console.Console((msg, level) => core.print(msg, level > 1)),
 	),
 
+  // cache api
+  caches: nonEnumerable(caches.cacheStorage()),
 	// timers
 	clearInterval: writable(timers.clearInterval),
 	clearTimeout: writable(timers.clearTimeout),

@@ -56,4 +56,4 @@ jobs:
           envFile: ".env"
       - name: Install ONNX Runtime Library
         run: ./scripts/install_onnx.sh ${{ env.ONNXRUNTIME_VERSION }} x64 /tmp/onnxruntime
-      - run: ./scripts/test.sh --features base/trace
+      - run: ./scripts/test.sh --features base/tracing

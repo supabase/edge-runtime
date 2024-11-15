@@ -619,7 +619,50 @@ impl deno_fs::FileSystem for S3Fs {
     #[instrument(level = "trace", skip(self), err(Debug))]
     async fn stat_async(&self, path: PathBuf) -> FsResult<FsStat> {
         self.flush_background_tasks().await;
-        self.open_async(path.try_normalize()?, OpenOptions::read(), None)
+
+        let path = path.try_normalize()?;
+        let had_slash = path.to_string_lossy().ends_with('/');
+        let (bucket_name, key) = try_get_bucket_name_and_key(path.clone())?;
+        let key_count = if key.is_empty() {
+            Some(1)
+        } else {
+            self.client
+                .list_objects_v2()
+                .max_keys(1)
+                .bucket(bucket_name)
+                .prefix(if had_slash { key } else { format!("{}/", key) })
+                .send()
+                .await
+                .map_err(io::Error::other)?
+                .key_count()
+        };
+
+        if matches!(key_count, Some(v) if v > 0) {
+            return Ok(FsStat {
+                is_file: false,
+                is_directory: true,
+                is_symlink: false,
+                size: 0,
+                mtime: None,
+                atime: None,
+                birthtime: None,
+                dev: 0,
+                ino: 0,
+                mode: 0,
+                nlink: 0,
+                uid: 0,
+                gid: 0,
+                rdev: 0,
+                blksize: 0,
+                blocks: 0,
+                is_block_device: false,
+                is_char_device: false,
+                is_fifo: false,
+                is_socket: false,
+            });
+        }
+
+        self.open_async(path, OpenOptions::read(), None)
             .and_then(|it| it.stat_async())
             .await
     }

@@ -1084,6 +1084,53 @@ impl S3MultiPartUploadMethod {
 
         to_combined_message(errors)
     }
+
+    #[instrument(level = "trace", skip_all, fields(upload_id = self.upload_id, last))]
+    fn add_upload_part_task(
+        &mut self,
+        client: aws_sdk_s3::Client,
+        bucket_name: &str,
+        key: &str,
+        buf: &FileBackedMmapBuffer,
+        last: bool,
+    ) {
+        self.tasks.push(
+            tokio::task::spawn({
+                let client = client;
+                let upload_id = self.upload_id.clone();
+                let part_idx = self.recent_part_idx;
+                let bucket_name = bucket_name.to_string();
+                let key = key.to_string();
+                let data = unsafe {
+                    slice::from_raw_parts(
+                        buf.raw.as_ptr(),
+                        buf.cursor.get_ref().position() as usize,
+                    )
+                };
+
+                self.recent_part_idx += 1;
+
+                async move {
+                    trace!(size = data.len());
+                    client
+                        .upload_part()
+                        .bucket(bucket_name)
+                        .key(key)
+                        .upload_id(upload_id)
+                        .part_number(part_idx)
+                        .body(ByteStream::new(data.into()))
+                        .send()
+                        .map(|it| {
+                            trace!(success = it.is_ok());
+                            (part_idx, it)
+                        })
+                        .await
+                }
+                .instrument(trace_span!("upload part", last, part = part_idx))
+            })
+            .boxed(),
+        );
+    }
 }
 
 #[derive(Debug, EnumAsInner)]
@@ -1120,41 +1167,12 @@ impl S3WriteUploadMethod {
             Self::MultiPartUpload(multi_part) => {
                 if state.buf.cursor.get_ref().position() > 0 {
                     state.buf.raw.flush_async()?;
-                    multi_part.tasks.push(
-                        tokio::task::spawn({
-                            let client = client.clone();
-                            let upload_id = multi_part.upload_id.clone();
-                            let bucket_name = bucket_name.clone();
-                            let key = key.clone();
-                            let part_idx = multi_part.recent_part_idx;
-                            let data = unsafe {
-                                slice::from_raw_parts(
-                                    state.buf.raw.as_ptr(),
-                                    state.buf.cursor.get_ref().position() as usize,
-                                )
-                            };
-
-                            multi_part.recent_part_idx += 1;
-
-                            async move {
-                                client
-                                    .upload_part()
-                                    .bucket(bucket_name)
-                                    .key(key)
-                                    .upload_id(upload_id)
-                                    .part_number(part_idx)
-                                    .body(ByteStream::new(data.into()))
-                                    .send()
-                                    .map(|it| (part_idx, it))
-                                    .await
-                            }
-                            .instrument(trace_span!(
-                                "upload part",
-                                last = true,
-                                part = part_idx
-                            ))
-                        })
-                        .boxed(),
+                    multi_part.add_upload_part_task(
+                        client.clone(),
+                        &bucket_name,
+                        &key,
+                        &state.buf,
+                        true,
                     );
 
                     multi_part.sync().await?;
@@ -1195,7 +1213,16 @@ impl S3WriteUploadMethod {
                     .upload_id(mem::take(&mut multi_part.upload_id))
                     .multipart_upload(
                         CompletedMultipartUpload::builder()
-                            .set_parts(Some(mem::take(&mut multi_part.parts)))
+                            .set_parts({
+                                let mut parts = mem::take(&mut multi_part.parts);
+
+                                parts.sort_by(|a, b| {
+                                    a.part_number().unwrap().cmp(&b.part_number().unwrap())
+                                });
+
+                                trace!(idx_list = ?parts.iter().map(|it| it.part_number().unwrap()).collect::<Vec<_>>());
+                                Some(parts)
+                            })
                             .build(),
                     )
                     .send()
@@ -1451,36 +1478,12 @@ impl deno_io::fs::File for S3Object {
                 }
             };
 
-            method.tasks.push(
-                tokio::task::spawn({
-                    let upload_id = method.upload_id.clone();
-                    let client = self.fs.client.clone();
-                    let bucket_name = self.bucket_name.clone();
-                    let key = self.key.clone();
-                    let part_idx = method.recent_part_idx;
-
-                    method.recent_part_idx += 1;
-
-                    async move {
-                        client
-                            .upload_part()
-                            .bucket(bucket_name)
-                            .key(key)
-                            .upload_id(upload_id)
-                            .part_number(part_idx)
-                            .body(ByteStream::new(
-                                unsafe {
-                                    slice::from_raw_parts(mmap_buf.raw.as_ptr(), mmap_buf.raw.len())
-                                }
-                                .into(),
-                            ))
-                            .send()
-                            .map(|it| (part_idx, it))
-                            .await
-                    }
-                    .instrument(trace_span!("upload part", part = part_idx))
-                })
-                .boxed(),
+            method.add_upload_part_task(
+                self.fs.client.clone(),
+                &self.bucket_name,
+                &self.key,
+                &mmap_buf,
+                false,
             );
 
             trace!(nwritten);

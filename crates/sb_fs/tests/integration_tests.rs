@@ -90,8 +90,9 @@ async fn test_write_and_get_bytes(bytes: usize) {
     }
 }
 
-#[tokio::test]
+#[cfg_attr(not(dotenv), ignore)]
 #[serial]
+#[tokio::test]
 async fn test_write_and_get_various_bytes() {
     test_write_and_get_bytes(0).await;
     test_write_and_get_bytes(1).await;
@@ -107,6 +108,7 @@ async fn test_write_and_get_various_bytes() {
 /// Note that the test below assumes an upload file size limit of 50 MiB.
 ///
 /// See: https://supabase.com/docs/guides/storage/uploads/file-limits
+#[cfg_attr(not(dotenv), ignore)]
 #[tokio::test]
 #[serial]
 async fn test_write_and_get_over_50_mib() {
@@ -195,6 +197,7 @@ impl DenoDirEntry {
     }
 }
 
+#[cfg_attr(not(dotenv), ignore)]
 #[tokio::test]
 #[serial]
 async fn test_mkdir_and_read_dir() {
@@ -240,6 +243,7 @@ async fn test_mkdir_and_read_dir() {
     }
 }
 
+#[cfg_attr(not(dotenv), ignore)]
 #[tokio::test]
 #[serial]
 async fn test_mkdir_recursive_and_read_dir() {
@@ -288,6 +292,7 @@ async fn test_mkdir_recursive_and_read_dir() {
     }
 }
 
+#[cfg_attr(not(dotenv), ignore)]
 #[tokio::test]
 #[serial]
 async fn test_mkdir_with_no_recursive_opt_must_check_parent_path_exists() {
@@ -350,6 +355,7 @@ async fn test_mkdir_with_no_recursive_opt_must_check_parent_path_exists() {
     }
 }
 
+#[cfg_attr(not(dotenv), ignore)]
 #[tokio::test]
 #[serial]
 async fn test_mkdir_recursive_and_remove_recursive() {

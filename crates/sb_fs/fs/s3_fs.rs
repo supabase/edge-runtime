@@ -4,6 +4,7 @@
 use core::slice;
 use std::{
     borrow::Cow,
+    cell::RefCell,
     ffi::OsStr,
     fmt::Debug,
     io::{self, Cursor},
@@ -42,8 +43,12 @@ use futures::{
     stream::FuturesUnordered,
     AsyncWriteExt, FutureExt, StreamExt, TryFutureExt,
 };
+use headers::Authorization;
+use hyper_proxy::{Intercept, Proxy, ProxyConnector};
+use hyper_rustls::{HttpsConnector, HttpsConnectorBuilder};
+use hyper_v014::{client::HttpConnector, Uri};
 use memmap2::{MmapOptions, MmapRaw};
-use once_cell::sync::OnceCell;
+use once_cell::sync::{Lazy, OnceCell};
 use serde::{Deserialize, Serialize};
 use tempfile::tempfile;
 use tokio::{
@@ -52,6 +57,7 @@ use tokio::{
     task::JoinError,
 };
 use tracing::{debug, error, info_span, instrument, trace, trace_span, warn, Instrument};
+use url::Url;
 
 use super::TryNormalizePath;
 
@@ -215,7 +221,7 @@ impl S3FsConfig {
                     move || std::future::ready(Ok(cred.clone())),
                 )))
             })
-            .set_http_client(Some(Self::get_shared_http_client()))
+            .set_http_client(Some(Self::get_thread_local_shared_http_client()))
             .set_behavior_version(Some(BehaviorVersion::latest()))
             .set_retry_config(
                 self.retry_config
@@ -225,13 +231,65 @@ impl S3FsConfig {
         Ok(builder.build())
     }
 
-    fn get_shared_http_client() -> SharedHttpClient {
-        static CLIENT: OnceCell<SharedHttpClient> = OnceCell::new();
+    fn get_thread_local_shared_http_client() -> SharedHttpClient {
+        thread_local! {
+            static CLIENT: RefCell<OnceCell<SharedHttpClient>> = const { RefCell::new(OnceCell::new()) };
+        }
 
-        CLIENT
-            .get_or_init(|| HyperClientBuilder::new().build_https())
-            .clone()
+        CLIENT.with(|it| {
+            it.borrow_mut()
+                .get_or_init(|| {
+                    if let Some(proxy_connector) = resolve_proxy_connector() {
+                        HyperClientBuilder::new().build(proxy_connector)
+                    } else {
+                        HyperClientBuilder::new().build_https()
+                    }
+                })
+                .clone()
+        })
     }
+}
+
+fn resolve_proxy_connector() -> Option<ProxyConnector<HttpsConnector<HttpConnector>>> {
+    let proxy_url: Url = std::env::var("HTTPS_PROXY").ok()?.parse().ok()?;
+    let proxy_uri: Uri = std::env::var("HTTPS_PROXY").ok()?.parse().ok()?;
+    let mut proxy = Proxy::new(Intercept::All, proxy_uri);
+
+    if let Some(password) = proxy_url.password() {
+        proxy.set_authorization(Authorization::basic(proxy_url.username(), password));
+    }
+
+    static HTTPS_NATIVE_ROOTS: Lazy<HttpsConnector<HttpConnector>> = Lazy::new(default_tls);
+
+    fn default_tls() -> HttpsConnector<HttpConnector> {
+        use hyper_rustls::ConfigBuilderExt;
+        HttpsConnectorBuilder::new()
+            .with_tls_config(
+                rustls::ClientConfig::builder()
+                    .with_cipher_suites(&[
+                        // TLS1.3 suites
+                        rustls::cipher_suite::TLS13_AES_256_GCM_SHA384,
+                        rustls::cipher_suite::TLS13_AES_128_GCM_SHA256,
+                        // TLS1.2 suites
+                        rustls::cipher_suite::TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+                        rustls::cipher_suite::TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+                        rustls::cipher_suite::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+                        rustls::cipher_suite::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+                        rustls::cipher_suite::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+                    ])
+                    .with_safe_default_kx_groups()
+                    .with_safe_default_protocol_versions()
+                    .unwrap()
+                    .with_native_roots()
+                    .with_no_client_auth(),
+            )
+            .https_or_http()
+            .enable_http1()
+            .enable_http2()
+            .build()
+    }
+
+    Some(ProxyConnector::from_proxy(HTTPS_NATIVE_ROOTS.clone(), proxy).unwrap())
 }
 
 impl S3Fs {

@@ -51,17 +51,24 @@ jobs:
       - uses: actions/checkout@v4
       - run: rustup show
       - uses: Swatinem/rust-cache@v2
+
       - uses: cardinalby/export-env-action@v2
         with:
           envFile: ".env"
+
       - name: Install ONNX Runtime Library
         run: ./scripts/install_onnx.sh ${{ env.ONNXRUNTIME_VERSION }} x64 /tmp/onnxruntime
+
+      - name: Install S3 credentials for testing
+        run: |
+          cd creates/sb_fs/tests
+          echo "S3FS_TEST_SUPABASE_STORAGE=true" >> .env
+          echo "S3FS_TEST_APP_NAME=edge_runtime_github_ci" >> .env
+          echo "S3FS_TEST_BUCKET_NAME=${{ secrets.SUPABASE_S3_BUCKET_NAME }}" >> .env
+          echo "S3FS_TEST_ENDPOINT_URL=${{ secrets.SUPABASE_S3_REGION }}" >> .env
+          echo "S3FS_TEST_REGION=${{ secrets.SUPABASE_S3_REGION }}" >> .env
+          echo "S3FS_TEST_ACCESS_KEY_ID=${{ secrets.SUPABASE_S3_ACCESS_KEY }}" >> .env
+          echo "S3FS_TEST_SECRET_ACCESS_KEY=${{ secrets.SUPABASE_S3_SECRET }}" >> .env
+
       - run: ./scripts/test.sh --features base/tracing
-        env: 
-          S3FS_TEST_SUPABASE_STORAGE: true
-          S3FS_TEST_APP_NAME: edge_runtime_github_ci
-          S3FS_TEST_BUCKET_NAME: ${{ secrets.SUPABASE_S3_BUCKET_NAME }}
-          S3FS_TEST_ENDPOINT_URL: ${{ secrets.SUPABASE_S3_ENTRYPOINT }}
-          S3FS_TEST_REGION: ${{ secrets.SUPABASE_S3_REGION }}
-          S3FS_TEST_ACCESS_KEY_ID: ${{ secrets.SUPABASE_S3_ACCESS_KEY }}
-          S3FS_TEST_SECRET_ACCESS_KEY: ${{ secrets.SUPABASE_S3_SECRET }}
+

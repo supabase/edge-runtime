@@ -28,13 +28,15 @@ deno_core::extension!(
         op_sb_ai_try_cleanup_unused_session,
         op_sb_ai_ort_init_session,
         op_sb_ai_ort_run_session,
+        op_sb_ai_ort_fetch,
     ],
     esm_entry_point = "ext:sb_ai/js/ai.js",
     esm = [
         "js/ai.js",
         "js/util/event_stream_parser.mjs",
         "js/util/event_source_stream.mjs",
-        "js/onnxruntime/onnx.js"
+        "js/onnxruntime/onnx.js",
+        "js/onnxruntime/cache_adapter.js"
     ]
 );
 

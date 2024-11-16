@@ -4,7 +4,7 @@ use anyhow::Result;
 use deno_core::{serde_v8::to_v8, ToV8};
 use ort::Session;
 
-use super::session::{get_session, load_session_from_bytes};
+use super::session::{get_session, load_session_from_bytes, load_session_from_url};
 
 #[derive(Debug, Clone)]
 pub struct ModelInfo {
@@ -55,6 +55,11 @@ impl ModelSession {
         get_session(&id).map(|session| Self::new(id, session))
     }
 
+    pub async fn from_url(model_url: &str) -> Result<Self> {
+        load_session_from_url(model_url)
+            .await
+            .map(|(id, session)| Self::new(id, session))
+    }
     pub fn from_bytes(model_bytes: &[u8]) -> Result<Self> {
         load_session_from_bytes(model_bytes).map(|(id, session)| Self::new(id, session))
     }

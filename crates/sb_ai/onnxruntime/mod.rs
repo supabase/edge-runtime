@@ -3,23 +3,30 @@ pub(crate) mod onnx;
 pub(crate) mod session;
 mod tensor;
 
+use core::str;
 use std::{borrow::Cow, cell::RefCell, collections::HashMap, rc::Rc, sync::Arc};
 
 use anyhow::{anyhow, Result};
-use deno_core::{op2, OpState};
+use deno_core::{op2, JsBuffer, OpState};
 
 use model_session::{ModelInfo, ModelSession};
 use ort::Session;
 use tensor::{JsTensor, ToJsTensor};
 
-#[op2]
+#[op2(async)]
 #[to_v8]
-pub fn op_sb_ai_ort_init_session(
+pub async fn op_sb_ai_ort_init_session(
     state: Rc<RefCell<OpState>>,
-    #[buffer] model_bytes: &[u8],
+    #[buffer] model_bytes: JsBuffer,
 ) -> Result<ModelInfo> {
+    let model_bytes = model_bytes.into_parts().to_boxed_slice();
+
+    let model_info = match str::from_utf8(&model_bytes) {
+        Ok(model_url) => ModelSession::from_url(model_url).await?,
+        Err(_) => ModelSession::from_bytes(&model_bytes)?,
+    };
+
     let mut state = state.borrow_mut();
-    let model_info = ModelSession::from_bytes(model_bytes)?;
 
     let mut sessions = { state.try_take::<Vec<Arc<Session>>>().unwrap_or_default() };
 
@@ -65,4 +72,9 @@ pub fn op_sb_ai_ort_run_session(
     }
 
     Ok(output_values)
+}
+
+#[op2(fast)]
+pub fn op_sb_ai_ort_fetch(#[string] model_url: String) {
+    println!("Hello from fetch: {model_url:?}");
 }

@@ -40,6 +40,10 @@ enum-as-inner.workspace = true
 tracing.workspace = true
 rkyv = { workspace = true, features = ["validation"] }
 
+rustls = "0.21"
+hyper-proxy = { version = "0.9", default-features = false, features = ["rustls"] }
+hyper-rustls = "0.24"
+headers = "0.3"
 normalize-path = "0.2"
 memmap2 = "0.9"
 aws-sdk-s3 = "1.2"

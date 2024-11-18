@@ -1091,7 +1091,7 @@ impl S3MultiPartUploadMethod {
         client: aws_sdk_s3::Client,
         bucket_name: &str,
         key: &str,
-        buf: &FileBackedMmapBuffer,
+        buf: FileBackedMmapBuffer,
         last: bool,
     ) {
         self.tasks.push(
@@ -1101,16 +1101,18 @@ impl S3MultiPartUploadMethod {
                 let part_idx = self.recent_part_idx;
                 let bucket_name = bucket_name.to_string();
                 let key = key.to_string();
-                let data = unsafe {
-                    slice::from_raw_parts(
-                        buf.raw.as_ptr(),
-                        buf.cursor.get_ref().position() as usize,
-                    )
-                };
 
                 self.recent_part_idx += 1;
 
                 async move {
+                    let buf = buf;
+                    let data = unsafe {
+                        slice::from_raw_parts(
+                            buf.raw.as_ptr(),
+                            buf.cursor.get_ref().position() as usize,
+                        )
+                    };
+
                     trace!(size = data.len());
                     client
                         .upload_part()
@@ -1161,7 +1163,7 @@ impl S3WriteUploadMethod {
         client: aws_sdk_s3::Client,
         bucket_name: String,
         key: String,
-        state: S3ObjectWriteState,
+        mut state: S3ObjectWriteState,
     ) -> FsResult<()> {
         match self {
             Self::MultiPartUpload(multi_part) => {
@@ -1171,7 +1173,7 @@ impl S3WriteUploadMethod {
                         client.clone(),
                         &bucket_name,
                         &key,
-                        &state.buf,
+                        state.try_swap_buffer().map_err(io::Error::other)?,
                         true,
                     );
 
@@ -1482,7 +1484,7 @@ impl deno_io::fs::File for S3Object {
                 self.fs.client.clone(),
                 &self.bucket_name,
                 &self.key,
-                &mmap_buf,
+                mmap_buf,
                 false,
             );
 

@@ -107,16 +107,39 @@ impl MemoryFiles {
 
 /// Fetch a source file from the local file system.
 fn fetch_local(specifier: &ModuleSpecifier) -> Result<File, AnyError> {
+    debug!("Starting fetch_local");
+    debug!("Input specifier: {}", specifier);
+
+    debug!("Converting specifier to file path");
     let local = specifier
         .to_file_path()
-        .map_err(|_| uri_error(format!("Invalid file path.\n  Specifier: {specifier}")))?;
-    let bytes = fs::read(local)?;
+        .map_err(|_| {
+            debug!("Failed to convert specifier to file path");
+            uri_error(format!("Invalid file path.\n  Specifier: {specifier}"))
+        })?;
+    debug!("File path: {:?}", local);
 
-    Ok(File {
+    debug!("Reading file bytes");
+    let bytes = match fs::read(local) {
+        Ok(b) => {
+            debug!("Successfully read {} bytes", b.len());
+            b
+        }
+        Err(e) => {
+            debug!("Failed to read file: {}", e);
+            return Err(e.into());
+        }
+    };
+
+    debug!("Creating File struct");
+    let file = File {
         specifier: specifier.clone(),
         maybe_headers: None,
         source: bytes.into(),
-    })
+    };
+    debug!("Fetch local complete");
+
+    Ok(file)
 }
 
 /// Return a validated scheme for a given module specifier.
@@ -514,38 +537,60 @@ impl FileFetcher {
         let maybe_checksum = options.maybe_checksum;
         let mut options = options.fetch_options;
         let specifier = options.specifier;
-        // note: this debug output is used by the tests
-        debug!(
-            "FileFetcher::fetch_no_follow_with_options - specifier: {}",
-            specifier
-        );
+        
+        debug!("Starting fetch_no_follow_with_options");
+        debug!("Input specifier: {}", specifier);
+        // Here I need to percent encore the specifier
+
+        debug!("Validating scheme");
         let scheme = get_validated_scheme(specifier)?;
+        debug!("Scheme is: {}", scheme);
+
+        debug!("Checking permissions");
         options.permissions.check_specifier(specifier)?;
+        debug!("Permissions check passed");
+
+        debug!("Checking memory cache");
         if let Some(file) = self.memory_files.get(specifier) {
-            Ok(FileOrRedirect::File(file))
-        } else if scheme == "file" {
-            // we do not in memory cache files, as this would prevent files on the
-            // disk changing effecting things like workers and dynamic imports.
-            fetch_local(specifier).map(FileOrRedirect::File)
-        } else if scheme == "data" {
-            self.fetch_data_url(specifier).map(FileOrRedirect::File)
-        } else if scheme == "blob" {
-            self.fetch_blob_url(specifier)
+            debug!("Found in memory cache");
+            return Ok(FileOrRedirect::File(file));
+        }
+        debug!("Not found in memory cache");
+
+        match scheme.as_str() {
+            "file" => {
+                debug!("Handling file:// URL");
+                fetch_local(specifier).map(FileOrRedirect::File)
+            }
+            "data" => {
+                debug!("Handling data: URL"); 
+                self.fetch_data_url(specifier).map(FileOrRedirect::File)
+            }
+            "blob" => {
+                debug!("Handling blob: URL");
+                self.fetch_blob_url(specifier)
+                    .await
+                    .map(FileOrRedirect::File)
+            }
+            _ => {
+                debug!("Handling remote URL");
+                if !self.allow_remote {
+                    debug!("Remote URLs not allowed");
+                    return Err(custom_error(
+                        "NoRemote",
+                        format!("A remote specifier was requested: \"{specifier}\", but --no-remote is specified."),
+                    ));
+                }
+
+                debug!("Fetching remote URL");
+                self.fetch_remote_no_follow(
+                    specifier,
+                    options.maybe_accept,
+                    options.maybe_cache_setting.unwrap_or(&self.cache_setting),
+                    maybe_checksum,
+                )
                 .await
-                .map(FileOrRedirect::File)
-        } else if !self.allow_remote {
-            Err(custom_error(
-                "NoRemote",
-                format!("A remote specifier was requested: \"{specifier}\", but --no-remote is specified."),
-            ))
-        } else {
-            self.fetch_remote_no_follow(
-                specifier,
-                options.maybe_accept,
-                options.maybe_cache_setting.unwrap_or(&self.cache_setting),
-                maybe_checksum,
-            )
-            .await
+            }
         }
     }
 

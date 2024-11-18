@@ -5963,6 +5963,7 @@ dependencies = [
  "deno_npm",
  "deno_semver",
  "dotenvy",
+ "either",
  "enum-as-inner",
  "eszip",
  "event_worker",

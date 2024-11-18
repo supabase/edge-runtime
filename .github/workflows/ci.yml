@@ -64,7 +64,7 @@ jobs:
           cd crates/sb_fs/tests
           echo "S3FS_TEST_SUPABASE_STORAGE=true" >> .env
           echo "S3FS_TEST_APP_NAME=edge_runtime_github_ci" >> .env
-          echo "S3FS_TEST_BUCKET_NAME=ci-tests" >> .env
+          echo "S3FS_TEST_BUCKET_NAME=$BUCKET_NAME" >> .env
           echo "S3FS_TEST_ENDPOINT_URL=$ENDPOINT_URL" >> .env
           echo "S3FS_TEST_REGION=$REGION" >> .env
           echo "S3FS_TEST_ACCESS_KEY_ID=$ACCESS_KEY_ID" >> .env

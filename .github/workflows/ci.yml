@@ -69,6 +69,7 @@ jobs:
           echo "S3FS_TEST_REGION=$REGION" >> .env
           echo "S3FS_TEST_ACCESS_KEY_ID=$ACCESS_KEY_ID" >> .env
           echo "S3FS_TEST_SECRET_ACCESS_KEY=$SECRET_ACCESS_KEY" >> .env
+        shell: bash
         env:
           BUCKET_NAME: ${{ secrets.SUPABASE_S3_BUCKET_NAME }}
           ENDPOINT_URL: ${{ secrets.SUPABASE_S3_ENTRYPOINT }}

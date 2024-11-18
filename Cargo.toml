@@ -138,6 +138,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "tracing-log"]
 rkyv = "0.7"
 tempfile = "3"
 xxhash-rust = "0.8"
+either = "1"
 serial_test = "3.0.0"
 
 [patch.crates-io]

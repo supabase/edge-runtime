@@ -37,6 +37,7 @@ url.workspace = true
 hyper_v014.workspace = true
 tempfile.workspace = true
 enum-as-inner.workspace = true
+either.workspace = true
 tracing.workspace = true
 rkyv = { workspace = true, features = ["validation"] }
 

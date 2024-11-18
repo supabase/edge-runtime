@@ -36,6 +36,7 @@ use aws_smithy_runtime_api::client::orchestrator::HttpResponse;
 use deno_core::{AsyncRefCell, BufMutView, BufView, RcRef, ResourceHandleFd, WriteOutcome};
 use deno_fs::{AccessCheckCb, FsDirEntry, FsFileType, OpenOptions};
 use deno_io::fs::{File, FsError, FsResult, FsStat};
+use either::Either;
 use enum_as_inner::EnumAsInner;
 use futures::{
     future::{BoxFuture, Shared},
@@ -1091,7 +1092,7 @@ impl S3MultiPartUploadMethod {
         client: aws_sdk_s3::Client,
         bucket_name: &str,
         key: &str,
-        buf: FileBackedMmapBuffer,
+        state_or_mmap_buf: Either<S3ObjectWriteState, FileBackedMmapBuffer>,
         last: bool,
     ) {
         self.tasks.push(
@@ -1105,7 +1106,7 @@ impl S3MultiPartUploadMethod {
                 self.recent_part_idx += 1;
 
                 async move {
-                    let buf = buf;
+                    let buf = state_or_mmap_buf.map_left(|it| it.buf).into_inner();
                     let data = unsafe {
                         slice::from_raw_parts(
                             buf.raw.as_ptr(),
@@ -1163,7 +1164,7 @@ impl S3WriteUploadMethod {
         client: aws_sdk_s3::Client,
         bucket_name: String,
         key: String,
-        mut state: S3ObjectWriteState,
+        state: S3ObjectWriteState,
     ) -> FsResult<()> {
         match self {
             Self::MultiPartUpload(multi_part) => {
@@ -1173,7 +1174,7 @@ impl S3WriteUploadMethod {
                         client.clone(),
                         &bucket_name,
                         &key,
-                        state.try_swap_buffer().map_err(io::Error::other)?,
+                        Either::Left(state),
                         true,
                     );
 
@@ -1484,7 +1485,7 @@ impl deno_io::fs::File for S3Object {
                 self.fs.client.clone(),
                 &self.bucket_name,
                 &self.key,
-                mmap_buf,
+                Either::Right(mmap_buf),
                 false,
             );
 

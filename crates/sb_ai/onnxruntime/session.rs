@@ -142,6 +142,8 @@ pub(crate) fn load_session_from_bytes(model_bytes: &[u8]) -> Result<(String, Arc
 pub(crate) async fn load_session_from_url(model_url: Url) -> Result<(String, Arc<Session>), Error> {
     let session_id = fxhash::hash(model_url.as_str()).to_string();
 
+    // TODO: Resolve clippy error by exposing it as `tokio::Mutex`
+    // It will require that all `ort` related code to be async -> Waterfall change :(
     let mut sessions = SESSIONS.lock().unwrap();
 
     if let Some(session) = sessions.get(&session_id) {

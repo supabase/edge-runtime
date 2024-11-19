@@ -130,6 +130,7 @@ pub(crate) fn load_session_from_bytes(model_bytes: &[u8]) -> Result<(String, Arc
         return Ok((session_id, session.clone()));
     }
 
+    trace!(session_id, "new session");
     let session = create_session(model_bytes)?;
 
     sessions.insert(session_id.to_owned(), session.clone());
@@ -138,11 +139,8 @@ pub(crate) fn load_session_from_bytes(model_bytes: &[u8]) -> Result<(String, Arc
 }
 
 #[instrument(level = "debug", ret)]
-pub(crate) async fn load_session_from_url(
-    model_url: &str,
-) -> Result<(String, Arc<Session>), Error> {
-    let session_id = fxhash::hash(model_url).to_string();
-    let model_url = Url::parse(model_url)?;
+pub(crate) async fn load_session_from_url(model_url: Url) -> Result<(String, Arc<Session>), Error> {
+    let session_id = fxhash::hash(model_url.as_str()).to_string();
 
     let mut sessions = SESSIONS.lock().unwrap();
 
@@ -220,8 +218,6 @@ async fn fetch_and_cache_from_url(
 
             old_checksum_str == faster_hex::hex_string(&checksum)
         };
-
-    // let is_checksum_valid = true;
 
     let span = info_span!("download", filepath = %filepath.to_string_lossy());
     async move {

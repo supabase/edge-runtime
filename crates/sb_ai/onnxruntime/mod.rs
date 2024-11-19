@@ -7,11 +7,13 @@ use core::str;
 use std::{borrow::Cow, cell::RefCell, collections::HashMap, rc::Rc, sync::Arc};
 
 use anyhow::{anyhow, Result};
-use deno_core::{op2, JsBuffer, OpState};
+use deno_core::{error::AnyError, op2, JsBuffer, OpState};
 
 use model_session::{ModelInfo, ModelSession};
 use ort::Session;
+use reqwest::Url;
 use tensor::{JsTensor, ToJsTensor};
+use tracing::trace;
 
 #[op2(async)]
 #[to_v8]
@@ -21,9 +23,19 @@ pub async fn op_sb_ai_ort_init_session(
 ) -> Result<ModelInfo> {
     let model_bytes = model_bytes.into_parts().to_boxed_slice();
 
-    let model_info = match str::from_utf8(&model_bytes) {
-        Ok(model_url) => ModelSession::from_url(model_url).await?,
-        Err(_) => ModelSession::from_bytes(&model_bytes)?,
+    let is_url = str::from_utf8(&model_bytes)
+        .map_err(AnyError::from)
+        .and_then(|utf8_str| Url::parse(utf8_str).map_err(AnyError::from));
+
+    let model_info = match is_url {
+        Ok(model_url) => {
+            trace!("url detected, loading from_url");
+            ModelSession::from_url(model_url).await?
+        }
+        Err(_) => {
+            trace!("model bytes detected, loading from_bytes");
+            ModelSession::from_bytes(&model_bytes)?
+        }
     };
 
     let mut state = state.borrow_mut();
@@ -32,6 +44,8 @@ pub async fn op_sb_ai_ort_init_session(
 
     sessions.push(model_info.inner());
     state.put(sessions);
+
+    trace!("sending model_info to js land: {model_info:?}");
 
     Ok(model_info.info())
 }
@@ -72,9 +86,4 @@ pub fn op_sb_ai_ort_run_session(
     }
 
     Ok(output_values)
-}
-
-#[op2(fast)]
-pub fn op_sb_ai_ort_fetch(#[string] model_url: String) {
-    println!("Hello from fetch: {model_url:?}");
 }

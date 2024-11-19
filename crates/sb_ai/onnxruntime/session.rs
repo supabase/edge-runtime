@@ -1,7 +1,6 @@
 use deno_core::error::AnyError;
 use futures::io::AllowStdIo;
 use futures::StreamExt;
-use log::info;
 use once_cell::sync::Lazy;
 use reqwest::Url;
 use std::collections::HashMap;
@@ -10,7 +9,7 @@ use std::sync::Mutex;
 use std::{path::PathBuf, sync::Arc};
 use tokio::io::AsyncWriteExt;
 use tokio_util::compat::FuturesAsyncWriteCompatExt;
-use tracing::{debug, error, info_span, instrument, trace, Instrument};
+use tracing::{debug, error, info, info_span, instrument, trace, Instrument};
 use xxhash_rust::xxh3::Xxh3;
 
 use anyhow::{anyhow, bail, Context, Error};
@@ -178,7 +177,7 @@ async fn fetch_and_cache_from_url(
     let cache_id = cache_id.unwrap_or(fxhash::hash(url.as_str()).to_string());
     let download_dir = ort::sys::internal::dirs::cache_dir()
         .context("could not determine cache directory")?
-        .join(cache_id.to_owned());
+        .join(&cache_id);
 
     std::fs::create_dir_all(&download_dir).context("could not able to create directories")?;
 
@@ -286,8 +285,7 @@ async fn fetch_and_cache_from_url(
             };
 
             if written == len as u64 {
-                // TODO: fix tracing info!() invalid format
-                // info!({ bytes_written = written, checksum = &checksum_str }, "done");
+                info!({ bytes_written = written, checksum = &checksum_str }, "done");
 
                 let mut checksum_file = tokio::fs::File::create(&checksum_path)
                     .await

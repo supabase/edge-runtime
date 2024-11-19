@@ -4,10 +4,13 @@ import {
   env,
   pipeline,
 } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.1';
-import { predicts } from './predicts.ts';
+import { predicts } from '../text-classification/predicts.ts';
 
-// Ensure we do not use browser cache
-env.useBrowserCache = false;
+
+// Browser cache is supported by `deno_cache`
+// env.useBrowserCache = true; -> Default config
+
+// Ensure we do not use local models
 env.allowLocalModels = false;
 
 const pipe = await pipeline('text-classification', null, { device: 'auto' });

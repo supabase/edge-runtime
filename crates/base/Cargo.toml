@@ -44,6 +44,7 @@ sb_node = { version = "0.1.0", path = "../node" }
 sb_ai = { version = "0.1.0", path = "../sb_ai" }
 sb_fs = { version = "0.1.0", path = "../sb_fs" }
 
+libc.workspace = true
 async-trait.workspace = true
 thiserror.workspace = true
 monch.workspace = true
@@ -78,6 +79,7 @@ tracing.workspace = true
 reqwest_v011.workspace = true
 tracing-subscriber = { workspace = true, optional = true, features = ["env-filter", "tracing-log"] }
 num-traits.workspace = true
+tempfile.workspace = true
 
 tls-listener = { version = "0.10", features = ["rustls"] }
 strum = { version = "0.25", features = ["derive"] }
@@ -85,6 +87,9 @@ flume = "0.11.0"
 cooked-waker = "5"
 tokio-rustls = "0.25.0"
 arc-swap = "1.7"
+
+[target.'cfg(windows)'.dependencies]
+winapi = { workspace = true, features = ["knownfolders", "mswsock", "objbase", "shlobj", "tlhelp32", "winbase", "winerror", "winsock2"] }
 
 [dev-dependencies]
 tokio-util = { workspace = true, features = ["rt", "compat"] }

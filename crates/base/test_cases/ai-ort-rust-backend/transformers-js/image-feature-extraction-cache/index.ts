@@ -87,7 +87,7 @@ Deno.serve(async (req: Request) => {
   const snapshot = await req.json();
 
   if (!snapshot) {
-    return Response.json(Array(output.data), { status: 201 });
+    return Response.json(output.data, { status: 201 });
   }
 
   assertEquals(output.size, 512);

@@ -1,18 +1,18 @@
 const core = globalThis.Deno.core;
 
 const DataTypeMap = Object.freeze({
-    float32: Float32Array,
-    float64: Float64Array,
-    string: Array, // string[]
-    int8: Int8Array,
-    uint8: Uint8Array,
-    int16: Int16Array,
-    uint16: Uint16Array,
-    int32: Int32Array,
-    uint32: Uint32Array,
-    int64: BigInt64Array,
-    uint64: BigUint64Array,
-    bool: Uint8Array,
+  float32: Float32Array,
+  float64: Float64Array,
+  string: Array, // string[]
+  int8: Int8Array,
+  uint8: Uint8Array,
+  int16: Int16Array,
+  uint16: Uint16Array,
+  int32: Int32Array,
+  uint32: Uint32Array,
+  int64: BigInt64Array,
+  uint64: BigUint64Array,
+  bool: Uint8Array,
 });
 
 class Tensor {
@@ -50,7 +50,7 @@ class InferenceSession {
   constructor(sessionId, inputNames, outputNames) {
     this.sessionId = sessionId;
     this.inputNames = inputNames;
-    this.outputNames= outputNames;
+    this.outputNames = outputNames;
   }
 
   static async fromBuffer(modelBuffer) {
@@ -63,9 +63,9 @@ class InferenceSession {
     const outputs = await core.ops.op_sb_ai_ort_run_session(this.sessionId, inputs);
 
     // Parse to Tensor
-    for(const key in outputs) {
-      if(Object.hasOwn(outputs, key)) {
-        const {type, data, dims} = outputs[key];
+    for (const key in outputs) {
+      if (Object.hasOwn(outputs, key)) {
+        const { type, data, dims } = outputs[key];
 
         outputs[key] = new Tensor(type, data.buffer, dims);
       }
@@ -76,12 +76,11 @@ class InferenceSession {
 }
 
 const onnxruntime = {
+  Tensor,
+  env: {},
   InferenceSession: {
     create: InferenceSession.fromBuffer
   },
-  Tensor,
-  env: {
-  }
 };
 
 globalThis[Symbol.for("onnxruntime")] = onnxruntime;

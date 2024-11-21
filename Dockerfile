@@ -40,13 +40,13 @@ COPY --from=builder /root/edge-runtime.debug /usr/local/bin/edge-runtime.debug
 # ONNX Runtime provider
 # Application runtime with ONNX
 FROM builder as ort
-RUN ./scripts/install_onnx.sh $ONNXRUNTIME_VERSION $TARGETPLATFORM /root/onnxruntime
+RUN ./scripts/install_onnx.sh $ONNXRUNTIME_VERSION linux $TARGETPLATFORM /root/onnxruntime
 
 
 # ONNX Runtime CUDA provider
 # Application runtime with ONNX CUDA
 FROM builder as ort-cuda
-RUN ./scripts/install_onnx.sh $ONNXRUNTIME_VERSION $TARGETPLATFORM /root/onnxruntime --gpu
+RUN ./scripts/install_onnx.sh $ONNXRUNTIME_VERSION linux $TARGETPLATFORM /root/onnxruntime --gpu
 
 
 # With CUDA

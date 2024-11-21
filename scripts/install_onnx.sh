@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 
 ONNX_VERSION=$1
-TARGETPLATFORM=$2
-SAVE_PATH=${3:-"./onnx-runtime"}
+ONNX_OS=$2
+TARGETPLATFORM=$3
+SAVE_PATH=${4:-"./onnx-runtime"}
 
-ONNX_DOWNLOAD_FILE="onnxruntime-linux"
-ONNX_TARGET_PLATFORM=$([ "$TARGETPLATFORM" == "linux/arm64" ] && echo "aarch64" || echo "x64")
+ONNX_DOWNLOAD_FILE="onnxruntime-$ONNX_OS"
+ONNX_TARGET_PLATFORM=$([ "$TARGETPLATFORM" == "linux/arm64" ] && echo "aarch64" \
+  || ([ "$TARGETPLATFORM" == "linux/amd64" ] && echo "x64" || echo $TARGETPLATFORM))
 
 if [[ $* == *"--gpu"* ]]; then
   ONNX_DOWNLOAD_FILE="$ONNX_DOWNLOAD_FILE-$ONNX_TARGET_PLATFORM-gpu-$ONNX_VERSION"

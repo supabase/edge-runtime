@@ -18,7 +18,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use tokenizers::Tokenizer;
 use tokio::runtime::Handle;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, OnceCell};
 use tokio::task;
 
 use onnxruntime::*;
@@ -99,17 +99,22 @@ async fn init_gte(state: Rc<RefCell<OpState>>) -> Result<(), Error> {
     };
 
     let mut tokenizer = match task::spawn_blocking({
+        static ONCE: OnceCell<Tokenizer> = OnceCell::const_new();
         move || {
             handle.block_on(async move {
-                utils::fetch_and_cache_from_url(
-                    "tokenizer",
-                    Url::parse(consts::GTE_SMALL_TOKENIZER_URL).unwrap(),
-                    None,
-                )
-                .map_err(AnyError::from)
-                .and_then(|it| tokio::fs::read(it).into_future().map_err(AnyError::from))
+                ONCE.get_or_try_init(|| async {
+                    utils::fetch_and_cache_from_url(
+                        "tokenizer",
+                        Url::parse(consts::GTE_SMALL_TOKENIZER_URL).unwrap(),
+                        None,
+                    )
+                    .map_err(AnyError::from)
+                    .and_then(|it| tokio::fs::read(it).into_future().map_err(AnyError::from))
+                    .await
+                    .and_then(|it| Tokenizer::from_bytes(it).map_err(AnyError::msg))
+                })
                 .await
-                .and_then(|it| Tokenizer::from_bytes(it).map_err(AnyError::msg))
+                .cloned()
             })
         }
     })

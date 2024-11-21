@@ -153,7 +153,7 @@ pub(crate) async fn load_session_from_url(model_url: Url) -> Result<SessionWithI
     }
 
     let model_file_path =
-        crate::utils::fetch_and_cache_from_url("session", model_url, Some(session_id.to_string()))
+        crate::utils::fetch_and_cache_from_url("model", model_url, Some(session_id.to_string()))
             .await?;
 
     let model_bytes = tokio::fs::read(model_file_path).await?;

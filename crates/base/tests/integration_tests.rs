@@ -2900,6 +2900,7 @@ async fn test_ort_transformers_js(script_path: &str) {
                 return;
             }
 
+            assert_eq!(std::env::var("CI").ok(), None);
             assert!(!snapshot_path.exists());
 
             tokio::fs::create_dir_all(snapshot_path.parent().unwrap())

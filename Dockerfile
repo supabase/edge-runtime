@@ -49,17 +49,12 @@ FROM builder as ort-cuda
 RUN ./scripts/install_onnx.sh $ONNXRUNTIME_VERSION $TARGETPLATFORM /root/onnxruntime --gpu
 
 
-FROM builder as preload-models
-RUN ./scripts/download_models.sh
-
-
 # With CUDA
 FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04 as edge-runtime-cuda
 
 COPY --from=edge-runtime-base /usr/local/bin/edge-runtime /usr/local/bin/edge-runtime
 COPY --from=builder /root/edge-runtime.debug /usr/local/bin/edge-runtime.debug
 COPY --from=ort-cuda /root/onnxruntime/lib/libonnxruntime.so* /usr/lib
-COPY --from=preload-models /usr/src/edge-runtime/models /etc/sb_ai/models
 
 ENV NVIDIA_VISIBLE_DEVICES=all
 ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
@@ -70,6 +65,5 @@ ENTRYPOINT ["edge-runtime"]
 # Base
 FROM edge-runtime-base as edge-runtime
 COPY --from=ort /root/onnxruntime/lib/libonnxruntime.so* /usr/lib
-COPY --from=preload-models /usr/src/edge-runtime/models /etc/sb_ai/models
 
 ENTRYPOINT ["edge-runtime"]

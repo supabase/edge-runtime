@@ -4,7 +4,7 @@ use crate::inspector_server::Inspector;
 use crate::server::ServerFlags;
 use crate::timeout::{self, CancelOnWriteTimeout, ReadTimeoutStream};
 
-use crate::rt_worker::worker::{Worker, WorkerHandler};
+use crate::rt_worker::worker::Worker;
 use crate::rt_worker::worker_pool::WorkerPool;
 use anyhow::{anyhow, bail, Error};
 use base_mem_check::MemCheckState;
@@ -613,23 +613,16 @@ pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
         worker.set_supervisor_policy(maybe_supervisor_policy);
     }
 
-    let worker: Box<dyn WorkerHandler> = Box::new(worker);
+    let worker = Arc::new(worker);
 
-    // Downcast to call the method in "Worker" since the implementation might be of worker
-    // But at the end we are using the trait itself.
-    // Downcasting it to Worker will give us access to its parent implementation
-    let downcast_reference = worker.as_any().downcast_ref::<Worker>();
-
-    if let Some(worker_struct_ref) = downcast_reference {
-        worker_struct_ref.start(
-            worker_init_opts,
-            (duplex_stream_tx.clone(), duplex_stream_rx),
-            worker_boot_result_tx,
-            exit.clone(),
-            maybe_termination_token.clone(),
-            inspector,
-            flags.clone(),
-        );
+    worker.clone().start(
+        worker_init_opts,
+        (duplex_stream_tx.clone(), duplex_stream_rx),
+        worker_boot_result_tx,
+        exit.clone(),
+        maybe_termination_token.clone(),
+        inspector,
+    );
 
         // create an async task waiting for requests for worker
         let (worker_req_tx, mut worker_req_rx) = mpsc::unbounded_channel::<WorkerRequestMsg>();
@@ -651,44 +644,39 @@ pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
                     });
                 }
 
-                Ok(())
-            }
-        });
-
-        // wait for worker to be successfully booted
-        match worker_boot_result_rx.await? {
-            Ok(metric) => {
-                let elapsed = worker_struct_ref
-                    .worker_boot_start_time
-                    .elapsed()
-                    .as_millis();
-
-                send_event_if_event_worker_available(
-                    worker_struct_ref.events_msg_tx.as_ref(),
-                    WorkerEvents::Boot(BootEvent {
-                        boot_time: elapsed as usize,
-                    }),
-                    worker_struct_ref.event_metadata.clone(),
-                );
-
-                Ok(WorkerCtx {
-                    metric,
-                    msg_tx: worker_req_tx,
-                    exit,
-                })
-            }
-            Err(err) => {
-                worker_req_handle.abort();
-
-                if let Some(token) = maybe_termination_token.as_ref() {
-                    token.outbound.cancel();
-                }
-
-                Err(err)
-            }
+            Ok(())
         }
-    } else {
-        bail!("Unknown")
+    });
+
+    // wait for worker to be successfully booted
+    match worker_boot_result_rx.await? {
+        Ok(metric) => {
+            let elapsed = worker.worker_boot_start_time.elapsed().as_millis();
+
+            send_event_if_event_worker_available(
+                worker.events_msg_tx.as_ref(),
+                WorkerEvents::Boot(BootEvent {
+                    boot_time: elapsed as usize,
+                }),
+                worker.event_metadata.clone(),
+            );
+
+            Ok(WorkerCtx {
+                metric,
+                msg_tx: worker_req_tx,
+                exit,
+            })
+        }
+
+        Err(err) => {
+            worker_req_handle.abort();
+
+            if let Some(token) = maybe_termination_token.as_ref() {
+                token.outbound.cancel();
+            }
+
+            Err(err)
+        }
     }
 }
 

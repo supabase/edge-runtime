@@ -8,7 +8,7 @@ const ops = core.ops;
 Object.defineProperty(globalThis, 'EdgeRuntime', {
 	get() {
 		return {
-      ai,
+			ai,
 			userWorkers: SUPABASE_USER_WORKERS,
 			getRuntimeMetrics: () => /* async */ ops.op_runtime_metrics(),
 			applySupabaseTag: (src, dest) => applySupabaseTag(src, dest),

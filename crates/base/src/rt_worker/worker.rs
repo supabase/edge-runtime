@@ -94,7 +94,7 @@ impl Worker {
 
     #[allow(clippy::too_many_arguments)]
     pub fn start(
-        &self,
+        self: Arc<Self>,
         mut opts: WorkerContextInitOpts,
         duplex_stream_pair: (
             UnboundedSender<DuplexStreamEntry>,

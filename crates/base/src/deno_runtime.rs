@@ -5,8 +5,9 @@ use crate::server::ServerFlags;
 use crate::utils::json;
 use crate::utils::path::find_up;
 use crate::utils::units::{bytes_to_display, mib_to_bytes, percentage_value};
+use crate::utils::{dirs, json};
 
-use anyhow::{anyhow, bail, Error};
+use anyhow::{anyhow, bail, Context, Error};
 use arc_swap::ArcSwapOption;
 use base_mem_check::{MemCheckState, WorkerHeapStatistics};
 use base_rt::DenoRuntimeDropToken;
@@ -53,6 +54,7 @@ use std::task::Poll;
 use std::thread::ThreadId;
 use std::time::Duration;
 use strum::IntoStaticStr;
+use tempfile::TempDir;
 use tokio::sync::{mpsc, OwnedSemaphorePermit, Semaphore};
 use tokio::time::interval;
 use tokio_util::sync::{CancellationToken, PollSemaphore};
@@ -527,9 +529,24 @@ where
             Arc::new(DenoCompileFileSystem::from_rc(vfs))
         })?;
 
-        // TODO: Better file path
-        let create_cache = move || SqliteBackedCache::new("./temp/cache".into());
-        let create_cache = CreateCache(Arc::new(create_cache));
+        struct CacheStorageDir(TempDir);
+
+        let cache_base_dir = dirs::cache_dir()
+            .context("could not resolve cache directory")?
+            .join("web_caches");
+
+        tokio::fs::create_dir_all(cache_base_dir.as_path())
+            .await
+            .context("could not make cache directory")?;
+
+        let cache_storage_dir = CacheStorageDir(
+            tempfile::tempdir_in(cache_base_dir).context("could not make cache directory")?,
+        );
+
+        let cache_backend = CreateCache(Arc::new({
+            let dir = cache_storage_dir.0.path().to_path_buf();
+            move || SqliteBackedCache::new(dir.clone())
+        }));
 
         let mod_code = module_code;
         let extensions = vec![
@@ -580,7 +597,7 @@ where
                 Some(npm_resolver),
                 file_system,
             ),
-            deno_cache::deno_cache::init_ops::<SqliteBackedCache>(Some(create_cache)),
+            deno_cache::deno_cache::init_ops::<SqliteBackedCache>(Some(cache_backend)),
             sb_core_runtime::init_ops(Some(main_module_url.clone())),
         ];
 
@@ -700,11 +717,12 @@ where
         let version: Option<&str> = option_env!("GIT_V_TAG");
 
         {
-            // @andreespirela : We do this because "NODE_DEBUG" is trying to be read during
-            // initialization, But we need the gotham state to be up-to-date
             let op_state_rc = js_runtime.op_state();
             let mut op_state = op_state_rc.borrow_mut();
-            op_state.put::<sb_env::EnvVars>(sb_env::EnvVars::new());
+
+            // NOTE(Andreespirela): We do this because "NODE_DEBUG" is trying to be read during
+            // initialization, But we need the gotham state to be up-to-date.
+            op_state.put(sb_env::EnvVars::default());
         }
 
         // Bootstrapping stage
@@ -811,8 +829,9 @@ where
                 }
             }
 
-            op_state.put::<sb_env::EnvVars>(env_vars);
-            op_state.put(DenoRuntimeDropToken(drop_token.clone()))
+            op_state.put(sb_env::EnvVars(env_vars));
+            op_state.put(DenoRuntimeDropToken(drop_token.clone()));
+            op_state.put(cache_storage_dir);
         }
 
         let main_module_id = {

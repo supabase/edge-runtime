@@ -2850,12 +2850,14 @@ async fn test_ort_transformers_js(script_path: &str) {
         }
     }
 
+    use std::env::consts;
+
     let base_path = "./test_cases/ai-ort-rust-backend";
     let main_path = format!("{}/main", base_path);
     let script_path = format!("transformers-js/{}", script_path);
     let snapshot_path = PathBuf::from(base_path)
         .join(script_path.as_str())
-        .join(format!("__snapshot__/{}.json", std::env::consts::ARCH));
+        .join(format!("__snapshot__/{}_{}.json", consts::OS, consts::ARCH));
 
     let client = Client::new();
     let body = {

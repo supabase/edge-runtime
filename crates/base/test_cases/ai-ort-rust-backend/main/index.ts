@@ -1,5 +1,17 @@
 import * as path from "jsr:@std/path";
 
+setInterval(async () => {
+  try {
+    const cleanupCount = await EdgeRuntime.ai.tryCleanupUnusedSession();
+    if (cleanupCount == 0) {
+      return;
+    }
+    console.log('EdgeRuntime.ai.tryCleanupUnusedSession', cleanupCount);
+  } catch (e) {
+    console.error(e.toString());
+  }
+}, 100);
+
 Deno.serve(async (req: Request) => {
   console.log(req.url);
   const url = new URL(req.url);

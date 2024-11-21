@@ -1,4 +1,3 @@
-import os from 'node:os';
 import { assertAlmostEquals, assertEquals } from 'jsr:@std/assert';
 import {
   Gravity,
@@ -15,7 +14,7 @@ import {
   RawImage,
 } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.1';
 
-import { predicts } from '../image-feature-extraction/predicts.ts';
+import { round6 } from '../util.ts';
 
 const wasmBytes = await Deno.readFile(
   new URL(
@@ -66,7 +65,7 @@ export async function fetchImage(url: string) {
   return new Uint8Array(buffer);
 }
 
-Deno.serve(async () => {
+Deno.serve(async (req: Request) => {
   const imageFile = await fetchImage(
     'https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/cats.png',
   );
@@ -85,17 +84,20 @@ Deno.serve(async () => {
   );
 
   const output = await pipe(imageInput);
+  const snapshot = await req.json();
+
+  if (!snapshot) {
+    return Response.json(Array(output.data), { status: 201 });
+  }
 
   assertEquals(output.size, 512);
   assertEquals(output.dims.length, 2);
 
   // Comparing first 3 predictions
-  
-  predicts[os.arch()]
-    .map((expected, idx) => {
-      assertAlmostEquals(output.data[idx], expected);
-    });
 
+  for (const [idx, expected] of Object.entries(snapshot)) {
+    assertAlmostEquals(round6(output.data[idx]), expected);
+  }
 
   return new Response();
 });

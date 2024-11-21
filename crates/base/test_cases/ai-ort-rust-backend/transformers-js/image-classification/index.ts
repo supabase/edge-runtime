@@ -1,4 +1,3 @@
-import os from 'node:os';
 import { assertAlmostEquals, assertEquals } from 'jsr:@std/assert';
 import {
   Gravity,
@@ -15,7 +14,7 @@ import {
   RawImage,
 } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.1';
 
-import { predicts } from './predicts.ts';
+import { round6 } from '../util.ts';
 
 const wasmBytes = await Deno.readFile(
   new URL(
@@ -64,7 +63,7 @@ export async function fetchImage(url: string) {
   return new Uint8Array(buffer);
 }
 
-Deno.serve(async () => {
+Deno.serve(async (req: Request) => {
   const imageFile = await fetchImage(
     'https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/cropped_bee.jpg',
   );
@@ -83,12 +82,17 @@ Deno.serve(async () => {
   );
 
   const output = await pipe(imageInput);
+  const snapshot = await req.json();
 
-  predicts[os.arch()]
-  .map((expected, idx) => {
-    assertEquals(output[idx].label, expected.label);
-    assertAlmostEquals(output[idx].score, expected.score);
-  });
+  if (!snapshot) {
+    return Response.json(output, { status: 201 });
+  }
+
+  (snapshot as Array<any>)
+    .map((expected, idx) => {
+      assertEquals(output[idx].label, expected.label);
+      assertAlmostEquals(round6(output[idx].score), expected.score);
+    });
 
   return new Response();
 });

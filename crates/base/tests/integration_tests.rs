@@ -2824,512 +2824,254 @@ async fn test_tmp_fs_should_not_be_available_in_import_stmt() {
 }
 
 // -- sb_ai: ORT @huggingface/transformers
-#[cfg(target_arch = "x86_64")]
+async fn test_ort_transformers_js(script_path: &str) {
+    fn visit_json(value: &mut serde_json::Value) {
+        use serde_json::Number;
+        use serde_json::Value::*;
+
+        match value {
+            Array(vec) => {
+                for v in vec {
+                    visit_json(v);
+                }
+            }
+            Object(map) => {
+                for (_, v) in map {
+                    visit_json(v);
+                }
+            }
+            Number(number) => {
+                if let Some(f) = number.as_f64() {
+                    *number = Number::from_f64((f * 1_000_000.0).round() / 1_000_000.0).unwrap();
+                }
+            }
+
+            _ => {}
+        }
+    }
+
+    let base_path = "./test_cases/ai-ort-rust-backend";
+    let main_path = format!("{}/main", base_path);
+    let script_path = format!("transformers-js/{}", script_path);
+    let snapshot_path = PathBuf::from(base_path)
+        .join(script_path.as_str())
+        .join(format!("__snapshot__/{}.json", std::env::consts::ARCH));
+
+    let client = Client::new();
+    let body = {
+        if snapshot_path.exists() {
+            tokio::fs::read(&snapshot_path).await.unwrap()
+        } else {
+            b"null".to_vec()
+        }
+    };
+
+    let content_length = body.len();
+    let req = client
+        .request(
+            Method::POST,
+            format!(
+                "http://localhost:{}/{}",
+                NON_SECURE_PORT,
+                script_path.as_str(),
+            ),
+        )
+        .body(body)
+        .header("Content-Type", "application/json")
+        .header("Content-Length", content_length.to_string());
+
+    integration_test!(
+        main_path,
+        NON_SECURE_PORT,
+        "",
+        None,
+        None,
+        Some(req),
+        None,
+        (|resp| async {
+            let res = resp.unwrap();
+            let status_code = res.status();
+
+            assert!(matches!(status_code, StatusCode::OK | StatusCode::CREATED));
+
+            if status_code == StatusCode::OK {
+                return;
+            }
+
+            assert!(!snapshot_path.exists());
+
+            tokio::fs::create_dir_all(snapshot_path.parent().unwrap())
+                .await
+                .unwrap();
+
+            let mut body = res.json::<serde_json::Value>().await.unwrap();
+            let mut file = fs::File::create(&snapshot_path).await.unwrap();
+
+            visit_json(&mut body);
+
+            let content = serde_json::to_vec(&body).unwrap();
+
+            file.write_all(&content).await.unwrap();
+        }),
+        TerminationToken::new()
+    );
+}
+
 #[tokio::test]
 #[serial]
 async fn test_ort_nlp_feature_extraction() {
-    integration_test!(
-        "./test_cases/ai-ort-rust-backend/main",
-        NON_SECURE_PORT,
-        "transformers-js/feature-extraction",
-        None,
-        None,
-        None,
-        None,
-        (|resp| async {
-            let res = resp.unwrap();
-            assert_eq!(res.status().as_u16(), StatusCode::OK);
-        }),
-        TerminationToken::new()
-    );
+    test_ort_transformers_js("feature-extraction").await;
 }
 
-#[cfg(target_arch = "x86_64")]
 #[tokio::test]
 #[serial]
 async fn test_ort_nlp_fill_mask() {
-    integration_test!(
-        "./test_cases/ai-ort-rust-backend/main",
-        NON_SECURE_PORT,
-        "transformers-js/fill-mask",
-        None,
-        None,
-        None,
-        None,
-        (|resp| async {
-            let res = resp.unwrap();
-            assert_eq!(res.status().as_u16(), StatusCode::OK);
-        }),
-        TerminationToken::new()
-    );
+    test_ort_transformers_js("fill-mask").await;
 }
 
-#[cfg(target_arch = "x86_64")]
 #[tokio::test]
 #[serial]
 async fn test_ort_nlp_question_answering() {
-    integration_test!(
-        "./test_cases/ai-ort-rust-backend/main",
-        NON_SECURE_PORT,
-        "transformers-js/question-answering",
-        None,
-        None,
-        None,
-        None,
-        (|resp| async {
-            let res = resp.unwrap();
-            assert_eq!(res.status().as_u16(), StatusCode::OK);
-        }),
-        TerminationToken::new()
-    );
+    test_ort_transformers_js("question-answering").await;
 }
 
-#[cfg(target_arch = "x86_64")]
 #[tokio::test]
 #[serial]
 async fn test_ort_nlp_summarization() {
-    integration_test!(
-        "./test_cases/ai-ort-rust-backend/main",
-        NON_SECURE_PORT,
-        "transformers-js/summarization",
-        None,
-        None,
-        None,
-        None,
-        (|resp| async {
-            let res = resp.unwrap();
-            assert_eq!(res.status().as_u16(), StatusCode::OK);
-        }),
-        TerminationToken::new()
-    );
+    test_ort_transformers_js("summarization").await;
 }
 
-#[cfg(target_arch = "x86_64")]
 #[tokio::test]
 #[serial]
 async fn test_ort_nlp_text_classification() {
-    integration_test!(
-        "./test_cases/ai-ort-rust-backend/main",
-        NON_SECURE_PORT,
-        "transformers-js/text-classification",
-        None,
-        None,
-        None,
-        None,
-        (|resp| async {
-            let res = resp.unwrap();
-            assert_eq!(res.status().as_u16(), StatusCode::OK);
-        }),
-        TerminationToken::new()
-    );
+    test_ort_transformers_js("text-classification").await;
 }
 
-#[cfg(target_arch = "x86_64")]
 #[tokio::test]
 #[serial]
 async fn test_ort_nlp_text_generation() {
-    integration_test!(
-        "./test_cases/ai-ort-rust-backend/main",
-        NON_SECURE_PORT,
-        "transformers-js/text-generation",
-        None,
-        None,
-        None,
-        None,
-        (|resp| async {
-            let res = resp.unwrap();
-            assert_eq!(res.status().as_u16(), StatusCode::OK);
-        }),
-        TerminationToken::new()
-    );
+    test_ort_transformers_js("text-generation").await;
 }
 
-#[cfg(target_arch = "x86_64")]
 #[tokio::test]
 #[serial]
 async fn test_ort_nlp_text2text_generation() {
-    integration_test!(
-        "./test_cases/ai-ort-rust-backend/main",
-        NON_SECURE_PORT,
-        "transformers-js/text2text-generation",
-        None,
-        None,
-        None,
-        None,
-        (|resp| async {
-            let res = resp.unwrap();
-            assert_eq!(res.status().as_u16(), StatusCode::OK);
-        }),
-        TerminationToken::new()
-    );
+    test_ort_transformers_js("text2text-generation").await;
 }
 
-#[cfg(target_arch = "x86_64")]
 #[tokio::test]
 #[serial]
 async fn test_ort_nlp_token_classification() {
-    integration_test!(
-        "./test_cases/ai-ort-rust-backend/main",
-        NON_SECURE_PORT,
-        "transformers-js/token-classification",
-        None,
-        None,
-        None,
-        None,
-        (|resp| async {
-            let res = resp.unwrap();
-            assert_eq!(res.status().as_u16(), StatusCode::OK);
-        }),
-        TerminationToken::new()
-    );
+    test_ort_transformers_js("token-classification").await;
 }
 
-#[cfg(target_arch = "x86_64")]
 #[tokio::test]
 #[serial]
 async fn test_ort_nlp_translation() {
-    integration_test!(
-        "./test_cases/ai-ort-rust-backend/main",
-        NON_SECURE_PORT,
-        "transformers-js/translation",
-        None,
-        None,
-        None,
-        None,
-        (|resp| async {
-            let res = resp.unwrap();
-            assert_eq!(res.status().as_u16(), StatusCode::OK);
-        }),
-        TerminationToken::new()
-    );
+    test_ort_transformers_js("translation").await;
 }
 
-#[cfg(target_arch = "x86_64")]
 #[tokio::test]
 #[serial]
 async fn test_ort_nlp_zero_shot_classification() {
-    integration_test!(
-        "./test_cases/ai-ort-rust-backend/main",
-        NON_SECURE_PORT,
-        "transformers-js/zero-shot-classification",
-        None,
-        None,
-        None,
-        None,
-        (|resp| async {
-            let res = resp.unwrap();
-            assert_eq!(res.status().as_u16(), StatusCode::OK);
-        }),
-        TerminationToken::new()
-    );
+    test_ort_transformers_js("zero-shot-classification").await;
 }
 
-#[cfg(target_arch = "x86_64")]
 #[tokio::test]
 #[serial]
 async fn test_ort_vision_image_feature_extraction() {
-    integration_test!(
-        "./test_cases/ai-ort-rust-backend/main",
-        NON_SECURE_PORT,
-        "transformers-js/image-feature-extraction",
-        None,
-        None,
-        None,
-        None,
-        (|resp| async {
-            let res = resp.unwrap();
-            assert_eq!(res.status().as_u16(), StatusCode::OK);
-        }),
-        TerminationToken::new()
-    );
+    test_ort_transformers_js("image-feature-extraction").await;
 }
 
-#[cfg(target_arch = "x86_64")]
 #[tokio::test]
 #[serial]
 async fn test_ort_vision_image_classification() {
-    integration_test!(
-        "./test_cases/ai-ort-rust-backend/main",
-        NON_SECURE_PORT,
-        "transformers-js/image-classification",
-        None,
-        None,
-        None,
-        None,
-        (|resp| async {
-            let res = resp.unwrap();
-            assert_eq!(res.status().as_u16(), StatusCode::OK);
-        }),
-        TerminationToken::new()
-    );
+    test_ort_transformers_js("image-classification").await;
 }
 
-#[cfg(target_arch = "x86_64")]
 #[tokio::test]
 #[serial]
 async fn test_ort_vision_zero_shot_image_classification() {
-    integration_test!(
-        "./test_cases/ai-ort-rust-backend/main",
-        NON_SECURE_PORT,
-        "transformers-js/zero-shot-image-classification",
-        None,
-        None,
-        None,
-        None,
-        (|resp| async {
-            let res = resp.unwrap();
-            assert_eq!(res.status().as_u16(), StatusCode::OK);
-        }),
-        TerminationToken::new()
-    );
+    test_ort_transformers_js("zero-shot-image-classification").await;
 }
 
 // -- sb_ai(cache): ORT @huggingface/transformers
 #[tokio::test]
 #[serial]
 async fn test_ort_cache_nlp_feature_extraction() {
-    integration_test!(
-        "./test_cases/ai-ort-rust-backend/main",
-        NON_SECURE_PORT,
-        "transformers-js/feature-extraction-cache",
-        None,
-        None,
-        None,
-        None,
-        (|resp| async {
-            let res = resp.unwrap();
-            assert_eq!(res.status().as_u16(), StatusCode::OK);
-        }),
-        TerminationToken::new()
-    );
+    test_ort_transformers_js("feature-extraction-cache").await;
 }
 
 #[tokio::test]
 #[serial]
 async fn test_ort_cache_nlp_fill_mask() {
-    integration_test!(
-        "./test_cases/ai-ort-rust-backend/main",
-        NON_SECURE_PORT,
-        "transformers-js/fill-mask-cache",
-        None,
-        None,
-        None,
-        None,
-        (|resp| async {
-            let res = resp.unwrap();
-            assert_eq!(res.status().as_u16(), StatusCode::OK);
-        }),
-        TerminationToken::new()
-    );
+    test_ort_transformers_js("fill-mask-cache").await;
 }
 
 #[tokio::test]
 #[serial]
 async fn test_ort_cache_nlp_question_answering() {
-    integration_test!(
-        "./test_cases/ai-ort-rust-backend/main",
-        NON_SECURE_PORT,
-        "transformers-js/question-answering-cache",
-        None,
-        None,
-        None,
-        None,
-        (|resp| async {
-            let res = resp.unwrap();
-            assert_eq!(res.status().as_u16(), StatusCode::OK);
-        }),
-        TerminationToken::new()
-    );
+    test_ort_transformers_js("question-answering-cache").await;
 }
 
 #[tokio::test]
 #[serial]
 async fn test_ort_cache_nlp_summarization() {
-    integration_test!(
-        "./test_cases/ai-ort-rust-backend/main",
-        NON_SECURE_PORT,
-        "transformers-js/summarization-cache",
-        None,
-        None,
-        None,
-        None,
-        (|resp| async {
-            let res = resp.unwrap();
-            assert_eq!(res.status().as_u16(), StatusCode::OK);
-        }),
-        TerminationToken::new()
-    );
+    test_ort_transformers_js("summarization-cache").await;
 }
 
 #[tokio::test]
 #[serial]
 async fn test_ort_cache_nlp_text_classification() {
-    integration_test!(
-        "./test_cases/ai-ort-rust-backend/main",
-        NON_SECURE_PORT,
-        "transformers-js/text-classification-cache",
-        None,
-        None,
-        None,
-        None,
-        (|resp| async {
-            let res = resp.unwrap();
-            assert_eq!(res.status().as_u16(), StatusCode::OK);
-        }),
-        TerminationToken::new()
-    );
+    test_ort_transformers_js("text-classification-cache").await;
 }
 
 #[tokio::test]
 #[serial]
 async fn test_ort_cache_nlp_text_generation() {
-    integration_test!(
-        "./test_cases/ai-ort-rust-backend/main",
-        NON_SECURE_PORT,
-        "transformers-js/text-generation-cache",
-        None,
-        None,
-        None,
-        None,
-        (|resp| async {
-            let res = resp.unwrap();
-            assert_eq!(res.status().as_u16(), StatusCode::OK);
-        }),
-        TerminationToken::new()
-    );
+    test_ort_transformers_js("text-generation-cache").await;
 }
 
 #[tokio::test]
 #[serial]
 async fn test_ort_cache_nlp_text2text_generation() {
-    integration_test!(
-        "./test_cases/ai-ort-rust-backend/main",
-        NON_SECURE_PORT,
-        "transformers-js/text2text-generation-cache",
-        None,
-        None,
-        None,
-        None,
-        (|resp| async {
-            let res = resp.unwrap();
-            assert_eq!(res.status().as_u16(), StatusCode::OK);
-        }),
-        TerminationToken::new()
-    );
+    test_ort_transformers_js("text2text-generation-cache").await;
 }
 
 #[tokio::test]
 #[serial]
 async fn test_ort_cache_nlp_token_classification() {
-    integration_test!(
-        "./test_cases/ai-ort-rust-backend/main",
-        NON_SECURE_PORT,
-        "transformers-js/token-classification-cache",
-        None,
-        None,
-        None,
-        None,
-        (|resp| async {
-            let res = resp.unwrap();
-            assert_eq!(res.status().as_u16(), StatusCode::OK);
-        }),
-        TerminationToken::new()
-    );
+    test_ort_transformers_js("token-classification-cache").await;
 }
 
 #[tokio::test]
 #[serial]
 async fn test_ort_cache_nlp_translation() {
-    integration_test!(
-        "./test_cases/ai-ort-rust-backend/main",
-        NON_SECURE_PORT,
-        "transformers-js/translation-cache",
-        None,
-        None,
-        None,
-        None,
-        (|resp| async {
-            let res = resp.unwrap();
-            assert_eq!(res.status().as_u16(), StatusCode::OK);
-        }),
-        TerminationToken::new()
-    );
+    test_ort_transformers_js("translation-cache").await;
 }
 
 #[tokio::test]
 #[serial]
 async fn test_ort_cache_nlp_zero_shot_classification() {
-    integration_test!(
-        "./test_cases/ai-ort-rust-backend/main",
-        NON_SECURE_PORT,
-        "transformers-js/zero-shot-classification-cache",
-        None,
-        None,
-        None,
-        None,
-        (|resp| async {
-            let res = resp.unwrap();
-            assert_eq!(res.status().as_u16(), StatusCode::OK);
-        }),
-        TerminationToken::new()
-    );
+    test_ort_transformers_js("zero-shot-classification-cache").await;
 }
 
 #[tokio::test]
 #[serial]
 async fn test_ort_cache_vision_image_feature_extraction() {
-    integration_test!(
-        "./test_cases/ai-ort-rust-backend/main",
-        NON_SECURE_PORT,
-        "transformers-js/image-feature-extraction-cache",
-        None,
-        None,
-        None,
-        None,
-        (|resp| async {
-            let res = resp.unwrap();
-            assert_eq!(res.status().as_u16(), StatusCode::OK);
-        }),
-        TerminationToken::new()
-    );
+    test_ort_transformers_js("image-feature-extraction-cache").await;
 }
 
 #[tokio::test]
 #[serial]
 async fn test_ort_cache_vision_image_classification() {
-    integration_test!(
-        "./test_cases/ai-ort-rust-backend/main",
-        NON_SECURE_PORT,
-        "transformers-js/image-classification-cache",
-        None,
-        None,
-        None,
-        None,
-        (|resp| async {
-            let res = resp.unwrap();
-            assert_eq!(res.status().as_u16(), StatusCode::OK);
-        }),
-        TerminationToken::new()
-    );
+    test_ort_transformers_js("image-classification-cache").await;
 }
 
 #[tokio::test]
 #[serial]
 async fn test_ort_cache_vision_zero_shot_image_classification() {
-    integration_test!(
-        "./test_cases/ai-ort-rust-backend/main",
-        NON_SECURE_PORT,
-        "transformers-js/zero-shot-image-classification-cache",
-        None,
-        None,
-        None,
-        None,
-        (|resp| async {
-            let res = resp.unwrap();
-            assert_eq!(res.status().as_u16(), StatusCode::OK);
-        }),
-        TerminationToken::new()
-    );
+    test_ort_transformers_js("zero-shot-image-classification-cache").await;
 }
 
 async fn test_runtime_beforeunload_event(kind: &'static str, pct: u8) {

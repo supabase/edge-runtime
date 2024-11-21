@@ -1,8 +1,4 @@
-import { env, pipeline } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.1';
-
-// Ensure we do not use browser cache
-env.useBrowserCache = false;
-env.allowLocalModels = false;
+import { pipeline } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.1';
 
 const pipe = await pipeline('feature-extraction', 'supabase/gte-small', { device: 'auto' });
 

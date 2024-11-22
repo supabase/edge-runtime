@@ -17,6 +17,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use super::TryNormalizePath;
 use anyhow::{anyhow, Context};
 use aws_config::{retry::RetryConfig, AppName, BehaviorVersion, Region};
 use aws_credential_types::{credential_fn::provide_credentials_fn, Credentials};
@@ -44,12 +45,9 @@ use futures::{
     stream::FuturesUnordered,
     AsyncWriteExt, FutureExt, StreamExt, TryFutureExt,
 };
-use headers::Authorization;
-use hyper_proxy::{Intercept, Proxy, ProxyConnector};
-use hyper_rustls::{HttpsConnector, HttpsConnectorBuilder};
-use hyper_v014::{client::HttpConnector, Uri};
+
 use memmap2::{MmapOptions, MmapRaw};
-use once_cell::sync::{Lazy, OnceCell};
+use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use tempfile::tempfile;
 use tokio::{
@@ -58,9 +56,6 @@ use tokio::{
     task::JoinError,
 };
 use tracing::{debug, error, info_span, instrument, trace, trace_span, warn, Instrument};
-use url::Url;
-
-use super::TryNormalizePath;
 
 const MIN_PART_SIZE: usize = 1024 * 1024 * 5;
 
@@ -240,9 +235,17 @@ impl S3FsConfig {
         CLIENT.with(|it| {
             it.borrow_mut()
                 .get_or_init(|| {
-                    if let Some(proxy_connector) = resolve_proxy_connector() {
-                        HyperClientBuilder::new().build(proxy_connector)
-                    } else {
+                    #[cfg(feature = "unsafe-proxy")]
+                    {
+                        if let Some(proxy_connector) = resolve_proxy_connector() {
+                            HyperClientBuilder::new().build(proxy_connector)
+                        } else {
+                            HyperClientBuilder::new().build_https()
+                        }
+                    }
+
+                    #[cfg(not(feature = "unsafe-proxy"))]
+                    {
                         HyperClientBuilder::new().build_https()
                     }
                 })
@@ -251,7 +254,17 @@ impl S3FsConfig {
     }
 }
 
-fn resolve_proxy_connector() -> Option<ProxyConnector<HttpsConnector<HttpConnector>>> {
+#[cfg(feature = "unsafe-proxy")]
+fn resolve_proxy_connector() -> Option<
+    hyper_proxy::ProxyConnector<hyper_rustls::HttpsConnector<hyper_v014::client::HttpConnector>>,
+> {
+    use headers::Authorization;
+    use hyper_proxy::{Intercept, Proxy, ProxyConnector};
+    use hyper_rustls::{HttpsConnector, HttpsConnectorBuilder};
+    use hyper_v014::{client::HttpConnector, Uri};
+    use once_cell::sync::Lazy;
+    use url::Url;
+
     let proxy_url: Url = std::env::var("HTTPS_PROXY").ok()?.parse().ok()?;
     let proxy_uri: Uri = std::env::var("HTTPS_PROXY").ok()?.parse().ok()?;
     let mut proxy = Proxy::new(Intercept::All, proxy_uri);

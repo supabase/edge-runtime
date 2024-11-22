@@ -1,7 +1,6 @@
 #![allow(dead_code)]
 
 use std::{
-    collections::HashMap,
     marker::PhantomPinned,
     path::PathBuf,
     sync::Arc,
@@ -9,14 +8,16 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{bail, Context, Error};
-use base::{
+use crate::{
     rt_worker::{
         worker_ctx::{create_user_worker_pool, create_worker, CreateWorkerArgs, TerminationToken},
         worker_pool::{SupervisorPolicy, WorkerPoolPolicy},
     },
     server::ServerFlags,
 };
+
+use anyhow::{bail, Context, Error};
+use event_worker::events::WorkerEventWithMetadata;
 use futures_util::{future::BoxFuture, Future, FutureExt};
 use http_v02::{Request, Response};
 use hyper_v014::Body;
@@ -131,8 +132,9 @@ impl WorkerContextInitOptsForTesting for WorkerContextInitOpts {
 pub struct TestBedBuilder {
     main_service_path: PathBuf,
     worker_pool_policy: Option<WorkerPoolPolicy>,
+    worker_event_sender: Option<mpsc::UnboundedSender<WorkerEventWithMetadata>>,
     main_worker_init_opts: Option<WorkerContextInitOpts>,
-    request_idle_timeout: Option<u64>,
+    flags: ServerFlags,
 }
 
 impl TestBedBuilder {
@@ -143,22 +145,31 @@ impl TestBedBuilder {
         Self {
             main_service_path: main_service_path.into(),
             worker_pool_policy: None,
+            worker_event_sender: None,
             main_worker_init_opts: None,
-            request_idle_timeout: None,
+            flags: ServerFlags::default(),
         }
     }
 
-    pub fn with_worker_pool_policy(mut self, worker_pool_policy: WorkerPoolPolicy) -> Self {
-        self.worker_pool_policy = Some(worker_pool_policy);
+    pub fn with_worker_pool_policy(mut self, value: WorkerPoolPolicy) -> Self {
+        self.worker_pool_policy = Some(value);
         self
     }
 
-    pub fn with_oneshot_policy(mut self, request_wait_timeout_ms: u64) -> Self {
+    pub fn with_worker_event_sender(
+        mut self,
+        value: Option<mpsc::UnboundedSender<WorkerEventWithMetadata>>,
+    ) -> Self {
+        self.worker_event_sender = value;
+        self
+    }
+
+    pub fn with_oneshot_policy(mut self, value: Option<u64>) -> Self {
         self.worker_pool_policy = Some(WorkerPoolPolicy::new(
             SupervisorPolicy::oneshot(),
             1,
             ServerFlags {
-                request_wait_timeout_ms: Some(request_wait_timeout_ms),
+                request_wait_timeout_ms: value,
                 ..Default::default()
             },
         ));
@@ -166,12 +177,12 @@ impl TestBedBuilder {
         self
     }
 
-    pub fn with_per_worker_policy(mut self, request_wait_timeout_ms: u64) -> Self {
+    pub fn with_per_worker_policy(mut self, value: Option<u64>) -> Self {
         self.worker_pool_policy = Some(WorkerPoolPolicy::new(
             SupervisorPolicy::PerWorker,
             1,
             ServerFlags {
-                request_wait_timeout_ms: Some(request_wait_timeout_ms),
+                request_wait_timeout_ms: value,
                 ..Default::default()
             },
         ));
@@ -179,12 +190,12 @@ impl TestBedBuilder {
         self
     }
 
-    pub fn with_per_request_policy(mut self, request_wait_timeout_ms: u64) -> Self {
+    pub fn with_per_request_policy(mut self, value: Option<u64>) -> Self {
         self.worker_pool_policy = Some(WorkerPoolPolicy::new(
             SupervisorPolicy::PerRequest { oneshot: false },
             1,
             ServerFlags {
-                request_wait_timeout_ms: Some(request_wait_timeout_ms),
+                request_wait_timeout_ms: value,
                 ..Default::default()
             },
         ));
@@ -192,16 +203,13 @@ impl TestBedBuilder {
         self
     }
 
-    pub fn with_main_worker_init_opts(
-        mut self,
-        main_worker_init_opts: WorkerContextInitOpts,
-    ) -> Self {
-        self.main_worker_init_opts = Some(main_worker_init_opts);
+    pub fn with_main_worker_init_opts(mut self, value: WorkerContextInitOpts) -> Self {
+        self.main_worker_init_opts = Some(value);
         self
     }
 
-    pub fn with_request_idle_timeout(mut self, request_idle_timeout: u64) -> Self {
-        self.request_idle_timeout = Some(request_idle_timeout);
+    pub fn with_server_flags(mut self, value: ServerFlags) -> Self {
+        self.flags = value;
         self
     }
 
@@ -210,14 +218,14 @@ impl TestBedBuilder {
             let token = TerminationToken::new();
             (
                 create_user_worker_pool(
+                    Arc::new(self.flags),
                     self.worker_pool_policy
                         .unwrap_or_else(test_user_worker_pool_policy),
-                    None,
+                    self.worker_event_sender,
                     Some(token.clone()),
                     vec![],
                     None,
                     None,
-                    self.request_idle_timeout,
                 )
                 .await
                 .unwrap(),
@@ -229,7 +237,7 @@ impl TestBedBuilder {
             service_path: self.main_service_path,
             no_module_cache: false,
             import_map_path: None,
-            env_vars: HashMap::new(),
+            env_vars: std::env::vars().collect(),
             timing: None,
             maybe_eszip: None,
             maybe_entrypoint: None,
@@ -249,8 +257,8 @@ impl TestBedBuilder {
 
         let main_termination_token = TerminationToken::new();
         let ctx = create_worker(
+            Arc::new(self.flags),
             (main_worker_init_opts, main_termination_token.clone()),
-            None,
             None,
         )
         .await
@@ -276,12 +284,12 @@ impl TestBed {
         request_factory_fn: F,
     ) -> Result<ScopeGuard<Response<Body>, impl FnOnce(Response<Body>)>, Error>
     where
-        F: FnOnce() -> Result<Request<Body>, Error>,
+        F: FnOnce(http_v02::request::Builder) -> Result<Request<Body>, Error>,
     {
         let conn_token = CancellationToken::new();
         let (res_tx, res_rx) = oneshot::channel();
 
-        let req: Request<Body> = request_factory_fn()?;
+        let req: Request<Body> = request_factory_fn(http_v02::request::Builder::new())?;
 
         let _ = self.main_worker_msg_tx.send(WorkerRequestMsg {
             req,
@@ -330,9 +338,9 @@ pub async fn create_test_user_worker<Opt: Into<CreateTestUserWorkerArgs>>(
 
     Ok({
         let ctx = create_worker(
+            Arc::default(),
             opts.with_policy(policy)
                 .with_termination_token(termination_token.clone()),
-            None,
             None,
         )
         .await?;

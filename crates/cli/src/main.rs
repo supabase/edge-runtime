@@ -181,6 +181,11 @@ fn main() -> Result<ExitCode, anyhow::Error> {
                 };
 
                 let tcp_nodelay = sub_matches.get_one::<bool>("tcp-nodelay").copied().unwrap();
+                let request_buffer_size = sub_matches
+                    .get_one::<u64>("request-buffer-size")
+                    .copied()
+                    .unwrap();
+
                 let flags = ServerFlags {
                     no_module_cache,
                     allow_main_inspector,
@@ -191,6 +196,7 @@ fn main() -> Result<ExitCode, anyhow::Error> {
                     request_wait_timeout_ms: maybe_request_wait_timeout,
                     request_idle_timeout_ms: maybe_request_idle_timeout,
                     request_read_timeout_ms: maybe_request_read_timeout,
+                    request_buffer_size: Some(request_buffer_size),
                 };
 
                 let maybe_received_signum = start_server(

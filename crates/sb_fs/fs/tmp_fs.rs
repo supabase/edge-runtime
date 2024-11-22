@@ -1,3 +1,6 @@
+// TODO: Remove the line below after updating the rust toolchain to v1.81.
+#![allow(clippy::blocks_in_conditions)]
+
 use std::{
     io::{self, SeekFrom},
     path::{Path, PathBuf},
@@ -15,7 +18,7 @@ use deno_fs::{AccessCheckCb, FsDirEntry, FsFileType, RealFs};
 use deno_io::fs::{File, FsError, FsResult, FsStat};
 use serde::{Deserialize, Serialize};
 use tempfile::TempDir;
-use tracing::instrument;
+use tracing::{instrument, trace};
 
 use super::TryNormalizePath;
 
@@ -94,6 +97,7 @@ impl Quota {
         }
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     async fn check(&self, len: usize) -> FsResult<()> {
         if self.sync.do_imm.lower() {
             self.sync().await?;
@@ -112,6 +116,7 @@ impl Quota {
         Ok(())
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     fn blocking_check(&self, len: usize) -> FsResult<()> {
         if self.sync.do_imm.lower() {
             self.blocking_sync()?;
@@ -130,6 +135,7 @@ impl Quota {
         Ok(())
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     async fn sync(&self) -> FsResult<usize> {
         match tokio::task::spawn_blocking(self.make_sync_fn()).await {
             Ok(v) => v,
@@ -137,11 +143,11 @@ impl Quota {
         }
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     fn blocking_sync(&self) -> FsResult<usize> {
         self.make_sync_fn()()
     }
 
-    #[instrument(level = "info", skip(self))]
     fn make_sync_fn(&self) -> impl FnOnce() -> FsResult<usize> {
         fn get_dir_size(path: PathBuf) -> io::Result<u64> {
             use std::fs;
@@ -178,6 +184,7 @@ impl Quota {
         }
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     async fn try_add_delta(&self, amount: i64) -> FsResult<()> {
         match amount.cmp(&0) {
             std::cmp::Ordering::Greater => {
@@ -195,6 +202,7 @@ impl Quota {
         Ok(())
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     fn blocking_try_add_delta(&self, amount: i64) -> FsResult<()> {
         match amount.cmp(&0) {
             std::cmp::Ordering::Greater => {
@@ -237,6 +245,12 @@ impl deno_fs::FileSystem for TmpFs {
         Err(FsError::NotSupported)
     }
 
+    #[instrument(
+        level = "trace", 
+        skip(self, options, access_check),
+        fields(?options, has_access_check = access_check.is_some()),
+        err(Debug)
+    )]
     fn open_sync(
         &self,
         path: &Path,
@@ -245,14 +259,24 @@ impl deno_fs::FileSystem for TmpFs {
     ) -> FsResult<Rc<dyn File>> {
         Ok(Rc::new(TmpObject {
             fs: self.clone(),
-            file: RealFs.open_sync(
-                &self.root.path().join(path.try_normalize()?),
-                options,
-                access_check,
-            )?,
+            file: RealFs
+                .open_sync(
+                    &self.root.path().join(path.try_normalize()?),
+                    options,
+                    access_check,
+                )
+                .inspect(|_| {
+                    trace!(ok = true);
+                })?,
         }))
     }
 
+    #[instrument(
+        level = "trace", 
+        skip(self, options, access_check),
+        fields(?options, has_access_check = access_check.is_some()),
+        err(Debug)
+    )]
     async fn open_async<'a>(
         &'a self,
         path: PathBuf,
@@ -267,10 +291,14 @@ impl deno_fs::FileSystem for TmpFs {
                     options,
                     access_check,
                 )
-                .await?,
+                .await
+                .inspect(|_| {
+                    trace!(ok = true);
+                })?,
         }))
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     fn mkdir_sync(&self, path: &Path, recursive: bool, mode: u32) -> FsResult<()> {
         RealFs.mkdir_sync(
             &self.root.path().join(path.try_normalize()?),
@@ -279,6 +307,7 @@ impl deno_fs::FileSystem for TmpFs {
         )
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     async fn mkdir_async(&self, path: PathBuf, recursive: bool, mode: u32) -> FsResult<()> {
         RealFs
             .mkdir_async(
@@ -323,11 +352,13 @@ impl deno_fs::FileSystem for TmpFs {
         Err(FsError::NotSupported)
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     fn remove_sync(&self, path: &Path, recursive: bool) -> FsResult<()> {
         self.quota.sync.do_opt.raise();
         RealFs.remove_sync(&self.root.path().join(path.try_normalize()?), recursive)
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     async fn remove_async(&self, path: PathBuf, recursive: bool) -> FsResult<()> {
         self.quota.sync.do_opt.raise();
         RealFs
@@ -335,6 +366,7 @@ impl deno_fs::FileSystem for TmpFs {
             .await
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     fn copy_file_sync(&self, oldpath: &Path, newpath: &Path) -> FsResult<()> {
         self.quota
             .blocking_check(self.stat_sync(oldpath)?.size as usize)?;
@@ -345,6 +377,7 @@ impl deno_fs::FileSystem for TmpFs {
         )
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     async fn copy_file_async(&self, oldpath: PathBuf, newpath: PathBuf) -> FsResult<()> {
         self.quota
             .check(self.stat_async(oldpath.clone()).await?.size as usize)
@@ -358,6 +391,7 @@ impl deno_fs::FileSystem for TmpFs {
             .await
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     fn cp_sync(&self, path: &Path, new_path: &Path) -> FsResult<()> {
         self.quota
             .blocking_check(self.stat_sync(path)?.size as usize)?;
@@ -368,6 +402,7 @@ impl deno_fs::FileSystem for TmpFs {
         )
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     async fn cp_async(&self, path: PathBuf, new_path: PathBuf) -> FsResult<()> {
         self.quota
             .check(self.stat_async(path.clone()).await?.size as usize)
@@ -381,46 +416,62 @@ impl deno_fs::FileSystem for TmpFs {
             .await
     }
 
+    #[instrument(level = "trace", skip(self), err(Debug))]
     fn stat_sync(&self, path: &Path) -> FsResult<FsStat> {
         RealFs.stat_sync(&self.root.path().join(path.try_normalize()?))
     }
 
+    #[instrument(level = "trace", skip(self), err(Debug))]
     async fn stat_async(&self, path: PathBuf) -> FsResult<FsStat> {
         RealFs
             .stat_async(self.root.path().join(path.try_normalize()?))
             .await
     }
 
+    #[instrument(level = "trace", skip(self), err(Debug))]
     fn lstat_sync(&self, path: &Path) -> FsResult<FsStat> {
         RealFs.lstat_sync(&self.root.path().join(path.try_normalize()?))
     }
 
+    #[instrument(level = "trace", skip(self), err(Debug))]
     async fn lstat_async(&self, path: PathBuf) -> FsResult<FsStat> {
         RealFs
             .lstat_async(self.root.path().join(path.try_normalize()?))
             .await
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     fn realpath_sync(&self, path: &Path) -> FsResult<PathBuf> {
         RealFs.realpath_sync(&self.root.path().join(path.try_normalize()?))
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     async fn realpath_async(&self, path: PathBuf) -> FsResult<PathBuf> {
         RealFs
             .realpath_async(self.root.path().join(path.try_normalize()?))
             .await
     }
 
+    #[instrument(level = "trace", skip(self), err(Debug))]
     fn read_dir_sync(&self, path: &Path) -> FsResult<Vec<FsDirEntry>> {
-        RealFs.read_dir_sync(&self.root.path().join(path.try_normalize()?))
+        RealFs
+            .read_dir_sync(&self.root.path().join(path.try_normalize()?))
+            .inspect(|it| {
+                trace!(len = it.len());
+            })
     }
 
+    #[instrument(level = "trace", skip(self), err(Debug))]
     async fn read_dir_async(&self, path: PathBuf) -> FsResult<Vec<FsDirEntry>> {
         RealFs
             .read_dir_async(self.root.path().join(path.try_normalize()?))
             .await
+            .inspect(|it| {
+                trace!(len = it.len());
+            })
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     fn rename_sync(&self, oldpath: &Path, newpath: &Path) -> FsResult<()> {
         RealFs.rename_sync(
             &self.root.path().join(oldpath.try_normalize()?),
@@ -428,6 +479,7 @@ impl deno_fs::FileSystem for TmpFs {
         )
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     async fn rename_async(&self, oldpath: PathBuf, newpath: PathBuf) -> FsResult<()> {
         RealFs
             .rename_async(
@@ -437,6 +489,7 @@ impl deno_fs::FileSystem for TmpFs {
             .await
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     fn link_sync(&self, oldpath: &Path, newpath: &Path) -> FsResult<()> {
         RealFs.link_sync(
             &self.root.path().join(oldpath.try_normalize()?),
@@ -444,6 +497,7 @@ impl deno_fs::FileSystem for TmpFs {
         )
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     async fn link_async(&self, oldpath: PathBuf, newpath: PathBuf) -> FsResult<()> {
         RealFs
             .link_async(
@@ -453,6 +507,7 @@ impl deno_fs::FileSystem for TmpFs {
             .await
     }
 
+    #[instrument(level = "trace", skip(self, file_type), ret, err(Debug))]
     fn symlink_sync(
         &self,
         oldpath: &Path,
@@ -466,6 +521,7 @@ impl deno_fs::FileSystem for TmpFs {
         )
     }
 
+    #[instrument(level = "trace", skip(self, file_type), ret, err(Debug))]
     async fn symlink_async(
         &self,
         oldpath: PathBuf,
@@ -481,16 +537,19 @@ impl deno_fs::FileSystem for TmpFs {
             .await
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     fn read_link_sync(&self, path: &Path) -> FsResult<PathBuf> {
         RealFs.read_link_sync(&self.root.path().join(path.try_normalize()?))
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     async fn read_link_async(&self, path: PathBuf) -> FsResult<PathBuf> {
         RealFs
             .read_link_async(self.root.path().join(path.try_normalize()?))
             .await
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     fn truncate_sync(&self, path: &Path, len: u64) -> FsResult<()> {
         let size = self.stat_sync(path)?.size;
 
@@ -500,6 +559,7 @@ impl deno_fs::FileSystem for TmpFs {
         RealFs.truncate_sync(&self.root.path().join(path.try_normalize()?), len)
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     async fn truncate_async(&self, path: PathBuf, len: u64) -> FsResult<()> {
         let size = self.stat_async(path.clone()).await?.size;
 
@@ -512,6 +572,7 @@ impl deno_fs::FileSystem for TmpFs {
             .await
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     fn utime_sync(
         &self,
         path: &Path,
@@ -529,6 +590,7 @@ impl deno_fs::FileSystem for TmpFs {
         )
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     async fn utime_async(
         &self,
         path: PathBuf,
@@ -548,6 +610,7 @@ impl deno_fs::FileSystem for TmpFs {
             .await
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     fn lutime_sync(
         &self,
         path: &Path,
@@ -565,6 +628,7 @@ impl deno_fs::FileSystem for TmpFs {
         )
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     async fn lutime_async(
         &self,
         path: PathBuf,
@@ -592,14 +656,19 @@ pub struct TmpObject {
 
 #[async_trait::async_trait(?Send)]
 impl deno_io::fs::File for TmpObject {
+    #[instrument(level = "trace", skip(self, buf), fields(len = buf.len()), ret, err(Debug))]
     fn read_sync(self: Rc<Self>, buf: &mut [u8]) -> FsResult<usize> {
         self.file.clone().read_sync(buf)
     }
 
+    #[instrument(level = "trace", skip_all, err(Debug))]
     async fn read_byob(self: Rc<Self>, buf: BufMutView) -> FsResult<(usize, BufMutView)> {
-        self.file.clone().read_byob(buf).await
+        self.file.clone().read_byob(buf).await.inspect(|it| {
+            trace!(nread = it.0);
+        })
     }
 
+    #[instrument(level = "trace", skip(self, buf), fields(len = buf.len()), ret, err(Debug))]
     fn write_sync(self: Rc<Self>, buf: &[u8]) -> FsResult<usize> {
         self.fs.quota.blocking_check(buf.len())?;
         self.file.clone().write_sync(buf).inspect(|it| {
@@ -607,15 +676,18 @@ impl deno_io::fs::File for TmpObject {
         })
     }
 
+    #[instrument(level = "trace", skip(self, buf), fields(len = buf.len()), err(Debug))]
     async fn write(self: Rc<Self>, buf: BufView) -> FsResult<WriteOutcome> {
         self.fs.quota.check(buf.len()).await?;
         self.file.clone().write(buf).await.inspect(|it| match it {
             WriteOutcome::Partial { nwritten, .. } | WriteOutcome::Full { nwritten } => {
                 self.fs.quota.fetch_add(*nwritten, Ordering::Release);
+                trace!(nwritten = *nwritten);
             }
         })
     }
 
+    #[instrument(level = "trace", skip(self, buf), fields(len = buf.len()), ret, err(Debug))]
     fn write_all_sync(self: Rc<Self>, buf: &[u8]) -> FsResult<()> {
         self.fs.quota.blocking_check(buf.len())?;
         self.file.clone().write_all_sync(buf).inspect(|_| {
@@ -623,6 +695,7 @@ impl deno_io::fs::File for TmpObject {
         })
     }
 
+    #[instrument(level = "trace", skip(self, buf), fields(len = buf.len()), ret, err(Debug))]
     async fn write_all(self: Rc<Self>, buf: BufView) -> FsResult<()> {
         let len = buf.len();
 
@@ -632,12 +705,18 @@ impl deno_io::fs::File for TmpObject {
         })
     }
 
+    #[instrument(level = "trace", skip(self), err(Debug))]
     fn read_all_sync(self: Rc<Self>) -> FsResult<Vec<u8>> {
-        self.file.clone().read_all_sync()
+        self.file.clone().read_all_sync().inspect(|it| {
+            trace!(nread = it.len());
+        })
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     async fn read_all_async(self: Rc<Self>) -> FsResult<Vec<u8>> {
-        self.file.clone().read_all_async().await
+        self.file.clone().read_all_async().await.inspect(|it| {
+            trace!(nread = it.len());
+        })
     }
 
     fn chmod_sync(self: Rc<Self>, _pathmode: u32) -> FsResult<()> {
@@ -648,58 +727,71 @@ impl deno_io::fs::File for TmpObject {
         Err(FsError::NotSupported)
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     fn seek_sync(self: Rc<Self>, pos: SeekFrom) -> FsResult<u64> {
         self.file.clone().seek_sync(pos)
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     async fn seek_async(self: Rc<Self>, pos: SeekFrom) -> FsResult<u64> {
         self.file.clone().seek_async(pos).await
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     fn datasync_sync(self: Rc<Self>) -> FsResult<()> {
         self.fs.quota.sync.do_imm.raise();
         self.file.clone().datasync_sync()
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     async fn datasync_async(self: Rc<Self>) -> FsResult<()> {
         self.fs.quota.sync.do_imm.raise();
         self.file.clone().datasync_async().await
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     fn sync_sync(self: Rc<Self>) -> FsResult<()> {
         self.fs.quota.sync.do_imm.raise();
         self.file.clone().sync_sync()
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     async fn sync_async(self: Rc<Self>) -> FsResult<()> {
         self.fs.quota.sync.do_imm.raise();
         self.file.clone().sync_async().await
     }
 
+    #[instrument(level = "trace", skip(self), err(Debug))]
     fn stat_sync(self: Rc<Self>) -> FsResult<FsStat> {
         self.file.clone().stat_sync()
     }
 
+    #[instrument(level = "trace", skip(self), err(Debug))]
     async fn stat_async(self: Rc<Self>) -> FsResult<FsStat> {
         self.file.clone().stat_async().await
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     fn lock_sync(self: Rc<Self>, exclusive: bool) -> FsResult<()> {
         self.file.clone().lock_sync(exclusive)
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     async fn lock_async(self: Rc<Self>, exclusive: bool) -> FsResult<()> {
         self.file.clone().lock_async(exclusive).await
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     fn unlock_sync(self: Rc<Self>) -> FsResult<()> {
         self.file.clone().unlock_sync()
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     async fn unlock_async(self: Rc<Self>) -> FsResult<()> {
         self.file.clone().unlock_async().await
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     fn truncate_sync(self: Rc<Self>, len: u64) -> FsResult<()> {
         let size = self.file.clone().stat_sync()?.size;
 
@@ -710,6 +802,7 @@ impl deno_io::fs::File for TmpObject {
         self.file.clone().truncate_sync(len)
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     async fn truncate_async(self: Rc<Self>, len: u64) -> FsResult<()> {
         let size = self.file.clone().stat_sync()?.size;
 
@@ -721,6 +814,7 @@ impl deno_io::fs::File for TmpObject {
         self.file.clone().truncate_async(len).await
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     fn utime_sync(
         self: Rc<Self>,
         atime_secs: i64,
@@ -733,6 +827,7 @@ impl deno_io::fs::File for TmpObject {
             .utime_sync(atime_secs, atime_nanos, mtime_secs, mtime_nanos)
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     async fn utime_async(
         self: Rc<Self>,
         atime_secs: i64,

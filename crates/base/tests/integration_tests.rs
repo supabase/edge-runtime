@@ -1,9 +1,6 @@
 #![allow(clippy::arc_with_non_send_sync)]
 #![allow(clippy::async_yields_async)]
 
-#[path = "../src/utils/integration_test_helper.rs"]
-mod integration_test_helper;
-
 use deno_config::JsxImportSourceConfig;
 use http_v02 as http;
 use hyper_v014 as hyper;
@@ -23,6 +20,10 @@ use std::{
 
 use anyhow::Context;
 use async_tungstenite::WebSocketStream;
+use base::utils::test_utils::{
+    self, create_test_user_worker, test_user_runtime_opts, test_user_worker_pool_policy,
+    TestBedBuilder,
+};
 use base::{
     integration_test, integration_test_listen_fut, integration_test_with_server_flag,
     rt_worker::worker_ctx::{create_user_worker_pool, create_worker, TerminationToken},
@@ -61,10 +62,6 @@ use tokio_rustls::{
 use tokio_util::{compat::TokioAsyncReadCompatExt, sync::CancellationToken};
 use tungstenite::Message;
 use urlencoding::encode;
-
-use crate::integration_test_helper::{
-    create_test_user_worker, test_user_runtime_opts, test_user_worker_pool_policy, TestBedBuilder,
-};
 
 const MB: usize = 1024 * 1024;
 const NON_SECURE_PORT: u16 = 8498;
@@ -186,11 +183,11 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
 
     // create a user worker pool
     let (_, worker_pool_tx) = create_user_worker_pool(
-        integration_test_helper::test_user_worker_pool_policy(),
+        Arc::default(),
+        test_utils::test_user_worker_pool_policy(),
         None,
         Some(pool_termination_token.clone()),
         vec![],
-        None,
         None,
         None,
     )
@@ -219,7 +216,7 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
         maybe_tmp_fs_config: None,
     };
 
-    let ctx = create_worker((opts, main_termination_token.clone()), None, None)
+    let ctx = create_worker(Arc::default(), (opts, main_termination_token.clone()), None)
         .await
         .unwrap();
 
@@ -347,11 +344,11 @@ async fn test_main_worker_boot_error() {
 
     // create a user worker pool
     let (_, worker_pool_tx) = create_user_worker_pool(
+        Arc::default(),
         test_user_worker_pool_policy(),
         None,
         Some(pool_termination_token.clone()),
         vec![],
-        None,
         None,
         None,
     )
@@ -380,7 +377,7 @@ async fn test_main_worker_boot_error() {
         maybe_tmp_fs_config: None,
     };
 
-    let result = create_worker((opts, main_termination_token.clone()), None, None).await;
+    let result = create_worker(Arc::default(), (opts, main_termination_token.clone()), None).await;
 
     assert!(result.is_err());
     assert!(result
@@ -475,11 +472,11 @@ async fn test_main_worker_user_worker_mod_evaluate_exception() {
 
     // create a user worker pool
     let (_, worker_pool_tx) = create_user_worker_pool(
+        Arc::default(),
         test_user_worker_pool_policy(),
         None,
         Some(pool_termination_token.clone()),
         vec![],
-        None,
         None,
         None,
     )
@@ -508,7 +505,7 @@ async fn test_main_worker_user_worker_mod_evaluate_exception() {
         maybe_tmp_fs_config: None,
     };
 
-    let ctx = create_worker((opts, main_termination_token.clone()), None, None)
+    let ctx = create_worker(Arc::default(), (opts, main_termination_token.clone()), None)
         .await
         .unwrap();
 
@@ -961,13 +958,12 @@ async fn req_failure_case_timeout() {
     let tb = TestBedBuilder::new("./test_cases/main")
         // NOTE: It should be small enough that the worker pool rejects the
         // request.
-        .with_oneshot_policy(10)
+        .with_oneshot_policy(Some(10))
         .build()
         .await;
 
-    let req_body_fn = || {
-        Request::builder()
-            .uri("/slow_resp")
+    let req_body_fn = |b: http::request::Builder| {
+        b.uri("/slow_resp")
             .method("GET")
             .body(Body::empty())
             .context("can't make request")
@@ -999,14 +995,13 @@ async fn req_failure_case_timeout() {
 #[serial]
 async fn req_failure_case_cpu_time_exhausted() {
     let tb = TestBedBuilder::new("./test_cases/main_small_cpu_time")
-        .with_oneshot_policy(100000)
+        .with_oneshot_policy(None)
         .build()
         .await;
 
     let mut res = tb
-        .request(|| {
-            Request::builder()
-                .uri("/slow_resp")
+        .request(|b| {
+            b.uri("/slow_resp")
                 .method("GET")
                 .body(Body::empty())
                 .context("can't make request")
@@ -1028,14 +1023,13 @@ async fn req_failure_case_cpu_time_exhausted() {
 #[serial]
 async fn req_failure_case_cpu_time_exhausted_2() {
     let tb = TestBedBuilder::new("./test_cases/main_small_cpu_time")
-        .with_oneshot_policy(100000)
+        .with_oneshot_policy(None)
         .build()
         .await;
 
     let mut res = tb
-        .request(|| {
-            Request::builder()
-                .uri("/cpu-sync")
+        .request(|b| {
+            b.uri("/cpu-sync")
                 .method("GET")
                 .body(Body::empty())
                 .context("can't make request")
@@ -1057,14 +1051,13 @@ async fn req_failure_case_cpu_time_exhausted_2() {
 #[serial]
 async fn req_failure_case_wall_clock_reached() {
     let tb = TestBedBuilder::new("./test_cases/main_small_wall_clock")
-        .with_oneshot_policy(100000)
+        .with_oneshot_policy(None)
         .build()
         .await;
 
     let mut res = tb
-        .request(|| {
-            Request::builder()
-                .uri("/slow_resp")
+        .request(|b| {
+            b.uri("/slow_resp")
                 .method("GET")
                 .body(Body::empty())
                 .context("can't make request")
@@ -1087,14 +1080,13 @@ async fn req_failure_case_wall_clock_reached() {
 #[serial]
 async fn req_failture_case_memory_limit_1() {
     let tb = TestBedBuilder::new("./test_cases/main")
-        .with_oneshot_policy(100000)
+        .with_oneshot_policy(None)
         .build()
         .await;
 
     let mut res = tb
-        .request(|| {
-            Request::builder()
-                .uri("/array-alloc-sync")
+        .request(|b| {
+            b.uri("/array-alloc-sync")
                 .method("GET")
                 .body(Body::empty())
                 .context("can't make request")
@@ -1116,14 +1108,13 @@ async fn req_failture_case_memory_limit_1() {
 #[serial]
 async fn req_failture_case_memory_limit_2() {
     let tb = TestBedBuilder::new("./test_cases/main")
-        .with_oneshot_policy(100000)
+        .with_oneshot_policy(None)
         .build()
         .await;
 
     let mut res = tb
-        .request(|| {
-            Request::builder()
-                .uri("/array-alloc")
+        .request(|b| {
+            b.uri("/array-alloc")
                 .method("GET")
                 .body(Body::empty())
                 .context("can't make request")
@@ -1148,14 +1139,13 @@ async fn req_failure_case_wall_clock_reached_less_than_100ms() {
     // dozens of times on the local machine, it will fail with a timeout.
 
     let tb = TestBedBuilder::new("./test_cases/main_small_wall_clock_less_than_100ms")
-        .with_oneshot_policy(100000)
+        .with_oneshot_policy(None)
         .build()
         .await;
 
     let mut res = tb
-        .request(|| {
-            Request::builder()
-                .uri("/slow_resp")
+        .request(|b| {
+            b.uri("/slow_resp")
                 .method("GET")
                 .body(Body::empty())
                 .context("can't make request")
@@ -1324,7 +1314,11 @@ async fn test_oak_file_upload<F, R>(
     let original = RequestBuilder::from_parts(client, req);
     let request_builder = Some(original);
 
-    integration_test!(
+    integration_test_with_server_flag!(
+        ServerFlags {
+            request_buffer_size: Some(1024),
+            ..Default::default()
+        },
         main_service,
         NON_SECURE_PORT,
         "",
@@ -1589,14 +1583,13 @@ async fn test_decorator_parse_typescript_experimental_with_metadata() {
 #[serial]
 async fn send_partial_payload_into_closed_pipe_should_not_be_affected_worker_stability() {
     let tb = TestBedBuilder::new("./test_cases/main")
-        .with_oneshot_policy(100000)
+        .with_oneshot_policy(None)
         .build()
         .await;
 
     let mut resp1 = tb
-        .request(|| {
-            Request::builder()
-                .uri("/chunked-char-1000ms")
+        .request(|b| {
+            b.uri("/chunked-char-1000ms")
                 .method("GET")
                 .body(Body::empty())
                 .context("can't make request")
@@ -1619,9 +1612,8 @@ async fn send_partial_payload_into_closed_pipe_should_not_be_affected_worker_sta
     // of `Deno.serve` failing to properly handle an exception from a previous
     // request.
     let resp2 = tb
-        .request(|| {
-            Request::builder()
-                .uri("/empty-response")
+        .request(|b| {
+            b.uri("/empty-response")
                 .method("GET")
                 .body(Body::empty())
                 .context("can't make request")
@@ -2831,6 +2823,7 @@ async fn test_tmp_fs_should_not_be_available_in_import_stmt() {
 }
 
 // -- sb_ai: ORT @huggingface/transformers
+#[cfg(target_arch = "x86_64")]
 #[tokio::test]
 #[serial]
 async fn test_ort_nlp_feature_extraction() {
@@ -2850,6 +2843,7 @@ async fn test_ort_nlp_feature_extraction() {
     );
 }
 
+#[cfg(target_arch = "x86_64")]
 #[tokio::test]
 #[serial]
 async fn test_ort_nlp_fill_mask() {
@@ -2869,6 +2863,7 @@ async fn test_ort_nlp_fill_mask() {
     );
 }
 
+#[cfg(target_arch = "x86_64")]
 #[tokio::test]
 #[serial]
 async fn test_ort_nlp_question_answering() {
@@ -2888,6 +2883,7 @@ async fn test_ort_nlp_question_answering() {
     );
 }
 
+#[cfg(target_arch = "x86_64")]
 #[tokio::test]
 #[serial]
 async fn test_ort_nlp_summarization() {
@@ -2907,6 +2903,7 @@ async fn test_ort_nlp_summarization() {
     );
 }
 
+#[cfg(target_arch = "x86_64")]
 #[tokio::test]
 #[serial]
 async fn test_ort_nlp_text_classification() {
@@ -2926,6 +2923,7 @@ async fn test_ort_nlp_text_classification() {
     );
 }
 
+#[cfg(target_arch = "x86_64")]
 #[tokio::test]
 #[serial]
 async fn test_ort_nlp_text_generation() {
@@ -2945,6 +2943,7 @@ async fn test_ort_nlp_text_generation() {
     );
 }
 
+#[cfg(target_arch = "x86_64")]
 #[tokio::test]
 #[serial]
 async fn test_ort_nlp_text2text_generation() {
@@ -2964,6 +2963,7 @@ async fn test_ort_nlp_text2text_generation() {
     );
 }
 
+#[cfg(target_arch = "x86_64")]
 #[tokio::test]
 #[serial]
 async fn test_ort_nlp_token_classification() {
@@ -2983,6 +2983,7 @@ async fn test_ort_nlp_token_classification() {
     );
 }
 
+#[cfg(target_arch = "x86_64")]
 #[tokio::test]
 #[serial]
 async fn test_ort_nlp_translation() {
@@ -3002,6 +3003,7 @@ async fn test_ort_nlp_translation() {
     );
 }
 
+#[cfg(target_arch = "x86_64")]
 #[tokio::test]
 #[serial]
 async fn test_ort_nlp_zero_shot_classification() {
@@ -3021,6 +3023,7 @@ async fn test_ort_nlp_zero_shot_classification() {
     );
 }
 
+#[cfg(target_arch = "x86_64")]
 #[tokio::test]
 #[serial]
 async fn test_ort_vision_image_feature_extraction() {
@@ -3040,6 +3043,7 @@ async fn test_ort_vision_image_feature_extraction() {
     );
 }
 
+#[cfg(target_arch = "x86_64")]
 #[tokio::test]
 #[serial]
 async fn test_ort_vision_image_classification() {
@@ -3059,6 +3063,7 @@ async fn test_ort_vision_image_classification() {
     );
 }
 
+#[cfg(target_arch = "x86_64")]
 #[tokio::test]
 #[serial]
 async fn test_ort_vision_zero_shot_image_classification() {

@@ -23,14 +23,11 @@ link
 linkSync
 lstat
 lstatSync
-makeTempDir
 makeTempDirSync
 makeTempFile
 makeTempFileSync
-mkdir
 mkdirSync
 openSync
-readDir
 readDirSync
 readLink
 readLinkSync

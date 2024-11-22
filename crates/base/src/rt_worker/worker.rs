@@ -328,15 +328,8 @@ impl Worker {
                                 token.outbound.cancel();
                             }
                         }
-
-                        let s3_fs = runtime.s3_fs.take();
-
-                        drop(runtime);
-
-                        if let Some(fs) = s3_fs {
-                            if !fs.try_flush_background_tasks().await {
-                                error!("failed to flush background s3 api tasks");
-                            }
+                        if let Some(fs) = runtime.s3_fs.as_ref() {
+                            fs.flush_background_tasks().await;
                         }
 
                         result

@@ -90,6 +90,7 @@ fs3 = "0.5.0"
 uuid = { version = "1.3.0", features = ["v4"] }
 monch = "=0.5.0"
 reqwest = { version = "0.12.4", default-features = false, features = ["rustls-tls", "stream", "gzip", "brotli", "socks", "json", "http2"] } # pinned because of https://github.com/seanmonstar/reqwest/pull/1955
+reqwest_v011 = { package = "reqwest", version = "0.11", features = ["stream", "json", "multipart"] }
 ring = "^0.17.0"
 import_map = { version = "=0.20.0", features = ["ext"] }
 base32 = "=0.4.0"
@@ -137,6 +138,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "tracing-log"]
 rkyv = "0.7"
 tempfile = "3"
 xxhash-rust = "0.8"
+either = "1"
+serial_test = "3.0.0"
 
 [patch.crates-io]
 # If the PR is merged upstream, remove the line below.

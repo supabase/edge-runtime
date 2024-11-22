@@ -471,6 +471,13 @@ globalThis.bootstrapSBEdge = (opts, extraCtx) => {
 		},
 	});
 
+	// Find declarative fetch handler
+	core.addMainModuleHandler(main => {
+		if (ObjectHasOwn(main, 'default')) {
+			registerDeclarativeServer(main.default);
+		}
+	});
+
 	/// DISABLE SHARED MEMORY AND INSTALL MEM CHECK TIMING
 
 	// NOTE: We should not allow user workers to use shared memory. This is
@@ -534,6 +541,9 @@ globalThis.bootstrapSBEdge = (opts, extraCtx) => {
 			'writeTextFile': true,
 			'readFile': true,
 			'readTextFile': true,
+			'mkdir': true,
+			'makeTempDir': true,
+			'readDir': true,
 
 			'kill': MOCK_FN,
 			'exit': MOCK_FN,
@@ -561,13 +571,6 @@ globalThis.bootstrapSBEdge = (opts, extraCtx) => {
 				Deno[name] = value;
 			}
 		}
-
-		// find declarative fetch handler
-		core.addMainModuleHandler(main => {
-			if (ObjectHasOwn(main, 'default')) {
-				registerDeclarativeServer(main.default);
-			}
-		});
 	}
 
 	if (isEventsWorker) {

@@ -1,7 +1,12 @@
+// TODO: Remove the line below after updating the rust toolchain to v1.81.
+#![allow(clippy::blocks_in_conditions)]
+
 use core::slice;
 use std::{
     borrow::Cow,
+    cell::RefCell,
     ffi::OsStr,
+    fmt::Debug,
     io::{self, Cursor},
     mem,
     os::fd::AsRawFd,
@@ -31,6 +36,7 @@ use aws_smithy_runtime_api::client::orchestrator::HttpResponse;
 use deno_core::{AsyncRefCell, BufMutView, BufView, RcRef, ResourceHandleFd, WriteOutcome};
 use deno_fs::{AccessCheckCb, FsDirEntry, FsFileType, OpenOptions};
 use deno_io::fs::{File, FsError, FsResult, FsStat};
+use either::Either;
 use enum_as_inner::EnumAsInner;
 use futures::{
     future::{BoxFuture, Shared},
@@ -38,15 +44,21 @@ use futures::{
     stream::FuturesUnordered,
     AsyncWriteExt, FutureExt, StreamExt, TryFutureExt,
 };
+use headers::Authorization;
+use hyper_proxy::{Intercept, Proxy, ProxyConnector};
+use hyper_rustls::{HttpsConnector, HttpsConnectorBuilder};
+use hyper_v014::{client::HttpConnector, Uri};
 use memmap2::{MmapOptions, MmapRaw};
-use once_cell::sync::OnceCell;
+use once_cell::sync::{Lazy, OnceCell};
 use serde::{Deserialize, Serialize};
 use tempfile::tempfile;
 use tokio::{
     io::{AsyncBufRead, AsyncReadExt},
+    sync::RwLock,
     task::JoinError,
 };
-use tracing::{debug, debug_span, error, info_span, instrument, warn, Instrument};
+use tracing::{debug, error, info_span, instrument, trace, trace_span, warn, Instrument};
+use url::Url;
 
 use super::TryNormalizePath;
 
@@ -57,26 +69,29 @@ type BackgroundTask = Shared<BoxFuture<'static, Result<(), Arc<JoinError>>>>;
 #[derive(Debug, Clone)]
 pub struct S3Fs {
     client: aws_sdk_s3::Client,
-    background_tasks: Arc<FuturesUnordered<BackgroundTask>>,
+    background_tasks: Arc<RwLock<FuturesUnordered<BackgroundTask>>>,
+
+    #[allow(unused)]
+    config: Arc<S3FsConfig>,
 }
 
 impl S3Fs {
-    pub async fn try_flush_background_tasks(&self) -> bool {
-        let Ok(mut background_tasks) = Arc::try_unwrap(self.background_tasks.clone()) else {
-            return false;
-        };
+    pub async fn flush_background_tasks(&self) {
+        if self.background_tasks.read().await.is_empty() {
+            return;
+        }
+
+        let mut background_tasks = self.background_tasks.write().await;
 
         loop {
             if background_tasks.next().await.is_none() {
                 break;
             }
         }
-
-        true
     }
 }
 
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct S3CredentialsObject {
     access_key_id: Cow<'static, str>,
@@ -138,7 +153,7 @@ impl ReconnectMode {
     }
 }
 
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct S3ClientRetryConfig {
     mode: RetryMode,
@@ -170,7 +185,7 @@ impl S3ClientRetryConfig {
     }
 }
 
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct S3FsConfig {
     app_name: Option<Cow<'static, str>>,
@@ -207,7 +222,7 @@ impl S3FsConfig {
                     move || std::future::ready(Ok(cred.clone())),
                 )))
             })
-            .set_http_client(Some(Self::get_shared_http_client()))
+            .set_http_client(Some(Self::get_thread_local_shared_http_client()))
             .set_behavior_version(Some(BehaviorVersion::latest()))
             .set_retry_config(
                 self.retry_config
@@ -217,20 +232,73 @@ impl S3FsConfig {
         Ok(builder.build())
     }
 
-    fn get_shared_http_client() -> SharedHttpClient {
-        static CLIENT: OnceCell<SharedHttpClient> = OnceCell::new();
+    fn get_thread_local_shared_http_client() -> SharedHttpClient {
+        thread_local! {
+            static CLIENT: RefCell<OnceCell<SharedHttpClient>> = const { RefCell::new(OnceCell::new()) };
+        }
 
-        CLIENT
-            .get_or_init(|| HyperClientBuilder::new().build_https())
-            .clone()
+        CLIENT.with(|it| {
+            it.borrow_mut()
+                .get_or_init(|| {
+                    if let Some(proxy_connector) = resolve_proxy_connector() {
+                        HyperClientBuilder::new().build(proxy_connector)
+                    } else {
+                        HyperClientBuilder::new().build_https()
+                    }
+                })
+                .clone()
+        })
     }
+}
+
+fn resolve_proxy_connector() -> Option<ProxyConnector<HttpsConnector<HttpConnector>>> {
+    let proxy_url: Url = std::env::var("HTTPS_PROXY").ok()?.parse().ok()?;
+    let proxy_uri: Uri = std::env::var("HTTPS_PROXY").ok()?.parse().ok()?;
+    let mut proxy = Proxy::new(Intercept::All, proxy_uri);
+
+    if let Some(password) = proxy_url.password() {
+        proxy.set_authorization(Authorization::basic(proxy_url.username(), password));
+    }
+
+    static HTTPS_NATIVE_ROOTS: Lazy<HttpsConnector<HttpConnector>> = Lazy::new(default_tls);
+
+    fn default_tls() -> HttpsConnector<HttpConnector> {
+        use hyper_rustls::ConfigBuilderExt;
+        HttpsConnectorBuilder::new()
+            .with_tls_config(
+                rustls::ClientConfig::builder()
+                    .with_cipher_suites(&[
+                        // TLS1.3 suites
+                        rustls::cipher_suite::TLS13_AES_256_GCM_SHA384,
+                        rustls::cipher_suite::TLS13_AES_128_GCM_SHA256,
+                        // TLS1.2 suites
+                        rustls::cipher_suite::TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+                        rustls::cipher_suite::TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+                        rustls::cipher_suite::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+                        rustls::cipher_suite::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+                        rustls::cipher_suite::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+                    ])
+                    .with_safe_default_kx_groups()
+                    .with_safe_default_protocol_versions()
+                    .unwrap()
+                    .with_native_roots()
+                    .with_no_client_auth(),
+            )
+            .https_or_http()
+            .enable_http1()
+            .enable_http2()
+            .build()
+    }
+
+    Some(ProxyConnector::from_proxy(HTTPS_NATIVE_ROOTS.clone(), proxy).unwrap())
 }
 
 impl S3Fs {
     pub fn new(config: S3FsConfig) -> Result<Self, anyhow::Error> {
         Ok(Self {
-            client: aws_sdk_s3::Client::from_conf(config.try_into_s3_config()?),
+            client: aws_sdk_s3::Client::from_conf(config.clone().try_into_s3_config()?),
             background_tasks: Arc::default(),
+            config: Arc::new(config),
         })
     }
 }
@@ -262,29 +330,79 @@ impl deno_fs::FileSystem for S3Fs {
         Err(FsError::NotSupported)
     }
 
+    #[instrument(
+        level = "trace", 
+        skip(self, options, _access_check),
+        fields(?options, has_access_check = _access_check.is_some()),
+        err(Debug)
+    )]
     async fn open_async<'a>(
         &'a self,
         path: PathBuf,
         options: OpenOptions,
         _access_check: Option<AccessCheckCb<'a>>,
     ) -> FsResult<Rc<dyn File>> {
+        self.flush_background_tasks().await;
+
         let (bucket_name, key) = try_get_bucket_name_and_key(path.try_normalize()?)?;
 
-        Ok(Rc::new(S3Object {
+        if key.is_empty() {
+            return Err(FsError::Io(io::Error::from(io::ErrorKind::InvalidInput)));
+        }
+
+        let resp = self
+            .client
+            .head_object()
+            .bucket(&bucket_name)
+            .key(&key)
+            .send()
+            .await;
+
+        let mut not_found = false;
+
+        if let Some(err) = resp.err() {
+            not_found = err
+                .as_service_error()
+                .map(|it| it.is_not_found())
+                .unwrap_or_default();
+
+            if not_found {
+                if !(options.create || options.create_new) {
+                    return Err(FsError::Io(io::Error::from(io::ErrorKind::NotFound)));
+                }
+            } else {
+                return Err(FsError::Io(io::Error::other(err)));
+            }
+        }
+
+        let file = Rc::new(S3Object {
             bucket_name,
             key,
             fs: self.clone(),
-            open_options: options,
             op_slot: AsyncRefCell::default(),
-        }))
+        });
+
+        if not_found || options.truncate {
+            file.clone().write(BufView::empty()).await?;
+        } else if options.create_new {
+            return Err(FsError::Io(io::Error::from(io::ErrorKind::AlreadyExists)));
+        }
+
+        Ok(file)
     }
 
     fn mkdir_sync(&self, _path: &Path, _recursive: bool, _mode: u32) -> FsResult<()> {
         Err(FsError::NotSupported)
     }
 
+    #[instrument(level = "trace", skip(self, _mode), fields(mode = _mode) ret, err(Debug))]
     async fn mkdir_async(&self, path: PathBuf, recursive: bool, _mode: u32) -> FsResult<()> {
         let (bucket_name, key) = try_get_bucket_name_and_key(path.try_normalize()?)?;
+
+        if key.is_empty() {
+            return Err(FsError::Io(io::Error::from(io::ErrorKind::InvalidInput)));
+        }
+
         let keys = if recursive {
             PathBuf::from(key)
                 .iter()
@@ -302,14 +420,47 @@ impl deno_fs::FileSystem for S3Fs {
                 })
                 .collect::<Vec<_>>()
         } else {
+            'scope: {
+                if let Some(parent) = PathBuf::from(&key).parent() {
+                    if parent == Path::new("") {
+                        break 'scope;
+                    }
+
+                    let resp = self
+                        .client
+                        .head_object()
+                        .bucket(&bucket_name)
+                        .key(parent.to_string_lossy())
+                        .send()
+                        .await;
+
+                    if let Some(err) = resp.err() {
+                        if err
+                            .as_service_error()
+                            .map(|it| it.is_not_found())
+                            .unwrap_or_default()
+                        {
+                            return Err(FsError::Io(io::Error::other(format!(
+                                "No such file or directory: {}",
+                                parent.to_string_lossy()
+                            ))));
+                        }
+
+                        return Err(FsError::Io(io::Error::other(err)));
+                    }
+                }
+            }
+
             vec![key]
         };
 
         let mut futs = FuturesUnordered::new();
         let mut errors = vec![];
 
-        for folder_key in keys {
-            debug_assert!(folder_key.ends_with('/'));
+        for mut folder_key in keys {
+            if !folder_key.ends_with('/') {
+                folder_key.push('/');
+            }
 
             let client = self.client.clone();
             let bucket_name = bucket_name.clone();
@@ -387,19 +538,27 @@ impl deno_fs::FileSystem for S3Fs {
         Err(FsError::NotSupported)
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     async fn remove_async(&self, path: PathBuf, recursive: bool) -> FsResult<()> {
-        let had_slash = path.ends_with("/");
+        self.flush_background_tasks().await;
+
+        let had_slash = path.to_string_lossy().ends_with('/');
         let (bucket_name, key) = try_get_bucket_name_and_key(path.try_normalize()?)?;
 
         if recursive {
-            let builder = self
-                .client
-                .list_objects_v2()
-                .bucket(&bucket_name)
-                .prefix(format!("{}/", key));
+            let builder =
+                self.client
+                    .list_objects_v2()
+                    .bucket(&bucket_name)
+                    .prefix(if key.is_empty() {
+                        Cow::Borrowed("")
+                    } else {
+                        Cow::Owned(format!("{}/", key))
+                    });
 
             let mut errors = vec![];
             let mut stream = builder.into_paginator().send();
+            let mut ids = vec![];
 
             while let Some(resp) = stream.next().await {
                 let v = match resp {
@@ -413,36 +572,39 @@ impl deno_fs::FileSystem for S3Fs {
                     _ => {}
                 }
 
-                let delete = Delete::builder()
-                    .set_quiet(Some(true))
-                    .set_objects(Some(
-                        v.contents()
-                            .iter()
-                            .filter_map(|it| {
-                                it.key()
-                                    .and_then(|it| ObjectIdentifier::builder().key(it).build().ok())
-                            })
-                            .collect::<Vec<_>>(),
-                    ))
-                    .build()
-                    .map_err(io::Error::other)?;
+                ids.extend(v.contents().iter().filter_map(|it| {
+                    it.key()
+                        .and_then(|it| ObjectIdentifier::builder().key(it).build().ok())
+                }));
+            }
 
-                let resp = self
-                    .client
-                    .delete_objects()
-                    .bucket(&bucket_name)
-                    .delete(delete)
-                    .send()
-                    .await;
+            if ids.is_empty() {
+                return Ok(());
+            }
 
-                let v = match resp {
-                    Ok(v) => v,
-                    Err(err) => return Err(io::Error::other(err).into()),
-                };
+            trace!(ids = ?ids.iter().map(|it| it.key()).collect::<Vec<_>>());
 
-                if !v.errors().is_empty() {
-                    errors.extend_from_slice(v.errors());
-                }
+            let delete = Delete::builder()
+                .set_quiet(Some(true))
+                .set_objects(Some(ids))
+                .build()
+                .map_err(io::Error::other)?;
+
+            let resp = self
+                .client
+                .delete_objects()
+                .bucket(&bucket_name)
+                .delete(delete)
+                .send()
+                .await;
+
+            let v = match resp {
+                Ok(v) => v,
+                Err(err) => return Err(io::Error::other(err).into()),
+            };
+
+            if !v.errors().is_empty() {
+                errors.extend_from_slice(v.errors());
             }
 
             return to_combined_message(errors.into_iter().map(|it| {
@@ -455,11 +617,35 @@ impl deno_fs::FileSystem for S3Fs {
             }));
         }
 
-        let _resp = self
+        if key.is_empty() {
+            return Err(FsError::Io(io::Error::from(io::ErrorKind::InvalidInput)));
+        }
+
+        let key = if had_slash { format!("{}/", key) } else { key };
+        let resp = self
             .client
+            .head_object()
+            .bucket(&bucket_name)
+            .key(&key)
+            .send()
+            .await;
+
+        if let Some(err) = resp.err() {
+            if err
+                .as_service_error()
+                .map(|it| it.is_not_found())
+                .unwrap_or_default()
+            {
+                return Err(FsError::Io(io::Error::from(io::ErrorKind::NotFound)));
+            }
+
+            return Err(FsError::Io(io::Error::other(err)));
+        }
+
+        self.client
             .delete_object()
             .bucket(bucket_name)
-            .key(if had_slash { format!("{}/", key) } else { key })
+            .key(key)
             .send()
             .await
             .map_err(io::Error::other)?;
@@ -489,8 +675,53 @@ impl deno_fs::FileSystem for S3Fs {
         Err(FsError::NotSupported)
     }
 
+    #[instrument(level = "trace", skip(self), err(Debug))]
     async fn stat_async(&self, path: PathBuf) -> FsResult<FsStat> {
-        self.open_async(path.try_normalize()?, OpenOptions::read(), None)
+        self.flush_background_tasks().await;
+
+        let path = path.try_normalize()?;
+        let had_slash = path.to_string_lossy().ends_with('/');
+        let (bucket_name, key) = try_get_bucket_name_and_key(path.clone())?;
+        let key_count = if key.is_empty() {
+            Some(1)
+        } else {
+            self.client
+                .list_objects_v2()
+                .max_keys(1)
+                .bucket(bucket_name)
+                .prefix(if had_slash { key } else { format!("{}/", key) })
+                .send()
+                .await
+                .map_err(io::Error::other)?
+                .key_count()
+        };
+
+        if matches!(key_count, Some(v) if v > 0) {
+            return Ok(FsStat {
+                is_file: false,
+                is_directory: true,
+                is_symlink: false,
+                size: 0,
+                mtime: None,
+                atime: None,
+                birthtime: None,
+                dev: 0,
+                ino: 0,
+                mode: 0,
+                nlink: 0,
+                uid: 0,
+                gid: 0,
+                rdev: 0,
+                blksize: 0,
+                blocks: 0,
+                is_block_device: false,
+                is_char_device: false,
+                is_fifo: false,
+                is_socket: false,
+            });
+        }
+
+        self.open_async(path, OpenOptions::read(), None)
             .and_then(|it| it.stat_async())
             .await
     }
@@ -499,6 +730,7 @@ impl deno_fs::FileSystem for S3Fs {
         Err(FsError::NotSupported)
     }
 
+    #[instrument(level = "trace", skip(self), err(Debug))]
     async fn lstat_async(&self, path: PathBuf) -> FsResult<FsStat> {
         self.stat_async(path).await
     }
@@ -515,8 +747,12 @@ impl deno_fs::FileSystem for S3Fs {
         Err(FsError::NotSupported)
     }
 
+    #[instrument(level = "trace", skip(self), err(Debug))]
     async fn read_dir_async(&self, path: PathBuf) -> FsResult<Vec<FsDirEntry>> {
+        self.flush_background_tasks().await;
+
         let (bucket_name, mut key) = try_get_bucket_name_and_key(path.try_normalize()?)?;
+        let is_root = key.is_empty();
 
         debug_assert!(!key.ends_with('/'));
         key.push('/');
@@ -526,7 +762,7 @@ impl deno_fs::FileSystem for S3Fs {
             .list_objects_v2()
             .set_bucket(Some(bucket_name))
             .set_delimiter(Some("/".into()))
-            .set_prefix(Some(key));
+            .set_prefix((!is_root).then_some(key));
 
         let mut entries = vec![];
         let mut stream = builder.into_paginator().send();
@@ -586,13 +822,16 @@ impl deno_fs::FileSystem for S3Fs {
             }
         }
 
-        Ok(entries)
+        Ok(entries).inspect(|it| {
+            trace!(len = it.len());
+        })
     }
 
     fn rename_sync(&self, _oldpath: &Path, _newpath: &Path) -> FsResult<()> {
         Err(FsError::NotSupported)
     }
 
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     async fn rename_async(&self, _oldpath: PathBuf, _newpath: PathBuf) -> FsResult<()> {
         Err(FsError::NotSupported)
     }
@@ -692,18 +931,30 @@ enum S3ObjectOpSlot {
 
 struct S3ObjectReadState(Pin<Box<dyn AsyncBufRead>>, usize);
 
-#[derive(Debug)]
 struct FileBackedMmapBuffer {
     cursor: AllowStdIo<Cursor<&'static mut [u8]>>,
     raw: MmapRaw,
-    _file: std::fs::File,
+    file: std::fs::File,
+}
+
+impl std::fmt::Debug for FileBackedMmapBuffer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("FileBackedMmapBuffer")
+            .field(&self.file)
+            .finish()
+    }
 }
 
 impl FileBackedMmapBuffer {
     fn new() -> Result<Self, anyhow::Error> {
-        let file = tempfile().context("could not create a temp file")?;
+        let file = {
+            let f = tempfile().context("could not create a temp file")?;
+
+            f.set_len(MIN_PART_SIZE as u64)?;
+            f
+        };
+
         let raw = MmapOptions::new()
-            .len(MIN_PART_SIZE)
             .map_raw(file.as_raw_fd())
             .context("failed to create a file backed memory buffer")?;
 
@@ -711,11 +962,7 @@ impl FileBackedMmapBuffer {
             slice::from_raw_parts_mut(raw.as_mut_ptr(), raw.len())
         }));
 
-        Ok(Self {
-            cursor,
-            raw,
-            _file: file,
-        })
+        Ok(Self { cursor, raw, file })
     }
 }
 
@@ -749,6 +996,7 @@ impl S3ObjectWriteState {
         })
     }
 
+    #[instrument(level = "trace", skip(self), fields(file = ?self.buf.file), ret, err(Debug))]
     fn try_swap_buffer(&mut self) -> Result<FileBackedMmapBuffer, anyhow::Error> {
         Ok(mem::replace(&mut self.buf, FileBackedMmapBuffer::new()?))
     }
@@ -762,7 +1010,7 @@ enum S3WriteErrorSubject {
 impl std::fmt::Display for S3WriteErrorSubject {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::MultiPartUploadTask((idx, inner)) => write!(f, "{idx}: {inner}"),
+            Self::MultiPartUploadTask((idx, inner)) => write!(f, "{idx}: {inner:?}"),
             Self::Join(inner) => write!(f, "{inner:?}: {inner}"),
         }
     }
@@ -779,7 +1027,7 @@ type BoxedUploadPartTask = BoxFuture<
     >,
 >;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct S3MultiPartUploadMethod {
     recent_part_idx: i32,
     upload_id: String,
@@ -787,7 +1035,19 @@ struct S3MultiPartUploadMethod {
     tasks: FuturesUnordered<BoxedUploadPartTask>,
 }
 
+impl Default for S3MultiPartUploadMethod {
+    fn default() -> Self {
+        Self {
+            recent_part_idx: 1,
+            upload_id: String::default(),
+            parts: Vec::default(),
+            tasks: FuturesUnordered::default(),
+        }
+    }
+}
+
 impl S3MultiPartUploadMethod {
+    #[instrument(level = "trace", skip(self), fields(upload_id = self.upload_id) ret, err(Debug))]
     async fn sync(&mut self) -> FsResult<()> {
         let mut errors = vec![];
 
@@ -825,6 +1085,55 @@ impl S3MultiPartUploadMethod {
 
         to_combined_message(errors)
     }
+
+    #[instrument(level = "trace", skip_all, fields(upload_id = self.upload_id, last))]
+    fn add_upload_part_task(
+        &mut self,
+        client: aws_sdk_s3::Client,
+        bucket_name: &str,
+        key: &str,
+        state_or_mmap_buf: Either<S3ObjectWriteState, FileBackedMmapBuffer>,
+        last: bool,
+    ) {
+        self.tasks.push(
+            tokio::task::spawn({
+                let client = client;
+                let upload_id = self.upload_id.clone();
+                let part_idx = self.recent_part_idx;
+                let bucket_name = bucket_name.to_string();
+                let key = key.to_string();
+
+                self.recent_part_idx += 1;
+
+                async move {
+                    let buf = state_or_mmap_buf.map_left(|it| it.buf).into_inner();
+                    let data = unsafe {
+                        slice::from_raw_parts(
+                            buf.raw.as_ptr(),
+                            buf.cursor.get_ref().position() as usize,
+                        )
+                    };
+
+                    trace!(size = data.len());
+                    client
+                        .upload_part()
+                        .bucket(bucket_name)
+                        .key(key)
+                        .upload_id(upload_id)
+                        .part_number(part_idx)
+                        .body(ByteStream::new(data.into()))
+                        .send()
+                        .map(|it| {
+                            trace!(success = it.is_ok());
+                            (part_idx, it)
+                        })
+                        .await
+                }
+                .instrument(trace_span!("upload part", last, part = part_idx))
+            })
+            .boxed(),
+        );
+    }
 }
 
 #[derive(Debug, EnumAsInner)]
@@ -834,6 +1143,7 @@ enum S3WriteUploadMethod {
 }
 
 impl S3WriteUploadMethod {
+    #[instrument(level = "trace", skip(self), ret, err(Debug))]
     async fn sync(&mut self) -> FsResult<()> {
         if let Self::MultiPartUpload(multi_part) = self {
             multi_part.sync().await?
@@ -842,9 +1152,16 @@ impl S3WriteUploadMethod {
         Ok(())
     }
 
+    #[instrument(
+        level = "trace",
+        skip(self, state),
+        fields(client, bucket_name, key),
+        ret,
+        err(Debug)
+    )]
     async fn cleanup(
         &mut self,
-        fs: S3Fs,
+        client: aws_sdk_s3::Client,
         bucket_name: String,
         key: String,
         state: S3ObjectWriteState,
@@ -853,41 +1170,12 @@ impl S3WriteUploadMethod {
             Self::MultiPartUpload(multi_part) => {
                 if state.buf.cursor.get_ref().position() > 0 {
                     state.buf.raw.flush_async()?;
-                    multi_part.tasks.push(
-                        tokio::task::spawn({
-                            let upload_id = multi_part.upload_id.clone();
-                            let client = fs.client.clone();
-                            let bucket_name = bucket_name.clone();
-                            let key = key.clone();
-                            let part_idx = multi_part.recent_part_idx;
-                            let data = unsafe {
-                                slice::from_raw_parts(
-                                    state.buf.raw.as_ptr(),
-                                    state.buf.cursor.get_ref().position() as usize,
-                                )
-                            };
-
-                            multi_part.recent_part_idx += 1;
-
-                            async move {
-                                client
-                                    .upload_part()
-                                    .bucket(bucket_name)
-                                    .key(key)
-                                    .upload_id(upload_id)
-                                    .part_number(part_idx)
-                                    .body(ByteStream::new(data.into()))
-                                    .send()
-                                    .map(|it| (part_idx, it))
-                                    .await
-                            }
-                            .instrument(debug_span!(
-                                "upload part",
-                                last = true,
-                                part = part_idx
-                            ))
-                        })
-                        .boxed(),
+                    multi_part.add_upload_part_task(
+                        client.clone(),
+                        &bucket_name,
+                        &key,
+                        Either::Left(state),
+                        true,
                     );
 
                     multi_part.sync().await?;
@@ -898,16 +1186,46 @@ impl S3WriteUploadMethod {
                 }
 
                 debug_assert!(multi_part.tasks.is_empty());
-                debug_assert!(multi_part.recent_part_idx > 0);
+                debug_assert!(multi_part.recent_part_idx > 1);
 
-                fs.client
+                if multi_part.parts.len() != (multi_part.recent_part_idx - 1) as usize {
+                    error!(
+                        parts.len = multi_part.parts.len(),
+                        recent_part_idx = multi_part.recent_part_idx - 1,
+                        "mismatch with recent part idx"
+                    );
+
+                    client
+                        .abort_multipart_upload()
+                        .bucket(bucket_name)
+                        .key(key)
+                        .upload_id(mem::take(&mut multi_part.upload_id))
+                        .send()
+                        .await
+                        .map_err(io::Error::other)?;
+
+                    return Err(FsError::Io(io::Error::other(
+                        "upload was aborted because some parts were not successfully uploaded",
+                    )));
+                }
+
+                client
                     .complete_multipart_upload()
                     .bucket(bucket_name)
                     .key(key)
                     .upload_id(mem::take(&mut multi_part.upload_id))
                     .multipart_upload(
                         CompletedMultipartUpload::builder()
-                            .set_parts(Some(mem::take(&mut multi_part.parts)))
+                            .set_parts({
+                                let mut parts = mem::take(&mut multi_part.parts);
+
+                                parts.sort_by(|a, b| {
+                                    a.part_number().unwrap().cmp(&b.part_number().unwrap())
+                                });
+
+                                trace!(idx_list = ?parts.iter().map(|it| it.part_number().unwrap()).collect::<Vec<_>>());
+                                Some(parts)
+                            })
                             .build(),
                     )
                     .send()
@@ -916,7 +1234,7 @@ impl S3WriteUploadMethod {
             }
 
             Self::PutObject => {
-                fs.client
+                client
                     .put_object()
                     .bucket(bucket_name)
                     .key(key)
@@ -939,10 +1257,6 @@ impl S3WriteUploadMethod {
 pub struct S3Object {
     fs: S3Fs,
     op_slot: AsyncRefCell<Option<S3ObjectOpSlot>>,
-
-    #[allow(unused)]
-    open_options: OpenOptions,
-
     bucket_name: String,
     key: String,
 }
@@ -967,22 +1281,27 @@ impl Drop for S3Object {
                 key = key.as_str()
             );
 
-            self.fs.background_tasks.push(
-                tokio::task::spawn(
-                    async move {
-                        if let Err(err) = method.sync().await {
-                            error!(reason = ?err, "sync operation failed");
+            drop(tokio::spawn(async move {
+                fs.background_tasks.write().await.push(
+                    tokio::task::spawn(
+                        async move {
+                            if let Err(err) = method.sync().await {
+                                error!(reason = ?err, "sync operation failed");
+                            }
+                            if let Err(err) = method
+                                .cleanup(fs.client.clone(), bucket_name, key, state)
+                                .await
+                            {
+                                error!(reason = ?err, "cleanup operation failed");
+                            }
                         }
-                        if let Err(err) = method.cleanup(fs, bucket_name, key, state).await {
-                            error!(reason = ?err, "cleanup operation failed");
-                        }
-                    }
-                    .instrument(span),
-                )
-                .map_err(Arc::new)
-                .boxed()
-                .shared(),
-            );
+                        .instrument(span),
+                    )
+                    .map_err(Arc::new)
+                    .boxed()
+                    .shared(),
+                );
+            }));
         }
     }
 }
@@ -993,7 +1312,7 @@ impl deno_io::fs::File for S3Object {
         Err(FsError::NotSupported)
     }
 
-    #[instrument(level = "info", skip_all, fields(self.bucket_name, self.key))]
+    #[instrument(level = "trace", skip_all, fields(self.bucket_name, self.key), err(Debug))]
     async fn read_byob(self: Rc<Self>, mut buf: BufMutView) -> FsResult<(usize, BufMutView)> {
         let mut op_slot = RcRef::map(&self, |r| &r.op_slot).borrow_mut().await;
         let Some(op_slot_mut) = op_slot.as_mut() else {
@@ -1004,8 +1323,11 @@ impl deno_io::fs::File for S3Object {
                 .bucket(&self.bucket_name)
                 .key(&self.key)
                 .send()
-                .await
-                .map_err(io::Error::other)?;
+                .await;
+
+            let Ok(resp) = resp else {
+                return Ok((0, buf));
+            };
 
             let mut body_buf = resp.body.into_async_read();
             let nread = body_buf.read(&mut buf).await?;
@@ -1015,6 +1337,7 @@ impl deno_io::fs::File for S3Object {
                 nread,
             )));
 
+            trace!(nread);
             return Ok((nread, buf));
         };
 
@@ -1030,6 +1353,7 @@ impl deno_io::fs::File for S3Object {
                     op_slot.take();
                 }
 
+                trace!(nread);
                 return Ok((nread, buf));
             }
 
@@ -1069,6 +1393,8 @@ impl deno_io::fs::File for S3Object {
 
             state.1 += nread;
             state.0 = Box::pin(body_buf);
+
+            trace!(nread);
             Ok((nread, buf))
         } else {
             op_slot.take();
@@ -1080,7 +1406,7 @@ impl deno_io::fs::File for S3Object {
         Err(FsError::NotSupported)
     }
 
-    #[instrument(level = "info", skip_all, fields(self.bucket_name, self.key))]
+    #[instrument(level = "trace", skip_all, fields(self.bucket_name, self.key, len = buf.len()), err(Debug))]
     async fn write(self: Rc<Self>, buf: BufView) -> FsResult<WriteOutcome> {
         let mut op_slot = RcRef::map(&self, |r| &r.op_slot).borrow_mut().await;
         let Some(op_slot_mut) = op_slot.as_mut() else {
@@ -1102,6 +1428,7 @@ impl deno_io::fs::File for S3Object {
 
             *op_slot = Some(S3ObjectOpSlot::Write(state));
 
+            trace!(nwritten);
             return Ok(written);
         };
 
@@ -1154,38 +1481,15 @@ impl deno_io::fs::File for S3Object {
                 }
             };
 
-            method.tasks.push(
-                tokio::task::spawn({
-                    let upload_id = method.upload_id.clone();
-                    let client = self.fs.client.clone();
-                    let bucket_name = self.bucket_name.clone();
-                    let key = self.key.clone();
-                    let part_idx = method.recent_part_idx;
-
-                    method.recent_part_idx += 1;
-
-                    async move {
-                        client
-                            .upload_part()
-                            .bucket(bucket_name)
-                            .key(key)
-                            .upload_id(upload_id)
-                            .part_number(part_idx)
-                            .body(ByteStream::new(
-                                unsafe {
-                                    slice::from_raw_parts(mmap_buf.raw.as_ptr(), mmap_buf.raw.len())
-                                }
-                                .into(),
-                            ))
-                            .send()
-                            .map(|it| (part_idx, it))
-                            .await
-                    }
-                    .instrument(debug_span!("upload part", part = part_idx))
-                })
-                .boxed(),
+            method.add_upload_part_task(
+                self.fs.client.clone(),
+                &self.bucket_name,
+                &self.key,
+                Either::Right(mmap_buf),
+                false,
             );
 
+            trace!(nwritten);
             return Ok(WriteOutcome::Partial {
                 nwritten,
                 view: buf,
@@ -1193,6 +1497,7 @@ impl deno_io::fs::File for S3Object {
         }
 
         assert_eq!(nwritten, size);
+        trace!(nwritten);
         Ok(WriteOutcome::Full { nwritten })
     }
 
@@ -1200,7 +1505,7 @@ impl deno_io::fs::File for S3Object {
         Err(FsError::NotSupported)
     }
 
-    #[instrument(level = "info", skip_all, fields(self.bucket_name, self.key))]
+    #[instrument(level = "trace", skip_all, fields(self.bucket_name, self.key), err(Debug))]
     async fn write_all(self: Rc<Self>, mut buf: BufView) -> FsResult<()> {
         loop {
             match self.clone().write(buf).await? {
@@ -1217,7 +1522,7 @@ impl deno_io::fs::File for S3Object {
         Err(FsError::NotSupported)
     }
 
-    #[instrument(level = "info", skip_all, fields(self.bucket_name, self.key))]
+    #[instrument(level = "trace", skip_all, fields(self.bucket_name, self.key), err(Debug))]
     async fn read_all_async(self: Rc<Self>) -> FsResult<Vec<u8>> {
         let resp = self
             .fs
@@ -1232,6 +1537,9 @@ impl deno_io::fs::File for S3Object {
             Ok(v) => Ok(v.body.collect().await.map_err(io::Error::other)?.to_vec()),
             Err(err) => Err(io::Error::other(err).into()),
         }
+        .inspect(|it| {
+            trace!(nread = it.len());
+        })
     }
 
     fn chmod_sync(self: Rc<Self>, _pathmode: u32) -> FsResult<()> {
@@ -1320,7 +1628,6 @@ impl deno_io::fs::File for S3Object {
             mtime: resp.last_modified.and_then(to_msec),
             atime: None,
             birthtime: None,
-
             dev: 0,
             ino: 0,
             mode: 0,
@@ -1433,4 +1740,72 @@ where
     }
 
     Err(io::Error::other(messages.join("\n")).into())
+}
+
+#[cfg(test)]
+mod test {
+    use std::{io, path::PathBuf, sync::Arc};
+
+    use aws_config::BehaviorVersion;
+    use aws_sdk_s3::{self as s3};
+    use aws_smithy_runtime::client::http::test_util::{ReplayEvent, StaticReplayClient};
+    use deno_fs::{FileSystem, OpenOptions};
+    use once_cell::sync::Lazy;
+
+    static OPEN_CREATE: Lazy<OpenOptions> = Lazy::new(|| OpenOptions {
+        read: true,
+        write: true,
+        create: true,
+        truncate: true,
+        append: true,
+        create_new: true,
+        mode: None,
+    });
+
+    fn get_s3_credentials() -> s3::config::SharedCredentialsProvider {
+        s3::config::SharedCredentialsProvider::new(s3::config::Credentials::new(
+            "AKIMEOWMEOW",
+            "+meowmeowmeeeeeeow/",
+            None,
+            None,
+            "meowmeow",
+        ))
+    }
+
+    fn get_s3_fs<I>(events: I) -> (super::S3Fs, StaticReplayClient)
+    where
+        I: IntoIterator<Item = ReplayEvent>,
+    {
+        let client = StaticReplayClient::new(events.into_iter().collect());
+
+        (
+            super::S3Fs {
+                background_tasks: Default::default(),
+                config: Arc::default(),
+                client: s3::Client::from_conf(
+                    s3::Config::builder()
+                        .behavior_version(BehaviorVersion::latest())
+                        .credentials_provider(get_s3_credentials())
+                        .region(s3::config::Region::new("us-east-1"))
+                        .http_client(client.clone())
+                        .build(),
+                ),
+            },
+            client,
+        )
+    }
+
+    #[tokio::test]
+    async fn should_not_be_open_when_object_key_is_empty() {
+        let (fs, _) = get_s3_fs([]);
+
+        assert_eq!(
+            fs.open_async(PathBuf::from("meowmeow"), *OPEN_CREATE, None)
+                .await
+                .err()
+                .unwrap()
+                .kind(),
+            io::ErrorKind::InvalidInput
+        );
+    }
 }

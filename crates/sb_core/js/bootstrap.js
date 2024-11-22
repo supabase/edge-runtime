@@ -467,7 +467,9 @@ function processRejectionHandled(promise, reason) {
 	}
 }
 
-globalThis.bootstrapSBEdge = opts => {
+globalThis.bootstrapSBEdge = (opts, extraCtx) => {
+	globalThis_ = globalThis;
+
 	// We should delete this after initialization,
 	// Deleting it during bootstrapping can backfire
 	delete globalThis.__bootstrap;

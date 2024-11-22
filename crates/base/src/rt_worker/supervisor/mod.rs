@@ -173,7 +173,7 @@ extern "C" fn v8_handle_wall_clock_beforeunload(
     isolate: &mut v8::Isolate,
     _data: *mut std::ffi::c_void,
 ) {
-    if let Err(err) = MaybeDenoRuntime::Isolate(isolate)
+    if let Err(err) = MaybeDenoRuntime::<()>::Isolate(isolate)
         .dispatch_beforeunload_event(WillTerminateReason::WallClock)
     {
         warn!(

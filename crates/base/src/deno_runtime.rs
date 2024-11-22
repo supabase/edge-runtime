@@ -1,23 +1,23 @@
 use crate::inspector_server::Inspector;
 use crate::rt_worker::supervisor::{CPUUsage, CPUUsageMetrics};
 use crate::rt_worker::worker::DuplexStreamEntry;
+use crate::server::ServerFlags;
 use crate::utils::json;
 use crate::utils::path::find_up;
-use crate::server::ServerFlags;
 use crate::utils::units::{bytes_to_display, mib_to_bytes, percentage_value};
 
 use anyhow::{anyhow, bail, Error};
+use arc_swap::ArcSwapOption;
 use base_mem_check::{MemCheckState, WorkerHeapStatistics};
 use base_rt::DenoRuntimeDropToken;
 use base_rt::{get_current_cpu_time_ns, BlockingScopeCPUUsage};
-use arc_swap::ArcSwapOption;
 use cooked_waker::{IntoWaker, WakeRef};
 use ctor::ctor;
 use deno_core::error::{AnyError, JsError};
 use deno_core::url::Url;
 use deno_core::v8::{self, GCCallbackFlags, GCType, HeapStatistics, Isolate};
 use deno_core::{
-    located_script_name, serde_json, JsRuntime, ModuleCodeString, ModuleId, ModuleLoader, OpState,
+    located_script_name, serde_json, JsRuntime, ModuleCodeString, ModuleId, ModuleLoader,
     ModuleSpecifier, OpState, PollEventLoopOptions, ResolutionKind, RuntimeOptions,
 };
 use deno_http::DefaultHttpPropertyExtractor;
@@ -26,8 +26,7 @@ use deno_tls::rustls::RootCertStore;
 use deno_tls::RootCertStoreProvider;
 use futures_util::future::poll_fn;
 use futures_util::task::AtomicWaker;
-use futures_util::Future;
-use log::{error, trace};
+use log::error;
 use once_cell::sync::{Lazy, OnceCell};
 use sb_core::http::sb_core_http;
 use sb_core::http_start::sb_core_http_start;
@@ -147,7 +146,6 @@ fn get_error_class_name(e: &AnyError) -> &'static str {
 struct MemCheck {
     exceeded_token: CancellationToken,
     limit: Option<usize>,
-
     waker: Arc<AtomicWaker>,
     state: Arc<RwLock<MemCheckState>>,
 }
@@ -202,6 +200,7 @@ impl MemCheck {
 
     fn is_exceeded(&self) -> bool {
         self.exceeded_token.is_cancelled()
+    }
 }
 
 pub trait GetRuntimeContext {
@@ -609,7 +608,7 @@ where
 
             allocator.set_waker(mem_check.waker.clone());
 
-            mem_check.limit = Some(memory_limit);
+            mem_check.limit = Some(memory_limit_bytes);
             create_params = Some(
                 v8::CreateParams::default()
                     .heap_limits(mib_to_bytes(0) as usize, memory_limit_bytes)
@@ -632,7 +631,7 @@ where
             ..Default::default()
         };
 
-        let mut js_runtime = JsRuntime::new(runtime_options);
+        let mut js_runtime = ManuallyDrop::new(JsRuntime::new(runtime_options));
 
         let dispatch_fns = {
             let context = js_runtime.main_context();
@@ -903,8 +902,10 @@ where
             self.js_runtime.v8_isolate().enter();
 
             if inspector.is_some() {
+                let is_terminated = self.is_terminated.clone();
                 let mut this = scopeguard::guard_on_unwind(&mut *self, |this| {
                     this.js_runtime.v8_isolate().exit();
+                    is_terminated.raise();
                 });
 
                 {
@@ -922,6 +923,7 @@ where
 
                 if this.termination_request_token.is_cancelled() {
                     this.js_runtime.v8_isolate().exit();
+                    is_terminated.raise();
                     return (Ok(()), 0i64);
                 }
             }
@@ -983,9 +985,10 @@ where
 
             if let Err(err) = with_cpu_metrics_guard(
                 current_thread_id,
+                this.js_runtime.op_state(),
                 &maybe_cpu_usage_metrics_tx,
                 &mut accumulated_cpu_time_ns,
-                || MaybeDenoRuntime::DenoRuntime(&mut this).dispatch_load_event(),
+                || MaybeDenoRuntime::DenoRuntime(*this).dispatch_load_event(),
             ) {
                 return (Err(err), get_accumulated_cpu_time_ms!());
             }
@@ -1003,13 +1006,12 @@ where
             let mut this = self.get_v8_tls_guard();
             let _ = with_cpu_metrics_guard(
                 current_thread_id,
+                this.js_runtime.op_state(),
                 &maybe_cpu_usage_metrics_tx,
                 &mut accumulated_cpu_time_ns,
                 || MaybeDenoRuntime::DenoRuntime(&mut this).dispatch_unload_event(),
-            ) {
-                return (Err(err), get_accumulated_cpu_time_ms!());
-            }
-    
+            );
+
             // TODO(Nyannyacha): Here we also need to trigger the event for node platform (i.e; exit)
 
             return (
@@ -1022,6 +1024,7 @@ where
 
         if let Err(err) = with_cpu_metrics_guard(
             current_thread_id,
+            this.js_runtime.op_state(),
             &maybe_cpu_usage_metrics_tx,
             &mut accumulated_cpu_time_ns,
             || MaybeDenoRuntime::DenoRuntime(&mut this).dispatch_unload_event(),
@@ -1048,7 +1051,7 @@ where
         let beforeunload_cpu_threshold = self.beforeunload_cpu_threshold.clone();
         let beforeunload_mem_threshold = self.beforeunload_mem_threshold.clone();
 
-        let mem_check_state = is_user_worker.then(|| self.mem_check_state.clone());
+        let mem_check_state = is_user_worker.then(|| self.mem_check.clone());
         let mut poll_sem = None::<PollSemaphore>;
 
         poll_fn(move |cx| {
@@ -1123,6 +1126,9 @@ where
 
             if is_user_worker {
                 let mem_state = mem_check_state.as_ref().unwrap();
+                let total_malloced_bytes = mem_state.check(js_runtime.v8_isolate().as_mut());
+
+                mem_state.waker.register(waker);
 
                 if let Some(threshold_ms) = beforeunload_cpu_threshold.load().as_deref().copied() {
                     let threshold_ns = (threshold_ms as i128) * 1_000_000;
@@ -1155,9 +1161,6 @@ where
                         }
                     }
                 }
-
-                mem_state.check(js_runtime.v8_isolate().as_mut());
-                mem_state.waker.register(waker);
             }
 
             // NOTE(Nyannyacha): If tasks are empty or V8 is not evaluating the
@@ -1240,7 +1243,7 @@ where
             let _ = handle.request_interrupt(interrupt_fn, std::ptr::null_mut());
         };
 
-        drop(rt::SUPERVISOR_RT.spawn({
+        drop(base_rt::SUPERVISOR_RT.spawn({
             let cancel_task_token = cancel_task_token.clone();
 
             async move {
@@ -1294,12 +1297,15 @@ impl<'s> Scope<'s> {
     }
 }
 
-pub enum MaybeDenoRuntime<'l> {
-    DenoRuntime(&'l mut DenoRuntime),
+pub enum MaybeDenoRuntime<'l, RuntimeContext> {
+    DenoRuntime(&'l mut DenoRuntime<RuntimeContext>),
     Isolate(&'l mut v8::Isolate),
 }
 
-impl<'l> MaybeDenoRuntime<'l> {
+impl<'l, RuntimeContext> MaybeDenoRuntime<'l, RuntimeContext>
+where
+    RuntimeContext: GetRuntimeContext,
+{
     fn scope(&mut self) -> Scope<'_> {
         let op_state = self.op_state();
         let op_state_ref = op_state.borrow();
@@ -1422,10 +1428,6 @@ impl<'l> MaybeDenoRuntime<'l> {
             |_| Ok(()),
         )
     }
-}
-
-fn get_current_cpu_time_ns() -> Result<i64, Error> {
-    get_thread_time().context("can't get current thread time")
 }
 
 pub fn import_meta_resolve_callback(
@@ -1909,50 +1911,6 @@ mod test {
         let read_is_even = rt.to_value_mut::<serde_json::Value>(&read_is_even_global);
         assert_eq!(read_is_even.unwrap().to_string(), "true");
         std::mem::drop(main_mod_ev);
-    }
-
-    async fn create_runtime(
-        path: Option<&str>,
-        env_vars: Option<HashMap<String, String>>,
-        user_conf: Option<WorkerRuntimeOpts>,
-        static_patterns: Vec<String>,
-        maybe_jsx_import_source_config: Option<JsxImportSourceConfig>,
-    ) -> DenoRuntime {
-        let (worker_pool_tx, _) = mpsc::unbounded_channel::<UserWorkerMsgs>();
-
-        DenoRuntime::new(
-            WorkerContextInitOpts {
-                service_path: path
-                    .map(PathBuf::from)
-                    .unwrap_or(PathBuf::from("./test_cases/main")),
-
-                no_module_cache: false,
-                import_map_path: None,
-                env_vars: env_vars.unwrap_or_default(),
-                events_rx: None,
-                timing: None,
-                maybe_eszip: None,
-                maybe_entrypoint: None,
-                maybe_decorator: None,
-                maybe_module_code: None,
-                conf: {
-                    if let Some(uc) = user_conf {
-                        uc
-                    } else {
-                        WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
-                            worker_pool_tx,
-                            shared_metric_src: None,
-                            event_worker_metric_src: None,
-                        })
-                    }
-                },
-                static_patterns,
-                maybe_jsx_import_source_config,
-            },
-            None,
-        )
-        .await
-        .unwrap()
     }
 
     // Main Runtime should have access to `EdgeRuntime`

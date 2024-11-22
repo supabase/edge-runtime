@@ -21,8 +21,8 @@ use sb_workers::context::{UserWorkerMsgs, WorkerContextInitOpts, WorkerExit, Wor
 use std::any::Any;
 use std::future::{pending, Future};
 use std::pin::Pin;
-use std::time::Duration;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::io;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot::{self, Receiver, Sender};
@@ -236,7 +236,7 @@ impl Worker {
                                         termination_request_token.cancel();
 
                                         let data_ptr_mut = Box::into_raw(Box::new(
-                                            supervisor::IsolateInterruptData {
+                                            supervisor::V8HandleTerminationData {
                                                 should_terminate: true,
                                                 isolate_memory_usage_tx: None,
                                             },

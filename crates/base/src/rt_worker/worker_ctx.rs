@@ -606,7 +606,6 @@ pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
         init_opts.into();
 
     let worker_kind = worker_init_opts.conf.to_worker_kind();
-    let request_idle_timeout = flags.request_idle_timeout_ms;
     let exit = WorkerExit::default();
     let mut worker = Worker::new(&worker_init_opts)?;
 
@@ -629,7 +628,7 @@ pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
             exit.clone(),
             maybe_termination_token.clone(),
             inspector,
-            flags,
+            flags.clone(),
         );
 
         // create an async task waiting for requests for worker

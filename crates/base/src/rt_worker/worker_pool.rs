@@ -235,7 +235,6 @@ impl WorkerPool {
             user_workers: HashMap::new(),
             active_workers: HashMap::new(),
             maybe_inspector: inspector,
-            flags: Arc::new(flags),
             worker_pool_msgs_tx,
         }
     }

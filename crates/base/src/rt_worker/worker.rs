@@ -5,6 +5,7 @@ use crate::rt_worker::utils::{
     get_event_metadata, parse_worker_conf, send_event_if_event_worker_available,
 };
 use crate::rt_worker::worker_ctx::create_supervisor;
+use crate::server::ServerFlags;
 
 use anyhow::Error;
 use base_mem_check::MemCheckState;
@@ -20,6 +21,7 @@ use sb_workers::context::{UserWorkerMsgs, WorkerContextInitOpts, WorkerExit, Wor
 use std::any::Any;
 use std::future::{pending, Future};
 use std::pin::Pin;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::io;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
@@ -90,6 +92,7 @@ impl Worker {
         self.supervisor_policy = supervisor_policy.unwrap_or_default();
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn start(
         &self,
         mut opts: WorkerContextInitOpts,
@@ -101,6 +104,7 @@ impl Worker {
         exit: WorkerExit,
         termination_token: Option<TerminationToken>,
         inspector: Option<Inspector>,
+        flags: Arc<ServerFlags>,
     ) {
         let worker_name = self.worker_name.clone();
         let worker_key = self.worker_key;
@@ -130,7 +134,7 @@ impl Worker {
                     .unzip();
 
                 let permit = DenoRuntime::acquire().await;
-                let result = match DenoRuntime::new(opts, inspector).await {
+                let result = match DenoRuntime::new(opts, inspector, flags.clone()).await {
                     Ok(new_runtime) => {
                         let mut runtime = scopeguard::guard(new_runtime, |mut runtime| unsafe {
                             runtime.js_runtime.v8_isolate().enter();
@@ -183,6 +187,7 @@ impl Worker {
                                 cancel,
                                 timing,
                                 termination_token.clone(),
+                                flags,
                             ) else {
                                 return;
                             };
@@ -231,18 +236,18 @@ impl Worker {
                                         termination_request_token.cancel();
 
                                         let data_ptr_mut = Box::into_raw(Box::new(
-                                            supervisor::IsolateInterruptData {
+                                            supervisor::V8HandleTerminationData {
                                                 should_terminate: true,
                                                 isolate_memory_usage_tx: None,
                                             },
                                         ));
 
-                                        if !thread_safe_handle.request_interrupt(
-                                            supervisor::handle_interrupt,
-                                            data_ptr_mut as *mut std::ffi::c_void,
-                                        ) {
-                                            drop(unsafe { Box::from_raw(data_ptr_mut) });
-                                        }
+                                    if !thread_safe_handle.request_interrupt(
+                                        supervisor::v8_handle_termination,
+                                        data_ptr_mut as *mut std::ffi::c_void,
+                                    ) {
+                                        drop(unsafe { Box::from_raw(data_ptr_mut) });
+                                    }
 
                                         while !is_terminated.is_raised() {
                                             waker.wake();

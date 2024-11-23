@@ -68,8 +68,9 @@ url = { version = "< 2.5.0", features = ["serde", "expose_internals"] } # upgrad
 eszip = "=0.72.2"
 log = "0.4.20"
 anyhow = "1.0.57"
-libc = "0.2.126"
+libc = "0.2.144"
 libz-sys = { version = "1.1", default-features = false }
+num-traits = "0.2"
 enum-as-inner = "0.6.0"
 serde = { version = "1.0.149", features = ["derive"] }
 serde_json = "1.0.85"

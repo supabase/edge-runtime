@@ -10,6 +10,7 @@ use base::commands::start_server;
 use base::rt_worker::worker_pool::{SupervisorPolicy, WorkerPoolPolicy};
 use base::server::{ServerFlags, Tls, WorkerEntrypoints};
 use base::utils::path::find_up;
+use base::utils::units::percentage_value;
 use base::{CacheSetting, DecoratorType, InspectorOption};
 use clap::ArgMatches;
 use deno_core::url::Url;
@@ -130,15 +131,7 @@ fn main() -> Result<ExitCode, anyhow::Error> {
                             return None;
                         }
 
-                        let deadline_ms = graceful_exit_deadline_sec * 1000;
-                        let percent = std::cmp::min(it, 100) as f64;
-                        let point = percent / 100.0f64;
-
-                        if point.is_normal() {
-                            Some(((deadline_ms as f64) * point) as u64)
-                        } else {
-                            None
-                        }
+                        percentage_value(graceful_exit_deadline_sec * 1000, it)
                     });
 
                 let event_worker_exit_deadline_sec = sub_matches
@@ -154,6 +147,17 @@ fn main() -> Result<ExitCode, anyhow::Error> {
                     sub_matches.get_one::<u64>("request-idle-timeout").cloned();
                 let maybe_request_read_timeout =
                     sub_matches.get_one::<u64>("request-read-timeout").cloned();
+
+                let maybe_beforeunload_wall_clock_pct = sub_matches
+                    .get_one::<u8>("dispatch-beforeunload-wall-clock-ratio")
+                    .cloned();
+                let maybe_beforeunload_cpu_pct = sub_matches
+                    .get_one::<u8>("dispatch-beforeunload-cpu-ratio")
+                    .cloned();
+                let maybe_beforeunload_memory_pct = sub_matches
+                    .get_one::<u8>("dispatch-beforeunload-memory-ratio")
+                    .cloned();
+
                 let static_patterns =
                     if let Some(val_ref) = sub_matches.get_many::<String>("static") {
                         val_ref.map(|s| s.as_str()).collect::<Vec<&str>>()
@@ -190,6 +194,7 @@ fn main() -> Result<ExitCode, anyhow::Error> {
                     no_module_cache,
                     allow_main_inspector,
                     tcp_nodelay,
+
                     graceful_exit_deadline_sec,
                     graceful_exit_keepalive_deadline_ms,
                     event_worker_exit_deadline_sec,
@@ -197,6 +202,10 @@ fn main() -> Result<ExitCode, anyhow::Error> {
                     request_idle_timeout_ms: maybe_request_idle_timeout,
                     request_read_timeout_ms: maybe_request_read_timeout,
                     request_buffer_size: Some(request_buffer_size),
+
+                    beforeunload_wall_clock_pct: maybe_beforeunload_wall_clock_pct,
+                    beforeunload_cpu_pct: maybe_beforeunload_cpu_pct,
+                    beforeunload_memory_pct: maybe_beforeunload_memory_pct,
                 };
 
                 let maybe_received_signum = start_server(

@@ -7,9 +7,12 @@ use event_worker::events::ShutdownReason;
 use log::error;
 use sb_workers::context::{Timing, TimingStatus, UserWorkerMsgs};
 
-use crate::rt_worker::supervisor::{wait_cpu_alarm, CPUUsage, Tokens};
+use crate::rt_worker::supervisor::{
+    create_wall_clock_beforeunload_alert, v8_handle_wall_clock_beforeunload, wait_cpu_alarm,
+    CPUUsage, Tokens,
+};
 
-use super::{handle_interrupt, Arguments, CPUUsageMetrics, IsolateInterruptData};
+use super::{v8_handle_termination, Arguments, CPUUsageMetrics, V8HandleTerminationData};
 
 pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
     let Arguments {
@@ -23,10 +26,12 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
         pool_msg_tx,
         isolate_memory_usage_tx,
         thread_safe_handle,
+        waker,
         tokens: Tokens {
             termination,
             supervise,
         },
+        flags,
         ..
     } = args;
 
@@ -45,7 +50,12 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
     #[cfg(debug_assertions)]
     let mut current_thread_id = Option::<ThreadId>::None;
 
+    let wall_clock_limit_ms = runtime_opts.worker_timeout_ms;
+
+    let is_wall_clock_limit_disabled = wall_clock_limit_ms == 0;
     let mut is_worker_entered = false;
+    let mut is_wall_clock_beforeunload_armed = false;
+
     let mut cpu_usage_metrics_rx = cpu_usage_metrics_rx.unwrap();
     let mut cpu_usage_ms = 0i64;
 
@@ -53,14 +63,13 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
     let mut wall_clock_alerts = 0;
     let mut req_ack_count = 0usize;
 
-    let wall_clock_limit_ms = runtime_opts.worker_timeout_ms;
-    let is_wall_clock_limit_disabled = wall_clock_limit_ms == 0;
-
-    let wall_clock_duration = Duration::from_millis(if wall_clock_limit_ms < 2 {
+    let wall_clock_limit_ms = if wall_clock_limit_ms < 2 {
         2
     } else {
         wall_clock_limit_ms
-    });
+    };
+
+    let wall_clock_duration = Duration::from_millis(wall_clock_limit_ms);
 
     // Split wall clock duration into 2 intervals.
     // At the first interval, we will send a msg to retire the worker.
@@ -68,6 +77,11 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
         wall_clock_duration
             .checked_div(2)
             .unwrap_or(Duration::from_millis(1)),
+    );
+
+    let wall_clock_beforeunload_alert = create_wall_clock_beforeunload_alert(
+        wall_clock_limit_ms,
+        flags.beforeunload_wall_clock_pct,
     );
 
     let early_retire_fn = || {
@@ -79,13 +93,13 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
     let terminate_fn = {
         let thread_safe_handle = thread_safe_handle.clone();
         move || {
-            let data_ptr_mut = Box::into_raw(Box::new(IsolateInterruptData {
+            let data_ptr_mut = Box::into_raw(Box::new(V8HandleTerminationData {
                 should_terminate: true,
                 isolate_memory_usage_tx: Some(isolate_memory_usage_tx),
             }));
 
             if !thread_safe_handle
-                .request_interrupt(handle_interrupt, data_ptr_mut as *mut std::ffi::c_void)
+                .request_interrupt(v8_handle_termination, data_ptr_mut as *mut std::ffi::c_void)
             {
                 drop(unsafe { Box::from_raw(data_ptr_mut) });
             }
@@ -93,6 +107,7 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
     };
 
     tokio::pin!(wall_clock_duration_alert);
+    tokio::pin!(wall_clock_beforeunload_alert);
 
     loop {
         tokio::select! {
@@ -215,6 +230,19 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
 
                     return (ShutdownReason::WallClockTime, cpu_usage_ms);
                 }
+            }
+
+            _ = &mut wall_clock_beforeunload_alert,
+                if !is_wall_clock_limit_disabled && !is_wall_clock_beforeunload_armed
+            => {
+                if thread_safe_handle.request_interrupt(
+                    v8_handle_wall_clock_beforeunload,
+                    std::ptr::null_mut()
+                ) {
+                    waker.wake();
+                }
+
+                is_wall_clock_beforeunload_armed = true;
             }
 
             Some(_) = memory_limit_rx.recv() => {

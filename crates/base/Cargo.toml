@@ -76,11 +76,14 @@ rustls-pemfile.workspace = true
 tracing.workspace = true
 reqwest_v011.workspace = true
 tracing-subscriber = { workspace = true, optional = true, features = ["env-filter", "tracing-log"] }
+num-traits.workspace = true
 
 tls-listener = { version = "0.10", features = ["rustls"] }
+strum = { version = "0.25", features = ["derive"] }
 flume = "0.11.0"
 cooked-waker = "5"
 tokio-rustls = "0.25.0"
+arc-swap = "1.7"
 
 [dev-dependencies]
 tokio-util = { workspace = true, features = ["rt", "compat"] }

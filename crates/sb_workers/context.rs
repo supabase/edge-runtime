@@ -65,6 +65,10 @@ pub struct UserWorkerRuntimeOpts {
     pub cpu_time_soft_limit_ms: u64,
     pub cpu_time_hard_limit_ms: u64,
 
+    pub beforeunload_wall_clock_pct: Option<u8>,
+    pub beforeunload_cpu_pct: Option<u8>,
+    pub beforeunload_memory_pct: Option<u8>,
+
     pub force_create: bool,
     pub net_access_disabled: bool,
     pub allow_net: Option<Vec<String>>,
@@ -85,6 +89,9 @@ impl Default for UserWorkerRuntimeOpts {
             worker_timeout_ms: env!("SUPABASE_RESOURCE_LIMIT_TIMEOUT_MS").parse().unwrap(),
             cpu_time_soft_limit_ms: env!("SUPABASE_RESOURCE_LIMIT_CPU_SOFT_MS").parse().unwrap(),
             cpu_time_hard_limit_ms: env!("SUPABASE_RESOURCE_LIMIT_CPU_HARD_MS").parse().unwrap(),
+            beforeunload_wall_clock_pct: None,
+            beforeunload_cpu_pct: None,
+            beforeunload_memory_pct: None,
 
             force_create: false,
             key: None,

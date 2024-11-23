@@ -2,6 +2,7 @@
 #![allow(clippy::async_yields_async)]
 
 use deno_config::JsxImportSourceConfig;
+use event_worker::events::{LogLevel, WorkerEvents};
 use http_v02 as http;
 use hyper_v014 as hyper;
 use reqwest_v011 as reqwest;
@@ -3082,6 +3083,121 @@ async fn test_ort_vision_zero_shot_image_classification() {
         TerminationToken::new()
     );
 }
+
+async fn test_runtime_beforeunload_event(kind: &'static str, pct: u8) {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let tb = TestBedBuilder::new("./test_cases/runtime-event")
+        .with_per_worker_policy(None)
+        .with_worker_event_sender(Some(tx))
+        .with_server_flags(ServerFlags {
+            beforeunload_wall_clock_pct: Some(pct),
+            beforeunload_cpu_pct: Some(pct),
+            beforeunload_memory_pct: Some(pct),
+            ..Default::default()
+        })
+        .build()
+        .await;
+
+    let resp = tb
+        .request(|b| {
+            b.uri(format!("/{}", kind))
+                .method("GET")
+                .body(Body::empty())
+                .context("can't make request")
+        })
+        .await
+        .unwrap();
+
+    assert_ne!(resp.status().as_u16(), StatusCode::OK);
+
+    tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
+
+    let mut found_triggered = false;
+
+    while let Some(ev) = rx.recv().await {
+        let WorkerEvents::Log(ev) = ev.event else {
+            continue;
+        };
+        if ev.level != LogLevel::Info {
+            continue;
+        }
+
+        found_triggered = ev
+            .msg
+            .contains(&format!("triggered {}", kind.replace('-', "_")));
+
+        if found_triggered {
+            break;
+        }
+    }
+
+    assert!(found_triggered);
+}
+
+#[tokio::test]
+#[serial]
+async fn test_runtime_event_beforeunload_cpu() {
+    test_runtime_beforeunload_event("cpu", 50).await;
+}
+
+#[tokio::test]
+#[serial]
+async fn test_runtime_event_beforeunload_wall_clock() {
+    test_runtime_beforeunload_event("wall-clock", 50).await;
+}
+
+#[tokio::test]
+#[serial]
+async fn test_runtime_event_beforeunload_mem() {
+    test_runtime_beforeunload_event("mem", 50).await;
+}
+
+// NOTE(Nyannyacha): We cannot enable this test unless we clarify the trigger point of the unload
+// event.
+// #[tokio::test]
+// #[serial]
+// async fn test_runtime_event_unload() {
+//     let (tx, mut rx) = mpsc::unbounded_channel();
+//     let tb = TestBedBuilder::new("./test_cases/runtime-event")
+//         .with_per_worker_policy(None)
+//         .with_worker_event_sender(Some(tx))
+//         .build()
+//         .await;
+
+//     let resp = tb
+//         .request(|b| {
+//             b.uri("/unload")
+//                 .method("GET")
+//                 .body(Body::empty())
+//                 .context("can't make request")
+//         })
+//         .await
+//         .unwrap();
+
+//     assert_eq!(resp.status().as_u16(), StatusCode::OK);
+
+//     sleep(Duration::from_secs(8)).await;
+//     tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
+
+//     let mut found_triggered = false;
+
+//     while let Some(ev) = rx.recv().await {
+//         let WorkerEvents::Log(ev) = ev.event else {
+//             continue;
+//         };
+//         if ev.level != LogLevel::Info {
+//             continue;
+//         }
+
+//         found_triggered = ev.msg.contains("triggered unload");
+
+//         if found_triggered {
+//             break;
+//         }
+//     }
+
+//     assert!(found_triggered);
+// }
 
 #[derive(Deserialize)]
 struct ErrorResponsePayload {

@@ -97,8 +97,8 @@ pub async fn op_sb_ai_ort_run_session(
 
                 let mut output_values = HashMap::new();
 
-                // We need to `pop` over outputs to get 'value' ownership, since keys are attached to 'model_session' lifetime
-                // it can't be iterated with `into_iter()`
+                // We need to `pop` over outputs to get 'value' ownership, since keys are attached
+                // to 'model_session' lifetime it can't be iterated with `into_iter()`
                 for _ in 0..outputs.len() {
                     let (key, value) = match outputs.pop_first() {
                         Some(v) => v,

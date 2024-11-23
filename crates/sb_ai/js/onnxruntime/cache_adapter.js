@@ -1,5 +1,5 @@
 import { primordials } from 'ext:core/mod.js';
-import * as webidl from "ext:deno_webidl/00_webidl.js";
+import * as webidl from 'ext:deno_webidl/00_webidl.js';
 import * as DenoCaches from 'ext:deno_cache/01_cache.js';
 
 const ALLOWED_CACHE_NAMES = ["transformers-cache"];
@@ -12,10 +12,10 @@ async function open(cacheName, _next) {
     throw new Error("Web Cache is not available in this context");
   }
 
-  // NOTE:(kallebysantos)
-  // Since default `Web Cache` is not alloed we need to manually create a new `Cache` instead of get it from `next()`.
-  // In a scenario where `Web Cache` is full allowed, the `sb_ai: Cache Adapter` should be used as composable middleware:
-  // const cache = await next(cacheName);
+  // NOTE(kallebysantos): Since default `Web Cache` is not alloed we need to manually create a new
+  // `Cache` instead of get it from `next()`. In a scenario where `Web Cache` is full allowed, the
+  // `sb_ai: Cache Adapter` should be used as composable middleware: const cache = await
+  // next(cacheName);
   const cache = webidl.createBranded(DenoCaches.Cache);
   cache[Symbol("id")] = "sb_ai_cache";
 
@@ -35,8 +35,8 @@ async function match(req, _next) {
   }
 
   if (!requestUrl.includes('onnx')) {
-    // NOTE:(kallebysantos)
-    // Same ... from previous method, it should call `next()` in order to continue the middleware flow.
+    // NOTE(kallebysantos): Same ... from previous method, it should call `next()` in order to
+    // continue the middleware flow.
     return undefined
   }
 
@@ -46,16 +46,15 @@ async function match(req, _next) {
 const CacheStoragePrototype = DenoCaches.CacheStorage.prototype;
 const CachePrototype = DenoCaches.Cache.prototype;
 
-// TODO:(kallebysantos) Refactor to an `applyInterceptor` function
+// TODO(kallebysantos): Refactor to an `applyInterceptor` function.
 const _cacheStoragOpen = CacheStoragePrototype.open;
 CacheStoragePrototype.open = async function (args) {
   return await open(args, (interceptedArgs) => _cacheStoragOpen.call(this, interceptedArgs));
 };
 
-// NOTE:(kallebysantos)
-// Full `Web Cache API` is not allowed so we disable all other methods.
-// In a scenario where `Web Cache` is free to use, the `sb_ai: Cache Adapter` should act as request middleware
-// ie. add new behaviour on top of `next()`
+// NOTE(kallebysantos): Full `Web Cache API` is not allowed so we disable all other methods. In a
+// scenario where `Web Cache` is free to use, the `sb_ai: Cache Adapter` should act as request
+// middleware ie. add new behaviour on top of `next()`
 async function notAvailable() {
   throw new Error("Web Cache is not available in this context");
 }

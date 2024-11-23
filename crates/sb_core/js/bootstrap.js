@@ -136,8 +136,8 @@ const globalScope = {
 		new console.Console((msg, level) => core.print(msg, level > 1)),
 	),
 
-  // cache api
-  caches: nonEnumerable(caches.cacheStorage()),
+	// cache api
+	caches: nonEnumerable(caches.cacheStorage()),
 	// timers
 	clearInterval: writable(timers.clearInterval),
 	clearTimeout: writable(timers.clearTimeout),

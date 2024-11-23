@@ -16,8 +16,12 @@ pub async fn fetch_and_cache_from_url(
     cache_id: Option<String>,
 ) -> Result<PathBuf, AnyError> {
     let cache_id = cache_id.unwrap_or(fxhash::hash(url.as_str()).to_string());
-    let download_dir = ort::sys::internal::dirs::cache_dir()
-        .context("could not determine cache directory")?
+    let download_dir = std::env::var("SB_AI_CACHE_DIR")
+        .map_err(AnyError::from)
+        .map(PathBuf::from)
+        .or_else(|_| {
+            ort::sys::internal::dirs::cache_dir().context("could not determine cache directory")
+        })?
         .join(kind)
         .join(&cache_id);
 

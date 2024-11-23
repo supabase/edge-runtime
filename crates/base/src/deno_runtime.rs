@@ -5,9 +5,8 @@ use crate::server::ServerFlags;
 use crate::utils::json;
 use crate::utils::path::find_up;
 use crate::utils::units::{bytes_to_display, mib_to_bytes, percentage_value};
-use crate::utils::{json};
 
-use anyhow::{anyhow, bail, Context, Error};
+use anyhow::{anyhow, bail, Error};
 use arc_swap::ArcSwapOption;
 use base_mem_check::{MemCheckState, WorkerHeapStatistics};
 use base_rt::DenoRuntimeDropToken;

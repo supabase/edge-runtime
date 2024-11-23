@@ -622,6 +622,7 @@ pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
         exit.clone(),
         maybe_termination_token.clone(),
         inspector,
+        flags.clone(),
     );
 
     // create an async task waiting for requests for worker

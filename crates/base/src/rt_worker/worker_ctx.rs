@@ -624,25 +624,25 @@ pub async fn create_worker<Opt: Into<CreateWorkerArgs>>(
         inspector,
     );
 
-        // create an async task waiting for requests for worker
-        let (worker_req_tx, mut worker_req_rx) = mpsc::unbounded_channel::<WorkerRequestMsg>();
+    // create an async task waiting for requests for worker
+    let (worker_req_tx, mut worker_req_rx) = mpsc::unbounded_channel::<WorkerRequestMsg>();
 
-        let worker_req_handle: tokio::task::JoinHandle<Result<(), Error>> = tokio::task::spawn({
-            let stream_tx = duplex_stream_tx;
-            async move {
-                while let Some(msg) = worker_req_rx.recv().await {
-                    tokio::task::spawn({
-                        let flags = flags.clone();
-                        let stream_tx_inner = stream_tx.clone();
-                        async move {
-                            if let Err(err) =
-                                handle_request(flags, worker_kind, stream_tx_inner, msg).await
-                            {
-                                error!("worker failed to handle request: {:?}", err);
-                            }
+    let worker_req_handle: tokio::task::JoinHandle<Result<(), Error>> = tokio::task::spawn({
+        let stream_tx = duplex_stream_tx;
+        async move {
+            while let Some(msg) = worker_req_rx.recv().await {
+                tokio::task::spawn({
+                    let flags = flags.clone();
+                    let stream_tx_inner = stream_tx.clone();
+                    async move {
+                        if let Err(err) =
+                            handle_request(flags, worker_kind, stream_tx_inner, msg).await
+                        {
+                            error!("worker failed to handle request: {:?}", err);
                         }
-                    });
-                }
+                    }
+                });
+            }
 
             Ok(())
         }

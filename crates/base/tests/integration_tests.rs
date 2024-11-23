@@ -3124,7 +3124,7 @@ async fn test_runtime_beforeunload_event(kind: &'static str, pct: u8) {
 
         found_triggered = ev
             .msg
-            .contains(&format!("triggered {}", kind.replace("-", "_")));
+            .contains(&format!("triggered {}", kind.replace('-', "_")));
 
         if found_triggered {
             break;

@@ -1256,6 +1256,9 @@ where
     }
 }
 
+type TerminateExecutionIfCancelledReturnType =
+    ScopeGuard<CancellationToken, Box<dyn FnOnce(CancellationToken)>>;
+
 #[allow(dead_code)]
 struct Scope<'s> {
     context: v8::Local<'s, v8::Context>,
@@ -1343,7 +1346,7 @@ where
 
     fn terminate_execution_if_cancelled(
         &mut self,
-    ) -> Option<ScopeGuard<CancellationToken, Box<dyn FnOnce(CancellationToken)>>> {
+    ) -> Option<TerminateExecutionIfCancelledReturnType> {
         match self {
             Self::DenoRuntime(v) => Some(v.terminate_execution_if_cancelled()),
             Self::IsolateWithCancellationToken(v) => Some(v.terminate_execution_if_cancelled()),
@@ -1512,7 +1515,7 @@ fn get_cpu_metrics_guard<'l>(
 fn terminate_execution_if_cancelled(
     isolate: &mut v8::Isolate,
     token: CancellationToken,
-) -> ScopeGuard<CancellationToken, Box<dyn FnOnce(CancellationToken)>> {
+) -> TerminateExecutionIfCancelledReturnType {
     extern "C" fn interrupt_fn(isolate: &mut v8::Isolate, _: *mut std::ffi::c_void) {
         let _ = isolate.terminate_execution();
     }

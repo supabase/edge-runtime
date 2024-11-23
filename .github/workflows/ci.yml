@@ -60,7 +60,7 @@ jobs:
         run: ./scripts/install_onnx.sh ${{ env.ONNXRUNTIME_VERSION }} x64 /tmp/onnxruntime
 
       - name: Install S3 credentials for testing
-        if: github.repository == github.event.repository.full_name
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         run: |
           cd crates/sb_fs/tests
           echo "S3FS_TEST_SUPABASE_STORAGE=true" >> .env

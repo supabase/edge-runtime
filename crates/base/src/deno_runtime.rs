@@ -14,7 +14,7 @@ use base_rt::DenoRuntimeDropToken;
 use base_rt::{get_current_cpu_time_ns, BlockingScopeCPUUsage};
 use cooked_waker::{IntoWaker, WakeRef};
 use ctor::ctor;
-use deno_cache::{CreateCache, SqliteBackedCache};
+use deno_cache::SqliteBackedCache;
 use deno_core::error::{AnyError, JsError};
 use deno_core::url::Url;
 use deno_core::v8::{self, GCCallbackFlags, GCType, HeapStatistics, Isolate};
@@ -54,7 +54,6 @@ use std::task::Poll;
 use std::thread::ThreadId;
 use std::time::Duration;
 use strum::IntoStaticStr;
-use tempfile::TempDir;
 use tokio::sync::{mpsc, OwnedSemaphorePermit, Semaphore};
 use tokio::time::interval;
 use tokio_util::sync::{CancellationToken, PollSemaphore};
@@ -529,8 +528,6 @@ where
             Arc::new(DenoCompileFileSystem::from_rc(vfs))
         })?;
 
-        struct CacheStorageDir(TempDir);
-
         let cache_base_dir = dirs::cache_dir()
             .context("could not resolve cache directory")?
             .join("web_caches");
@@ -539,14 +536,19 @@ where
             .await
             .context("could not make cache directory")?;
 
-        let cache_storage_dir = CacheStorageDir(
-            tempfile::tempdir_in(cache_base_dir).context("could not make cache directory")?,
-        );
-
-        let cache_backend = CreateCache(Arc::new({
-            let dir = cache_storage_dir.0.path().to_path_buf();
-            move || SqliteBackedCache::new(dir.clone())
-        }));
+        /* NOTE:(kallebysantos)
+         * Cache via SqliteBackedCache is disabled.
+         * ```
+         * struct CacheStorageDir(TempDir);
+         * let cache_storage_dir = CacheStorageDir(
+         *     tempfile::tempdir_in(cache_base_dir).context("could not make cache directory")?,
+         * );
+         * let cache_backend = CreateCache(Arc::new({
+         *     let dir = cache_storage_dir.0.path().to_path_buf();
+         *     move || SqliteBackedCache::new(dir.clone())
+         * }));
+         * ```
+         */
 
         let mod_code = module_code;
         let extensions = vec![
@@ -597,7 +599,7 @@ where
                 Some(npm_resolver),
                 file_system,
             ),
-            deno_cache::deno_cache::init_ops::<SqliteBackedCache>(Some(cache_backend)),
+            deno_cache::deno_cache::init_ops::<SqliteBackedCache>(None),
             sb_core_runtime::init_ops(Some(main_module_url.clone())),
         ];
 
@@ -831,7 +833,7 @@ where
 
             op_state.put(sb_env::EnvVars(env_vars));
             op_state.put(DenoRuntimeDropToken(drop_token.clone()));
-            op_state.put(cache_storage_dir);
+            // op_state.put(cache_storage_dir);
         }
 
         let main_module_id = {

@@ -41,10 +41,10 @@ either.workspace = true
 tracing.workspace = true
 rkyv = { workspace = true, features = ["validation"] }
 
-rustls = "0.21"
-hyper-proxy = { version = "0.9", default-features = false, features = ["rustls"] }
-hyper-rustls = "0.24"
-headers = "0.3"
+rustls = { version = "0.21", optional = true }
+hyper-proxy = { version = "0.9", optional = true, default-features = false, features = ["rustls"] }
+hyper-rustls = { version = "0.24", optional = true }
+headers = { version = "0.3", optional = true }
 normalize-path = "0.2"
 memmap2 = "0.9"
 aws-sdk-s3 = "1.2"
@@ -64,3 +64,11 @@ serial_test.workspace = true
 dotenvy = "0.15"
 aws-smithy-runtime = { version = "1.7", features = ["test-util"] }
 aws-smithy-runtime-api = { version = "1.7", features = ["test-util"] }
+
+[features]
+unsafe-proxy = [
+    "dep:rustls",
+    "dep:hyper-proxy",
+    "dep:hyper-rustls",
+    "dep:headers"
+]

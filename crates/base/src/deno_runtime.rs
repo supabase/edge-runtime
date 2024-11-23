@@ -1231,39 +1231,11 @@ where
 
     fn terminate_execution_if_cancelled(
         &mut self,
-        token: CancellationToken,
-    ) -> ScopeGuard<CancellationToken, impl FnOnce(CancellationToken)> {
-        extern "C" fn interrupt_fn(isolate: &mut v8::Isolate, _: *mut std::ffi::c_void) {
-            let _ = isolate.terminate_execution();
-        }
-
-        let handle = self.js_runtime.v8_isolate().thread_safe_handle();
-        let cancel_task_token = CancellationToken::new();
-        let request_interrupt_fn = move || {
-            let _ = handle.request_interrupt(interrupt_fn, std::ptr::null_mut());
-        };
-
-        drop(base_rt::SUPERVISOR_RT.spawn({
-            let cancel_task_token = cancel_task_token.clone();
-
-            async move {
-                if token.is_cancelled() {
-                    request_interrupt_fn();
-                } else {
-                    tokio::select! {
-                        _ = token.cancelled_owned() => {
-                            request_interrupt_fn();
-                        }
-
-                        _ = cancel_task_token.cancelled_owned() => {}
-                    }
-                }
-            }
-        }));
-
-        scopeguard::guard(cancel_task_token, |v| {
-            v.cancel();
-        })
+    ) -> ScopeGuard<CancellationToken, Box<dyn FnOnce(CancellationToken)>> {
+        terminate_execution_if_cancelled(
+            self.js_runtime.v8_isolate(),
+            self.termination_request_token.clone(),
+        )
     }
 
     fn get_v8_tls_guard<'l>(
@@ -1297,9 +1269,34 @@ impl<'s> Scope<'s> {
     }
 }
 
+pub struct IsolateWithCancellationToken<'l>(&'l mut v8::Isolate, CancellationToken);
+
+impl std::ops::Deref for IsolateWithCancellationToken<'_> {
+    type Target = v8::Isolate;
+
+    fn deref(&self) -> &Self::Target {
+        &*self.0
+    }
+}
+
+impl std::ops::DerefMut for IsolateWithCancellationToken<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.0
+    }
+}
+
+impl IsolateWithCancellationToken<'_> {
+    fn terminate_execution_if_cancelled(
+        &mut self,
+    ) -> ScopeGuard<CancellationToken, Box<dyn FnOnce(CancellationToken)>> {
+        terminate_execution_if_cancelled(self.0, self.1.clone())
+    }
+}
+
 pub enum MaybeDenoRuntime<'l, RuntimeContext> {
     DenoRuntime(&'l mut DenoRuntime<RuntimeContext>),
     Isolate(&'l mut v8::Isolate),
+    IsolateWithCancellationToken(IsolateWithCancellationToken<'l>),
 }
 
 impl<'l, RuntimeContext> MaybeDenoRuntime<'l, RuntimeContext>
@@ -1316,11 +1313,9 @@ where
 
         let mut scope = unsafe {
             match self {
-                MaybeDenoRuntime::DenoRuntime(v) => {
-                    v8::CallbackScope::new(v.js_runtime.v8_isolate())
-                }
-
-                MaybeDenoRuntime::Isolate(v) => v8::CallbackScope::new(&mut **v),
+                Self::DenoRuntime(v) => v8::CallbackScope::new(v.js_runtime.v8_isolate()),
+                Self::Isolate(v) => v8::CallbackScope::new(&mut **v),
+                Self::IsolateWithCancellationToken(v) => v8::CallbackScope::new(&mut **v),
             }
         };
 
@@ -1329,22 +1324,30 @@ where
         Scope { context, scope }
     }
 
+    #[allow(unused)]
+    fn v8_isolate(&mut self) -> &mut v8::Isolate {
+        match self {
+            Self::DenoRuntime(v) => v.js_runtime.v8_isolate(),
+            Self::Isolate(v) => v,
+            Self::IsolateWithCancellationToken(v) => v.0,
+        }
+    }
+
     fn op_state(&mut self) -> Rc<RefCell<OpState>> {
         match self {
-            MaybeDenoRuntime::DenoRuntime(v) => v.js_runtime.op_state(),
-            MaybeDenoRuntime::Isolate(v) => JsRuntime::op_state_from(v),
+            Self::DenoRuntime(v) => v.js_runtime.op_state(),
+            Self::Isolate(v) => JsRuntime::op_state_from(v),
+            Self::IsolateWithCancellationToken(v) => JsRuntime::op_state_from(v.0),
         }
     }
 
     fn terminate_execution_if_cancelled(
         &mut self,
-    ) -> Option<ScopeGuard<CancellationToken, impl FnOnce(CancellationToken)>> {
+    ) -> Option<ScopeGuard<CancellationToken, Box<dyn FnOnce(CancellationToken)>>> {
         match self {
-            MaybeDenoRuntime::DenoRuntime(v) => {
-                Some(v.terminate_execution_if_cancelled(v.termination_request_token.clone()))
-            }
-
-            MaybeDenoRuntime::Isolate(_) => None,
+            Self::DenoRuntime(v) => Some(v.terminate_execution_if_cancelled()),
+            Self::IsolateWithCancellationToken(v) => Some(v.terminate_execution_if_cancelled()),
+            Self::Isolate(_) => None,
         }
     }
 
@@ -1422,6 +1425,14 @@ where
     ///
     /// Does not poll event loop, and thus not await any of the "unload" event handlers.
     pub fn dispatch_unload_event(&mut self) -> Result<(), AnyError> {
+        // NOTE(Nyannyacha): It is currently not possible to dispatch this event because the
+        // supervisor has forcibly pulled the isolate out of the running state and the
+        // `CancellationToken` prevents function invocation.
+        //
+        // If we want to dispatch this event, we may need to provide an extra margin for the
+        // invocation.
+
+        // self.v8_isolate().cancel_terminate_execution();
         self.dispatch_event_with_callback(
             |fns| &fns.dispatch_unload_event_fn_global,
             |_| vec![],
@@ -1496,6 +1507,46 @@ fn get_cpu_metrics_guard<'l>(
             blocking_cpu_time_ms = blocking_cpu_time_ns / 1_000_000,
         );
     })
+}
+
+fn terminate_execution_if_cancelled(
+    isolate: &mut v8::Isolate,
+    token: CancellationToken,
+) -> ScopeGuard<CancellationToken, Box<dyn FnOnce(CancellationToken)>> {
+    extern "C" fn interrupt_fn(isolate: &mut v8::Isolate, _: *mut std::ffi::c_void) {
+        let _ = isolate.terminate_execution();
+    }
+
+    let handle = isolate.thread_safe_handle();
+    let cancel_task_token = CancellationToken::new();
+    let request_interrupt_fn = move || {
+        let _ = handle.request_interrupt(interrupt_fn, std::ptr::null_mut());
+    };
+
+    drop(base_rt::SUPERVISOR_RT.spawn({
+        let cancel_task_token = cancel_task_token.clone();
+
+        async move {
+            if token.is_cancelled() {
+                request_interrupt_fn();
+            } else {
+                tokio::select! {
+                    _ = token.cancelled_owned() => {
+                        request_interrupt_fn();
+                    }
+
+                    _ = cancel_task_token.cancelled_owned() => {}
+                }
+            }
+        }
+    }));
+
+    scopeguard::guard(
+        cancel_task_token,
+        Box::new(|v| {
+            v.cancel();
+        }),
+    )
 }
 
 fn set_v8_flags() {

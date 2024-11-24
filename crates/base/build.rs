@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 mod supabase_startup_snapshot {
     use super::*;
+    use deno_cache::SqliteBackedCache;
     use deno_core::error::AnyError;
     use deno_core::snapshot::{create_snapshot, CreateSnapshotOptions};
     use deno_core::Extension;
@@ -225,6 +226,10 @@ mod supabase_startup_snapshot {
             sb_core_http::init_ops_and_esm(),
             sb_core_http_start::init_ops_and_esm(),
             deno_node::init_ops_and_esm::<Permissions>(None, None, fs),
+            // NOTE(kallebysantos):
+            // Full `Web Cache API` via `SqliteBackedCache` is disabled. Cache flow is
+            // handled by `sb_ai: Cache Adapter`
+            deno_cache::deno_cache::init_ops_and_esm::<SqliteBackedCache>(None),
             sb_core_runtime::init_ops_and_esm(None),
         ];
 

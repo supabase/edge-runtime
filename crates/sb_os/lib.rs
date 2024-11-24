@@ -1,8 +1,5 @@
 use deno_core::op2;
 use serde::Serialize;
-use std::collections::HashMap;
-
-pub type EnvVars = HashMap<String, String>;
 
 #[derive(Serialize, Default)]
 #[serde(rename_all = "camelCase")]

@@ -4,44 +4,33 @@ import {
   pipeline,
 } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.1';
 
+import { round6 } from '../util.ts';
+
 // Ensure we do not use browser cache
 env.useBrowserCache = false;
 env.allowLocalModels = false;
 
 const pipe = await pipeline('token-classification', null, { device: 'auto' });
 
-Deno.serve(async () => {
+Deno.serve(async (req: Request) => {
   const input = "My name is Kalleby and I'm from Brazil.";
 
   const output = await pipe(input);
+  const snapshot = await req.json();
+
+  if (!snapshot) {
+    return Response.json(output, { status: 201 });
+  }
 
   assertEquals(output.length, 3);
 
-  [
-    {
-      entity: 'B-PER',
-      score: 0.9930744171142578,
-      index: 4,
-      word: 'Kalle',
-    },
-    {
-      entity: 'I-PER',
-      score: 0.9974944591522217,
-      index: 5,
-      word: '##by',
-    },
-    {
-      entity: 'B-LOC',
-      score: 0.9998322129249573,
-      index: 11,
-      word: 'Brazil',
-    },
-  ].map((expected, idx) => {
-    assertEquals(output[idx].entity, expected.entity);
-    assertAlmostEquals(output[idx].score, expected.score);
-    assertEquals(output[idx].index, expected.index);
-    assertEquals(output[idx].word, expected.word);
-  });
+  (snapshot as Array<any>)
+    .map((expected, idx) => {
+      assertEquals(output[idx].entity, expected.entity);
+      assertAlmostEquals(round6(output[idx].score), expected.score);
+      assertEquals(output[idx].index, expected.index);
+      assertEquals(output[idx].word, expected.word);
+    });
 
   return new Response();
 });

@@ -8,11 +8,9 @@ RUN apt-get update && apt-get install -y build-essential cmake libclang-dev lldb
 COPY .env /tmp/.env
 COPY .devcontainer/install.sh /tmp/install.sh
 COPY scripts/install_onnx.sh /tmp/install_onnx.sh
-COPY scripts/download_models.sh /tmp/download_models.sh
 
 WORKDIR /tmp
 
-ENV SB_AI_MODELS_DIR=/etc/sb_ai/models
 ENV DENO_INSTALL=/deno
 
 RUN /tmp/install.sh $TARGETPLATFORM

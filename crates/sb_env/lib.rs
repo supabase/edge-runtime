@@ -6,8 +6,22 @@ use sb_core::permissions::Permissions;
 use sb_node::NODE_ENV_VAR_ALLOWLIST;
 use std::collections::HashMap;
 
-// NOTE(Nyannyacha): This declaration does not create a unique TypeId and is therefore unsafe.
-pub type EnvVars = HashMap<String, String>;
+#[derive(Default)]
+pub struct EnvVars(pub HashMap<String, String>);
+
+impl std::ops::Deref for EnvVars {
+    type Target = HashMap<String, String>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for EnvVars {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        todo!()
+    }
+}
 
 deno_core::extension!(
     sb_env,
@@ -30,7 +44,7 @@ fn op_set_env(
 fn op_env(state: &mut OpState) -> Result<HashMap<String, String>, AnyError> {
     state.borrow_mut::<Permissions>().check_env_all()?;
     let env_vars = state.borrow::<EnvVars>();
-    Ok(env_vars.clone())
+    Ok(env_vars.0.clone())
 }
 
 #[op2]

@@ -117,12 +117,13 @@ impl JsTensor {
             MemoryType::CPUInput,
         )?;
 
-        // TODO: Try to zero-copy shape also
-        let shape = self.dims.to_owned();
-
         // Zero-Copying Data to an ORT Tensor based on JS type
         let tensor = unsafe {
-            TensorRefMut::<T>::from_raw(memory_info, self.data.as_mut_ptr() as *mut c_void, shape)
+            TensorRefMut::<T>::from_raw(
+                memory_info,
+                self.data.as_mut_ptr() as *mut c_void,
+                self.dims,
+            )
         }?;
 
         Ok(tensor.into_dyn())

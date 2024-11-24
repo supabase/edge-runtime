@@ -26,6 +26,7 @@ deno_ast = { version = "=0.40.0", features = ["transpiling"] }
 deno_core = "0.293.0"
 deno_broadcast_channel = "0.155.0"
 deno_canvas = "0.30.0"
+deno_cache = "0.93.0"
 deno_console = "0.161.0"
 deno_crypto = "0.175.0"
 deno_fetch = "0.185.0"

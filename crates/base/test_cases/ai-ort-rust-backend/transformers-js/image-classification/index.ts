@@ -14,6 +14,8 @@ import {
   RawImage,
 } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.1';
 
+import { round6 } from '../util.ts';
+
 const wasmBytes = await Deno.readFile(
   new URL(
     'magick.wasm',
@@ -61,7 +63,7 @@ export async function fetchImage(url: string) {
   return new Uint8Array(buffer);
 }
 
-Deno.serve(async () => {
+Deno.serve(async (req: Request) => {
   const imageFile = await fetchImage(
     'https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/cropped_bee.jpg',
   );
@@ -80,15 +82,17 @@ Deno.serve(async () => {
   );
 
   const output = await pipe(imageInput);
+  const snapshot = await req.json();
 
-  // Comparing first 2 predictions
-  [
-    { label: 'bee', score: 0.9869289994239807 },
-    { label: 'fly', score: 0.005201293155550957 },
-  ].map((expected, idx) => {
-    assertEquals(output[idx].label, expected.label);
-    assertAlmostEquals(output[idx].score, expected.score);
-  });
+  if (!snapshot) {
+    return Response.json(output, { status: 201 });
+  }
+
+  (snapshot as Array<any>)
+    .map((expected, idx) => {
+      assertEquals(output[idx].label, expected.label);
+      assertAlmostEquals(round6(output[idx].score), expected.score);
+    });
 
   return new Response();
 });

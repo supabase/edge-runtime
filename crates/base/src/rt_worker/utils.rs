@@ -12,6 +12,7 @@ type WorkerCoreConfig = (
     String,
 );
 
+// TODO: Refactor this
 pub fn parse_worker_conf(conf: &WorkerRuntimeOpts) -> WorkerCoreConfig {
     let worker_core: WorkerCoreConfig = match conf {
         WorkerRuntimeOpts::UserWorker(worker_opts) => (

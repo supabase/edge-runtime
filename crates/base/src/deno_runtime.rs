@@ -13,6 +13,7 @@ use base_rt::DenoRuntimeDropToken;
 use base_rt::{get_current_cpu_time_ns, BlockingScopeCPUUsage};
 use cooked_waker::{IntoWaker, WakeRef};
 use ctor::ctor;
+use deno_cache::SqliteBackedCache;
 use deno_core::error::{AnyError, JsError};
 use deno_core::url::Url;
 use deno_core::v8::{self, GCCallbackFlags, GCType, HeapStatistics, Isolate};
@@ -526,6 +527,30 @@ where
             Arc::new(DenoCompileFileSystem::from_rc(vfs))
         })?;
 
+        /* NOTE(kallebysantos): Cache via SqliteBackedCache is disabled.
+         *
+         * ```
+         * let cache_base_dir = dirs::cache_dir()
+         *     .context("could not resolve cache directory")?
+         *     .join("web_caches");
+         *
+         * tokio::fs::create_dir_all(cache_base_dir.as_path())
+         *     .await
+         *     .context("could not make cache directory")?;
+         *
+         * struct CacheStorageDir(TempDir);
+         *
+         * let cache_storage_dir = CacheStorageDir(
+         *     tempfile::tempdir_in(cache_base_dir).context("could not make cache directory")?,
+         * );
+         *
+         * let cache_backend = CreateCache(Arc::new({
+         *     let dir = cache_storage_dir.0.path().to_path_buf();
+         *     move || SqliteBackedCache::new(dir.clone())
+         * }));
+         * ```
+         */
+
         let mod_code = module_code;
         let extensions = vec![
             sb_core_permissions::init_ops(net_access_disabled, allow_net),
@@ -575,6 +600,7 @@ where
                 Some(npm_resolver),
                 file_system,
             ),
+            deno_cache::deno_cache::init_ops::<SqliteBackedCache>(None),
             sb_core_runtime::init_ops(Some(main_module_url.clone())),
         ];
 
@@ -694,11 +720,12 @@ where
         let version: Option<&str> = option_env!("GIT_V_TAG");
 
         {
-            // @andreespirela : We do this because "NODE_DEBUG" is trying to be read during
-            // initialization, But we need the gotham state to be up-to-date
             let op_state_rc = js_runtime.op_state();
             let mut op_state = op_state_rc.borrow_mut();
-            op_state.put::<sb_env::EnvVars>(sb_env::EnvVars::new());
+
+            // NOTE(Andreespirela): We do this because "NODE_DEBUG" is trying to be read during
+            // initialization, But we need the gotham state to be up-to-date.
+            op_state.put(sb_env::EnvVars::default());
         }
 
         // Bootstrapping stage
@@ -805,8 +832,8 @@ where
                 }
             }
 
-            op_state.put::<sb_env::EnvVars>(env_vars);
-            op_state.put(DenoRuntimeDropToken(drop_token.clone()))
+            op_state.put(sb_env::EnvVars(env_vars));
+            op_state.put(DenoRuntimeDropToken(drop_token.clone()));
         }
 
         let main_module_id = {

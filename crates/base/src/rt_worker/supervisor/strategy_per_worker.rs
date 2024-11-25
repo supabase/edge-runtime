@@ -8,8 +8,8 @@ use log::error;
 use sb_workers::context::{Timing, TimingStatus, UserWorkerMsgs};
 
 use crate::rt_worker::supervisor::{
-    create_wall_clock_beforeunload_alert, v8_handle_wall_clock_beforeunload, wait_cpu_alarm,
-    CPUUsage, Tokens,
+    create_wall_clock_beforeunload_alert, v8_handle_early_retire,
+    v8_handle_wall_clock_beforeunload, wait_cpu_alarm, CPUUsage, Tokens,
 };
 
 use super::{v8_handle_termination, Arguments, CPUUsageMetrics, V8HandleTerminationData};
@@ -85,6 +85,10 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
     );
 
     let early_retire_fn = || {
+        if thread_safe_handle.request_interrupt(v8_handle_early_retire, std::ptr::null_mut()) {
+            waker.wake();
+        }
+
         // we should raise a retire signal because subsequent incoming requests are unlikely to get
         // enough wall clock time or cpu time
         guard.raise();

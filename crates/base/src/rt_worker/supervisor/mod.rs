@@ -14,6 +14,7 @@ use tokio::sync::{
     oneshot,
 };
 use tokio_util::sync::CancellationToken;
+use tracing::{debug, instrument};
 use uuid::Uuid;
 
 use crate::{
@@ -181,4 +182,10 @@ extern "C" fn v8_handle_wall_clock_beforeunload(
             err
         );
     }
+}
+
+#[instrument(level = "debug", skip_all)]
+extern "C" fn v8_handle_early_retire(isolate: &mut v8::Isolate, _data: *mut std::ffi::c_void) {
+    isolate.low_memory_notification();
+    debug!("sent low mem notification");
 }

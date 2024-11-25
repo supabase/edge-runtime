@@ -9,8 +9,9 @@ use sb_workers::context::{Timing, TimingStatus, UserWorkerMsgs};
 use tokio::time::Instant;
 
 use crate::rt_worker::supervisor::{
-    create_wall_clock_beforeunload_alert, v8_handle_termination, v8_handle_wall_clock_beforeunload,
-    wait_cpu_alarm, CPUUsage, CPUUsageMetrics, Tokens, V8HandleTerminationData,
+    create_wall_clock_beforeunload_alert, v8_handle_early_retire, v8_handle_termination,
+    v8_handle_wall_clock_beforeunload, wait_cpu_alarm, CPUUsage, CPUUsageMetrics, Tokens,
+    V8HandleTerminationData,
 };
 
 use super::Arguments;
@@ -46,6 +47,10 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
     let (_, hard_limit_ms) = cpu_timer_param.limits();
 
     let _guard = scopeguard::guard(is_retired, |v| {
+        if thread_safe_handle.request_interrupt(v8_handle_early_retire, std::ptr::null_mut()) {
+            waker.wake();
+        }
+
         v.raise();
     });
 

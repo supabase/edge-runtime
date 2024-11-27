@@ -3,7 +3,7 @@
 
 use deno_config::JsxImportSourceConfig;
 use event_worker::events::{LogLevel, WorkerEvents};
-use http_v02 as http;
+use http_v02::{self as http, HeaderValue};
 use hyper_v014 as hyper;
 use reqwest_v011 as reqwest;
 use sb_graph::{emitter::EmitterFactory, generate_binary_eszip, EszipPayloadKind};
@@ -3105,8 +3105,6 @@ async fn test_runtime_beforeunload_event(kind: &'static str, pct: u8) {
 
     tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
 
-    let mut found_triggered = false;
-
     while let Some(ev) = rx.recv().await {
         let WorkerEvents::Log(ev) = ev.event else {
             continue;
@@ -3114,17 +3112,15 @@ async fn test_runtime_beforeunload_event(kind: &'static str, pct: u8) {
         if ev.level != LogLevel::Info {
             continue;
         }
-
-        found_triggered = ev
+        if ev
             .msg
-            .contains(&format!("triggered {}", kind.replace('-', "_")));
-
-        if found_triggered {
-            break;
+            .contains(&format!("triggered {}", kind.replace('-', "_")))
+        {
+            return;
         }
     }
 
-    assert!(found_triggered);
+    unreachable!("test failed");
 }
 
 #[tokio::test]
@@ -3147,6 +3143,7 @@ async fn test_runtime_event_beforeunload_mem() {
 
 // NOTE(Nyannyacha): We cannot enable this test unless we clarify the trigger point of the unload
 // event.
+//
 // #[tokio::test]
 // #[serial]
 // async fn test_runtime_event_unload() {
@@ -3156,7 +3153,7 @@ async fn test_runtime_event_beforeunload_mem() {
 //         .with_worker_event_sender(Some(tx))
 //         .build()
 //         .await;
-
+//
 //     let resp = tb
 //         .request(|b| {
 //             b.uri("/unload")
@@ -3166,14 +3163,12 @@ async fn test_runtime_event_beforeunload_mem() {
 //         })
 //         .await
 //         .unwrap();
-
+//
 //     assert_eq!(resp.status().as_u16(), StatusCode::OK);
-
+//
 //     sleep(Duration::from_secs(8)).await;
 //     tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
-
-//     let mut found_triggered = false;
-
+//
 //     while let Some(ev) = rx.recv().await {
 //         let WorkerEvents::Log(ev) = ev.event else {
 //             continue;
@@ -3181,16 +3176,91 @@ async fn test_runtime_event_beforeunload_mem() {
 //         if ev.level != LogLevel::Info {
 //             continue;
 //         }
-
-//         found_triggered = ev.msg.contains("triggered unload");
-
-//         if found_triggered {
+//         if ev.msg.contains("triggered unload") {
 //             break;
 //         }
 //     }
-
-//     assert!(found_triggered);
+//
+//     unreachable!("test failed");
 // }
+
+#[tokio::test]
+#[serial]
+async fn test_should_wait_for_background_tests() {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let tb = TestBedBuilder::new("./test_cases/main")
+        // only the `per_worker` policy allows waiting for background tasks.
+        .with_per_worker_policy(None)
+        .with_worker_event_sender(Some(tx))
+        .build()
+        .await;
+
+    let resp = tb
+        .request(|b| {
+            b.uri("/mark-background-task")
+                .header("x-cpu-time-soft-limit-ms", HeaderValue::from_static("100"))
+                .body(Body::empty())
+                .context("can't make request")
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status().as_u16(), StatusCode::OK);
+
+    tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
+
+    while let Some(ev) = rx.recv().await {
+        let WorkerEvents::Log(ev) = ev.event else {
+            continue;
+        };
+        if ev.level != LogLevel::Info {
+            continue;
+        }
+        if ev.msg.contains("meow") {
+            return;
+        }
+    }
+
+    unreachable!("test failed");
+}
+
+#[tokio::test]
+#[serial]
+async fn test_should_not_wait_for_background_tests() {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let tb = TestBedBuilder::new("./test_cases/main")
+        // only the `per_worker` policy allows waiting for background tasks.
+        .with_per_worker_policy(None)
+        .with_worker_event_sender(Some(tx))
+        .build()
+        .await;
+
+    let resp = tb
+        .request(|b| {
+            b.uri("/mark-background-task-2")
+                .header("x-cpu-time-soft-limit-ms", HeaderValue::from_static("100"))
+                .body(Body::empty())
+                .context("can't make request")
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status().as_u16(), StatusCode::OK);
+
+    tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
+
+    while let Some(ev) = rx.recv().await {
+        let WorkerEvents::Log(ev) = ev.event else {
+            continue;
+        };
+        if ev.level != LogLevel::Info {
+            continue;
+        }
+        if ev.msg.contains("meow") {
+            unreachable!("test failed");
+        }
+    }
+}
 
 #[derive(Deserialize)]
 struct ErrorResponsePayload {

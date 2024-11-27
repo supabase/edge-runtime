@@ -14,6 +14,7 @@ use futures::FutureExt;
 use log::error;
 use serde::Serialize;
 use tokio::sync::oneshot;
+use tracing::{debug, debug_span};
 
 mod upgrade;
 
@@ -351,6 +352,51 @@ fn op_raise_segfault(_state: &mut OpState) {
     }
 }
 
+#[derive(Debug, Default, Clone)]
+pub struct PromiseMetrics {
+    init: Arc<AtomicUsize>,
+    resolve: Arc<AtomicUsize>,
+}
+
+impl PromiseMetrics {
+    pub fn get_init_count(&self) -> usize {
+        self.init.load(Ordering::Acquire)
+    }
+
+    pub fn get_resolve_count(&self) -> usize {
+        self.resolve.load(Ordering::Acquire)
+    }
+
+    pub fn have_all_promises_been_resolved(&self) -> bool {
+        self.get_init_count() == self.get_resolve_count()
+    }
+}
+
+#[op2(fast)]
+fn op_tap_promise_metrics(state: &mut OpState, #[string] kind: &str) {
+    let _span = debug_span!("op_tap_promise_metrics", kind).entered();
+    let metrics = if state.has::<PromiseMetrics>() {
+        state.borrow_mut::<PromiseMetrics>()
+    } else {
+        state.put(PromiseMetrics::default());
+        state.borrow_mut()
+    };
+
+    match kind {
+        "init" => {
+            metrics.init.fetch_add(1, Ordering::Release);
+        }
+
+        "resolve" => {
+            metrics.resolve.fetch_add(1, Ordering::Release);
+        }
+
+        _ => {}
+    }
+
+    debug!(?metrics);
+}
+
 #[op2]
 #[serde]
 pub fn op_bootstrap_unstable_args(_state: &mut OpState) -> Vec<String> {
@@ -371,9 +417,11 @@ deno_core::extension!(
         op_set_raw,
         op_bootstrap_unstable_args,
         op_raise_segfault,
+        op_tap_promise_metrics,
     ],
     esm_entry_point = "ext:sb_core_main_js/js/bootstrap.js",
     esm = [
+        "js/async_hook.js",
         "js/permissions.js",
         "js/errors.js",
         "js/fieldUtils.js",

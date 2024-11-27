@@ -69,7 +69,7 @@ use sb_core::external_memory::CustomAllocator;
 use sb_core::net::sb_core_net;
 use sb_core::permissions::{sb_core_permissions, Permissions};
 use sb_core::runtime::sb_core_runtime;
-use sb_core::{sb_core_main_js, MemCheckWaker};
+use sb_core::{sb_core_main_js, MemCheckWaker, PromiseMetrics};
 use sb_env::sb_env as sb_env_op;
 use sb_fs::deno_compile_fs::DenoCompileFileSystem;
 use sb_graph::emitter::EmitterFactory;
@@ -254,6 +254,7 @@ pub struct DenoRuntime<RuntimeContext = ()> {
 
     main_module_id: ModuleId,
     maybe_inspector: Option<Inspector>,
+    promise_metrics: PromiseMetrics,
 
     mem_check: Arc<MemCheck>,
     waker: Arc<AtomicWaker>,
@@ -322,6 +323,7 @@ where
         // TODO(Nyannyacha): Make sure `service_path` is an absolute path first.
 
         let drop_token = CancellationToken::default();
+        let promise_metrics = PromiseMetrics::default();
 
         let base_dir_path = std::env::current_dir().map(|p| p.join(&service_path))?;
         let Ok(mut main_module_url) = Url::from_directory_path(&base_dir_path) else {
@@ -709,19 +711,12 @@ where
 
         {
             let main_context = js_runtime.main_context();
-
             let op_state = js_runtime.op_state();
             let mut op_state = op_state.borrow_mut();
 
             op_state.put(dispatch_fns);
+            op_state.put(promise_metrics.clone());
             op_state.put(GlobalMainContext(main_context));
-        }
-
-        let version: Option<&str> = option_env!("GIT_V_TAG");
-
-        {
-            let op_state_rc = js_runtime.op_state();
-            let mut op_state = op_state_rc.borrow_mut();
 
             // NOTE(Andreespirela): We do this because "NODE_DEBUG" is trying to be read during
             // initialization, But we need the gotham state to be up-to-date.
@@ -739,7 +734,7 @@ where
                 // 2: isEventsWorker
                 conf.is_events_worker(),
                 // 3: edgeRuntimeVersion
-                version.unwrap_or("0.1.0"),
+                option_env!("GIT_V_TAG").unwrap_or("0.1.0"),
                 // 4: denoVersion
                 MAYBE_DENO_VERSION
                     .get()
@@ -884,6 +879,7 @@ where
 
             main_module_id,
             maybe_inspector,
+            promise_metrics,
 
             mem_check,
             waker: Arc::default(),
@@ -1208,6 +1204,10 @@ where
 
     pub fn inspector(&self) -> Option<Inspector> {
         self.maybe_inspector.clone()
+    }
+
+    pub fn promise_metrics(&self) -> PromiseMetrics {
+        self.promise_metrics.clone()
     }
 
     pub fn mem_check_state(&self) -> Arc<RwLock<MemCheckState>> {

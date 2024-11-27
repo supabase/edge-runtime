@@ -18,6 +18,7 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
     let Arguments {
         key,
         runtime_opts,
+        promise_metrics,
         timing,
         mut memory_limit_rx,
         cpu_timer,
@@ -55,11 +56,13 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
     let is_wall_clock_limit_disabled = wall_clock_limit_ms == 0;
     let mut is_worker_entered = false;
     let mut is_wall_clock_beforeunload_armed = false;
+    let mut is_cpu_time_soft_limit_reached = false;
+    let mut is_termination_requested = false;
+    let mut have_all_reqs_been_acknowledged = false;
 
     let mut cpu_usage_metrics_rx = cpu_usage_metrics_rx.unwrap();
     let mut cpu_usage_ms = 0i64;
 
-    let mut cpu_time_soft_limit_reached = false;
     let mut wall_clock_alerts = 0;
     let mut req_ack_count = 0usize;
 
@@ -113,10 +116,10 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
     tokio::pin!(wall_clock_duration_alert);
     tokio::pin!(wall_clock_beforeunload_alert);
 
-    loop {
+    let result = 'scope: loop {
         tokio::select! {
             _ = supervise.cancelled() => {
-                return (ShutdownReason::TerminationRequested, cpu_usage_ms);
+                break 'scope (ShutdownReason::TerminationRequested, cpu_usage_ms);
             }
 
             _ = async {
@@ -124,9 +127,12 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
                     Some(token) => token.inbound.cancelled().await,
                     None => pending().await,
                 }
-            } => {
-                terminate_fn();
-                return (ShutdownReason::TerminationRequested, cpu_usage_ms);
+            }, if !is_termination_requested => {
+                is_termination_requested = true;
+                if promise_metrics.have_all_promises_been_resolved() {
+                    terminate_fn();
+                    break 'scope (ShutdownReason::TerminationRequested, cpu_usage_ms);
+                }
             }
 
             Some(metrics) = cpu_usage_metrics_rx.recv() => {
@@ -160,17 +166,28 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
                             if cpu_usage_ms >= hard_limit_ms as i64 {
                                 terminate_fn();
                                 error!("CPU time hard limit reached: isolate: {:?}", key);
-                                return (ShutdownReason::CPUTime, cpu_usage_ms);
-                            } else if cpu_usage_ms >= soft_limit_ms as i64 && !cpu_time_soft_limit_reached {
+                                break 'scope (ShutdownReason::CPUTime, cpu_usage_ms);
+                            } else if cpu_usage_ms >= soft_limit_ms as i64 && !is_cpu_time_soft_limit_reached {
                                 early_retire_fn();
                                 error!("CPU time soft limit reached: isolate: {:?}", key);
-                                cpu_time_soft_limit_reached = true;
 
-                                if req_ack_count == demand.load(Ordering::Acquire) {
+                                is_cpu_time_soft_limit_reached = true;
+                                have_all_reqs_been_acknowledged = req_ack_count == demand.load(Ordering::Acquire);
+
+                                if have_all_reqs_been_acknowledged
+                                    && promise_metrics.have_all_promises_been_resolved()
+                                {
                                     terminate_fn();
                                     error!("early termination due to the last request being completed: isolate: {:?}", key);
-                                    return (ShutdownReason::EarlyDrop, cpu_usage_ms);
+                                    break 'scope (ShutdownReason::EarlyDrop, cpu_usage_ms);
                                 }
+
+                            } else if is_cpu_time_soft_limit_reached
+                                && have_all_reqs_been_acknowledged
+                                && promise_metrics.have_all_promises_been_resolved()
+                            {
+                                terminate_fn();
+                                break 'scope (ShutdownReason::EarlyDrop, cpu_usage_ms);
                             }
                         }
                     }
@@ -179,28 +196,33 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
 
             Some(_) = wait_cpu_alarm(cpu_alarms_rx.as_mut()) => {
                 if is_worker_entered {
-                    if !cpu_time_soft_limit_reached {
+                    if !is_cpu_time_soft_limit_reached {
                         early_retire_fn();
                         error!("CPU time soft limit reached: isolate: {:?}", key);
-                        cpu_time_soft_limit_reached = true;
 
-                        if req_ack_count == demand.load(Ordering::Acquire) {
+                        is_cpu_time_soft_limit_reached = true;
+                        have_all_reqs_been_acknowledged = req_ack_count == demand.load(Ordering::Acquire);
+
+                        if have_all_reqs_been_acknowledged
+                            && promise_metrics.have_all_promises_been_resolved()
+                        {
                             terminate_fn();
                             error!("early termination due to the last request being completed: isolate: {:?}", key);
-                            return (ShutdownReason::EarlyDrop, cpu_usage_ms);
+                            break 'scope (ShutdownReason::EarlyDrop, cpu_usage_ms);
                         }
                     } else {
                         terminate_fn();
                         error!("CPU time hard limit reached: isolate: {:?}", key);
-                        return (ShutdownReason::CPUTime, cpu_usage_ms);
+                        break 'scope (ShutdownReason::CPUTime, cpu_usage_ms);
                     }
                 }
             }
 
             Some(_) = req_end_rx.recv() => {
                 req_ack_count += 1;
+                have_all_reqs_been_acknowledged = req_ack_count == demand.load(Ordering::Acquire);
 
-                if !cpu_time_soft_limit_reached {
+                if !is_cpu_time_soft_limit_reached {
                     if let Some(tx) = pool_msg_tx.clone() {
                         if tx.send(UserWorkerMsgs::Idle(key)).is_err() {
                             error!("failed to send idle msg to pool: {:?}", key);
@@ -208,13 +230,16 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
                     }
                 }
 
-                if !cpu_time_soft_limit_reached || req_ack_count != demand.load(Ordering::Acquire) {
+                if !is_cpu_time_soft_limit_reached
+                    || !have_all_reqs_been_acknowledged
+                    || !promise_metrics.have_all_promises_been_resolved()
+                {
                     continue;
                 }
 
                 terminate_fn();
                 error!("early termination due to the last request being completed: isolate: {:?}", key);
-                return (ShutdownReason::EarlyDrop, cpu_usage_ms);
+                break 'scope (ShutdownReason::EarlyDrop, cpu_usage_ms);
             }
 
             _ = wall_clock_duration_alert.tick(), if !is_wall_clock_limit_disabled => {
@@ -229,10 +254,8 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
                     let is_in_flight_req_exists = req_ack_count != demand.load(Ordering::Acquire);
 
                     terminate_fn();
-
                     error!("wall clock duration reached: isolate: {:?} (in_flight_req_exists = {})", key, is_in_flight_req_exists);
-
-                    return (ShutdownReason::WallClockTime, cpu_usage_ms);
+                    break 'scope (ShutdownReason::WallClockTime, cpu_usage_ms);
                 }
             }
 
@@ -252,8 +275,16 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
             Some(_) = memory_limit_rx.recv() => {
                 terminate_fn();
                 error!("memory limit reached for the worker: isolate: {:?}", key);
-                return (ShutdownReason::Memory, cpu_usage_ms);
+                break 'scope (ShutdownReason::Memory, cpu_usage_ms);
             }
         }
+    };
+
+    match result {
+        (ShutdownReason::EarlyDrop, cpu_usage_ms) if is_termination_requested => {
+            (ShutdownReason::TerminationRequested, cpu_usage_ms)
+        }
+
+        result => result,
     }
 }

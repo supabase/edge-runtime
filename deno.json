@@ -6,5 +6,8 @@
     "singleQuote": true,
     "proseWrap": "preserve",
     "include": ["examples/**/*.ts"]
+  },
+  "imports": {
+    "npm:@meowmeow/foobar": "npm:is-odd"
   }
 }

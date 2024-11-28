@@ -8,6 +8,7 @@ use deno_core::v8;
 use enum_as_inner::EnumAsInner;
 use futures_util::task::AtomicWaker;
 use log::{error, warn};
+use sb_core::PromiseMetrics;
 use sb_workers::context::{Timing, UserWorkerMsgs, UserWorkerRuntimeOpts};
 use tokio::sync::{
     mpsc::{self, UnboundedReceiver},
@@ -129,6 +130,7 @@ pub struct Arguments {
     pub cpu_usage_metrics_rx: Option<mpsc::UnboundedReceiver<CPUUsageMetrics>>,
     pub cpu_timer_param: CPUTimerParam,
     pub supervisor_policy: SupervisorPolicy,
+    pub promise_metrics: PromiseMetrics,
     pub timing: Option<Timing>,
     pub memory_limit_rx: mpsc::UnboundedReceiver<()>,
     pub pool_msg_tx: Option<mpsc::UnboundedSender<UserWorkerMsgs>>,

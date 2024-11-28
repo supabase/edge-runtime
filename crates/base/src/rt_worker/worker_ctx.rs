@@ -352,6 +352,7 @@ pub fn create_supervisor(
         let _rt_guard = base_rt::SUPERVISOR_RT.enter();
         let maybe_cpu_timer_inner = maybe_cpu_timer.clone();
         let supervise_cancel_token_inner = supervise_cancel_token.clone();
+        let promise_metrics = worker_runtime.promise_metrics();
 
         tokio::spawn(async move {
             let (isolate_memory_usage_tx, isolate_memory_usage_rx) =
@@ -364,6 +365,7 @@ pub fn create_supervisor(
                 cpu_usage_metrics_rx,
                 cpu_timer_param,
                 supervisor_policy,
+                promise_metrics,
                 timing,
                 memory_limit_rx,
                 pool_msg_tx,

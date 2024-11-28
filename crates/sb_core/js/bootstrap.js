@@ -24,6 +24,7 @@ import * as globalInterfaces from 'ext:deno_web/04_global_interfaces.js';
 import { SUPABASE_ENV } from 'ext:sb_env/env.js';
 import { USER_WORKER_API as ai } from 'ext:sb_ai/js/ai.js';
 import 'ext:sb_ai/js/onnxruntime/cache_adapter.js';
+import { markAsBackgroundTask, installPromiseHook } from 'ext:sb_core_main_js/js/async_hook.js';
 import { registerErrors } from 'ext:sb_core_main_js/js/errors.js';
 import {
 	formatException,
@@ -356,13 +357,12 @@ function warnOnDeprecatedApi(apiName, stack, ...suggestions) {
 ObjectAssign(internals, { warnOnDeprecatedApi });
 
 function runtimeStart(target) {
-	/*	core.setMacrotaskCallback(timers.handleTimerMacrotask);
-		core.setMacrotaskCallback(promiseRejectMacrotaskCallback);*/
+	// core.setMacrotaskCallback(timers.handleTimerMacrotask);
+	// core.setMacrotaskCallback(promiseRejectMacrotaskCallback);
 	core.setWasmStreamingCallback(fetch.handleWasmStreaming);
-
 	ops.op_set_format_exception_callback(formatException);
-
 	core.setBuildInfo(target);
+	installPromiseHook();
 
 	// deno-lint-ignore prefer-primordials
 	Error.prepareStackTrace = core.prepareStackTrace;
@@ -594,8 +594,8 @@ globalThis.bootstrapSBEdge = (opts, extraCtx) => {
 	if (isUserWorker) {
 		delete globalThis.EdgeRuntime;
 
-		// override console
 		ObjectDefineProperties(globalThis, {
+			markAsBackgroundTask: nonEnumerable(markAsBackgroundTask),
 			console: nonEnumerable(
 				new console.Console((msg, level) => {
 					return ops.op_user_worker_log(msg, level > 1);

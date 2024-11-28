@@ -1,6 +1,20 @@
 console.log('main function started');
 
-Deno.serve(async (req: Request) => {
+function parseIntFromHeadersOrDefault(req: Request, key: string, val: number) {
+  const headerValue = req.headers.get(key);
+  if (!headerValue) {
+    return val;
+  }
+
+  const parsedValue = parseInt(headerValue);
+  if (isNaN(parsedValue)) {
+    return val;
+  }
+
+  return parsedValue;
+}
+
+Deno.serve((req: Request) => {
   console.log(req.url);
   const url = new URL(req.url);
   const { pathname } = url;
@@ -19,10 +33,11 @@ Deno.serve(async (req: Request) => {
   console.error(`serving the request with ${servicePath}`);
 
   const createWorker = async () => {
-    const memoryLimitMb = 150;
-    const workerTimeoutMs = 10 * 60 * 1000;
-    const cpuTimeSoftLimitMs = 10 * 60 * 1000;
-    const cpuTimeHardLimitMs = 10 * 60 * 1000;
+    const memoryLimitMb = parseIntFromHeadersOrDefault(req, "x-memory-limit-mb", 150);
+    const workerTimeoutMs = parseIntFromHeadersOrDefault(req, "x-worker-timeout-ms", 10 * 60 * 1000);
+    const cpuTimeSoftLimitMs = parseIntFromHeadersOrDefault(req, "x-cpu-time-soft-limit-ms", 10 * 60 * 1000);
+    const cpuTimeHardLimitMs = parseIntFromHeadersOrDefault(req, "x-cpu-time-hard-limit-ms", 10 * 60 * 1000);
+    console.log(cpuTimeSoftLimitMs);
     const noModuleCache = false;
     const importMapPath = null;
     const envVarsObj = Deno.env.toObject();

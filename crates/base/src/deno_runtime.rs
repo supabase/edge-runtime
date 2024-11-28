@@ -6,7 +6,7 @@ use crate::utils::json;
 use crate::utils::path::find_up;
 use crate::utils::units::{bytes_to_display, mib_to_bytes, percentage_value};
 
-use anyhow::{anyhow, bail, Error};
+use anyhow::{anyhow, bail, Context, Error};
 use arc_swap::ArcSwapOption;
 use base_mem_check::{MemCheckState, WorkerHeapStatistics};
 use base_rt::DenoRuntimeDropToken;
@@ -18,8 +18,8 @@ use deno_core::error::{AnyError, JsError};
 use deno_core::url::Url;
 use deno_core::v8::{self, GCCallbackFlags, GCType, HeapStatistics, Isolate};
 use deno_core::{
-    located_script_name, serde_json, JsRuntime, ModuleCodeString, ModuleId, ModuleLoader,
-    ModuleSpecifier, OpState, PollEventLoopOptions, ResolutionKind, RuntimeOptions,
+    serde_json, JsRuntime, ModuleId, ModuleLoader, ModuleSpecifier, OpState, PollEventLoopOptions,
+    ResolutionKind, RuntimeOptions,
 };
 use deno_http::DefaultHttpPropertyExtractor;
 use deno_tls::deno_native_certs::load_native_certs;
@@ -27,6 +27,7 @@ use deno_tls::rustls::RootCertStore;
 use deno_tls::RootCertStoreProvider;
 use futures_util::future::poll_fn;
 use futures_util::task::AtomicWaker;
+use futures_util::FutureExt;
 use log::error;
 use once_cell::sync::{Lazy, OnceCell};
 use sb_core::http::sb_core_http;
@@ -205,14 +206,44 @@ impl MemCheck {
 }
 
 pub trait GetRuntimeContext {
-    fn get_runtime_context() -> impl Serialize;
-}
+    fn get_runtime_context(
+        conf: &WorkerRuntimeOpts,
+        use_inspector: bool,
+        version: Option<&str>,
+    ) -> impl Serialize {
+        serde_json::json!({
+            "target": env!("TARGET"),
+            "kind": conf.to_worker_kind().to_string(),
+            "debug": cfg!(debug_assertions),
+            "inspector": use_inspector,
+            "version": {
+                "runtime": version.unwrap_or("0.1.0"),
+                "deno": MAYBE_DENO_VERSION
+                    .get()
+                    .map(|it| &**it)
+                    .unwrap_or("UNKNOWN"),
+            },
+            "flags": {
+                "SHOULD_DISABLE_DEPRECATED_API_WARNING": SHOULD_DISABLE_DEPRECATED_API_WARNING
+                    .get()
+                    .copied()
+                    .unwrap_or_default(),
+                "SHOULD_USE_VERBOSE_DEPRECATED_API_WARNING": SHOULD_USE_VERBOSE_DEPRECATED_API_WARNING
+                    .get()
+                    .copied()
+                    .unwrap_or_default()
+            }
+        })
+    }
 
-impl GetRuntimeContext for () {
-    fn get_runtime_context() -> impl Serialize {
-        serde_json::json!(null)
+    fn get_extra_context() -> impl Serialize {
+        serde_json::json!({})
     }
 }
+
+type DefaultRuntimeContext = ();
+
+impl GetRuntimeContext for DefaultRuntimeContext {}
 
 #[derive(Debug, Clone)]
 struct GlobalMainContext(v8::Global<v8::Context>);
@@ -240,7 +271,7 @@ pub enum WillTerminateReason {
     WallClock,
 }
 
-pub struct DenoRuntime<RuntimeContext = ()> {
+pub struct DenoRuntime<RuntimeContext = DefaultRuntimeContext> {
     pub js_runtime: ManuallyDrop<JsRuntime>,
     pub drop_token: CancellationToken,
     pub env_vars: HashMap<String, String>, // TODO: does this need to be pub?
@@ -281,7 +312,7 @@ impl<RuntimeContext> Drop for DenoRuntime<RuntimeContext> {
     }
 }
 
-impl DenoRuntime<()> {
+impl DenoRuntime<DefaultRuntimeContext> {
     pub async fn acquire() -> OwnedSemaphorePermit {
         RUNTIME_CREATION_SEM
             .with(|v| v.clone())
@@ -666,10 +697,10 @@ where
             let global_obj = context_local.global(scope);
             let bootstrap_str =
                 v8::String::new_external_onebyte_static(scope, b"bootstrap").unwrap();
-            let bootstrap_ns: v8::Local<v8::Object> = global_obj
+            let bootstrap_ns = global_obj
                 .get(scope, bootstrap_str.into())
                 .unwrap()
-                .try_into()
+                .to_object(scope)
                 .unwrap();
 
             let dispatch_load_event_fn_str =
@@ -717,8 +748,6 @@ where
             op_state.put(GlobalMainContext(main_context));
         }
 
-        let version: Option<&str> = option_env!("GIT_V_TAG");
-
         {
             let op_state_rc = js_runtime.op_state();
             let mut op_state = op_state_rc.borrow_mut();
@@ -727,50 +756,6 @@ where
             // initialization, But we need the gotham state to be up-to-date.
             op_state.put(sb_env::EnvVars::default());
         }
-
-        // Bootstrapping stage
-        let script = format!(
-            "globalThis.bootstrapSBEdge({}, {})",
-            serde_json::json!([
-                // 0: target
-                env!("TARGET"),
-                // 1: isUserWorker
-                conf.is_user_worker(),
-                // 2: isEventsWorker
-                conf.is_events_worker(),
-                // 3: edgeRuntimeVersion
-                version.unwrap_or("0.1.0"),
-                // 4: denoVersion
-                MAYBE_DENO_VERSION
-                    .get()
-                    .map(|it| &**it)
-                    .unwrap_or("UNKNOWN"),
-                // 5: shouldDisableDeprecatedApiWarning
-                SHOULD_DISABLE_DEPRECATED_API_WARNING
-                    .get()
-                    .copied()
-                    .unwrap_or_default(),
-                // 6: shouldUseVerboseDeprecatedApiWarning
-                SHOULD_USE_VERBOSE_DEPRECATED_API_WARNING
-                    .get()
-                    .copied()
-                    .unwrap_or_default(),
-            ]),
-            {
-                let mut runtime_context = serde_json::json!(RuntimeContext::get_runtime_context());
-
-                json::merge_object(
-                    &mut runtime_context,
-                    &conf
-                        .as_user_worker()
-                        .and_then(|it| it.context.clone())
-                        .map(serde_json::Value::Object)
-                        .unwrap_or_else(|| serde_json::json!({})),
-                );
-
-                runtime_context
-            }
-        );
 
         if let Some(inspector) = maybe_inspector.clone() {
             inspector.server.register_inspector(
@@ -793,9 +778,60 @@ where
                 .put(MemCheckWaker::from(mem_check.waker.clone()));
         }
 
+        // Bootstrapping stage
+        let (runtime_context, extra_context, bootstrap_fn) = {
+            let runtime_context = serde_json::json!(RuntimeContext::get_runtime_context(
+                &conf,
+                has_inspector,
+                option_env!("GIT_V_TAG"),
+            ));
+
+            let extra_context = {
+                let mut context = serde_json::json!(RuntimeContext::get_extra_context());
+
+                json::merge_object(
+                    &mut context,
+                    &conf
+                        .as_user_worker()
+                        .and_then(|it| it.context.clone())
+                        .map(serde_json::Value::Object)
+                        .unwrap_or_else(|| serde_json::json!({})),
+                );
+
+                context
+            };
+
+            let context = js_runtime.main_context();
+            let scope = &mut js_runtime.handle_scope();
+            let context_local = v8::Local::new(scope, context);
+            let global_obj = context_local.global(scope);
+            let bootstrap_str =
+                v8::String::new_external_onebyte_static(scope, b"bootstrapSBEdge").unwrap();
+            let bootstrap_fn = v8::Local::<v8::Function>::try_from(
+                global_obj.get(scope, bootstrap_str.into()).unwrap(),
+            )
+            .unwrap();
+
+            let runtime_context_local = deno_core::serde_v8::to_v8(scope, runtime_context)
+                .context("failed to convert to v8 value")?;
+            let runtime_context_global = v8::Global::new(scope, runtime_context_local);
+            let extra_context_local = deno_core::serde_v8::to_v8(scope, extra_context)
+                .context("failed to convert to v8 value")?;
+            let extra_context_global = v8::Global::new(scope, extra_context_local);
+            let bootstrap_fn_global = v8::Global::new(scope, bootstrap_fn);
+
+            (
+                runtime_context_global,
+                extra_context_global,
+                bootstrap_fn_global,
+            )
+        };
+
         js_runtime
-            .execute_script(located_script_name!(), ModuleCodeString::from(script))
-            .expect("Failed to execute bootstrap script");
+            .call_with_args(&bootstrap_fn, &[runtime_context, extra_context])
+            .now_or_never()
+            .transpose()
+            .context("failed to execute bootstrap script")?;
 
         {
             // run inside a closure, so op_state_rc is released
@@ -1812,7 +1848,7 @@ mod test {
     struct WithSyncFileAPI;
 
     impl GetRuntimeContext for WithSyncFileAPI {
-        fn get_runtime_context() -> impl Serialize {
+        fn get_extra_context() -> impl Serialize {
             serde_json::json!({
                 "useReadSyncFileAPI": true,
             })
@@ -2534,7 +2570,7 @@ mod test {
         struct Ctx;
 
         impl GetRuntimeContext for Ctx {
-            fn get_runtime_context() -> impl Serialize {
+            fn get_extra_context() -> impl Serialize {
                 serde_json::json!({
                     "useReadSyncFileAPI": true,
                     "shouldBootstrapMockFnThrowError": true,

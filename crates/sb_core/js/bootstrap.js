@@ -1,3 +1,5 @@
+import { core, internals, primordials } from 'ext:core/mod.js';
+
 import * as abortSignal from 'ext:deno_web/03_abort_signal.js';
 import * as base64 from 'ext:deno_web/05_base64.js';
 import * as console from 'ext:deno_console/01_console.js';
@@ -21,11 +23,27 @@ import * as webSocket from 'ext:deno_websocket/01_websocket.js';
 import * as response from 'ext:deno_fetch/23_response.js';
 import * as request from 'ext:deno_fetch/23_request.js';
 import * as globalInterfaces from 'ext:deno_web/04_global_interfaces.js';
+import * as imageData from 'ext:deno_web/16_image_data.js';
+import * as broadcastChannel from 'ext:deno_broadcast_channel/01_broadcast_channel.js';
+import * as performance from 'ext:deno_web/15_performance.js';
+import * as messagePort from 'ext:deno_web/13_message_port.js';
+import * as DenoWSStream from 'ext:deno_websocket/02_websocketstream.js';
+import * as eventSource from 'ext:deno_fetch/27_eventsource.js';
+import * as WebGPU from 'ext:deno_webgpu/00_init.js';
+import * as WebGPUSurface from 'ext:deno_webgpu/02_surface.js';
+
+import * as MainWorker from 'ext:sb_core_main_js/js/main_worker.js';
+
 import { SUPABASE_ENV } from 'ext:sb_env/env.js';
 import { USER_WORKER_API as ai } from 'ext:sb_ai/js/ai.js';
 import 'ext:sb_ai/js/onnxruntime/cache_adapter.js';
+
 import { waitUntil, installPromiseHook } from 'ext:sb_core_main_js/js/async_hook.js';
 import { registerErrors } from 'ext:sb_core_main_js/js/errors.js';
+import { promiseRejectMacrotaskCallback } from 'ext:sb_core_main_js/js/promises.js';
+import { denoOverrides, fsVars } from 'ext:sb_core_main_js/js/denoOverrides.js';
+import { registerDeclarativeServer } from 'ext:sb_core_main_js/js/00_serve.js';
+import { SupabaseEventListener } from 'ext:sb_user_event_worker/event_worker.js';
 import {
 	formatException,
 	getterOnly,
@@ -33,8 +51,6 @@ import {
 	readOnly,
 	writable,
 } from 'ext:sb_core_main_js/js/fieldUtils.js';
-import * as imageData from "ext:deno_web/16_image_data.js";
-import * as broadcastChannel from "ext:deno_broadcast_channel/01_broadcast_channel.js";
 
 import {
 	Navigator,
@@ -44,23 +60,13 @@ import {
 	setUserAgent,
 } from 'ext:sb_core_main_js/js/navigator.js';
 
-import { promiseRejectMacrotaskCallback } from 'ext:sb_core_main_js/js/promises.js';
-import { denoOverrides, fsVars } from 'ext:sb_core_main_js/js/denoOverrides.js';
-import { registerDeclarativeServer } from 'ext:sb_core_main_js/js/00_serve.js';
-import * as performance from 'ext:deno_web/15_performance.js';
-import * as messagePort from 'ext:deno_web/13_message_port.js';
-import { SupabaseEventListener } from 'ext:sb_user_event_worker/event_worker.js';
-import * as MainWorker from 'ext:sb_core_main_js/js/main_worker.js';
-import * as DenoWSStream from 'ext:deno_websocket/02_websocketstream.js';
-import * as eventSource from 'ext:deno_fetch/27_eventsource.js';
-import * as WebGPU from 'ext:deno_webgpu/00_init.js';
-import * as WebGPUSurface from 'ext:deno_webgpu/02_surface.js';
-
-import { core, internals, primordials } from 'ext:core/mod.js';
+import 'ext:sb_ai/js/onnxruntime/cache_adapter.js';
 
 let globalThis_;
 
 const ops = core.ops;
+const v8Console = globalThis.console;
+
 const {
 	Error,
 	ArrayPrototypePop,
@@ -471,7 +477,7 @@ function processRejectionHandled(promise, reason) {
 	}
 }
 
-globalThis.bootstrapSBEdge = (opts, extraCtx) => {
+globalThis.bootstrapSBEdge = (opts, ctx) => {
 	globalThis_ = globalThis;
 
 	// We should delete this after initialization,
@@ -496,24 +502,40 @@ globalThis.bootstrapSBEdge = (opts, extraCtx) => {
 	// Nothing listens to this, but it warms up the code paths for event dispatch
 	(new event.EventTarget()).dispatchEvent(new Event("warmup"));
 
+	/**
+	 * @type {{
+	 * target: string,
+	 * kind: 'user' | 'main' | 'event',
+	 * inspector: boolean,
+	 * debug: boolean,
+	 * version: {
+	 * 	runtime: string,
+	 * 	deno: string,
+	 * },
+	 * flags: {
+	 * 	SHOULD_DISABLE_DEPRECATED_API_WARNING: boolean,
+	 * 	SHOULD_USE_VERBOSE_DEPRECATED_API_WARNING: boolean
+	 * }
+	 * }}
+	*/
 	const {
-		0: target,
-		1: isUserWorker,
-		2: isEventsWorker,
-		3: edgeRuntimeVersion,
-		4: denoVersion,
-		5: shouldDisableDeprecatedApiWarning,
-		6: shouldUseVerboseDeprecatedApiWarning
+		target,
+		kind,
+		version,
+		inspector,
+		flags
 	} = opts;
 
-	deprecatedApiWarningDisabled = shouldDisableDeprecatedApiWarning;
-	verboseDeprecatedApiWarning = shouldUseVerboseDeprecatedApiWarning;
-	bootstrapMockFnThrowError = extraCtx?.shouldBootstrapMockFnThrowError ?? false;
+
+	deprecatedApiWarningDisabled = flags['SHOULD_DISABLE_DEPRECATED_API_WARNING'];
+	verboseDeprecatedApiWarning = flags['SHOULD_USE_VERBOSE_DEPRECATED_API_WARNING'];
+	bootstrapMockFnThrowError = ctx?.shouldBootstrapMockFnThrowError ?? false;
 
 	runtimeStart(target);
 
-	ObjectDefineProperty(globalThis, 'SUPABASE_VERSION', readOnly(String(edgeRuntimeVersion)));
-	ObjectDefineProperty(globalThis, 'DENO_VERSION', readOnly(denoVersion));
+	ObjectAssign(internals, { bootstrapArgs: { opts, ctx } });
+	ObjectDefineProperty(globalThis, 'SUPABASE_VERSION', readOnly(String(version.runtime)));
+	ObjectDefineProperty(globalThis, 'DENO_VERSION', readOnly(version.deno));
 
 	// set these overrides after runtimeStart
 	ObjectDefineProperties(denoOverrides, {
@@ -556,15 +578,13 @@ globalThis.bootstrapSBEdge = (opts, extraCtx) => {
 
 	/// DISABLE SHARED MEMORY AND INSTALL MEM CHECK TIMING
 
-	// NOTE: We should not allow user workers to use shared memory. This is
-	// because they are not counted in the external memory statistics of the
-	// individual isolates.
+	// NOTE: We should not allow user workers to use shared memory. This is because they are not
+	// counted in the external memory statistics of the individual isolates.
 
-	// NOTE(Nyannyacha): Put below inside `isUserWorker` block if we have the
-	// plan to support a shared array buffer across the isolates. But for now,
-	// we explicitly disabled the shared buffer option between isolate globally
-	// in `deno_runtime.rs`, so this patch also applies regardless of worker
-	// type.
+	// NOTE(Nyannyacha): Put below inside `kind === 'user'` block if we have the plan to support a
+	// shared array buffer across the isolates. But for now, we explicitly disabled the shared
+	// buffer option between isolate globally in `deno_runtime.rs`, so this patch also applies
+	// regardless of worker type.
 	const wasmMemoryCtor = globalThis.WebAssembly.Memory;
 	const wasmMemoryPrototypeGrow = wasmMemoryCtor.prototype.grow;
 
@@ -589,9 +609,15 @@ globalThis.bootstrapSBEdge = (opts, extraCtx) => {
 	delete globalThis.SharedArrayBuffer;
 	globalThis.WebAssembly.Memory = patchedWasmMemoryCtor;
 
+	if (inspector) {
+		ObjectDefineProperties(globalThis, {
+			console: nonEnumerable(v8Console),
+		});
+	}
+
 	/// DISABLE SHARED MEMORY INSTALL MEM CHECK TIMING
 
-	if (isUserWorker) {
+	if (kind === 'user') {
 		ObjectDefineProperties(globalThis, {
 			EdgeRuntime: {
 				value: {
@@ -599,12 +625,18 @@ globalThis.bootstrapSBEdge = (opts, extraCtx) => {
 				},
 				configurable: true,
 			},
-			console: nonEnumerable(
-				new console.Console((msg, level) => {
-					return ops.op_user_worker_log(msg, level > 1);
-				}),
-			),
 		});
+
+		// override console
+		if (!inspector) {
+			ObjectDefineProperties(globalThis, {
+				console: nonEnumerable(
+					new console.Console((msg, level) => {
+						return ops.op_user_worker_log(msg, level > 1);
+					}),
+				),
+			});
+		}
 
 		const apisToBeOverridden = {
 			...DENIED_DENO_FS_API_LIST,
@@ -634,7 +666,7 @@ globalThis.bootstrapSBEdge = (opts, extraCtx) => {
 			'memoryUsage': () => ops.op_runtime_memory_usage(),
 		};
 
-		if (extraCtx?.useReadSyncFileAPI) {
+		if (ctx?.useReadSyncFileAPI) {
 			apisToBeOverridden['readFileSync'] = true;
 			apisToBeOverridden['readTextFileSync'] = true;
 		}
@@ -652,7 +684,7 @@ globalThis.bootstrapSBEdge = (opts, extraCtx) => {
 		}
 	}
 
-	if (isEventsWorker) {
+	if (kind === 'event') {
 		// Event Manager should have the same as the `main` except it can't create workers (that would be catastrophic)
 		delete globalThis.EdgeRuntime;
 		ObjectDefineProperties(globalThis, {

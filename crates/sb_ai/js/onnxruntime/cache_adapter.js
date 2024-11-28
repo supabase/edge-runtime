@@ -1,4 +1,4 @@
-import { primordials } from 'ext:core/mod.js';
+import { primordials, internals } from 'ext:core/mod.js';
 import * as webidl from 'ext:deno_webidl/00_webidl.js';
 import * as DenoCaches from 'ext:deno_cache/01_cache.js';
 
@@ -9,7 +9,7 @@ const {
 
 async function open(cacheName, _next) {
   if (!ALLOWED_CACHE_NAMES.includes(cacheName)) {
-    throw new Error("Web Cache is not available in this context");
+    return await notAvailable();
   }
 
   // NOTE(kallebysantos): Since default `Web Cache` is not alloed we need to manually create a new
@@ -56,6 +56,11 @@ CacheStoragePrototype.open = async function (args) {
 // scenario where `Web Cache` is free to use, the `sb_ai: Cache Adapter` should act as request
 // middleware ie. add new behaviour on top of `next()`
 async function notAvailable() {
+  // Ignore errors when `debug = true`
+  if(internals,internals.bootstrapArgs.opts.debug) {
+    return;
+  }
+
   throw new Error("Web Cache is not available in this context");
 }
 

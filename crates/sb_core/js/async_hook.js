@@ -8,7 +8,7 @@ const {
 let COUNTER = 0;
 const PROMISES = new Map();
 
-function markAsBackgroundTask(maybePromise) {
+function waitUntil(maybePromise) {
     if (maybePromise instanceof Promise) {
         ops.op_tap_promise_metrics("init");
         PROMISES.set(maybePromise, ++COUNTER);
@@ -31,6 +31,6 @@ function installPromiseHook() {
 }
 
 export {
-    markAsBackgroundTask,
+    waitUntil,
     installPromiseHook
 }

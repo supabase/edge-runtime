@@ -594,7 +594,10 @@ globalThis.bootstrapSBEdge = (opts, extraCtx) => {
 	if (isUserWorker) {
 		ObjectDefineProperties(globalThis, {
 			EdgeRuntime: {
-				waitUntil: nonEnumerable(waitUntil),
+				value: {
+					waitUntil,
+				},
+				configurable: true,
 			},
 			console: nonEnumerable(
 				new console.Console((msg, level) => {

@@ -24,7 +24,7 @@ import * as globalInterfaces from 'ext:deno_web/04_global_interfaces.js';
 import { SUPABASE_ENV } from 'ext:sb_env/env.js';
 import { USER_WORKER_API as ai } from 'ext:sb_ai/js/ai.js';
 import 'ext:sb_ai/js/onnxruntime/cache_adapter.js';
-import { markAsBackgroundTask, installPromiseHook } from 'ext:sb_core_main_js/js/async_hook.js';
+import { waitUntil, installPromiseHook } from 'ext:sb_core_main_js/js/async_hook.js';
 import { registerErrors } from 'ext:sb_core_main_js/js/errors.js';
 import {
 	formatException,
@@ -592,10 +592,13 @@ globalThis.bootstrapSBEdge = (opts, extraCtx) => {
 	/// DISABLE SHARED MEMORY INSTALL MEM CHECK TIMING
 
 	if (isUserWorker) {
-		delete globalThis.EdgeRuntime;
-
 		ObjectDefineProperties(globalThis, {
-			markAsBackgroundTask: nonEnumerable(markAsBackgroundTask),
+			EdgeRuntime: {
+				value: {
+					waitUntil,
+				},
+				configurable: true,
+			},
 			console: nonEnumerable(
 				new console.Console((msg, level) => {
 					return ops.op_user_worker_log(msg, level > 1);

@@ -1614,6 +1614,7 @@ mod test {
     use anyhow::Context;
     use deno_config::JsxImportSourceConfig;
     use deno_core::error::AnyError;
+    use deno_core::v8::GetPropertyNamesArgs;
     use deno_core::{serde_json, serde_v8, v8, FastString, ModuleCodeString, PollEventLoopOptions};
     use sb_fs::s3_fs::S3FsConfig;
     use sb_fs::tmp_fs::TmpFsConfig;
@@ -2007,17 +2008,19 @@ mod test {
             let global = context.global(inner_scope);
             let edge_runtime_key: v8::Local<v8::Value> =
                 serde_v8::to_v8(inner_scope, "EdgeRuntime").unwrap();
-            assert!(!global
-                .get(inner_scope, edge_runtime_key)
-                .unwrap()
-                .is_undefined(),);
+
+            let edge_runtime_ns = global.get(inner_scope, edge_runtime_key).unwrap();
+
+            assert!(!edge_runtime_ns.is_undefined());
         }
     }
 
-    // User Runtime Should not have access to EdgeRuntime
+    // User Runtime can access EdgeRuntime, but only with specific APIs.
     #[tokio::test]
     #[serial]
     async fn test_user_runtime_creation() {
+        let allowed_apis = vec!["waitUntil"];
+
         let mut runtime = RuntimeBuilder::new()
             .set_worker_runtime_conf(WorkerRuntimeOpts::UserWorker(Default::default()))
             .build()
@@ -2030,10 +2033,32 @@ mod test {
             let global = context.global(inner_scope);
             let edge_runtime_key: v8::Local<v8::Value> =
                 serde_v8::to_v8(inner_scope, "EdgeRuntime").unwrap();
-            assert!(global
+
+            let edge_runtime_ns = global
                 .get(inner_scope, edge_runtime_key)
                 .unwrap()
-                .is_undefined(),);
+                .to_object(inner_scope)
+                .unwrap();
+
+            let edge_runtime_ns_keys = edge_runtime_ns
+                .get_property_names(
+                    inner_scope,
+                    GetPropertyNamesArgs {
+                        mode: v8::KeyCollectionMode::OwnOnly,
+                        index_filter: v8::IndexFilter::SkipIndices,
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+
+            assert_eq!(edge_runtime_ns_keys.length() as usize, allowed_apis.len());
+
+            for api in allowed_apis {
+                let key = serde_v8::to_v8(inner_scope, api).unwrap();
+                let obj = edge_runtime_ns.get(inner_scope, key).unwrap();
+
+                assert!(!obj.is_undefined());
+            }
         }
     }
 

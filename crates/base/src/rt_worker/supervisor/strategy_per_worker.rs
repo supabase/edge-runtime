@@ -156,8 +156,6 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
                     if let Some(func) = dispatch_early_drop_beforeunload_fn.take() {
                         func();
                     }
-                    // terminate_fn();
-                    // complete_reason = Some(ShutdownReason::TerminationRequested);
                 }
             }
 
@@ -190,7 +188,6 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
 
                         if !cpu_timer_param.is_disabled() {
                             if cpu_usage_ms >= hard_limit_ms as i64 {
-                                // terminate_fn();
                                 error!("CPU time hard limit reached: isolate: {:?}", key);
                                 complete_reason = Some(ShutdownReason::CPUTime);
                             } else if cpu_usage_ms >= soft_limit_ms as i64 && !is_cpu_time_soft_limit_reached {
@@ -203,12 +200,9 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
                                 if have_all_reqs_been_acknowledged
                                     && promise_metrics.have_all_promises_been_resolved()
                                 {
-                                    // error!("early termination due to the last request being completed: isolate: {:?}", key);
                                     if let Some(func) = dispatch_early_drop_beforeunload_fn.take() {
                                         func();
                                     }
-                                    // terminate_fn();
-                                    // complete_reason = Some(ShutdownReason::EarlyDrop);
                                 }
 
                             } else if is_cpu_time_soft_limit_reached
@@ -218,8 +212,6 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
                                 if let Some(func) = dispatch_early_drop_beforeunload_fn.take() {
                                     func();
                                 }
-                                // terminate_fn();
-                                // complete_reason = Some(ShutdownReason::EarlyDrop);
                             }
                         }
                     }
@@ -241,12 +233,8 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
                             if let Some(func) = dispatch_early_drop_beforeunload_fn.take() {
                                 func();
                             }
-                            // terminate_fn();
-                            // error!("early termination due to the last request being completed: isolate: {:?}", key);
-                            // complete_reason = Some(ShutdownReason::EarlyDrop);
                         }
                     } else {
-                        // terminate_fn();
                         error!("CPU time hard limit reached: isolate: {:?}", key);
                         complete_reason = Some(ShutdownReason::CPUTime);
                     }
@@ -275,9 +263,6 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
                 if let Some(func) = dispatch_early_drop_beforeunload_fn.take() {
                     func();
                 }
-                // terminate_fn();
-                // error!("early termination due to the last request being completed: isolate: {:?}", key);
-                // complete_reason = ShutdownReason::EarlyDrop;
             }
 
             _ = wall_clock_duration_alert.tick(), if !is_wall_clock_limit_disabled => {
@@ -291,7 +276,6 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
                 } else {
                     let is_in_flight_req_exists = req_ack_count != demand.load(Ordering::Acquire);
 
-                    // terminate_fn();
                     error!("wall clock duration reached: isolate: {:?} (in_flight_req_exists = {})", key, is_in_flight_req_exists);
                     complete_reason = Some(ShutdownReason::WallClockTime);
                 }
@@ -311,7 +295,6 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
             }
 
             Some(_) = memory_limit_rx.recv() => {
-                // terminate_fn();
                 error!("memory limit reached for the worker: isolate: {:?}", key);
                 complete_reason = Some(ShutdownReason::Memory);
             }

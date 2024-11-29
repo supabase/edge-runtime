@@ -37,7 +37,6 @@ Deno.serve((req: Request) => {
     const workerTimeoutMs = parseIntFromHeadersOrDefault(req, "x-worker-timeout-ms", 10 * 60 * 1000);
     const cpuTimeSoftLimitMs = parseIntFromHeadersOrDefault(req, "x-cpu-time-soft-limit-ms", 10 * 60 * 1000);
     const cpuTimeHardLimitMs = parseIntFromHeadersOrDefault(req, "x-cpu-time-hard-limit-ms", 10 * 60 * 1000);
-    console.log(cpuTimeSoftLimitMs);
     const noModuleCache = false;
     const importMapPath = null;
     const envVarsObj = Deno.env.toObject();

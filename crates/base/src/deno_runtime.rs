@@ -269,6 +269,7 @@ pub enum WillTerminateReason {
     CPU,
     Memory,
     WallClock,
+    EarlyDrop,
 }
 
 pub struct DenoRuntime<RuntimeContext = DefaultRuntimeContext> {

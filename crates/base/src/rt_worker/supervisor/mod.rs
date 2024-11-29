@@ -27,40 +27,6 @@ use crate::{
 use super::{worker_ctx::TerminationToken, worker_pool::SupervisorPolicy};
 
 #[repr(C)]
-pub struct V8HandleTerminationData {
-    pub should_terminate: bool,
-    pub isolate_memory_usage_tx: Option<oneshot::Sender<IsolateMemoryStats>>,
-}
-
-pub extern "C" fn v8_handle_termination(isolate: &mut v8::Isolate, data: *mut std::ffi::c_void) {
-    let mut boxed_data: Box<V8HandleTerminationData>;
-
-    unsafe {
-        boxed_data = Box::from_raw(data as *mut V8HandleTerminationData);
-    }
-
-    // log memory usage
-    let mut heap_stats = v8::HeapStatistics::default();
-
-    isolate.get_heap_statistics(&mut heap_stats);
-
-    let usage = IsolateMemoryStats {
-        used_heap_size: heap_stats.used_heap_size(),
-        external_memory: heap_stats.external_memory(),
-    };
-
-    if let Some(usage_tx) = boxed_data.isolate_memory_usage_tx.take() {
-        if usage_tx.send(usage).is_err() {
-            error!("failed to send isolate memory usage - receiver may have been dropped");
-        }
-    }
-
-    if boxed_data.should_terminate {
-        isolate.terminate_execution();
-    }
-}
-
-#[repr(C)]
 pub struct IsolateMemoryStats {
     pub used_heap_size: usize,
     pub external_memory: usize,
@@ -172,6 +138,36 @@ async fn create_wall_clock_beforeunload_alert(wall_clock_limit_ms: u64, pct: Opt
     }
 }
 
+#[repr(C)]
+pub struct V8HandleTerminationData {
+    pub should_terminate: bool,
+    pub isolate_memory_usage_tx: Option<oneshot::Sender<IsolateMemoryStats>>,
+}
+
+pub extern "C" fn v8_handle_termination(isolate: &mut v8::Isolate, data: *mut std::ffi::c_void) {
+    let mut data = unsafe { Box::from_raw(data as *mut V8HandleTerminationData) };
+
+    // log memory usage
+    let mut heap_stats = v8::HeapStatistics::default();
+
+    isolate.get_heap_statistics(&mut heap_stats);
+
+    let usage = IsolateMemoryStats {
+        used_heap_size: heap_stats.used_heap_size(),
+        external_memory: heap_stats.external_memory(),
+    };
+
+    if let Some(usage_tx) = data.isolate_memory_usage_tx.take() {
+        if usage_tx.send(usage).is_err() {
+            error!("failed to send isolate memory usage - receiver may have been dropped");
+        }
+    }
+
+    if data.should_terminate {
+        isolate.terminate_execution();
+    }
+}
+
 extern "C" fn v8_handle_wall_clock_beforeunload(
     isolate: &mut v8::Isolate,
     _data: *mut std::ffi::c_void,
@@ -179,10 +175,33 @@ extern "C" fn v8_handle_wall_clock_beforeunload(
     if let Err(err) = MaybeDenoRuntime::<()>::Isolate(isolate)
         .dispatch_beforeunload_event(WillTerminateReason::WallClock)
     {
-        warn!(
+        error!(
             "found an error while dispatching the beforeunload event: {}",
             err
         );
+    }
+}
+
+#[repr(C)]
+pub struct V8HandleEarlyRetireData {
+    token: CancellationToken,
+}
+
+extern "C" fn v8_handle_early_drop_beforeunload(
+    isolate: &mut v8::Isolate,
+    data: *mut std::ffi::c_void,
+) {
+    let data = unsafe { Box::from_raw(data as *mut V8HandleEarlyRetireData) };
+
+    if let Err(err) = MaybeDenoRuntime::<()>::Isolate(isolate)
+        .dispatch_beforeunload_event(WillTerminateReason::EarlyDrop)
+    {
+        error!(
+            "found an error while dispatching the beforeunload event: {}",
+            err
+        );
+    } else {
+        data.token.cancel();
     }
 }
 

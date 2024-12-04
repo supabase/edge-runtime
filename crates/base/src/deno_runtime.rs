@@ -691,7 +691,7 @@ where
             ..Default::default()
         };
 
-        let mut js_runtime = ManuallyDrop::new(JsRuntime::new(runtime_options));
+        let mut js_runtime = JsRuntime::new(runtime_options);
 
         let dispatch_fns = {
             let context = js_runtime.main_context();
@@ -911,7 +911,7 @@ where
 
         Ok(Self {
             drop_token,
-            js_runtime,
+            js_runtime: ManuallyDrop::new(js_runtime),
             env_vars,
             conf,
             s3_fs: maybe_s3_fs,

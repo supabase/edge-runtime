@@ -16,6 +16,7 @@ use deno_core::{ModuleSpecifier, RequestedModuleType};
 use deno_semver::npm::NpmPackageReqReference;
 use eszip::deno_graph;
 use eszip::EszipRelativeFileBaseUrl;
+use eszip::ModuleKind;
 use sb_eszip_shared::AsyncEszipDataRead;
 use sb_graph::resolver::CliNodeResolver;
 use sb_graph::resolver::NpmModuleLoader;
@@ -41,14 +42,17 @@ impl WorkspaceEszip {
         if specifier.scheme() == "file" {
             let specifier_key =
                 EszipRelativeFileBaseUrl::new(&self.root_dir_url).specifier_key(specifier);
+
             let module = self.eszip.ensure_module(&specifier_key)?;
             let specifier = self.root_dir_url.join(&module.specifier).unwrap();
+
             Some(WorkspaceEszipModule {
                 specifier,
                 inner: module,
             })
         } else {
             let module = self.eszip.ensure_module(specifier.as_str())?;
+
             Some(WorkspaceEszipModule {
                 specifier: ModuleSpecifier::parse(&module.specifier).unwrap(),
                 inner: module,
@@ -85,6 +89,7 @@ impl ModuleLoader for EmbeddedModuleLoader {
                     kind
                 )));
             }
+
             let current_dir = std::env::current_dir().unwrap();
             deno_core::resolve_path(".", &current_dir)?
         } else {
@@ -122,11 +127,13 @@ impl ModuleLoader for EmbeddedModuleLoader {
                         NodeResolutionMode::Execution,
                     )
                     .map(|res| res.into_url()),
+
                 PackageJsonDepValue::Workspace(version_req) => {
                     let pkg_folder = self
                         .shared
                         .workspace_resolver
                         .resolve_workspace_pkg_json_folder_for_pkg_json_dep(alias, version_req)?;
+
                     Ok(self
                         .shared
                         .node_resolver
@@ -185,6 +192,7 @@ impl ModuleLoader for EmbeddedModuleLoader {
         _requested_module_type: RequestedModuleType,
     ) -> deno_core::ModuleLoadResponse {
         let include_source_map = self.include_source_map;
+
         if original_specifier.scheme() == "data" {
             let data_url_text = match deno_graph::source::RawDataUrl::parse(original_specifier)
                 .and_then(|url| url.decode())
@@ -197,6 +205,7 @@ impl ModuleLoader for EmbeddedModuleLoader {
                     ))));
                 }
             };
+
             return deno_core::ModuleLoadResponse::Sync(Ok(deno_core::ModuleSource::new(
                 deno_core::ModuleType::JavaScript,
                 ModuleSourceCode::String(data_url_text.into()),
@@ -209,11 +218,13 @@ impl ModuleLoader for EmbeddedModuleLoader {
             let npm_module_loader = self.shared.npm_module_loader.clone();
             let original_specifier = original_specifier.clone();
             let maybe_referrer = maybe_referrer.cloned();
+
             return deno_core::ModuleLoadResponse::Async(
                 async move {
                     let code_source = npm_module_loader
                         .load(&original_specifier, maybe_referrer.as_ref())
                         .await?;
+
                     Ok(deno_core::ModuleSource::new_with_redirect(
                         match code_source.media_type {
                             MediaType::Json => ModuleType::Json,
@@ -243,37 +254,44 @@ impl ModuleLoader for EmbeddedModuleLoader {
                 let code = module.inner.source().await.ok_or_else(|| {
                     type_error(format!("Module not found: {}", original_specifier))
                 })?;
+
                 let code = arc_u8_to_arc_str(code)
                     .map_err(|_| type_error("Module source is not utf-8"))?;
+
                 let source_map = module.inner.source_map().await;
                 let maybe_code_with_source_map = 'scope: {
-                    if !include_source_map {
+                    if !include_source_map || !matches!(module.inner.kind, ModuleKind::JavaScript) {
                         break 'scope code;
                     }
 
                     let Some(source_map) = source_map else {
                         break 'scope code;
                     };
+                    if source_map.is_empty() {
+                        break 'scope code;
+                    }
 
                     let mut src = code.to_string();
 
-                    if src.ends_with('\n') {
+                    if !src.ends_with('\n') {
                         src.push('\n');
                     }
 
-                    src.push_str("//# sourceMappingURL=data:application/json;base64,");
-                    base64::prelude::BASE64_STANDARD.encode_string(source_map, &mut src);
+                    const SOURCE_MAP_PREFIX: &str =
+                        "//# sourceMappingURL=data:application/json;base64,";
 
+                    src.push_str(SOURCE_MAP_PREFIX);
+
+                    base64::prelude::BASE64_STANDARD.encode_string(source_map, &mut src);
                     Arc::from(src)
                 };
+
                 Ok(deno_core::ModuleSource::new_with_redirect(
                     match module.inner.kind {
-                        eszip::ModuleKind::JavaScript => ModuleType::JavaScript,
-                        eszip::ModuleKind::Json => ModuleType::Json,
-                        eszip::ModuleKind::Jsonc => {
-                            return Err(type_error("jsonc modules not supported"))
-                        }
-                        eszip::ModuleKind::OpaqueData => {
+                        ModuleKind::JavaScript => ModuleType::JavaScript,
+                        ModuleKind::Json => ModuleType::Json,
+                        ModuleKind::Jsonc => return Err(type_error("jsonc modules not supported")),
+                        ModuleKind::OpaqueData => {
                             unreachable!();
                         }
                     },

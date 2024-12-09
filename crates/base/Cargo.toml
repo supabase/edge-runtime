@@ -80,6 +80,7 @@ reqwest_v011.workspace = true
 tracing-subscriber = { workspace = true, optional = true, features = ["env-filter", "tracing-log"] }
 num-traits.workspace = true
 tempfile.workspace = true
+either.workspace = true
 
 tls-listener = { version = "0.10", features = ["rustls"] }
 strum = { version = "0.25", features = ["derive"] }

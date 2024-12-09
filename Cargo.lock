@@ -801,6 +801,7 @@ dependencies = [
  "deno_webgpu",
  "deno_webidl",
  "deno_websocket",
+ "either",
  "enum-as-inner",
  "eszip",
  "event_worker",

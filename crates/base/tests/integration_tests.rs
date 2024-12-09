@@ -2353,6 +2353,24 @@ async fn test_issue_420() {
 
 #[tokio::test]
 #[serial]
+async fn test_issue_456() {
+    let tb = TestBedBuilder::new("./test_cases/main").build().await;
+    let resp = tb
+        .request(|b| {
+            b.uri("/issue-456")
+                .header("x-context-source-map", "true")
+                .body(Body::empty())
+                .context("can't make request")
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status().as_u16(), StatusCode::OK);
+    tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
+}
+
+#[tokio::test]
+#[serial]
 async fn test_should_render_detailed_failed_to_create_graph_error() {
     {
         integration_test!(

@@ -377,6 +377,11 @@ where
         let is_user_worker = conf.is_user_worker();
         let is_some_entry_point = maybe_entrypoint.is_some();
 
+        let maybe_user_conf = conf.as_user_worker();
+        let user_context = maybe_user_conf
+            .and_then(|it| it.context.clone())
+            .unwrap_or_default();
+
         if is_some_entry_point {
             main_module_url = Url::parse(&maybe_entrypoint.unwrap())?;
         }
@@ -386,7 +391,7 @@ where
         let mut allow_remote_modules = true;
 
         if is_user_worker {
-            let user_conf = conf.as_user_worker().unwrap();
+            let user_conf = maybe_user_conf.unwrap();
 
             net_access_disabled = user_conf.net_access_disabled;
             allow_remote_modules = user_conf.allow_remote_modules;
@@ -514,12 +519,17 @@ where
         }
 
         let has_inspector = maybe_inspector.is_some();
+        let need_source_map = user_context
+            .get("sourceMap")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or_default();
+
         let rt_provider = create_module_loader_for_standalone_from_eszip_kind(
             eszip,
             base_dir_path.clone(),
             maybe_import_map,
             import_map_path,
-            has_inspector,
+            has_inspector || need_source_map,
         )
         .await?;
 
@@ -645,7 +655,7 @@ where
         let beforeunload_mem_threshold = ArcSwapOption::<u64>::from_pointee(None);
 
         if conf.is_user_worker() {
-            let conf = conf.as_user_worker().unwrap();
+            let conf = maybe_user_conf.unwrap();
             let memory_limit_bytes = mib_to_bytes(conf.memory_limit_mb) as usize;
 
             beforeunload_mem_threshold.store(
@@ -792,14 +802,7 @@ where
             let extra_context = {
                 let mut context = serde_json::json!(RuntimeContext::get_extra_context());
 
-                json::merge_object(
-                    &mut context,
-                    &conf
-                        .as_user_worker()
-                        .and_then(|it| it.context.clone())
-                        .map(serde_json::Value::Object)
-                        .unwrap_or_else(|| serde_json::json!({})),
-                );
+                json::merge_object(&mut context, &serde_json::Value::Object(user_context));
 
                 context
             };

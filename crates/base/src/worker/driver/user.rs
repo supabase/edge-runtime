@@ -6,7 +6,7 @@ use crate::worker::supervisor::{create_supervisor, CPUUsageMetrics};
 use crate::worker::{DuplexStreamEntry, WorkerCx};
 
 use anyhow::Error;
-use event_worker::events::{UncaughtExceptionEvent, WorkerEvents};
+use sb_event_worker::events::{UncaughtExceptionEvent, WorkerEvents};
 use sb_workers::context::{Timing, WorkerContextInitOpts};
 use tokio::sync::mpsc;
 use tokio::sync::Mutex;

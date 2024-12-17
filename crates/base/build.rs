@@ -11,8 +11,8 @@ mod supabase_startup_snapshot {
     use deno_fs::OpenOptions;
     use deno_http::DefaultHttpPropertyExtractor;
     use deno_io::fs::FsError;
-    use event_worker::js_interceptors::sb_events_js_interceptors;
-    use event_worker::sb_user_event_worker;
+    use sb_event_worker::js_interceptors::sb_events_js_interceptors;
+    use sb_event_worker::sb_user_event_worker;
     use sb_ai::sb_ai;
     use sb_core::http::sb_core_http;
     use sb_core::http_start::sb_core_http_start;

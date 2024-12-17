@@ -13,7 +13,7 @@ mod timeout;
 
 pub use inspector_server::InspectorOption;
 pub use sb_core::cache::CacheSetting;
-pub use sb_graph::DecoratorType;
+pub use graph::DecoratorType;
 
 #[cfg(any(test, feature = "tracing"))]
 mod tracing_subscriber;

@@ -26,23 +26,22 @@ deno_webgpu.workspace = true
 deno_semver.workspace = true
 deno_npm.workspace = true
 
-base_rt = { version = "0.1.0", path = "../base_rt" }
-base_mem_check = { version = "0.1.0", path = "../base_mem_check" }
+base_rt.workspace = true
+base_mem_check.workspace = true 
+cpu_timer.workspace = true
+http_utils.workspace = true
+graph.workspace = true
+module_loader.workspace = true
+npm.workspace = true
 
-cpu_timer = { version = "0.1.0", path = "../cpu_timer" }
-http_utils = { version = "0.1.0", path = "../http_utils" }
-event_worker = { version = "0.1.0", path = "../event_worker" }
-
-sb_workers = { version = "0.1.0", path = "../sb_workers" }
-sb_env = { version = "0.1.0", path = "../sb_env" }
-sb_core = { version = "0.1.0", path = "../sb_core" }
-sb_os = { version = "0.1.0", path = "../sb_os" }
-sb_npm = { version = "0.1.0", path = "../npm" }
-sb_graph = { version = "0.1.0", path = "../sb_graph" }
-sb_module_loader = { version = "0.1.0", path = "../sb_module_loader" }
-sb_node = { version = "0.1.0", path = "../node" }
-sb_ai = { version = "0.1.0", path = "../sb_ai" }
-sb_fs = { version = "0.1.0", path = "../sb_fs" }
+sb_workers.workspace = true
+sb_event_worker.workspace = true
+sb_env.workspace = true
+sb_core.workspace = true
+sb_os.workspace = true
+sb_node.workspace = true
+sb_ai.workspace = true
+sb_fs.workspace = true
 
 libc.workspace = true
 async-trait.workspace = true
@@ -120,16 +119,16 @@ deno_core.workspace = true
 deno_canvas.workspace = true
 deno_webgpu.workspace = true
 
-event_worker = { version = "0.1.0", path = "../event_worker" }
+graph.workspace = true
+npm.workspace = true
 
-sb_core = { version = "0.1.0", path = "../sb_core" }
-sb_npm = { version = "0.1.0", path = "../npm" }
-sb_graph = { version = "0.1.0", path = "../sb_graph" }
-sb_workers = { version = "0.1.0", path = "../sb_workers" }
-sb_env = { version = "0.1.0", path = "../sb_env" }
-sb_os = { version = "0.1.0", path = "../sb_os" }
-sb_node = { version = "0.1.0", path = "../node" }
-sb_ai = { version = "0.1.0", path = "../sb_ai" }
+sb_core.workspace = true
+sb_workers.workspace = true
+sb_event_worker.workspace = true
+sb_env.workspace = true
+sb_os.workspace = true
+sb_node.workspace = true
+sb_ai.workspace = true
 
 url.workspace = true
 

@@ -62,7 +62,7 @@ jobs:
       - name: Install S3 credentials for testing
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         run: |
-          cd crates/sb_fs/tests
+          cd ext/fs/tests
           echo "S3FS_TEST_SUPABASE_STORAGE=true" >> .env
           echo "S3FS_TEST_APP_NAME=edge_runtime_github_ci" >> .env
           echo "S3FS_TEST_BUCKET_NAME=$BUCKET_NAME" >> .env

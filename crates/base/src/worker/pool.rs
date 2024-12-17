@@ -6,7 +6,7 @@ use anyhow::{anyhow, bail, Context, Error};
 use deno_config::JsxImportSourceConfig;
 use either::Either::Left;
 use enum_as_inner::EnumAsInner;
-use event_worker::events::WorkerEventWithMetadata;
+use sb_event_worker::events::WorkerEventWithMetadata;
 use http_v02::Request;
 use hyper_v014::Body;
 use log::error;

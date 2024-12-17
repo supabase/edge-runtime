@@ -7,7 +7,7 @@ use crate::worker::supervisor::{self, v8_handle_beforeunload};
 use crate::worker::{DuplexStreamEntry, WorkerCx};
 use anyhow::Error;
 use base_mem_check::MemCheckState;
-use event_worker::events::{
+use sb_event_worker::events::{
     ShutdownEvent, ShutdownReason, UncaughtExceptionEvent, WorkerEvents, WorkerMemoryUsed,
 };
 use futures_util::FutureExt;

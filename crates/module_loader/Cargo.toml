@@ -1,0 +1,39 @@
+[package]
+name = "module_loader"
+version = "0.1.0"
+authors = ["Supabase <team@supabase.com>"]
+edition = "2021"
+license = "MIT"
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+deno_core.workspace = true
+deno_semver.workspace = true
+deno_ast.workspace = true
+deno_fs.workspace = true
+deno_npm.workspace = true
+deno_tls.workspace = true
+deno_config.workspace = true
+
+npm.workspace = true
+graph.workspace = true
+eszip_async_trait.workspace = true
+
+sb_core.workspace = true
+sb_node.workspace = true
+sb_fs.workspace = true
+
+anyhow.workspace = true
+import_map.workspace = true
+log.workspace = true
+serde.workspace = true
+tokio.workspace = true
+once_cell.workspace = true
+monch.workspace = true
+base64.workspace = true
+tracing.workspace = true
+eszip.workspace = true
+futures-util.workspace = true
+rkyv.workspace = true

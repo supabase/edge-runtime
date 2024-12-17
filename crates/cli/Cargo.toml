@@ -11,10 +11,9 @@ path = "src/main.rs"
 [dependencies]
 deno_core.workspace = true
 
-base = { version = "0.1.0", path = "../base" }
-deno_manifest = { path = "../deno_manifest" }
-
-sb_graph = { version = "0.1.0", path = "../sb_graph" }
+base.workspace = true
+deno_manifest.workspace = true
+graph.workspace = true
 
 anyhow.workspace = true
 log.workspace = true

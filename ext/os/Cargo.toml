@@ -1,0 +1,17 @@
+[package]
+name = "sb_os"
+version = "0.1.0"
+authors = ["Supabase <team@supabase.com>"]
+edition = "2021"
+license = "MIT"
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+deno_core.workspace = true
+
+sb_core.workspace = true
+
+libc.workspace = true
+serde.workspace = true

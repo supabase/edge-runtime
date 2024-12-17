@@ -5,9 +5,9 @@ use base_mem_check::MemCheckState;
 use cpu_timer::{CPUAlarmVal, CPUTimer};
 use deno_core::{v8, InspectorSessionProxy, LocalInspectorSession};
 use enum_as_inner::EnumAsInner;
-use sb_event_worker::events::{ShutdownEvent, WorkerEvents, WorkerMemoryUsed};
 use futures_util::{pin_mut, task::AtomicWaker};
 use sb_core::PromiseMetrics;
+use sb_event_worker::events::{ShutdownEvent, WorkerEvents, WorkerMemoryUsed};
 use sb_workers::context::{Timing, UserWorkerMsgs, UserWorkerRuntimeOpts};
 use tokio::sync::{
     mpsc::{self, UnboundedReceiver},

@@ -9,8 +9,19 @@ use deno_core::{FastString, ModuleSpecifier};
 use deno_npm::npm_rc::{RegistryConfigWithUrl, ResolvedNpmRc};
 use deno_tls::rustls::RootCertStore;
 use deno_tls::RootCertStoreProvider;
+use eszip_async_trait::{
+    AsyncEszipDataRead, NPM_RC_SCOPES_KEY, SOURCE_CODE_ESZIP_KEY, VFS_ESZIP_KEY,
+};
 use futures_util::future::OptionFuture;
+use graph::resolver::{CjsResolutionStore, CliNodeResolver, NpmModuleLoader};
+use graph::{eszip_migrate, payload_to_eszip, EszipPayloadKind, LazyLoadableEszip};
 use import_map::{parse_from_json, ImportMap};
+use npm::cache_dir::NpmCacheDir;
+use npm::package_json::PackageJsonInstallDepsProvider;
+use npm::{
+    create_managed_npm_resolver, CliNpmResolverManagedCreateOptions,
+    CliNpmResolverManagedSnapshotOption,
+};
 use sb_core::cache::caches::Caches;
 use sb_core::cache::deno_dir::DenoDirProvider;
 use sb_core::cache::node::NodeAnalysisCache;
@@ -18,21 +29,10 @@ use sb_core::cache::CacheSetting;
 use sb_core::cert::{get_root_cert_store, CaData};
 use sb_core::node::CliCjsCodeAnalyzer;
 use sb_core::util::http_util::HttpClientProvider;
-use eszip_async_trait::{
-    AsyncEszipDataRead, NPM_RC_SCOPES_KEY, SOURCE_CODE_ESZIP_KEY, VFS_ESZIP_KEY,
-};
 use sb_fs::deno_compile_fs::DenoCompileFileSystem;
 use sb_fs::{extract_static_files_from_eszip, load_npm_vfs};
-use graph::resolver::{CjsResolutionStore, CliNodeResolver, NpmModuleLoader};
-use graph::{eszip_migrate, payload_to_eszip, EszipPayloadKind, LazyLoadableEszip};
 use sb_node::analyze::NodeCodeTranslator;
 use sb_node::NodeResolver;
-use npm::cache_dir::NpmCacheDir;
-use npm::package_json::PackageJsonInstallDepsProvider;
-use npm::{
-    create_managed_npm_resolver, CliNpmResolverManagedCreateOptions,
-    CliNpmResolverManagedSnapshotOption,
-};
 use standalone_module_loader::WorkspaceEszip;
 
 use std::collections::HashMap;

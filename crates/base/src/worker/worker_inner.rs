@@ -6,12 +6,12 @@ use crate::worker::utils::{get_event_metadata, send_event_if_event_worker_availa
 use anyhow::Error;
 use base_rt::error::CloneableError;
 use deno_core::unsync::MaskFutureAsSend;
-use sb_event_worker::events::{
-    EventMetadata, ShutdownEvent, UncaughtExceptionEvent, WorkerEventWithMetadata, WorkerEvents,
-};
 use futures_util::FutureExt;
 use log::{debug, error};
 use sb_core::{MetricSource, RuntimeMetricSource, WorkerMetricSource};
+use sb_event_worker::events::{
+    EventMetadata, ShutdownEvent, UncaughtExceptionEvent, WorkerEventWithMetadata, WorkerEvents,
+};
 use sb_workers::context::{
     UserWorkerMsgs, WorkerContextInitOpts, WorkerExit, WorkerExitStatus, WorkerKind,
     WorkerRequestMsg,

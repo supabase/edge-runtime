@@ -1,5 +1,5 @@
 [package]
-name = "sb_fs"
+name = "fs"
 version = "0.1.0"
 authors = ["Supabase <team@supabase.com>"]
 edition = "2021"

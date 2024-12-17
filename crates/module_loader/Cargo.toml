@@ -20,10 +20,10 @@ deno_config.workspace = true
 npm.workspace = true
 graph.workspace = true
 eszip_async_trait.workspace = true
+fs.workspace = true
 
 sb_core.workspace = true
 sb_node.workspace = true
-sb_fs.workspace = true
 
 anyhow.workspace = true
 import_map.workspace = true

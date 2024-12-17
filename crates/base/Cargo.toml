@@ -33,6 +33,7 @@ http_utils.workspace = true
 graph.workspace = true
 module_loader.workspace = true
 npm.workspace = true
+fs.workspace = true
 
 sb_workers.workspace = true
 sb_event_worker.workspace = true
@@ -41,7 +42,6 @@ sb_core.workspace = true
 sb_os.workspace = true
 sb_node.workspace = true
 sb_ai.workspace = true
-sb_fs.workspace = true
 
 libc.workspace = true
 async-trait.workspace = true

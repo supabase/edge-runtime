@@ -6,9 +6,9 @@ use std::{
 use anyhow::Context;
 use deno_config::JsxImportSourceConfig;
 use either::Either;
-use sb_event_worker::events::{BootEvent, WorkerEventWithMetadata, WorkerEvents};
-use sb_core::{MetricSource, SharedMetricSource};
 use graph::{DecoratorType, EszipPayloadKind};
+use sb_core::{MetricSource, SharedMetricSource};
+use sb_event_worker::events::{BootEvent, WorkerEventWithMetadata, WorkerEvents};
 use sb_workers::context::{
     EventWorkerRuntimeOpts, MainWorkerRuntimeOpts, UserWorkerMsgs, WorkerContextInitOpts,
     WorkerExit, WorkerRequestMsg, WorkerRuntimeOpts,

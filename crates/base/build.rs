@@ -11,8 +11,6 @@ mod supabase_startup_snapshot {
     use deno_fs::OpenOptions;
     use deno_http::DefaultHttpPropertyExtractor;
     use deno_io::fs::FsError;
-    use sb_event_worker::js_interceptors::sb_events_js_interceptors;
-    use sb_event_worker::sb_user_event_worker;
     use sb_ai::sb_ai;
     use sb_core::http::sb_core_http;
     use sb_core::http_start::sb_core_http_start;
@@ -22,6 +20,8 @@ mod supabase_startup_snapshot {
     use sb_core::sb_core_main_js;
     use sb_core::transpiler::maybe_transpile_source;
     use sb_env::sb_env;
+    use sb_event_worker::js_interceptors::sb_events_js_interceptors;
+    use sb_event_worker::sb_user_event_worker;
     use sb_node::deno_node;
     use sb_workers::sb_user_workers;
     use std::borrow::Cow;

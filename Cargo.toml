@@ -1,24 +1,26 @@
 [workspace]
 resolver = "2"
 members = [
-  "./crates/base",
-  "./crates/base_rt",
-  "./crates/base_mem_check",
-  "./crates/http_utils",
-  "./crates/cli",
-  "./crates/deno_manifest",
-  "./crates/sb_workers",
-  "./crates/sb_env",
-  "./crates/sb_core",
-  "./crates/sb_os",
-  "./crates/cpu_timer",
-  "./crates/event_worker",
-  "./crates/npm",
-  "./crates/npm_cache",
-  "./crates/sb_graph",
-  "./crates/sb_module_loader",
-  "./crates/sb_fs",
-  "./crates/sb_ai"
+  "crates/base",
+  "crates/base_rt",
+  "crates/base_mem_check",
+  "crates/http_utils",
+  "crates/cli",
+  "crates/deno_manifest",
+  "crates/cpu_timer",
+  "crates/npm",
+  "crates/npm_cache",
+  "crates/graph",
+  "crates/eszip_async_trait",
+  "crates/module_loader",
+  "ext/node",
+  "ext/workers",
+  "ext/event_worker",
+  "ext/env",
+  "ext/core",
+  "ext/os",
+  "ext/fs",
+  "ext/ai"
 ]
 
 [workspace.dependencies]
@@ -49,6 +51,30 @@ deno_semver = "=0.5.6"
 deno_cache_dir = "=0.10.0"
 deno_lockfile = "0.20.0"
 deno_permissions = "0.21.0"
+
+# local crates
+deno_manifest = { path = "./crates/deno_manifest" }
+base = { version = "0.1.0", path = "./crates/base" }
+base_rt = { version = "0.1.0", path = "./crates/base_rt" }
+base_mem_check = { version = "0.1.0", path = "./crates/base_mem_check" }
+http_utils = { version = "0.1.0", path = "./crates/http_utils" }
+cli = { version = "0.1.0", path = "./crates/cli" }
+cpu_timer = { version = "0.1.0", path = "./crates/cpu_timer" }
+npm = { version = "0.1.0", path = "./crates/npm" }
+npm_cache = { version = "0.1.0", path = "./crates/npm_cache" }
+graph = { version = "0.1.0", path = "./crates/graph" }
+eszip_async_trait = { version = "0.1.0", path = "./crates/eszip_async_trait" }
+module_loader = { version = "0.1.0", path = "./crates/module_loader" }
+
+# exts
+sb_node = { version = "0.1.0", path = "./ext/node" }
+sb_workers = { version = "0.1.0", path = "./ext/workers" }
+sb_event_worker = { version = "0.1.0", path = "./ext/event_worker" }
+sb_env = { version = "0.1.0", path = "./ext/env"}
+sb_core = { version = "0.1.0", path = "./ext/core" }
+sb_os = { version = "0.1.0", path = "./ext/os" }
+sb_fs = { version = "0.1.0", path = "./ext/fs" }
+sb_ai = { version = "0.1.0", path = "./ext/ai" }
 
 # crypto
 hkdf = "0.12.3"

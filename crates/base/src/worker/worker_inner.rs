@@ -6,7 +6,7 @@ use crate::worker::utils::{get_event_metadata, send_event_if_event_worker_availa
 use anyhow::Error;
 use base_rt::error::CloneableError;
 use deno_core::unsync::MaskFutureAsSend;
-use event_worker::events::{
+use sb_event_worker::events::{
     EventMetadata, ShutdownEvent, UncaughtExceptionEvent, WorkerEventWithMetadata, WorkerEvents,
 };
 use futures_util::FutureExt;

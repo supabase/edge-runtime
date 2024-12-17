@@ -13,7 +13,7 @@ use log::{debug, error, info, trace, warn};
 use rustls_pemfile::read_one_from_slice;
 use rustls_pemfile::Item;
 use sb_core::SharedMetricSource;
-use sb_graph::DecoratorType;
+use graph::DecoratorType;
 use sb_workers::context::WorkerRequestMsg;
 use std::future::{pending, Future};
 use std::net::IpAddr;

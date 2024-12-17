@@ -5,7 +5,7 @@ use clap::{
     builder::{BoolishValueParser, FalseyValueParser, TypedValueParser},
     crate_version, value_parser, ArgAction, ArgGroup, Command, ValueEnum,
 };
-use sb_graph::Checksum;
+use graph::Checksum;
 
 #[derive(ValueEnum, Default, Clone, Copy)]
 #[repr(u8)]

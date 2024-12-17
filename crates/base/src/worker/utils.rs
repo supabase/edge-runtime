@@ -1,5 +1,5 @@
 use anyhow::{anyhow, bail};
-use event_worker::events::{EventMetadata, WorkerEventWithMetadata, WorkerEvents};
+use sb_event_worker::events::{EventMetadata, WorkerEventWithMetadata, WorkerEvents};
 use hyper_v014::{Body, Request, Response};
 use sb_workers::{
     context::{WorkerExit, WorkerRequestMsg, WorkerRuntimeOpts},

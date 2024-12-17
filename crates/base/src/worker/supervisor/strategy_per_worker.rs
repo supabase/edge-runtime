@@ -3,7 +3,7 @@ use std::{future::pending, sync::atomic::Ordering, time::Duration};
 #[cfg(debug_assertions)]
 use std::thread::ThreadId;
 
-use event_worker::events::ShutdownReason;
+use sb_event_worker::events::ShutdownReason;
 use log::{error, info};
 use sb_workers::context::{Timing, TimingStatus, UserWorkerMsgs};
 use tokio_util::sync::CancellationToken;

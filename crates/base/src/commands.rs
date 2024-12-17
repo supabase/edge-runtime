@@ -5,7 +5,7 @@ use crate::{
     InspectorOption,
 };
 use anyhow::Error;
-use sb_graph::DecoratorType;
+use graph::DecoratorType;
 use tokio::sync::mpsc::Sender;
 
 #[allow(clippy::too_many_arguments)]

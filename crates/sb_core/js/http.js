@@ -8,13 +8,17 @@ import { upgradeWebSocket } from "ext:deno_http/02_websocket.ts";
 
 const ops = core.ops;
 
-const { internalRidSymbol } = core;
+const { BadResourcePrototype, internalRidSymbol } = core;
 const { ObjectPrototypeIsPrototypeOf } = primordials;
 
 const HttpConnPrototypeNextRequest = HttpConn.prototype.nextRequest;
 const HttpConnPrototypeClose = HttpConn.prototype.close;
 
 const kSupabaseTag = Symbol("kSupabaseTag");
+
+let ACTIVE_REQUESTS = 0;
+
+const HTTP_CONNS = new Set();
 const RAW_UPGRADE_RESPONSE_SENTINEL = fromInnerResponse(
 	newInnerResponse(101),
 	"immutable",
@@ -74,10 +78,13 @@ function serveHttp(conn) {
 	httpConn.close = () => {
 		if (!closed) {
 			closed = true;
+			HTTP_CONNS.delete(httpConn);
 			core.tryClose(watcherRid);
 			HttpConnPrototypeClose.call(httpConn);
 		}
 	};
+
+	HTTP_CONNS.add(httpConn);
 
 	return httpConn;
 }
@@ -115,12 +122,15 @@ function serve(args1, args2) {
 
 		try {
 			for await (const requestEvent of currentHttpConn) {
+				ACTIVE_REQUESTS++;
 				// NOTE: Respond to the request. Note we do not await this async
 				// method to allow the connection to handle multiple requests in
 				// the case of h2.
 				//
 				// [1]: https://deno.land/std@0.131.0/http/server.ts?source=#L338
-				respond(requestEvent, currentHttpConn, options);
+				respond(requestEvent, currentHttpConn, options).then(() => {
+					ACTIVE_REQUESTS--;
+				});
 			}
 		} catch {
 			// connection has been closed
@@ -140,9 +150,33 @@ function serve(args1, args2) {
 		}
 	})();
 
-	const shutdown = () => {
-		// TODO: Not currently supported
+	const kind = internals.worker.kind;
+	const shutdownEventName = kind === "user" ? "drain" : "beforeunload";
+	const handleShutdownEvent = () => {
+		shutdown();
 	};
+
+	const shutdown = () => {
+		removeEventListener(shutdownEventName, handleShutdownEvent);
+
+		try {
+			listener.close();
+		} catch (error) {
+			if (
+				ObjectPrototypeIsPrototypeOf(BadResourcePrototype, error)
+			) {
+				return;
+			}
+
+			throw error;
+		}
+
+		for (const httpConn of HTTP_CONNS) {
+			closeHttpConn(httpConn);
+		}
+	};
+
+	addEventListener(shutdownEventName, handleShutdownEvent, { once: true });
 
 	return {
 		finished,

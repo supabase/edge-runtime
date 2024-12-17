@@ -1,7 +1,7 @@
 use crate::{
     inspector_server::Inspector,
-    rt_worker::{worker_ctx::TerminationToken, worker_pool::WorkerPoolPolicy},
-    server::{Server, ServerFlags, ServerHealth, Tls, WorkerEntrypoints},
+    server::{Server, ServerFlags, ServerHealth, SignumOrExitCode, Tls, WorkerEntrypoints},
+    worker::{pool::WorkerPoolPolicy, TerminationToken},
     InspectorOption,
 };
 use anyhow::Error;
@@ -26,7 +26,7 @@ pub async fn start_server(
     inspector_option: Option<InspectorOption>,
     jsx_specifier: Option<String>,
     jsx_module: Option<String>,
-) -> Result<Option<i32>, Error> {
+) -> Result<Option<SignumOrExitCode>, Error> {
     let mut server = Server::new(
         ip,
         port,

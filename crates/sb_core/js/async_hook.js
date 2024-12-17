@@ -1,23 +1,31 @@
-import { core, primordials } from 'ext:core/mod.js';
+import { core, primordials } from "ext:core/mod.js";
 
 const ops = core.ops;
-const {
-    Promise
-} = primordials;
+const { Promise } = primordials;
 
-let COUNTER = 0;
-const PROMISES = new Map();
+const PROMISES = new Set();
 
-function waitUntil(maybePromise) {
+function waitUntilInner(maybePromise) {
     if (maybePromise instanceof Promise) {
         ops.op_tap_promise_metrics("init");
-        PROMISES.set(maybePromise, ++COUNTER);
+        PROMISES.add(maybePromise);
     }
 
     return maybePromise;
 }
 
-function installPromiseHook() {
+function waitUntil(maybePromise) {
+    return waitUntilInner(maybePromise);
+}
+
+/**
+ * @param {"user" | "main" | "event"} kind 
+ */
+function installPromiseHook(kind) {
+    if (kind !== "user") {
+        return;
+    }
+
     core.setPromiseHooks(
         null,
         null,

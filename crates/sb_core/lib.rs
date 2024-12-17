@@ -4,10 +4,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use base_mem_check::WorkerHeapStatistics;
+use base_rt::DropToken;
 use deno_core::error::AnyError;
-use deno_core::v8;
 use deno_core::OpState;
 use deno_core::{op2, JsRuntime};
+use deno_core::{v8, ResourceId};
 use enum_as_inner::EnumAsInner;
 use futures::task::AtomicWaker;
 use futures::FutureExt;
@@ -397,6 +398,14 @@ fn op_tap_promise_metrics(state: &mut OpState, #[string] kind: &str) {
     debug!(?metrics);
 }
 
+#[op2(fast)]
+fn op_cancel_drop_token(state: &mut OpState, #[smi] rid: ResourceId) -> Result<(), AnyError> {
+    let token = state.resource_table.get::<DropToken>(rid)?;
+
+    token.0.cancel();
+    Ok(())
+}
+
 #[op2]
 #[serde]
 pub fn op_bootstrap_unstable_args(_state: &mut OpState) -> Vec<String> {
@@ -406,7 +415,7 @@ pub fn op_bootstrap_unstable_args(_state: &mut OpState) -> Vec<String> {
 deno_core::extension!(
     sb_core_main_js,
     ops = [
-        /*op_is_terminal,*/
+        // op_is_terminal,
         op_stdin_set_raw,
         op_console_size,
         op_read_line_prompt,
@@ -418,9 +427,11 @@ deno_core::extension!(
         op_bootstrap_unstable_args,
         op_raise_segfault,
         op_tap_promise_metrics,
+        op_cancel_drop_token,
     ],
     esm_entry_point = "ext:sb_core_main_js/js/bootstrap.js",
     esm = [
+        "js/edge_runtime.js",
         "js/async_hook.js",
         "js/permissions.js",
         "js/errors.js",
@@ -430,7 +441,6 @@ deno_core::extension!(
         "js/denoOverrides.js",
         "js/navigator.js",
         "js/bootstrap.js",
-        "js/main_worker.js",
         "js/00_serve.js",
         "js/01_http.js"
     ]

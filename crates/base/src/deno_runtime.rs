@@ -1,20 +1,20 @@
 use crate::inspector_server::Inspector;
-use crate::rt_worker::supervisor::{CPUUsage, CPUUsageMetrics};
-use crate::rt_worker::worker::DuplexStreamEntry;
-use crate::server::ServerFlags;
 use crate::utils::json;
 use crate::utils::path::find_up;
 use crate::utils::units::{bytes_to_display, mib_to_bytes, percentage_value};
+use crate::worker::supervisor::{CPUUsage, CPUUsageMetrics};
+use crate::worker::{DuplexStreamEntry, Worker};
 
 use anyhow::{anyhow, bail, Context, Error};
 use arc_swap::ArcSwapOption;
 use base_mem_check::{MemCheckState, WorkerHeapStatistics};
-use base_rt::DenoRuntimeDropToken;
 use base_rt::{get_current_cpu_time_ns, BlockingScopeCPUUsage};
+use base_rt::{DenoRuntimeDropToken, DropToken};
 use cooked_waker::{IntoWaker, WakeRef};
 use ctor::ctor;
 use deno_cache::SqliteBackedCache;
 use deno_core::error::{AnyError, JsError};
+use deno_core::unsync::AtomicFlag;
 use deno_core::url::Url;
 use deno_core::v8::{self, GCCallbackFlags, GCType, HeapStatistics, Isolate};
 use deno_core::{
@@ -32,7 +32,6 @@ use log::error;
 use once_cell::sync::{Lazy, OnceCell};
 use sb_core::http::sb_core_http;
 use sb_core::http_start::sb_core_http_start;
-use sb_core::util::sync::AtomicFlag;
 use sb_fs::prefix_fs::PrefixFs;
 use sb_fs::s3_fs::S3Fs;
 use sb_fs::static_fs::StaticFs;
@@ -261,6 +260,7 @@ struct DispatchEventFunctions {
     dispatch_load_event_fn_global: v8::Global<v8::Function>,
     dispatch_beforeunload_event_fn_global: v8::Global<v8::Function>,
     dispatch_unload_event_fn_global: v8::Global<v8::Function>,
+    dispatch_drain_event_fn_global: v8::Global<v8::Function>,
 }
 
 #[derive(IntoStaticStr, Debug, Clone, Copy)]
@@ -270,22 +270,114 @@ pub enum WillTerminateReason {
     Memory,
     WallClock,
     EarlyDrop,
+    Termination,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct RuntimeState {
+    pub evaluating_mod: Arc<AtomicFlag>,
+    pub event_loop_completed: Arc<AtomicFlag>,
+    pub terminated: Arc<AtomicFlag>,
+    pub found_inspector_session: Arc<AtomicFlag>,
+}
+
+impl RuntimeState {
+    pub fn is_evaluating_mod(&self) -> bool {
+        self.evaluating_mod.is_raised()
+    }
+
+    pub fn is_event_loop_completed(&self) -> bool {
+        self.event_loop_completed.is_raised()
+    }
+
+    pub fn is_terminated(&self) -> bool {
+        self.terminated.is_raised()
+    }
+
+    pub fn is_found_inspector_session(&self) -> bool {
+        self.found_inspector_session.is_raised()
+    }
+}
+
+#[derive(Debug)]
+pub struct RunOptions {
+    wait_termination_request_token: bool,
+    duplex_stream_rx: mpsc::UnboundedReceiver<DuplexStreamEntry>,
+    maybe_cpu_usage_metrics_tx: Option<mpsc::UnboundedSender<CPUUsageMetrics>>,
+}
+
+pub struct RunOptionsBuilder {
+    wait_termination_request_token: bool,
+    duplex_stream_rx: Option<mpsc::UnboundedReceiver<DuplexStreamEntry>>,
+    maybe_cpu_usage_metrics_tx: Option<mpsc::UnboundedSender<CPUUsageMetrics>>,
+}
+
+impl Default for RunOptionsBuilder {
+    fn default() -> Self {
+        Self {
+            wait_termination_request_token: true,
+            duplex_stream_rx: None,
+            maybe_cpu_usage_metrics_tx: None,
+        }
+    }
+}
+
+impl RunOptionsBuilder {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn wait_termination_request_token(mut self, val: bool) -> Self {
+        self.wait_termination_request_token = val;
+        self
+    }
+
+    pub fn stream_rx(mut self, val: mpsc::UnboundedReceiver<DuplexStreamEntry>) -> Self {
+        self.duplex_stream_rx = Some(val);
+        self
+    }
+
+    pub fn cpu_usage_metrics_tx(
+        mut self,
+        val: Option<mpsc::UnboundedSender<CPUUsageMetrics>>,
+    ) -> Self {
+        self.maybe_cpu_usage_metrics_tx = val;
+        self
+    }
+
+    pub fn build(self) -> Result<RunOptions, AnyError> {
+        let Self {
+            wait_termination_request_token,
+            duplex_stream_rx,
+            maybe_cpu_usage_metrics_tx,
+        } = self;
+
+        // TODO(Nyannyacha): Make this as optional.
+        let Some(duplex_stream_rx) = duplex_stream_rx else {
+            return Err(anyhow!("stream_rx can't be empty"));
+        };
+
+        Ok(RunOptions {
+            wait_termination_request_token,
+            duplex_stream_rx,
+            maybe_cpu_usage_metrics_tx,
+        })
+    }
 }
 
 pub struct DenoRuntime<RuntimeContext = DefaultRuntimeContext> {
+    pub runtime_state: Arc<RuntimeState>,
     pub js_runtime: ManuallyDrop<JsRuntime>,
+
     pub drop_token: CancellationToken,
+    pub(crate) termination_request_token: CancellationToken,
+
     pub env_vars: HashMap<String, String>, // TODO: does this need to be pub?
     pub conf: WorkerRuntimeOpts,
     pub s3_fs: Option<S3Fs>,
 
-    pub(crate) termination_request_token: CancellationToken,
-
-    pub(crate) is_terminated: Arc<AtomicFlag>,
-    pub(crate) is_found_inspector_session: Arc<AtomicFlag>,
-
     main_module_id: ModuleId,
-    maybe_inspector: Option<Inspector>,
+    worker: Worker,
     promise_metrics: PromiseMetrics,
 
     mem_check: Arc<MemCheck>,
@@ -330,11 +422,12 @@ where
 {
     #[allow(clippy::unnecessary_literal_unwrap)]
     #[allow(clippy::arc_with_non_send_sync)]
-    pub async fn new(
-        opts: WorkerContextInitOpts,
-        maybe_inspector: Option<Inspector>,
-        flags: Arc<ServerFlags>,
-    ) -> Result<Self, Error> {
+    pub(crate) async fn new(mut worker: Worker) -> Result<Self, Error> {
+        let init_opts = worker.init_opts.take();
+        let flags = worker.flags.clone();
+
+        debug_assert!(init_opts.is_some(), "init_opts must not be None");
+
         let WorkerContextInitOpts {
             mut conf,
             service_path,
@@ -350,12 +443,14 @@ where
             maybe_s3_fs_config,
             maybe_tmp_fs_config,
             ..
-        } = opts;
+        } = init_opts.unwrap();
 
         // TODO(Nyannyacha): Make sure `service_path` is an absolute path first.
 
         let drop_token = CancellationToken::default();
+        let termination_request_token = CancellationToken::default();
         let promise_metrics = PromiseMetrics::default();
+        let runtime_state = Arc::<RuntimeState>::default();
 
         let base_dir_path = std::env::current_dir().map(|p| p.join(&service_path))?;
         let Ok(mut main_module_url) = Url::from_directory_path(&base_dir_path) else {
@@ -518,7 +613,7 @@ where
             });
         }
 
-        let has_inspector = maybe_inspector.is_some();
+        let has_inspector = worker.inspector.is_some();
         let need_source_map = user_context
             .get("sourceMap")
             .and_then(serde_json::Value::as_bool)
@@ -690,7 +785,7 @@ where
         let runtime_options = RuntimeOptions {
             extensions,
             is_main: true,
-            inspector: maybe_inspector.is_some(),
+            inspector: has_inspector,
             create_params,
             get_error_class_fn: Some(&get_error_class_name),
             shared_array_buffer_store: None,
@@ -716,38 +811,23 @@ where
                 .to_object(scope)
                 .unwrap();
 
-            let dispatch_load_event_fn_str =
-                v8::String::new_external_onebyte_static(scope, b"dispatchLoadEvent").unwrap();
-            let dispatch_load_event_fn = bootstrap_ns
-                .get(scope, dispatch_load_event_fn_str.into())
-                .unwrap();
-            let dispatch_load_event_fn =
-                v8::Local::<v8::Function>::try_from(dispatch_load_event_fn).unwrap();
-            let dispatch_beforeunload_event_fn_str =
-                v8::String::new_external_onebyte_static(scope, b"dispatchBeforeUnloadEvent")
+            macro_rules! get_global {
+                ($name:expr) => {{
+                    let dispatch_fn_str =
+                        v8::String::new_external_onebyte_static(scope, $name).unwrap();
+                    let dispatch_fn = v8::Local::<v8::Function>::try_from(
+                        bootstrap_ns.get(scope, dispatch_fn_str.into()).unwrap(),
+                    )
                     .unwrap();
-            let dispatch_beforeunload_event_fn = bootstrap_ns
-                .get(scope, dispatch_beforeunload_event_fn_str.into())
-                .unwrap();
-            let dispatch_beforeunload_event_fn =
-                v8::Local::<v8::Function>::try_from(dispatch_beforeunload_event_fn).unwrap();
-            let dispatch_unload_event_fn_str =
-                v8::String::new_external_onebyte_static(scope, b"dispatchUnloadEvent").unwrap();
-            let dispatch_unload_event_fn = bootstrap_ns
-                .get(scope, dispatch_unload_event_fn_str.into())
-                .unwrap();
-            let dispatch_unload_event_fn =
-                v8::Local::<v8::Function>::try_from(dispatch_unload_event_fn).unwrap();
-
-            let dispatch_load_event_fn_global = v8::Global::new(scope, dispatch_load_event_fn);
-            let dispatch_beforeunload_event_fn_global =
-                v8::Global::new(scope, dispatch_beforeunload_event_fn);
-            let dispatch_unload_event_fn_global = v8::Global::new(scope, dispatch_unload_event_fn);
+                    v8::Global::new(scope, dispatch_fn)
+                }};
+            }
 
             DispatchEventFunctions {
-                dispatch_load_event_fn_global,
-                dispatch_beforeunload_event_fn_global,
-                dispatch_unload_event_fn_global,
+                dispatch_load_event_fn_global: get_global!(b"dispatchLoadEvent"),
+                dispatch_beforeunload_event_fn_global: get_global!(b"dispatchBeforeUnloadEvent"),
+                dispatch_unload_event_fn_global: get_global!(b"dispatchUnloadEvent"),
+                dispatch_drain_event_fn_global: get_global!(b"dispatchDrainEvent"),
             }
         };
 
@@ -758,6 +838,7 @@ where
 
             op_state.put(dispatch_fns);
             op_state.put(promise_metrics.clone());
+            op_state.put(runtime_state.clone());
             op_state.put(GlobalMainContext(main_context));
         }
 
@@ -770,7 +851,7 @@ where
             op_state.put(sb_env::EnvVars::default());
         }
 
-        if let Some(inspector) = maybe_inspector.clone() {
+        if let Some(inspector) = worker.inspector.as_ref() {
             inspector.server.register_inspector(
                 main_module_url.to_string(),
                 &mut js_runtime,
@@ -799,10 +880,19 @@ where
                 option_env!("GIT_V_TAG"),
             ));
 
+            let tokens = {
+                let op_state = js_runtime.op_state();
+                let resource_table = &mut op_state.borrow_mut().resource_table;
+                serde_json::json!({
+                    "terminationRequestToken": resource_table.add(DropToken(termination_request_token.clone()))
+                })
+            };
+
             let extra_context = {
                 let mut context = serde_json::json!(RuntimeContext::get_extra_context());
 
                 json::merge_object(&mut context, &serde_json::Value::Object(user_context));
+                json::merge_object(&mut context, &tokens);
 
                 context
             };
@@ -875,7 +965,7 @@ where
             }
 
             op_state.put(sb_env::EnvVars(env_vars));
-            op_state.put(DenoRuntimeDropToken(drop_token.clone()));
+            op_state.put(DenoRuntimeDropToken(DropToken(drop_token.clone())));
         }
 
         let main_module_id = {
@@ -913,19 +1003,18 @@ where
         }
 
         Ok(Self {
-            drop_token,
+            runtime_state,
             js_runtime: ManuallyDrop::new(js_runtime),
+
+            drop_token,
+            termination_request_token,
+
             env_vars,
             conf,
             s3_fs: maybe_s3_fs,
 
-            termination_request_token: CancellationToken::new(),
-
-            is_terminated: Arc::default(),
-            is_found_inspector_session: Arc::default(),
-
             main_module_id,
-            maybe_inspector,
+            worker,
             promise_metrics,
 
             mem_check,
@@ -938,12 +1027,13 @@ where
         })
     }
 
-    pub async fn run(
-        &mut self,
-        duplex_stream_rx: mpsc::UnboundedReceiver<DuplexStreamEntry>,
-        maybe_cpu_usage_metrics_tx: Option<mpsc::UnboundedSender<CPUUsageMetrics>>,
-        name: Option<String>,
-    ) -> (Result<(), Error>, i64) {
+    pub async fn run(&mut self, options: RunOptions) -> (Result<(), Error>, i64) {
+        let RunOptions {
+            wait_termination_request_token,
+            duplex_stream_rx,
+            maybe_cpu_usage_metrics_tx,
+        } = options;
+
         {
             let op_state_rc = self.js_runtime.op_state();
             let mut op_state = op_state_rc.borrow_mut();
@@ -957,7 +1047,7 @@ where
             }
         }
 
-        let _terminate_guard = scopeguard::guard(self.is_terminated.clone(), |v| {
+        let _terminate_guard = scopeguard::guard(self.runtime_state.terminated.clone(), |v| {
             v.raise();
         });
 
@@ -966,20 +1056,22 @@ where
         let current_thread_id = std::thread::current().id();
         let mut accumulated_cpu_time_ns = 0i64;
 
-        let span = debug_span!("runtime", ?name, thread_id = ?current_thread_id);
+        let span = debug_span!("runtime", thread_id = ?current_thread_id);
         let inspector = self.inspector();
         let mut mod_result_rx = unsafe {
             self.js_runtime.v8_isolate().enter();
 
             if inspector.is_some() {
-                let is_terminated = self.is_terminated.clone();
-                let mut this = scopeguard::guard_on_unwind(&mut *self, |this| {
-                    this.js_runtime.v8_isolate().exit();
-                    is_terminated.raise();
+                let state = self.runtime_state.clone();
+                let mut this = scopeguard::guard_on_unwind(&mut *self, {
+                    |this| {
+                        this.js_runtime.v8_isolate().exit();
+                        state.terminated.raise();
+                    }
                 });
 
                 {
-                    let _guard = scopeguard::guard(this.is_found_inspector_session.clone(), |v| {
+                    let _guard = scopeguard::guard(state.found_inspector_session.clone(), |v| {
                         v.raise();
                     });
 
@@ -993,7 +1085,7 @@ where
 
                 if this.termination_request_token.is_cancelled() {
                     this.js_runtime.v8_isolate().exit();
-                    is_terminated.raise();
+                    state.terminated.raise();
                     return (Ok(()), 0i64);
                 }
             }
@@ -1019,9 +1111,17 @@ where
         }
 
         {
+            let evaluating_mod =
+                scopeguard::guard(self.runtime_state.evaluating_mod.clone(), |v| {
+                    v.lower();
+                });
+
+            evaluating_mod.raise();
+
             let event_loop_fut = self
                 .run_event_loop(
                     current_thread_id,
+                    wait_termination_request_token,
                     &maybe_cpu_usage_metrics_tx,
                     &mut accumulated_cpu_time_ns,
                 )
@@ -1050,59 +1150,61 @@ where
             if let Err(err) = mod_result {
                 return (Err(err), get_accumulated_cpu_time_ms!());
             }
+            if self.runtime_state.is_event_loop_completed()
+                && self.promise_metrics.have_all_promises_been_resolved()
+            {
+                return (Ok(()), get_accumulated_cpu_time_ms!());
+            }
 
             let mut this = self.get_v8_tls_guard();
 
-            if let Err(err) = with_cpu_metrics_guard(
-                current_thread_id,
-                this.js_runtime.op_state(),
-                &maybe_cpu_usage_metrics_tx,
-                &mut accumulated_cpu_time_ns,
-                || MaybeDenoRuntime::DenoRuntime(*this).dispatch_load_event(),
-            ) {
-                return (Err(err), get_accumulated_cpu_time_ms!());
+            if !this.termination_request_token.is_cancelled() {
+                if let Err(err) = with_cpu_metrics_guard(
+                    current_thread_id,
+                    this.js_runtime.op_state(),
+                    &maybe_cpu_usage_metrics_tx,
+                    &mut accumulated_cpu_time_ns,
+                    || MaybeDenoRuntime::DenoRuntime(*this).dispatch_load_event(),
+                ) {
+                    return (Err(err), get_accumulated_cpu_time_ms!());
+                }
             }
         }
+
+        self.runtime_state.event_loop_completed.lower();
 
         if let Err(err) = self
             .run_event_loop(
                 current_thread_id,
+                wait_termination_request_token,
                 &maybe_cpu_usage_metrics_tx,
                 &mut accumulated_cpu_time_ns,
             )
             .instrument(span)
             .await
         {
-            let mut this = self.get_v8_tls_guard();
-            let _ = with_cpu_metrics_guard(
-                current_thread_id,
-                this.js_runtime.op_state(),
-                &maybe_cpu_usage_metrics_tx,
-                &mut accumulated_cpu_time_ns,
-                || MaybeDenoRuntime::DenoRuntime(&mut this).dispatch_unload_event(),
-            );
-
-            // TODO(Nyannyacha): Here we also need to trigger the event for node platform (i.e; exit)
-
             return (
                 Err(anyhow!("event loop error: {}", err)),
                 get_accumulated_cpu_time_ms!(),
             );
         }
 
-        let mut this = self.get_v8_tls_guard();
+        if !self.conf.is_user_worker() {
+            let mut this = self.get_v8_tls_guard();
+            let mut this = this.get_v8_termination_guard();
 
-        if let Err(err) = with_cpu_metrics_guard(
-            current_thread_id,
-            this.js_runtime.op_state(),
-            &maybe_cpu_usage_metrics_tx,
-            &mut accumulated_cpu_time_ns,
-            || MaybeDenoRuntime::DenoRuntime(&mut this).dispatch_unload_event(),
-        ) {
-            return (Err(err), get_accumulated_cpu_time_ms!());
+            if let Err(err) = with_cpu_metrics_guard(
+                current_thread_id,
+                this.js_runtime.op_state(),
+                &maybe_cpu_usage_metrics_tx,
+                &mut accumulated_cpu_time_ns,
+                || MaybeDenoRuntime::DenoRuntime(&mut this).dispatch_unload_event(),
+            ) {
+                return (Err(err), get_accumulated_cpu_time_ms!());
+            }
+
+            // TODO(Nyannyacha): Here we also need to trigger the event for node platform (i.e; exit)
         }
-
-        // TODO(Nyannyacha): Here we also need to trigger the event for node platform (i.e; exit)
 
         (Ok(()), get_accumulated_cpu_time_ms!())
     }
@@ -1110,17 +1212,24 @@ where
     fn run_event_loop<'l>(
         &'l mut self,
         #[allow(unused_variables)] current_thread_id: ThreadId,
+        wait_termination_request_token: bool,
         maybe_cpu_usage_metrics_tx: &'l Option<mpsc::UnboundedSender<CPUUsageMetrics>>,
         accumulated_cpu_time_ns: &'l mut i64,
     ) -> impl Future<Output = Result<(), AnyError>> + 'l {
         let has_inspector = self.inspector().is_some();
         let is_user_worker = self.conf.is_user_worker();
         let global_waker = self.waker.clone();
-        let termination_request_token = self.termination_request_token.clone();
+
+        let mut termination_request_fut = self
+            .termination_request_token
+            .clone()
+            .cancelled_owned()
+            .boxed();
 
         let beforeunload_cpu_threshold = self.beforeunload_cpu_threshold.clone();
         let beforeunload_mem_threshold = self.beforeunload_mem_threshold.clone();
 
+        let state = self.runtime_state.clone();
         let mem_check_state = is_user_worker.then(|| self.mem_check.clone());
         let mut poll_sem = None::<PollSemaphore>;
 
@@ -1233,24 +1342,34 @@ where
                 }
             }
 
-            // NOTE(Nyannyacha): If tasks are empty or V8 is not evaluating the
-            // function, and so V8 is no longer inside its loop, it turns out
-            // that requesting termination does not work; thus, we need another
-            // way to escape from the polling loop so the supervisor can
-            // terminate the runtime.
             if need_pool_event_loop
                 && poll_result.is_pending()
-                && termination_request_token.is_cancelled()
+                && termination_request_fut.poll_unpin(cx).is_ready()
             {
                 return Poll::Ready(Ok(()));
             }
 
-            poll_result
+            match poll_result {
+                Poll::Pending => Poll::Pending,
+                Poll::Ready(err @ Err(_)) => Poll::Ready(err),
+                Poll::Ready(Ok(())) => {
+                    if !state.is_event_loop_completed() {
+                        state.event_loop_completed.raise();
+                    }
+                    if wait_termination_request_token
+                        && !termination_request_fut.poll_unpin(cx).is_ready()
+                    {
+                        return Poll::Pending;
+                    }
+
+                    Poll::Ready(Ok(()))
+                }
+            }
         })
     }
 
     pub fn inspector(&self) -> Option<Inspector> {
-        self.maybe_inspector.clone()
+        self.worker.inspector.clone()
     }
 
     pub fn promise_metrics(&self) -> PromiseMetrics {
@@ -1289,8 +1408,8 @@ where
 
     #[instrument(level = "debug", skip(self))]
     fn wait_for_inspector_session(&mut self) {
-        debug!(has_inspector = self.maybe_inspector.is_some());
-        if let Some(inspector) = self.maybe_inspector.as_ref() {
+        debug!(has_inspector = self.worker.inspector.is_some());
+        if let Some(inspector) = self.worker.inspector.as_ref() {
             debug!(addr = %inspector.server.host, server.inspector = ?inspector.option);
             let inspector_impl = self.js_runtime.inspector();
             let mut inspector_impl_ref = inspector_impl.borrow_mut();
@@ -1326,6 +1445,31 @@ where
             guard.js_runtime.v8_isolate().enter();
         }
 
+        guard
+    }
+
+    fn get_v8_termination_guard<'l>(
+        &'l mut self,
+    ) -> scopeguard::ScopeGuard<
+        &'l mut DenoRuntime<RuntimeContext>,
+        impl FnOnce(&'l mut DenoRuntime<RuntimeContext>) + 'l,
+    > {
+        let was_terminating_execution = self.js_runtime.v8_isolate().is_execution_terminating();
+        let mut guard = scopeguard::guard(self, move |v| {
+            if was_terminating_execution {
+                v.js_runtime.v8_isolate().terminate_execution();
+            }
+
+            v.js_runtime
+                .v8_isolate()
+                .set_microtasks_policy(v8::MicrotasksPolicy::Auto);
+        });
+
+        guard.js_runtime.v8_isolate().cancel_terminate_execution();
+        guard
+            .js_runtime
+            .v8_isolate()
+            .set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
         guard
     }
 }
@@ -1516,6 +1660,17 @@ where
             |_| Ok(()),
         )
     }
+
+    /// Dispatches "drain" event to the JavaScript runtime.
+    ///
+    /// Does not poll event loop, and thus not await any of the "drain" event handlers.
+    pub fn dispatch_drain_event(&mut self) -> Result<(), AnyError> {
+        self.dispatch_event_with_callback(
+            |fns| &fns.dispatch_drain_event_fn_global,
+            |_| vec![],
+            |_| Ok(()),
+        )
+    }
 }
 
 pub fn import_meta_resolve_callback(
@@ -1657,7 +1812,7 @@ extern "C" fn mem_check_gc_prologue_callback_fn(
 #[cfg(test)]
 mod test {
     use crate::deno_runtime::DenoRuntime;
-    use crate::rt_worker::worker::DuplexStreamEntry;
+    use crate::worker::{DuplexStreamEntry, WorkerBuilder};
     use anyhow::Context;
     use deno_config::JsxImportSourceConfig;
     use deno_core::error::AnyError;
@@ -1687,6 +1842,7 @@ mod test {
     use url::Url;
 
     use super::GetRuntimeContext;
+    use super::RunOptionsBuilder;
 
     impl<RuntimeContext> DenoRuntime<RuntimeContext> {
         fn to_value_mut<T>(&mut self, global_value: &v8::Global<v8::Value>) -> Result<T, AnyError>
@@ -1757,42 +1913,45 @@ mod test {
             let (worker_pool_tx, _) = mpsc::unbounded_channel::<UserWorkerMsgs>();
 
             DenoRuntime::new(
-                WorkerContextInitOpts {
-                    maybe_eszip: eszip,
-                    service_path: path
-                        .map(PathBuf::from)
-                        .unwrap_or(PathBuf::from("./test_cases/main")),
+                WorkerBuilder::new(
+                    WorkerContextInitOpts {
+                        maybe_eszip: eszip,
+                        service_path: path
+                            .map(PathBuf::from)
+                            .unwrap_or(PathBuf::from("./test_cases/main")),
 
-                    conf: {
-                        if let Some(conf) = worker_runtime_conf {
-                            conf
-                        } else {
-                            WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
-                                worker_pool_tx,
-                                shared_metric_src: None,
-                                event_worker_metric_src: None,
-                            })
-                        }
+                        conf: {
+                            if let Some(conf) = worker_runtime_conf {
+                                conf
+                            } else {
+                                WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
+                                    worker_pool_tx,
+                                    shared_metric_src: None,
+                                    event_worker_metric_src: None,
+                                })
+                            }
+                        },
+
+                        maybe_entrypoint: None,
+                        maybe_decorator: None,
+                        maybe_module_code: None,
+
+                        no_module_cache: false,
+                        env_vars: env_vars.unwrap_or_default(),
+
+                        static_patterns,
+                        maybe_jsx_import_source_config: jsx_import_source_config,
+
+                        timing: None,
+                        import_map_path: None,
+
+                        maybe_s3_fs_config: s3_fs_config,
+                        maybe_tmp_fs_config: tmp_fs_config,
                     },
-
-                    maybe_entrypoint: None,
-                    maybe_decorator: None,
-                    maybe_module_code: None,
-
-                    no_module_cache: false,
-                    env_vars: env_vars.unwrap_or_default(),
-
-                    static_patterns,
-                    maybe_jsx_import_source_config: jsx_import_source_config,
-
-                    timing: None,
-                    import_map_path: None,
-
-                    maybe_s3_fs_config: s3_fs_config,
-                    maybe_tmp_fs_config: tmp_fs_config,
-                },
-                None,
-                Arc::default(),
+                    Arc::default(),
+                )
+                .build()
+                .unwrap(),
             )
             .await
             .unwrap()
@@ -1873,33 +2032,36 @@ mod test {
         let (worker_pool_tx, _) = mpsc::unbounded_channel::<UserWorkerMsgs>();
 
         DenoRuntime::<()>::new(
-            WorkerContextInitOpts {
-                service_path: PathBuf::from("./test_cases/"),
-                no_module_cache: false,
-                import_map_path: None,
-                env_vars: Default::default(),
-                timing: None,
-                maybe_eszip: None,
-                maybe_entrypoint: None,
-                maybe_decorator: None,
-                maybe_module_code: Some(FastString::from(String::from(
-                    "Deno.serve((req) => new Response('Hello World'));",
-                ))),
-                conf: {
-                    WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
-                        worker_pool_tx,
-                        shared_metric_src: None,
-                        event_worker_metric_src: None,
-                    })
-                },
-                static_patterns: vec![],
+            WorkerBuilder::new(
+                WorkerContextInitOpts {
+                    service_path: PathBuf::from("./test_cases/"),
+                    no_module_cache: false,
+                    import_map_path: None,
+                    env_vars: Default::default(),
+                    timing: None,
+                    maybe_eszip: None,
+                    maybe_entrypoint: None,
+                    maybe_decorator: None,
+                    maybe_module_code: Some(FastString::from(String::from(
+                        "Deno.serve((req) => new Response('Hello World'));",
+                    ))),
+                    conf: {
+                        WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
+                            worker_pool_tx,
+                            shared_metric_src: None,
+                            event_worker_metric_src: None,
+                        })
+                    },
+                    static_patterns: vec![],
 
-                maybe_jsx_import_source_config: None,
-                maybe_s3_fs_config: None,
-                maybe_tmp_fs_config: None,
-            },
-            None,
-            Arc::default(),
+                    maybe_jsx_import_source_config: None,
+                    maybe_s3_fs_config: None,
+                    maybe_tmp_fs_config: None,
+                },
+                Arc::default(),
+            )
+            .build()
+            .unwrap(),
         )
         .await
         .expect("It should not panic");
@@ -1923,31 +2085,34 @@ mod test {
         let eszip_code = bin_eszip.into_bytes();
 
         let runtime = DenoRuntime::<()>::new(
-            WorkerContextInitOpts {
-                service_path: PathBuf::from("./test_cases/"),
-                no_module_cache: false,
-                import_map_path: None,
-                env_vars: Default::default(),
-                timing: None,
-                maybe_eszip: Some(EszipPayloadKind::VecKind(eszip_code)),
-                maybe_entrypoint: None,
-                maybe_decorator: None,
-                maybe_module_code: None,
-                conf: {
-                    WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
-                        worker_pool_tx,
-                        shared_metric_src: None,
-                        event_worker_metric_src: None,
-                    })
-                },
-                static_patterns: vec![],
+            WorkerBuilder::new(
+                WorkerContextInitOpts {
+                    service_path: PathBuf::from("./test_cases/"),
+                    no_module_cache: false,
+                    import_map_path: None,
+                    env_vars: Default::default(),
+                    timing: None,
+                    maybe_eszip: Some(EszipPayloadKind::VecKind(eszip_code)),
+                    maybe_entrypoint: None,
+                    maybe_decorator: None,
+                    maybe_module_code: None,
+                    conf: {
+                        WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
+                            worker_pool_tx,
+                            shared_metric_src: None,
+                            event_worker_metric_src: None,
+                        })
+                    },
+                    static_patterns: vec![],
 
-                maybe_jsx_import_source_config: None,
-                maybe_s3_fs_config: None,
-                maybe_tmp_fs_config: None,
-            },
-            None,
-            Arc::default(),
+                    maybe_jsx_import_source_config: None,
+                    maybe_s3_fs_config: None,
+                    maybe_tmp_fs_config: None,
+                },
+                Arc::default(),
+            )
+            .build()
+            .unwrap(),
         )
         .await;
 
@@ -1988,33 +2153,35 @@ mod test {
             .unwrap();
 
         let eszip_code = binary_eszip.into_bytes();
-
         let runtime = DenoRuntime::<()>::new(
-            WorkerContextInitOpts {
-                service_path,
-                no_module_cache: false,
-                import_map_path: None,
-                env_vars: Default::default(),
-                timing: None,
-                maybe_eszip: Some(EszipPayloadKind::VecKind(eszip_code)),
-                maybe_entrypoint: None,
-                maybe_decorator: None,
-                maybe_module_code: None,
-                conf: {
-                    WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
-                        worker_pool_tx,
-                        shared_metric_src: None,
-                        event_worker_metric_src: None,
-                    })
-                },
-                static_patterns: vec![],
+            WorkerBuilder::new(
+                WorkerContextInitOpts {
+                    service_path,
+                    no_module_cache: false,
+                    import_map_path: None,
+                    env_vars: Default::default(),
+                    timing: None,
+                    maybe_eszip: Some(EszipPayloadKind::VecKind(eszip_code)),
+                    maybe_entrypoint: None,
+                    maybe_decorator: None,
+                    maybe_module_code: None,
+                    conf: {
+                        WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
+                            worker_pool_tx,
+                            shared_metric_src: None,
+                            event_worker_metric_src: None,
+                        })
+                    },
+                    static_patterns: vec![],
 
-                maybe_jsx_import_source_config: None,
-                maybe_s3_fs_config: None,
-                maybe_tmp_fs_config: None,
-            },
-            None,
-            Arc::default(),
+                    maybe_jsx_import_source_config: None,
+                    maybe_s3_fs_config: None,
+                    maybe_tmp_fs_config: None,
+                },
+                Arc::default(),
+            )
+            .build()
+            .unwrap(),
         )
         .await;
 
@@ -2466,7 +2633,15 @@ mod test {
                 .await;
 
         let (_tx, duplex_stream_rx) = mpsc::unbounded_channel::<DuplexStreamEntry>();
-        let (result, _) = user_rt.run(duplex_stream_rx, None, None).await;
+        let (result, _) = user_rt
+            .run(
+                RunOptionsBuilder::new()
+                    .wait_termination_request_token(false)
+                    .stream_rx(duplex_stream_rx)
+                    .build()
+                    .unwrap(),
+            )
+            .await;
 
         assert!(result.is_ok(), "expected no errors");
 
@@ -2483,7 +2658,15 @@ mod test {
                 .await;
 
         let (_tx, duplex_stream_rx) = mpsc::unbounded_channel::<DuplexStreamEntry>();
-        let (result, _) = user_rt.run(duplex_stream_rx, None, None).await;
+        let (result, _) = user_rt
+            .run(
+                RunOptionsBuilder::new()
+                    .wait_termination_request_token(false)
+                    .stream_rx(duplex_stream_rx)
+                    .build()
+                    .unwrap(),
+            )
+            .await;
 
         match result {
             Err(err) => {
@@ -2517,13 +2700,21 @@ mod test {
         let handle = user_rt.js_runtime.v8_isolate().thread_safe_handle();
 
         user_rt.add_memory_limit_callback(move |_| {
-            handle.terminate_execution();
+            assert!(handle.terminate_execution());
             waker.wake();
             callback_tx.send(()).unwrap();
         });
 
         let wait_fut = async move {
-            let (result, _) = user_rt.run(duplex_stream_rx, None, None).await;
+            let (result, _) = user_rt
+                .run(
+                    RunOptionsBuilder::new()
+                        .wait_termination_request_token(false)
+                        .stream_rx(duplex_stream_rx)
+                        .build()
+                        .unwrap(),
+                )
+                .await;
 
             assert!(result
                 .unwrap_err()
@@ -2626,7 +2817,17 @@ mod test {
 
         let (_tx, duplex_stream_rx) = mpsc::unbounded_channel();
 
-        user_rt.run(duplex_stream_rx, None, None).await.0.unwrap();
+        user_rt
+            .run(
+                RunOptionsBuilder::new()
+                    .wait_termination_request_token(false)
+                    .stream_rx(duplex_stream_rx)
+                    .build()
+                    .unwrap(),
+            )
+            .await
+            .0
+            .unwrap();
     }
 
     #[tokio::test]
@@ -2644,6 +2845,16 @@ mod test {
 
         let (_tx, duplex_stream_rx) = mpsc::unbounded_channel();
 
-        user_rt.run(duplex_stream_rx, None, None).await.0.unwrap();
+        user_rt
+            .run(
+                RunOptionsBuilder::new()
+                    .wait_termination_request_token(false)
+                    .stream_rx(duplex_stream_rx)
+                    .build()
+                    .unwrap(),
+            )
+            .await
+            .0
+            .unwrap();
     }
 }

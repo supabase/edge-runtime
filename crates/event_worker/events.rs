@@ -1,4 +1,5 @@
 use base_mem_check::MemCheckState;
+use enum_as_inner::EnumAsInner;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -21,6 +22,7 @@ pub struct WorkerMemoryUsed {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum ShutdownReason {
+    EventLoopCompleted,
     WallClockTime,
     CPUTime,
     Memory,
@@ -42,11 +44,6 @@ pub struct UncaughtExceptionEvent {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct EventLoopCompletedEvent {
-    pub cpu_time_used: usize,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
 pub struct LogEvent {
     pub msg: String,
     pub level: LogLevel,
@@ -60,13 +57,12 @@ pub enum LogLevel {
     Error,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, EnumAsInner)]
 pub enum WorkerEvents {
     Boot(BootEvent),
     BootFailure(BootFailureEvent),
     UncaughtException(UncaughtExceptionEvent),
     Shutdown(ShutdownEvent),
-    EventLoopCompleted(EventLoopCompletedEvent),
     Log(LogEvent),
 }
 

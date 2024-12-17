@@ -1,7 +1,10 @@
 use crate::inspector_server::Inspector;
-use crate::rt_worker::worker_ctx::{create_worker, send_user_worker_request};
 use crate::server::ServerFlags;
+use crate::worker::WorkerSurfaceBuilder;
+
 use anyhow::{anyhow, bail, Context, Error};
+use deno_config::JsxImportSourceConfig;
+use either::Either::Left;
 use enum_as_inner::EnumAsInner;
 use event_worker::events::WorkerEventWithMetadata;
 use http_v02::Request;
@@ -16,6 +19,7 @@ use sb_workers::context::{
 use sb_workers::errors::WorkerError;
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
+use std::future::pending;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -26,7 +30,8 @@ use tokio::sync::{mpsc, Notify, OwnedSemaphorePermit, Semaphore, TryAcquireError
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-use super::worker_ctx::TerminationToken;
+use super::termination_token::TerminationToken;
+use super::utils::send_user_worker_request;
 
 #[derive(Debug, Clone, Copy, EnumAsInner)]
 pub enum SupervisorPolicy {
@@ -425,21 +430,24 @@ impl WorkerPool {
 
             worker_options.conf = WorkerRuntimeOpts::UserWorker(user_worker_rt_opts);
 
-            match create_worker(
-                flags,
-                (worker_options, supervisor_policy, termination_token.clone()),
-                inspector,
-            )
-            .await
-            {
-                Ok(ctx) => {
+            let mut builder = WorkerSurfaceBuilder::new()
+                .init_opts(worker_options)
+                .policy(supervisor_policy)
+                .sever_flags(Left(flags));
+
+            builder
+                .set_termination_token(termination_token.clone())
+                .set_inspector(inspector);
+
+            match builder.build().await {
+                Ok(surface) => {
                     let profile = UserWorkerProfile {
-                        worker_request_msg_tx: ctx.msg_tx,
+                        worker_request_msg_tx: surface.msg_tx,
                         timing_tx_pair: (req_start_timing_tx, req_end_timing_tx),
                         service_path,
                         permit: permit.map(Arc::new),
                         status: status.clone(),
-                        exit: ctx.exit,
+                        exit: surface.exit,
                         cancel,
                     };
 
@@ -656,4 +664,109 @@ impl WorkerPool {
             }
         }
     }
+}
+
+pub async fn create_user_worker_pool(
+    flags: Arc<ServerFlags>,
+    policy: WorkerPoolPolicy,
+    worker_event_sender: Option<mpsc::UnboundedSender<WorkerEventWithMetadata>>,
+    termination_token: Option<TerminationToken>,
+    static_patterns: Vec<String>,
+    inspector: Option<Inspector>,
+    jsx: Option<JsxImportSourceConfig>,
+) -> Result<(SharedMetricSource, mpsc::UnboundedSender<UserWorkerMsgs>), Error> {
+    let metric_src = SharedMetricSource::default();
+    let (user_worker_msgs_tx, mut user_worker_msgs_rx) =
+        mpsc::unbounded_channel::<UserWorkerMsgs>();
+
+    let user_worker_msgs_tx_clone = user_worker_msgs_tx.clone();
+
+    let _handle: tokio::task::JoinHandle<Result<(), Error>> = tokio::spawn({
+        let metric_src_inner = metric_src.clone();
+        async move {
+            let token = termination_token.as_ref();
+            let mut termination_requested = false;
+            let mut worker_pool = WorkerPool::new(
+                flags,
+                policy,
+                metric_src_inner,
+                worker_event_sender,
+                user_worker_msgs_tx_clone,
+                inspector,
+            );
+
+            // Note: Keep this loop non-blocking. Spawn a task to run blocking calls.
+            // Handle errors within tasks and log them - do not bubble up errors.
+            loop {
+                tokio::select! {
+                    _ = async {
+                        if let Some(token) = token {
+                            token.inbound.cancelled().await;
+                        } else {
+                            pending::<()>().await;
+                        }
+                    }, if !termination_requested => {
+                        termination_requested = true;
+
+                        if worker_pool.user_workers.is_empty() {
+                            if let Some(token) = token {
+                                token.outbound.cancel();
+                            }
+
+                            break;
+                        }
+                    }
+
+                    msg = user_worker_msgs_rx.recv() => {
+                        match msg {
+                            None => break,
+                            Some(UserWorkerMsgs::Create(worker_options, tx)) => {
+                                worker_pool.create_user_worker(WorkerContextInitOpts {
+                                    static_patterns: static_patterns.clone(),
+                                    maybe_jsx_import_source_config: {
+                                        if worker_options.maybe_jsx_import_source_config.is_some() {
+                                            worker_options.maybe_jsx_import_source_config
+                                        } else {
+                                            jsx.clone()
+                                        }
+                                    },
+                                    ..worker_options
+                                }, tx, token.map(TerminationToken::child_token));
+                            }
+
+                            Some(UserWorkerMsgs::Created(key, profile)) => {
+                                worker_pool.add_user_worker(key, profile);
+                            }
+
+                            Some(UserWorkerMsgs::SendRequest(key, req, res_tx, conn_token)) => {
+                                worker_pool.send_request(&key, req, res_tx, conn_token);
+                            }
+
+                            Some(UserWorkerMsgs::Idle(key)) => {
+                                worker_pool.idle(&key);
+                            }
+
+                            Some(UserWorkerMsgs::Shutdown(key)) => {
+                                worker_pool.shutdown(&key);
+
+                                if termination_requested && worker_pool.user_workers.is_empty() {
+                                    if let Some(token) = token {
+                                        token.outbound.cancel();
+                                    }
+
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            worker_pool.worker_event_sender.take();
+
+            Ok(())
+        }
+    });
+
+    Ok((metric_src, user_worker_msgs_tx))
 }

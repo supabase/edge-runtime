@@ -3,9 +3,8 @@ use crate::WorkerEventWithMetadata;
 use deno_core::error::AnyError;
 use deno_core::op2;
 use deno_core::OpState;
-use log::error;
 use tokio::sync::mpsc;
-use tracing::trace;
+use tracing::{event, trace};
 
 #[op2(fast)]
 fn op_user_worker_log(
@@ -36,7 +35,12 @@ fn op_user_worker_log(
         trace!(?metadata);
         tx.send(metadata)?;
     } else {
-        error!("[{:?}] {}", level, msg.to_string());
+        match level {
+            LogLevel::Debug => event!(tracing::Level::DEBUG, "{msg}"),
+            LogLevel::Info => event!(tracing::Level::INFO, "{msg}"),
+            LogLevel::Warning => event!(tracing::Level::WARN, "{msg}"),
+            LogLevel::Error => event!(tracing::Level::ERROR, "{msg}"),
+        }
     }
 
     Ok(())

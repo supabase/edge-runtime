@@ -19,12 +19,11 @@ use futures::{AsyncReadExt, AsyncSeekExt};
 use glob::glob;
 use log::error;
 use npm::InnerCliNpmResolverRef;
-use sb_fs::{build_vfs, VfsOpts};
+use fs::{build_vfs, VfsOpts};
 use scopeguard::ScopeGuard;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::fs;
 use std::fs::{create_dir_all, File};
 use std::io::{Cursor, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -930,7 +929,7 @@ pub async fn extract_eszip(payload: ExtractEszipPayload) -> bool {
 }
 
 pub async fn extract_from_file(eszip_file: PathBuf, output_path: PathBuf) -> bool {
-    let eszip_content = fs::read(eszip_file).expect("File does not exist");
+    let eszip_content = std::fs::read(eszip_file).expect("File does not exist");
 
     extract_eszip(ExtractEszipPayload {
         data: EszipPayloadKind::VecKind(eszip_content),

@@ -13,13 +13,13 @@ members = [
   "crates/graph",
   "crates/eszip_async_trait",
   "crates/module_loader",
+  "crates/fs",
   "ext/node",
   "ext/workers",
   "ext/event_worker",
   "ext/env",
   "ext/core",
   "ext/os",
-  "ext/fs",
   "ext/ai"
 ]
 
@@ -65,6 +65,7 @@ npm_cache = { version = "0.1.0", path = "./crates/npm_cache" }
 graph = { version = "0.1.0", path = "./crates/graph" }
 eszip_async_trait = { version = "0.1.0", path = "./crates/eszip_async_trait" }
 module_loader = { version = "0.1.0", path = "./crates/module_loader" }
+fs = { version = "0.1.0", path = "./crates/fs" }
 
 # exts
 sb_node = { version = "0.1.0", path = "./ext/node" }
@@ -73,7 +74,6 @@ sb_event_worker = { version = "0.1.0", path = "./ext/event_worker" }
 sb_env = { version = "0.1.0", path = "./ext/env"}
 sb_core = { version = "0.1.0", path = "./ext/core" }
 sb_os = { version = "0.1.0", path = "./ext/os" }
-sb_fs = { version = "0.1.0", path = "./ext/fs" }
 sb_ai = { version = "0.1.0", path = "./ext/ai" }
 
 # crypto

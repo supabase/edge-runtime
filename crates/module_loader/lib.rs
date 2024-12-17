@@ -1,7 +1,7 @@
 use deno_core::{FastString, ModuleLoader};
 use deno_npm::resolution::ValidSerializedNpmResolutionSnapshot;
-use sb_fs::virtual_fs::FileBackedVfs;
-use sb_fs::EszipStaticFiles;
+use fs::virtual_fs::FileBackedVfs;
+use fs::EszipStaticFiles;
 use sb_node::{NodeResolver, NpmResolver};
 use std::path::PathBuf;
 use std::rc::Rc;

@@ -18,6 +18,8 @@ use deno_core::{
 };
 use deno_http::{HttpRequestReader, HttpStreamReadResource};
 use errors::WorkerError;
+use fs::s3_fs::S3FsConfig;
+use fs::tmp_fs::TmpFsConfig;
 use graph::{DecoratorType, EszipPayloadKind};
 use http_utils::utils::get_upgrade_type;
 use hyper_v014::body::HttpBody;
@@ -27,8 +29,6 @@ use hyper_v014::{Body, Method, Request};
 use log::error;
 use once_cell::sync::Lazy;
 use sb_core::conn_sync::ConnWatcher;
-use fs::s3_fs::S3FsConfig;
-use fs::tmp_fs::TmpFsConfig;
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::path::PathBuf;

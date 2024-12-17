@@ -15,10 +15,10 @@ deno_config.workspace = true
 
 http_utils.workspace = true
 graph.workspace = true
+fs.workspace = true
 
 sb_core.workspace = true
 sb_event_worker.workspace = true
-sb_fs.workspace = true
 
 anyhow.workspace = true
 uuid.workspace = true

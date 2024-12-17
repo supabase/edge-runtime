@@ -1,3 +1,13 @@
+declare type BeforeunloadReason = "cpu" | "memory" | "wall_clock" | "early_drop" | "termination";
+declare interface BeforeunloadEvent extends CustomEvent<BeforeunloadReason> { }
+
+declare interface WindowEventMap {
+    "load": Event;
+    "unload": Event;
+    "beforeunload": BeforeunloadEvent;
+    "drain": Event;
+}
+
 type DecoratorType = "tc39" | "typescript" | "typescript_with_metadata";
 
 interface JsxImportBaseConfig {
@@ -79,7 +89,7 @@ interface MemInfo {
 
 declare namespace EdgeRuntime {
     export namespace ai {
-        function tryCleanupUnusedSession(): Promise<void>;
+        function tryCleanupUnusedSession(): Promise<number>;
     }
 
     class UserWorker {
@@ -89,6 +99,7 @@ declare namespace EdgeRuntime {
         static create(opts: UserWorkerCreateOptions): Promise<UserWorker>;
     }
 
+    export function scheduleTermination(): void;
     export function waitUntil<T>(promise: Promise<T>): Promise<T>;
     export function getRuntimeMetrics(): Promise<RuntimeMetrics>;
     export function applySupabaseTag(src: Request, dest: Request): void;

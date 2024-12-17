@@ -25,6 +25,10 @@ use deno_http::DefaultHttpPropertyExtractor;
 use deno_tls::deno_native_certs::load_native_certs;
 use deno_tls::rustls::RootCertStore;
 use deno_tls::RootCertStoreProvider;
+use fs::prefix_fs::PrefixFs;
+use fs::s3_fs::S3Fs;
+use fs::static_fs::StaticFs;
+use fs::tmp_fs::TmpFs;
 use futures_util::future::poll_fn;
 use futures_util::task::AtomicWaker;
 use futures_util::FutureExt;
@@ -32,10 +36,6 @@ use log::error;
 use once_cell::sync::{Lazy, OnceCell};
 use sb_core::http::sb_core_http;
 use sb_core::http_start::sb_core_http_start;
-use fs::prefix_fs::PrefixFs;
-use fs::s3_fs::S3Fs;
-use fs::static_fs::StaticFs;
-use fs::tmp_fs::TmpFs;
 use scopeguard::ScopeGuard;
 use serde::Serialize;
 use std::borrow::Cow;
@@ -59,6 +59,7 @@ use tokio_util::sync::{CancellationToken, PollSemaphore};
 use tracing::{debug, debug_span, instrument, trace, Instrument};
 
 use crate::snapshot;
+use fs::deno_compile_fs::DenoCompileFileSystem;
 use graph::emitter::EmitterFactory;
 use graph::import_map::load_import_map;
 use graph::{generate_binary_eszip, include_glob_patterns_in_eszip, EszipPayloadKind};
@@ -76,7 +77,6 @@ use sb_env::sb_env as sb_env_op;
 use sb_event_worker::events::{EventMetadata, WorkerEventWithMetadata};
 use sb_event_worker::js_interceptors::sb_events_js_interceptors;
 use sb_event_worker::sb_user_event_worker;
-use fs::deno_compile_fs::DenoCompileFileSystem;
 use sb_node::deno_node;
 use sb_workers::context::{UserWorkerMsgs, WorkerContextInitOpts, WorkerRuntimeOpts};
 use sb_workers::sb_user_workers;
@@ -1818,10 +1818,10 @@ mod test {
     use deno_core::error::AnyError;
     use deno_core::v8::GetPropertyNamesArgs;
     use deno_core::{serde_json, serde_v8, v8, FastString, ModuleCodeString, PollEventLoopOptions};
-    use graph::emitter::EmitterFactory;
-    use graph::{generate_binary_eszip, EszipPayloadKind};
     use fs::s3_fs::S3FsConfig;
     use fs::tmp_fs::TmpFsConfig;
+    use graph::emitter::EmitterFactory;
+    use graph::{generate_binary_eszip, EszipPayloadKind};
     use sb_workers::context::{
         MainWorkerRuntimeOpts, UserWorkerMsgs, UserWorkerRuntimeOpts, WorkerContextInitOpts,
         WorkerRuntimeOpts,

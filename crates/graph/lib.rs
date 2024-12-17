@@ -14,12 +14,12 @@ use eszip_async_trait::{
     AsyncEszipDataRead, NPM_RC_SCOPES_KEY, SOURCE_CODE_ESZIP_KEY, STATIC_FILES_ESZIP_KEY,
     SUPABASE_ESZIP_VERSION, SUPABASE_ESZIP_VERSION_KEY, VFS_ESZIP_KEY,
 };
+use fs::{build_vfs, VfsOpts};
 use futures::future::OptionFuture;
 use futures::{AsyncReadExt, AsyncSeekExt};
 use glob::glob;
 use log::error;
 use npm::InnerCliNpmResolverRef;
-use fs::{build_vfs, VfsOpts};
 use scopeguard::ScopeGuard;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;

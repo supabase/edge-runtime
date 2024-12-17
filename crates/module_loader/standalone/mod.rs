@@ -12,6 +12,8 @@ use deno_tls::RootCertStoreProvider;
 use eszip_async_trait::{
     AsyncEszipDataRead, NPM_RC_SCOPES_KEY, SOURCE_CODE_ESZIP_KEY, VFS_ESZIP_KEY,
 };
+use fs::deno_compile_fs::DenoCompileFileSystem;
+use fs::{extract_static_files_from_eszip, load_npm_vfs};
 use futures_util::future::OptionFuture;
 use graph::resolver::{CjsResolutionStore, CliNodeResolver, NpmModuleLoader};
 use graph::{eszip_migrate, payload_to_eszip, EszipPayloadKind, LazyLoadableEszip};
@@ -29,8 +31,6 @@ use sb_core::cache::CacheSetting;
 use sb_core::cert::{get_root_cert_store, CaData};
 use sb_core::node::CliCjsCodeAnalyzer;
 use sb_core::util::http_util::HttpClientProvider;
-use fs::deno_compile_fs::DenoCompileFileSystem;
-use fs::{extract_static_files_from_eszip, load_npm_vfs};
 use sb_node::analyze::NodeCodeTranslator;
 use sb_node::NodeResolver;
 use standalone_module_loader::WorkspaceEszip;

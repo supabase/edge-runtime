@@ -131,13 +131,6 @@ sb_os = { version = "0.1.0", path = "../sb_os" }
 sb_node = { version = "0.1.0", path = "../node" }
 sb_ai = { version = "0.1.0", path = "../sb_ai" }
 
-anyhow.workspace = true 
-bytes.workspace = true
-hyper = { workspace = true, features = ["full"] }
-http_v02.workspace = true
-log.workspace = true
-serde = { workspace = true, features = ["derive"] }
-tokio.workspace = true
 url.workspace = true
 
 [features]

@@ -119,18 +119,6 @@ impl Future for RequestScopeGuard {
     }
 }
 
-// pub trait WorkerContextInitOptsForTesting {
-//     fn with_policy(self, policy: SupervisorPolicy) -> CreateWorkerArgs
-//     where
-//         Self: Sized;
-// }
-
-// impl WorkerContextInitOptsForTesting for WorkerContextInitOpts {
-//     fn with_policy(self, policy: SupervisorPolicy) -> CreateWorkerArgs {
-//         (self, policy).into()
-//     }
-// }
-
 pub struct TestBedBuilder {
     main_service_path: PathBuf,
     worker_pool_policy: Option<WorkerPoolPolicy>,

@@ -1,11 +1,11 @@
 [workspace]
 resolver = "2"
 members = [
+  "cli",
   "crates/base",
   "crates/base_rt",
   "crates/base_mem_check",
   "crates/http_utils",
-  "crates/cli",
   "crates/deno_manifest",
   "crates/cpu_timer",
   "crates/npm",
@@ -53,12 +53,12 @@ deno_lockfile = "0.20.0"
 deno_permissions = "0.21.0"
 
 # local crates
+cli = { version = "0.1.0", path = "./cli" }
 deno_manifest = { path = "./crates/deno_manifest" }
 base = { version = "0.1.0", path = "./crates/base" }
 base_rt = { version = "0.1.0", path = "./crates/base_rt" }
 base_mem_check = { version = "0.1.0", path = "./crates/base_mem_check" }
 http_utils = { version = "0.1.0", path = "./crates/http_utils" }
-cli = { version = "0.1.0", path = "./crates/cli" }
 cpu_timer = { version = "0.1.0", path = "./crates/cpu_timer" }
 npm = { version = "0.1.0", path = "./crates/npm" }
 npm_cache = { version = "0.1.0", path = "./crates/npm_cache" }

@@ -198,10 +198,10 @@ pub mod __private {
     use crate::server::ServerEvent;
 
     pub use crate::commands::start_server;
-    pub use crate::rt_worker::worker_ctx::TerminationToken;
     pub use crate::server::ServerFlags;
     pub use crate::server::ServerHealth;
     pub use crate::server::Tls;
+    pub use crate::worker::TerminationToken;
     pub use futures_util;
     pub use reqwest_v011;
 

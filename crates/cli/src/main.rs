@@ -7,10 +7,10 @@ mod logger;
 use anyhow::{anyhow, bail, Error};
 use base::commands::start_server;
 
-use base::rt_worker::worker_pool::{SupervisorPolicy, WorkerPoolPolicy};
 use base::server::{ServerFlags, Tls, WorkerEntrypoints};
 use base::utils::path::find_up;
 use base::utils::units::percentage_value;
+use base::worker::pool::{SupervisorPolicy, WorkerPoolPolicy};
 use base::{CacheSetting, DecoratorType, InspectorOption};
 use clap::ArgMatches;
 use deno_core::url::Url;
@@ -208,7 +208,7 @@ fn main() -> Result<ExitCode, anyhow::Error> {
                     beforeunload_memory_pct: maybe_beforeunload_memory_pct,
                 };
 
-                let maybe_received_signum = start_server(
+                let maybe_received_signum_or_exit_code = start_server(
                     ip.as_str(),
                     port,
                     maybe_tls,
@@ -254,8 +254,8 @@ fn main() -> Result<ExitCode, anyhow::Error> {
                 )
                 .await?;
 
-                maybe_received_signum
-                    .map(|it| ExitCode::from(it as u8))
+                maybe_received_signum_or_exit_code
+                    .map(|it| it.map_left(|it| ExitCode::from(it as u8)).into_inner())
                     .unwrap_or_default()
             }
 

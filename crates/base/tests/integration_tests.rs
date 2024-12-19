@@ -21,15 +21,17 @@ use std::{
 
 use anyhow::Context;
 use async_tungstenite::WebSocketStream;
-use base::utils::test_utils::{
-    self, create_test_user_worker, test_user_runtime_opts, test_user_worker_pool_policy,
-    TestBedBuilder,
-};
 use base::{
     integration_test, integration_test_listen_fut, integration_test_with_server_flag,
-    rt_worker::worker_ctx::{create_user_worker_pool, create_worker, TerminationToken},
     server::{Server, ServerEvent, ServerFlags, ServerHealth, Tls},
-    DecoratorType,
+    worker, DecoratorType,
+};
+use base::{
+    utils::test_utils::{
+        self, create_test_user_worker, test_user_runtime_opts, test_user_worker_pool_policy,
+        TestBedBuilder,
+    },
+    worker::TerminationToken,
 };
 use deno_core::serde_json::{self, json};
 use futures_util::{future::BoxFuture, Future, FutureExt, SinkExt, StreamExt};
@@ -183,7 +185,7 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
     let main_termination_token = TerminationToken::new();
 
     // create a user worker pool
-    let (_, worker_pool_tx) = create_user_worker_pool(
+    let (_, worker_pool_tx) = worker::create_user_worker_pool(
         Arc::default(),
         test_utils::test_user_worker_pool_policy(),
         None,
@@ -195,29 +197,30 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
     .await
     .unwrap();
 
-    let opts = WorkerContextInitOpts {
-        service_path: "./test_cases/slow_resp".into(),
-        no_module_cache: false,
-        import_map_path: None,
-        env_vars: HashMap::new(),
-        timing: None,
-        maybe_eszip: None,
-        maybe_entrypoint: None,
-        maybe_decorator: None,
-        maybe_module_code: None,
-        conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
-            worker_pool_tx,
-            shared_metric_src: None,
-            event_worker_metric_src: None,
-        }),
-        static_patterns: vec![],
+    let surface = worker::WorkerSurfaceBuilder::new()
+        .init_opts(WorkerContextInitOpts {
+            service_path: "./test_cases/slow_resp".into(),
+            no_module_cache: false,
+            import_map_path: None,
+            env_vars: HashMap::new(),
+            timing: None,
+            maybe_eszip: None,
+            maybe_entrypoint: None,
+            maybe_decorator: None,
+            maybe_module_code: None,
+            conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
+                worker_pool_tx,
+                shared_metric_src: None,
+                event_worker_metric_src: None,
+            }),
+            static_patterns: vec![],
 
-        maybe_jsx_import_source_config: None,
-        maybe_s3_fs_config: None,
-        maybe_tmp_fs_config: None,
-    };
-
-    let ctx = create_worker(Arc::default(), (opts, main_termination_token.clone()), None)
+            maybe_jsx_import_source_config: None,
+            maybe_s3_fs_config: None,
+            maybe_tmp_fs_config: None,
+        })
+        .termination_token(main_termination_token.clone())
+        .build()
         .await
         .unwrap();
 
@@ -236,7 +239,7 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
         conn_token: Some(conn_token.clone()),
     };
 
-    let _ = ctx.msg_tx.send(msg);
+    let _ = surface.msg_tx.send(msg);
 
     let res = res_rx.await.unwrap().unwrap();
     assert!(res.status().as_u16() == 200);
@@ -344,7 +347,7 @@ async fn test_main_worker_boot_error() {
     let main_termination_token = TerminationToken::new();
 
     // create a user worker pool
-    let (_, worker_pool_tx) = create_user_worker_pool(
+    let (_, worker_pool_tx) = worker::create_user_worker_pool(
         Arc::default(),
         test_user_worker_pool_policy(),
         None,
@@ -356,29 +359,31 @@ async fn test_main_worker_boot_error() {
     .await
     .unwrap();
 
-    let opts = WorkerContextInitOpts {
-        service_path: "./test_cases/main".into(),
-        no_module_cache: false,
-        import_map_path: Some("./non-existing-import-map.json".to_string()),
-        env_vars: HashMap::new(),
-        timing: None,
-        maybe_eszip: None,
-        maybe_entrypoint: None,
-        maybe_decorator: None,
-        maybe_module_code: None,
-        conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
-            worker_pool_tx,
-            shared_metric_src: None,
-            event_worker_metric_src: None,
-        }),
-        static_patterns: vec![],
+    let result = worker::WorkerSurfaceBuilder::new()
+        .init_opts(WorkerContextInitOpts {
+            service_path: "./test_cases/main".into(),
+            no_module_cache: false,
+            import_map_path: Some("./non-existing-import-map.json".to_string()),
+            env_vars: HashMap::new(),
+            timing: None,
+            maybe_eszip: None,
+            maybe_entrypoint: None,
+            maybe_decorator: None,
+            maybe_module_code: None,
+            conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
+                worker_pool_tx,
+                shared_metric_src: None,
+                event_worker_metric_src: None,
+            }),
+            static_patterns: vec![],
 
-        maybe_jsx_import_source_config: None,
-        maybe_s3_fs_config: None,
-        maybe_tmp_fs_config: None,
-    };
-
-    let result = create_worker(Arc::default(), (opts, main_termination_token.clone()), None).await;
+            maybe_jsx_import_source_config: None,
+            maybe_s3_fs_config: None,
+            maybe_tmp_fs_config: None,
+        })
+        .termination_token(main_termination_token.clone())
+        .build()
+        .await;
 
     assert!(result.is_err());
     assert!(result
@@ -472,7 +477,7 @@ async fn test_main_worker_user_worker_mod_evaluate_exception() {
     let main_termination_token = TerminationToken::new();
 
     // create a user worker pool
-    let (_, worker_pool_tx) = create_user_worker_pool(
+    let (_, worker_pool_tx) = worker::create_user_worker_pool(
         Arc::default(),
         test_user_worker_pool_policy(),
         None,
@@ -484,29 +489,30 @@ async fn test_main_worker_user_worker_mod_evaluate_exception() {
     .await
     .unwrap();
 
-    let opts = WorkerContextInitOpts {
-        service_path: "./test_cases/main".into(),
-        no_module_cache: false,
-        import_map_path: None,
-        env_vars: HashMap::new(),
-        timing: None,
-        maybe_eszip: None,
-        maybe_entrypoint: None,
-        maybe_decorator: None,
-        maybe_module_code: None,
-        conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
-            worker_pool_tx,
-            shared_metric_src: None,
-            event_worker_metric_src: None,
-        }),
-        static_patterns: vec![],
+    let surface = worker::WorkerSurfaceBuilder::new()
+        .init_opts(WorkerContextInitOpts {
+            service_path: "./test_cases/main".into(),
+            no_module_cache: false,
+            import_map_path: None,
+            env_vars: HashMap::new(),
+            timing: None,
+            maybe_eszip: None,
+            maybe_entrypoint: None,
+            maybe_decorator: None,
+            maybe_module_code: None,
+            conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
+                worker_pool_tx,
+                shared_metric_src: None,
+                event_worker_metric_src: None,
+            }),
+            static_patterns: vec![],
 
-        maybe_jsx_import_source_config: None,
-        maybe_s3_fs_config: None,
-        maybe_tmp_fs_config: None,
-    };
-
-    let ctx = create_worker(Arc::default(), (opts, main_termination_token.clone()), None)
+            maybe_jsx_import_source_config: None,
+            maybe_s3_fs_config: None,
+            maybe_tmp_fs_config: None,
+        })
+        .termination_token(main_termination_token.clone())
+        .build()
         .await
         .unwrap();
 
@@ -525,7 +531,7 @@ async fn test_main_worker_user_worker_mod_evaluate_exception() {
         conn_token: Some(conn_token.clone()),
     };
 
-    let _ = ctx.msg_tx.send(msg);
+    let _ = surface.msg_tx.send(msg);
 
     let res = res_rx.await.unwrap().unwrap();
     assert!(res.status().as_u16() == 500);
@@ -1893,6 +1899,15 @@ async fn test_request_idle_timeout_no_streamed_response(maybe_tls: Option<Tls>) 
 #[serial]
 async fn test_request_idle_timeout_no_streamed_response_non_secure() {
     test_request_idle_timeout_no_streamed_response(new_localhost_tls(false)).await;
+}
+
+#[tokio::test]
+#[serial]
+#[ignore = "running too much tests"]
+async fn test_request_idle_timeout_no_streamed_response_non_secure_1000() {
+    for _ in 0..1000 {
+        test_request_idle_timeout_no_streamed_response(new_localhost_tls(false)).await;
+    }
 }
 
 #[tokio::test]

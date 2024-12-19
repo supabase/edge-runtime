@@ -2682,6 +2682,7 @@ dependencies = [
  "anyhow",
  "base_mem_check",
  "deno_core",
+ "enum-as-inner",
  "log",
  "serde",
  "tokio",

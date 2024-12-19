@@ -7,10 +7,10 @@ use std::{
 };
 
 use cpu_timer::get_thread_time;
-use deno_core::{anyhow::Context, error::AnyError, OpState, V8CrossThreadTaskSpawner};
+use deno_core::{anyhow::Context, error::AnyError, OpState, Resource, V8CrossThreadTaskSpawner};
 use once_cell::sync::Lazy;
 use tokio::{runtime::Handle, sync::oneshot};
-use tokio_util::sync::CancellationToken;
+use tokio_util::sync::{CancellationToken, WaitForCancellationFutureOwned};
 use tracing::{debug, debug_span, Instrument};
 
 pub mod error;
@@ -71,13 +71,24 @@ pub static USER_WORKER_RT: Lazy<tokio_util::task::LocalPoolHandle> = Lazy::new(|
 });
 
 #[derive(Clone)]
-pub struct DenoRuntimeDropToken(pub CancellationToken);
+pub struct DropToken(pub CancellationToken);
+
+impl Resource for DropToken {}
+
+#[derive(Clone)]
+pub struct DenoRuntimeDropToken(pub DropToken);
 
 impl std::ops::Deref for DenoRuntimeDropToken {
     type Target = CancellationToken;
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.0 .0
+    }
+}
+
+impl DenoRuntimeDropToken {
+    pub fn cancelled_owned(self) -> WaitForCancellationFutureOwned {
+        self.0 .0.cancelled_owned()
     }
 }
 

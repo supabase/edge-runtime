@@ -3,6 +3,7 @@ import { Application, Router } from 'https://deno.land/x/oak@v12.3.0/mod.ts';
 const MB = 1024 * 1024;
 
 const router = new Router();
+const controller = new AbortController();
 
 router
 	.post('/file-upload', async (ctx) => {
@@ -32,4 +33,8 @@ const app = new Application();
 app.use(router.routes());
 app.use(router.allowedMethods());
 
-await app.listen();
+addEventListener('beforeunload', () => controller.abort());
+
+await app.listen({
+	signal: controller.signal
+});

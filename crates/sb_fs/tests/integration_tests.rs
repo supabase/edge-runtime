@@ -8,7 +8,6 @@ use event_worker::events::{LogLevel, WorkerEvents};
 use hyper_v014::{body::to_bytes, Body, StatusCode};
 use once_cell::sync::Lazy;
 use rand::{distributions::Alphanumeric, Rng, RngCore};
-use sb_event_worker::events::{LogLevel, WorkerEvents};
 use serde::Deserialize;
 use serial_test::serial;
 use tokio::sync::mpsc;

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, path::Path, time::Duration};
 
 use anyhow::Context;
 use base::{server::ServerFlags, utils::test_utils::TestBedBuilder};
@@ -6,7 +6,9 @@ use ctor::ctor;
 use deno_core::serde_json;
 use event_worker::events::{LogLevel, WorkerEvents};
 use hyper_v014::{body::to_bytes, Body, StatusCode};
-use rand::RngCore;
+use once_cell::sync::Lazy;
+use rand::{distributions::Alphanumeric, Rng, RngCore};
+use sb_event_worker::events::{LogLevel, WorkerEvents};
 use serde::Deserialize;
 use serial_test::serial;
 use tokio::sync::mpsc;
@@ -19,6 +21,39 @@ fn init() {
     let _ = dotenvy::from_filename("./tests/.env");
 }
 
+fn is_supabase_storage_being_tested() -> bool {
+    std::env::var("S3FS_TEST_SUPABASE_STORAGE").unwrap_or_default() == "true"
+}
+
+fn get_root_path() -> &'static str {
+    static VALUE: Lazy<String> = Lazy::new(|| {
+        rand::thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(10)
+            .map(char::from)
+            .collect()
+    });
+
+    VALUE.as_str()
+}
+
+fn get_path<P>(path: P) -> String
+where
+    P: AsRef<Path>,
+{
+    let path = path.as_ref().to_str().unwrap();
+
+    if path.is_empty() {
+        return get_root_path().to_string();
+    }
+
+    format!(
+        "{}/{}",
+        get_root_path(),
+        path.strip_prefix('/').unwrap_or(path)
+    )
+}
+
 fn get_tb_builder() -> TestBedBuilder {
     TestBedBuilder::new("./tests/fixture/main_with_s3fs").with_oneshot_policy(None)
 }
@@ -27,10 +62,14 @@ async fn remove(path: &str, recursive: bool) {
     let tb = get_tb_builder().build().await;
     let resp = tb
         .request(|b| {
-            b.uri(format!("/remove/{}?recursive={}", path, recursive))
-                .method("GET")
-                .body(Body::empty())
-                .context("can't make request")
+            b.uri(format!(
+                "/remove/{}?recursive={}",
+                get_path(path),
+                recursive
+            ))
+            .method("GET")
+            .body(Body::empty())
+            .context("can't make request")
         })
         .await
         .unwrap();
@@ -57,7 +96,7 @@ async fn test_write_and_get_bytes(bytes: usize) {
 
         let resp = tb
             .request(|b| {
-                b.uri("/write/meow.bin")
+                b.uri(format!("/write/{}", get_path("meow.bin")))
                     .method("POST")
                     .body(arr.clone().into())
                     .context("can't make request")
@@ -73,7 +112,7 @@ async fn test_write_and_get_bytes(bytes: usize) {
         let tb = get_tb_builder().build().await;
         let mut resp = tb
             .request(|b| {
-                b.uri("/get/meow.bin")
+                b.uri(format!("/get/{}", get_path("meow.bin")))
                     .method("GET")
                     .body(Body::empty())
                     .context("can't make request")
@@ -126,7 +165,7 @@ async fn test_write_and_get_over_50_mib() {
 
         let resp = tb
             .request(|b| {
-                b.uri("/write/meow.bin")
+                b.uri(format!("/write/{}", get_path("meow.bin")))
                     .method("POST")
                     .body(arr.clone().into())
                     .context("can't make request")
@@ -147,7 +186,7 @@ async fn test_write_and_get_over_50_mib() {
 
         let resp = tb
             .request(|b| {
-                b.uri("/get/meow.bin")
+                b.uri(format!("/get/{}", get_path("meow.bin")))
                     .method("GET")
                     .body(Body::empty())
                     .context("can't make request")
@@ -207,7 +246,7 @@ async fn test_mkdir_and_read_dir() {
         let tb = get_tb_builder().build().await;
         let resp = tb
             .request(|b| {
-                b.uri("/mkdir/a")
+                b.uri(format!("/mkdir/{}?recursive=true", get_path("a")))
                     .method("GET")
                     .body(Body::empty())
                     .context("can't make request")
@@ -223,7 +262,7 @@ async fn test_mkdir_and_read_dir() {
         let tb = get_tb_builder().build().await;
         let mut resp = tb
             .request(|b| {
-                b.uri("/read-dir")
+                b.uri(format!("/read-dir/{}", get_root_path()))
                     .method("GET")
                     .body(Body::empty())
                     .context("can't make request")
@@ -253,7 +292,7 @@ async fn test_mkdir_recursive_and_read_dir() {
         let tb = get_tb_builder().build().await;
         let resp = tb
             .request(|b| {
-                b.uri("/mkdir/a/b/c/meow?recursive=true")
+                b.uri(format!("/mkdir/{}?recursive=true", get_path("a/b/c/meow")))
                     .method("GET")
                     .body(Body::empty())
                     .context("can't make request")
@@ -271,7 +310,7 @@ async fn test_mkdir_recursive_and_read_dir() {
         for [dir, expected] in [["", "a"], ["a", "b"], ["a/b", "c"], ["a/b/c", "meow"]] {
             let mut resp = tb
                 .request(|b| {
-                    b.uri(format!("/read-dir/{}", dir))
+                    b.uri(format!("/read-dir/{}", get_path(dir)))
                         .method("GET")
                         .body(Body::empty())
                         .context("can't make request")
@@ -302,7 +341,7 @@ async fn test_mkdir_with_no_recursive_opt_must_check_parent_path_exists() {
         let tb = get_tb_builder().build().await;
         let resp = tb
             .request(|b| {
-                b.uri("/mkdir/a")
+                b.uri(format!("/mkdir/{}?recursive=true", get_path("a")))
                     .method("GET")
                     .body(Body::empty())
                     .context("can't make request")
@@ -322,7 +361,7 @@ async fn test_mkdir_with_no_recursive_opt_must_check_parent_path_exists() {
             .await;
         let resp = tb
             .request(|b| {
-                b.uri("/mkdir/a/b/c")
+                b.uri(format!("/mkdir/{}", get_path("a/b/c")))
                     .method("GET")
                     .body(Body::empty())
                     .context("can't make request")
@@ -343,8 +382,9 @@ async fn test_mkdir_with_no_recursive_opt_must_check_parent_path_exists() {
                 continue;
             }
 
-            found_no_such_file_or_directory_error =
-                ev.msg.contains("No such file or directory: a/b");
+            found_no_such_file_or_directory_error = ev
+                .msg
+                .contains(&format!("No such file or directory: {}", get_path("a/b")));
 
             if found_no_such_file_or_directory_error {
                 break;
@@ -365,7 +405,7 @@ async fn test_mkdir_recursive_and_remove_recursive() {
         let tb = get_tb_builder().build().await;
         let resp = tb
             .request(|b| {
-                b.uri("/mkdir/a/b/c/meow?recursive=true")
+                b.uri(format!("/mkdir/{}?recursive=true", get_path("a/b/c/meow")))
                     .method("GET")
                     .body(Body::empty())
                     .context("can't make request")
@@ -389,7 +429,7 @@ async fn test_mkdir_recursive_and_remove_recursive() {
 
         let resp = tb
             .request(|b| {
-                b.uri("/write/a/b/c/meeeeow.bin")
+                b.uri(format!("/write/{}", get_path("a/b/c/meeeeow.bin")))
                     .method("POST")
                     .body(arr.clone().into())
                     .context("can't make request")
@@ -405,7 +445,7 @@ async fn test_mkdir_recursive_and_remove_recursive() {
         let tb = get_tb_builder().build().await;
         let mut resp = tb
             .request(|b| {
-                b.uri("/read-dir/a/b/c")
+                b.uri(format!("/read-dir/{}", get_path("a/b/c")))
                     .method("GET")
                     .body(Body::empty())
                     .context("can't make request")
@@ -443,7 +483,7 @@ async fn test_mkdir_recursive_and_remove_recursive() {
         let tb = get_tb_builder().build().await;
         let mut resp = tb
             .request(|b| {
-                b.uri("/read-dir/a")
+                b.uri(format!("/read-dir/{}", get_path("a")))
                     .method("GET")
                     .body(Body::empty())
                     .context("can't make request")
@@ -473,7 +513,7 @@ async fn test_mkdir_recursive_and_remove_recursive() {
         let tb = get_tb_builder().build().await;
         let mut resp = tb
             .request(|b| {
-                b.uri("/read-dir")
+                b.uri(format!("/read-dir/{}", get_root_path()))
                     .method("GET")
                     .body(Body::empty())
                     .context("can't make request")
@@ -486,7 +526,15 @@ async fn test_mkdir_recursive_and_remove_recursive() {
         let buf = to_bytes(resp.body_mut()).await.unwrap();
         let value = DenoDirEntry::from_json_unchecked(&buf);
 
-        assert_eq!(value.len(), 1);
+        assert_eq!(
+            value.len(),
+            if is_supabase_storage_being_tested() {
+                // .emptyFolderPlaceholder in Supabase Storage
+                2
+            } else {
+                1
+            }
+        );
         assert!(value.contains_key("a"));
         assert!(value.get("a").unwrap().is_directory);
 
@@ -499,7 +547,7 @@ async fn test_mkdir_recursive_and_remove_recursive() {
         let tb = get_tb_builder().build().await;
         let mut resp = tb
             .request(|b| {
-                b.uri("/read-dir")
+                b.uri(format!("/read-dir/{}", get_root_path()))
                     .method("GET")
                     .body(Body::empty())
                     .context("can't make request")
@@ -512,12 +560,16 @@ async fn test_mkdir_recursive_and_remove_recursive() {
         let buf = to_bytes(resp.body_mut()).await.unwrap();
         let value = DenoDirEntry::from_json_unchecked(&buf);
 
-        assert_eq!(value.len(), 0);
+        assert_eq!(
+            value.len(),
+            if is_supabase_storage_being_tested() {
+                // .emptyFolderPlaceholder in Supabase Storage
+                1
+            } else {
+                0
+            }
+        );
 
         tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
     }
-}
-
-fn is_supabase_storage_being_tested() -> bool {
-    std::env::var("S3FS_TEST_SUPABASE_STORAGE").unwrap_or_default() == "true"
 }

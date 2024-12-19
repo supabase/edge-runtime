@@ -41,6 +41,9 @@ Deno.serve((req: Request) => {
     const importMapPath = null;
     const envVarsObj = Deno.env.toObject();
     const envVars = Object.keys(envVarsObj).map(k => [k, envVarsObj[k]]);
+    const context = {
+      sourceMap: req.headers.get("x-context-source-map") == "true"
+    };
 
     return await EdgeRuntime.userWorkers.create({
       servicePath,
@@ -50,7 +53,8 @@ Deno.serve((req: Request) => {
       cpuTimeHardLimitMs,
       noModuleCache,
       importMapPath,
-      envVars
+      envVars,
+      context
     });
   }
 

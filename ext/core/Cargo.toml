@@ -1,0 +1,70 @@
+[package]
+name = "sb_core"
+version = "0.1.0"
+authors = ["Supabase <team@supabase.com>"]
+edition = "2021"
+license = "MIT"
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+deno_core.workspace = true
+deno_ast = { workspace = true, features = ["transpiling", "bundler", "cjs", "codegen", "proposal", "react", "sourcemap", "transforms", "typescript", "view", "visit"] }
+deno_net.workspace = true
+deno_web.workspace = true
+deno_fetch.workspace = true
+deno_fs.workspace = true
+deno_permissions.workspace = true
+deno_websocket.workspace = true
+deno_http.workspace = true
+deno_tls.workspace = true
+deno_crypto.workspace = true
+deno_graph.workspace = true
+deno_io.workspace = true
+deno_cache_dir.workspace = true
+deno_webstorage.workspace = true
+deno_npm.workspace = true
+
+base_rt.workspace = true
+base_mem_check.workspace = true
+deno_manifest.workspace = true
+
+sb_node.workspace = true
+
+libc.workspace = true
+anyhow.workspace = true
+tokio.workspace = true
+hyper.workspace = true
+hyper_v014.workspace = true
+async-trait.workspace = true
+serde.workspace = true
+bytes.workspace = true
+fs3.workspace = true
+log.workspace = true
+rand.workspace = true
+tokio-util.workspace = true
+ring.workspace = true
+once_cell.workspace = true
+import_map.workspace = true
+indexmap.workspace = true
+base64.workspace = true
+futures.workspace = true
+percent-encoding.workspace = true
+scopeguard.workspace = true
+enum-as-inner.workspace = true
+httparse.workspace = true
+http.workspace = true
+faster-hex.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+data-url = "=0.3.0"
+cache_control = "=0.2.0"
+chrono = { version = "=0.4.22", default-features = false, features = ["clock"] }
+twox-hash = "=1.6.3"
+encoding_rs = "=0.8.33"
+memmem = "0.1"
+
+[target.'cfg(windows)'.dependencies]
+winapi = { workspace = true, features = ["knownfolders", "mswsock", "objbase", "shlobj", "tlhelp32", "winbase", "winerror", "winsock2"] }

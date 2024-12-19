@@ -7,13 +7,13 @@ use deno_core::futures;
 use deno_core::futures::FutureExt;
 use deno_graph::source::{CacheInfo, LoadFuture, LoadOptions, LoadResponse, Loader};
 
+use npm::CliNpmResolver;
 use sb_core::cache::cache_db::CacheDBHash;
 use sb_core::cache::emit::EmitCache;
 use sb_core::cache::fc_permissions::FcPermissions;
 use sb_core::cache::module_info::ModuleInfoCache;
 use sb_core::cache::{CacheSetting, GlobalHttpCache};
 use sb_core::util::errors::get_error_class_name;
-use sb_npm::CliNpmResolver;
 
 use crate::file_fetcher::{FetchNoFollowOptions, FetchOptions, FileFetcher, FileOrRedirect};
 

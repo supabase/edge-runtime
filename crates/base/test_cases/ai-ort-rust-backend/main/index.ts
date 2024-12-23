@@ -1,6 +1,6 @@
 import * as path from "jsr:@std/path";
 
-setInterval(async () => {
+const handle = setInterval(async () => {
   try {
     const cleanupCount = await EdgeRuntime.ai.tryCleanupUnusedSession();
     if (cleanupCount == 0) {
@@ -11,6 +11,10 @@ setInterval(async () => {
     console.error(e.toString());
   }
 }, 100);
+
+addEventListener("beforeunload", () => {
+  clearInterval(handle);
+});
 
 Deno.serve(async (req: Request) => {
   console.log(req.url);

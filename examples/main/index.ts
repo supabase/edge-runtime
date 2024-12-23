@@ -5,6 +5,10 @@ import { handleRegistryRequest } from './registry/mod.ts';
 
 console.log('main function started');
 
+addEventListener('beforeunload', () => {
+    console.log('main worker exiting');
+});
+
 // log system memory usage every 30s
 // setInterval(() => console.log(EdgeRuntime.systemMemoryInfo()), 30 * 1000);
 

@@ -4,14 +4,16 @@ use std::{future::pending, sync::atomic::Ordering, time::Duration};
 use std::thread::ThreadId;
 
 use event_worker::events::ShutdownReason;
-use log::error;
 use sb_workers::context::{Timing, TimingStatus, UserWorkerMsgs};
 use tokio::time::Instant;
 
-use crate::rt_worker::supervisor::{
-    create_wall_clock_beforeunload_alert, v8_handle_early_retire, v8_handle_termination,
-    v8_handle_wall_clock_beforeunload, wait_cpu_alarm, CPUUsage, CPUUsageMetrics, Tokens,
-    V8HandleTerminationData,
+use crate::{
+    deno_runtime::WillTerminateReason,
+    worker::supervisor::{
+        create_wall_clock_beforeunload_alert, v8_handle_beforeunload, v8_handle_early_retire,
+        v8_handle_termination, wait_cpu_alarm, CPUUsage, CPUUsageMetrics, Tokens,
+        V8HandleBeforeunloadData, V8HandleTerminationData,
+    },
 };
 
 use super::Arguments;
@@ -47,11 +49,11 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
     let (_, hard_limit_ms) = cpu_timer_param.limits();
 
     let _guard = scopeguard::guard(is_retired, |v| {
+        v.raise();
+
         if thread_safe_handle.request_interrupt(v8_handle_early_retire, std::ptr::null_mut()) {
             waker.wake();
         }
-
-        v.raise();
     });
 
     #[cfg(debug_assertions)]
@@ -118,7 +120,7 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
 
                         if !cpu_timer_param.is_disabled() {
                             if let Some(Err(err)) = cpu_timer.as_ref().map(|it| it.reset()) {
-                                error!("can't reset cpu timer: {}", err);
+                                log::error!("can't reset cpu timer: {}", err);
                             }
                         }
                     }
@@ -132,12 +134,12 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
 
                         if !cpu_timer_param.is_disabled() {
                             if cpu_usage_ms >= hard_limit_ms as i64 {
-                                error!("CPU time limit reached: isolate: {:?}", key);
+                                log::error!("CPU time limit reached: isolate: {:?}", key);
                                 complete_reason = Some(ShutdownReason::CPUTime);
                             }
 
                             if let Some(Err(err)) = cpu_timer.as_ref().map(|it| it.reset()) {
-                                error!("can't reset cpu timer: {}", err);
+                                log::error!("can't reset cpu timer: {}", err);
                             }
                         }
                     }
@@ -146,7 +148,7 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
 
             Some(_) = wait_cpu_alarm(cpu_alarms_rx.as_mut()) => {
                 if is_worker_entered && req_start_ack {
-                    error!("CPU time limit reached: isolate: {:?}", key);
+                    log::error!("CPU time limit reached: isolate: {:?}", key);
                     complete_reason = Some(ShutdownReason::CPUTime);
                 }
             }
@@ -160,7 +162,7 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
 
                 if let Some(cpu_timer) = cpu_timer.as_ref() {
                     if let Err(ex) = cpu_timer.reset() {
-                        error!("cannot reset the cpu timer: {}", ex);
+                        log::error!("cannot reset the cpu timer: {}", ex);
                     }
                 }
 
@@ -187,7 +189,7 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
 
                     continue;
                 } else {
-                    error!("wall clock duraiton reached: isolate: {:?}", key);
+                    log::error!("wall clock duraiton reached: isolate: {:?}", key);
                     complete_reason = Some(ShutdownReason::WallClockTime);
                 }
             }
@@ -195,18 +197,23 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
             _ = &mut wall_clock_beforeunload_alert,
                 if !is_wall_clock_limit_disabled && !is_wall_clock_beforeunload_armed
             => {
-                if thread_safe_handle.request_interrupt(
-                    v8_handle_wall_clock_beforeunload,
-                    std::ptr::null_mut()
-                ) {
+                let data_ptr_mut = Box::into_raw(Box::new(V8HandleBeforeunloadData {
+                    reason: WillTerminateReason::WallClock
+                }));
+
+                if thread_safe_handle
+                    .request_interrupt(v8_handle_beforeunload, data_ptr_mut as *mut _)
+                {
                     waker.wake();
+                } else {
+                    drop(unsafe { Box::from_raw(data_ptr_mut)});
                 }
 
                 is_wall_clock_beforeunload_armed = true;
             }
 
             Some(_) = memory_limit_rx.recv() => {
-                error!("memory limit reached for the worker: isolate: {:?}", key);
+                log::error!("memory limit reached for the worker: isolate: {:?}", key);
                 complete_reason = Some(ShutdownReason::Memory);
             }
         }
@@ -220,7 +227,7 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
 
                 if let Some(tx) = pool_msg_tx.clone() {
                     if tx.send(UserWorkerMsgs::Idle(key)).is_err() {
-                        error!("failed to send idle msg to pool: {:?}", key);
+                        log::error!("failed to send idle msg to pool: {:?}", key);
                     }
                 }
 
@@ -234,7 +241,7 @@ pub async fn supervise(args: Arguments, oneshot: bool) -> (ShutdownReason, i64) 
                 }));
 
                 if !thread_safe_handle
-                    .request_interrupt(v8_handle_termination, data_ptr_mut as *mut std::ffi::c_void)
+                    .request_interrupt(v8_handle_termination, data_ptr_mut as *mut _)
                 {
                     drop(unsafe { Box::from_raw(data_ptr_mut) });
                 }

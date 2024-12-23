@@ -1,11 +1,14 @@
 {
+  "workspace": [
+    "./examples",
+    "./crates/base/test_cases"
+  ],
   "fmt": {
     "useTabs": true,
     "lineWidth": 100,
     "indentWidth": 4,
     "singleQuote": true,
-    "proseWrap": "preserve",
-    "include": ["examples/**/*.ts"]
+    "proseWrap": "preserve"
   },
   "imports": {
     "npm:@meowmeow/foobar": "npm:is-odd"

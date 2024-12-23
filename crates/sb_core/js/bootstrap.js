@@ -32,18 +32,19 @@ import * as eventSource from 'ext:deno_fetch/27_eventsource.js';
 import * as WebGPU from 'ext:deno_webgpu/00_init.js';
 import * as WebGPUSurface from 'ext:deno_webgpu/02_surface.js';
 
-import * as MainWorker from 'ext:sb_core_main_js/js/main_worker.js';
+import 'ext:sb_ai/js/onnxruntime/cache_adapter.js';
 
 import { SUPABASE_ENV } from 'ext:sb_env/env.js';
 import { USER_WORKER_API as ai } from 'ext:sb_ai/js/ai.js';
-import 'ext:sb_ai/js/onnxruntime/cache_adapter.js';
 
-import { waitUntil, installPromiseHook } from 'ext:sb_core_main_js/js/async_hook.js';
-import { registerErrors } from 'ext:sb_core_main_js/js/errors.js';
+import { SupabaseEventListener } from 'ext:sb_user_event_worker/event_worker.js';
+import { installEdgeRuntimeNamespace } from 'ext:sb_core_main_js/js/edge_runtime.js';
 import { promiseRejectMacrotaskCallback } from 'ext:sb_core_main_js/js/promises.js';
+import { installPromiseHook } from 'ext:sb_core_main_js/js/async_hook.js';
+import { registerErrors } from 'ext:sb_core_main_js/js/errors.js';
 import { denoOverrides, fsVars } from 'ext:sb_core_main_js/js/denoOverrides.js';
 import { registerDeclarativeServer } from 'ext:sb_core_main_js/js/00_serve.js';
-import { SupabaseEventListener } from 'ext:sb_user_event_worker/event_worker.js';
+
 import {
 	formatException,
 	getterOnly,
@@ -59,8 +60,6 @@ import {
 	setNumCpus,
 	setUserAgent,
 } from 'ext:sb_core_main_js/js/navigator.js';
-
-import 'ext:sb_ai/js/onnxruntime/cache_adapter.js';
 
 let globalThis_;
 
@@ -365,10 +364,10 @@ ObjectAssign(internals, { warnOnDeprecatedApi });
 function runtimeStart(target) {
 	// core.setMacrotaskCallback(timers.handleTimerMacrotask);
 	// core.setMacrotaskCallback(promiseRejectMacrotaskCallback);
+
 	core.setWasmStreamingCallback(fetch.handleWasmStreaming);
 	ops.op_set_format_exception_callback(formatException);
 	core.setBuildInfo(target);
-	installPromiseHook();
 
 	// deno-lint-ignore prefer-primordials
 	Error.prepareStackTrace = core.prepareStackTrace;
@@ -428,6 +427,11 @@ function dispatchBeforeUnloadEvent(reason) {
 
 function dispatchUnloadEvent() {
 	globalThis_.dispatchEvent(new Event("unload"));
+}
+
+function dispatchDrainEvent() {
+	internals.drain = true;
+	globalThis_.dispatchEvent(new Event("drain"));
 }
 
 // Notification that the core received an unhandled promise rejection that is about to
@@ -495,6 +499,7 @@ globalThis.bootstrapSBEdge = (opts, ctx) => {
 		"beforeunload",
 		"unload",
 		"unhandledrejection",
+		"drain",
 	];
 
 	eventHandlers.forEach((handlerName) => event.defineEventHandler(globalThis, handlerName));
@@ -526,14 +531,21 @@ globalThis.bootstrapSBEdge = (opts, ctx) => {
 		flags
 	} = opts;
 
-
 	deprecatedApiWarningDisabled = flags['SHOULD_DISABLE_DEPRECATED_API_WARNING'];
 	verboseDeprecatedApiWarning = flags['SHOULD_USE_VERBOSE_DEPRECATED_API_WARNING'];
 	bootstrapMockFnThrowError = ctx?.shouldBootstrapMockFnThrowError ?? false;
 
 	runtimeStart(target);
 
-	ObjectAssign(internals, { bootstrapArgs: { opts, ctx } });
+	ObjectAssign(internals, {
+		bootstrapArgs: { opts },
+		worker: { kind },
+		__ctx: ctx,
+	});
+
+	installPromiseHook(kind);
+	installEdgeRuntimeNamespace(kind, ctx.terminationRequestToken);
+
 	ObjectDefineProperty(globalThis, 'SUPABASE_VERSION', readOnly(String(version.runtime)));
 	ObjectDefineProperty(globalThis, 'DENO_VERSION', readOnly(version.deno));
 
@@ -560,14 +572,6 @@ globalThis.bootstrapSBEdge = (opts, ctx) => {
 		`Deno/${globalThis.DENO_VERSION} (variant; SupabaseEdgeRuntime/${globalThis.SUPABASE_VERSION})`,
 	);
 	setLanguage('en');
-
-	Object.defineProperty(globalThis, 'Supabase', {
-		get() {
-			return {
-				ai,
-			};
-		},
-	});
 
 	// Find declarative fetch handler
 	core.addMainModuleHandler(main => {
@@ -618,15 +622,6 @@ globalThis.bootstrapSBEdge = (opts, ctx) => {
 	/// DISABLE SHARED MEMORY INSTALL MEM CHECK TIMING
 
 	if (kind === 'user') {
-		ObjectDefineProperties(globalThis, {
-			EdgeRuntime: {
-				value: {
-					waitUntil,
-				},
-				configurable: true,
-			},
-		});
-
 		// override console
 		if (!inspector) {
 			ObjectDefineProperties(globalThis, {
@@ -685,8 +680,6 @@ globalThis.bootstrapSBEdge = (opts, ctx) => {
 	}
 
 	if (kind === 'event') {
-		// Event Manager should have the same as the `main` except it can't create workers (that would be catastrophic)
-		delete globalThis.EdgeRuntime;
 		ObjectDefineProperties(globalThis, {
 			EventManager: getterOnly(() => SupabaseEventListener),
 		});
@@ -713,6 +706,7 @@ globalThis.bootstrap = {
 	dispatchBeforeUnloadEvent,
 	// dispatchProcessExitEvent,
 	// dispatchProcessBeforeExitEvent,
+	dispatchDrainEvent,
 };
 
 core.setUnhandledPromiseRejectionHandler(processUnhandledPromiseRejection);

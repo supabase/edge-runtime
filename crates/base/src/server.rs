@@ -1,11 +1,10 @@
 use crate::inspector_server::Inspector;
-use crate::rt_worker::worker_ctx::{
-    create_events_worker, create_main_worker, create_user_worker_pool, TerminationToken,
-};
-use crate::rt_worker::worker_pool::WorkerPoolPolicy;
+use crate::worker::pool::WorkerPoolPolicy;
+use crate::worker::{self, TerminationToken};
 use crate::InspectorOption;
 use anyhow::{anyhow, bail, Context, Error};
 use deno_config::JsxImportSourceConfig;
+use either::Either::{self, Left, Right};
 use enum_as_inner::EnumAsInner;
 use futures_util::future::{poll_fn, BoxFuture};
 use futures_util::{FutureExt, Stream};
@@ -15,12 +14,11 @@ use rustls_pemfile::read_one_from_slice;
 use rustls_pemfile::Item;
 use sb_core::SharedMetricSource;
 use sb_graph::DecoratorType;
-use sb_workers::context::{MainWorkerRuntimeOpts, WorkerRequestMsg};
+use sb_workers::context::WorkerRequestMsg;
 use std::future::{pending, Future};
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
-use std::path::Path;
 use std::pin::Pin;
 use std::str;
 use std::str::FromStr;
@@ -329,11 +327,13 @@ impl Tls {
     }
 }
 
+pub type SignumOrExitCode = Either<i32, std::process::ExitCode>;
+
 pub struct Server {
     ip: Ipv4Addr,
     port: u16,
     tls: Option<Tls>,
-    main_worker_req_tx: mpsc::UnboundedSender<WorkerRequestMsg>,
+    main_worker_surface: worker::MainWorkerSurface,
     callback_tx: Option<Sender<ServerHealth>>,
     termination_tokens: TerminationTokens,
     flags: Arc<ServerFlags>,
@@ -347,7 +347,7 @@ impl Server {
         port: u16,
         tls: Option<Tls>,
         main_service_path: String,
-        maybe_events_service_path: Option<String>,
+        maybe_event_service_path: Option<String>,
         maybe_decorator: Option<DecoratorType>,
         maybe_user_worker_policy: Option<WorkerPoolPolicy>,
         import_map_path: Option<String>,
@@ -360,31 +360,26 @@ impl Server {
         jsx_specifier: Option<String>,
         jsx_module: Option<String>,
     ) -> Result<Self, Error> {
-        let mut worker_events_tx = None;
-
         let flags = Arc::new(flags);
-        let maybe_events_entrypoint = entrypoints.events;
+        let maybe_event_entrypoint = entrypoints.events;
         let maybe_main_entrypoint = entrypoints.main;
         let termination_tokens =
-            TerminationTokens::new(termination_token, maybe_events_service_path.is_some());
+            TerminationTokens::new(termination_token, maybe_event_service_path.is_some());
 
-        // Create Event Worker
-        let event_worker_metric_src = if let Some(events_service_path) = maybe_events_service_path {
-            let events_path = Path::new(&events_service_path);
-            let events_path_buf = events_path.to_path_buf();
+        // create an event worker
+        let event_worker_surface = if let Some(service_path) = maybe_event_service_path {
+            let mut builder = worker::EventWorkerSurfaceBuilder::new(&service_path);
 
-            let (ctx, sender) = create_events_worker(
-                flags.clone(),
-                events_path_buf,
-                import_map_path.clone(),
-                maybe_events_entrypoint,
-                maybe_decorator,
-                Some(termination_tokens.event.clone().unwrap()),
-            )
-            .await?;
+            builder
+                .set_server_flags(Some(Left(flags.clone())))
+                .set_termination_token(Some(termination_tokens.event.clone().unwrap()));
 
-            worker_events_tx = Some(sender);
-            Some(ctx.metric)
+            builder
+                .set_import_map_path(import_map_path.as_deref())
+                .set_entrypoint(maybe_event_entrypoint.as_deref())
+                .set_decorator(maybe_decorator);
+
+            Some(builder.build().await?)
         } else {
             None
         };
@@ -396,11 +391,13 @@ impl Server {
             base_url: Url::from_file_path(std::env::current_dir().unwrap()).unwrap(),
         });
 
-        // Create a user worker pool
-        let (shared_metric_src, worker_pool_tx) = create_user_worker_pool(
+        // create a user worker pool
+        let (shared_metric_src, worker_pool_tx) = worker::create_user_worker_pool(
             flags.clone(),
             maybe_user_worker_policy.unwrap_or_default(),
-            worker_events_tx,
+            event_worker_surface
+                .as_ref()
+                .map(|it| it.event_message_sender()),
             Some(termination_tokens.pool.clone()),
             static_patterns,
             inspector.clone(),
@@ -409,39 +406,40 @@ impl Server {
         .await?;
 
         // create main worker
-        let main_worker_path = Path::new(&main_service_path).to_path_buf();
-        let main_worker_req_tx = create_main_worker(
-            flags.clone(),
-            main_worker_path,
-            import_map_path.clone(),
-            flags.no_module_cache,
-            MainWorkerRuntimeOpts {
-                worker_pool_tx,
-                shared_metric_src: Some(shared_metric_src.clone()),
-                event_worker_metric_src,
-            },
-            maybe_main_entrypoint,
-            maybe_decorator,
-            Some(termination_tokens.main.clone()),
+        let main_worker_surface = {
+            let mut builder = worker::MainWorkerSurfaceBuilder::new(&main_service_path);
+
+            builder
+                .set_server_flags(Some(Left(flags.clone())))
+                .set_termination_token(Some(termination_tokens.main.clone()));
+
             if flags.allow_main_inspector {
-                inspector.map(|it| Inspector {
+                builder.set_inspector(inspector.map(|it| Inspector {
                     option: InspectorOption::Inspect(it.option.socket_addr()),
                     server: it.server,
-                })
-            } else {
-                None
-            },
-            jsx_config,
-        )
-        .await?;
+                }));
+            }
 
-        let ip = Ipv4Addr::from_str(ip)?;
+            builder
+                .set_import_map_path(import_map_path.as_deref())
+                .set_entrypoint(maybe_main_entrypoint.as_deref())
+                .set_decorator(maybe_decorator)
+                .set_no_module_cache(Some(flags.no_module_cache))
+                .set_jsx_import_source_config(jsx_config)
+                .set_worker_pool_sender(Some(worker_pool_tx))
+                .set_shared_metric_source(Some(shared_metric_src.clone()))
+                .set_event_worker_metric_source(
+                    event_worker_surface.as_ref().map(|it| it.metric.clone()),
+                );
+
+            builder.build().await?
+        };
 
         Ok(Self {
-            ip,
+            ip: Ipv4Addr::from_str(ip)?,
             port,
             tls,
-            main_worker_req_tx,
+            main_worker_surface,
             callback_tx,
             termination_tokens,
             flags,
@@ -453,7 +451,7 @@ impl Server {
         self.termination_tokens.terminate().await;
     }
 
-    pub async fn listen(&mut self) -> Result<Option<i32>, Error> {
+    pub async fn listen(&mut self) -> Result<Option<SignumOrExitCode>, Error> {
         let addr = SocketAddr::new(IpAddr::V4(self.ip), self.port);
         let non_secure_listener = TcpListener::bind(&addr).await?;
         let mut secure_listener = if let Some(tls) = self.tls.take() {
@@ -470,9 +468,8 @@ impl Server {
         let termination_tokens = &self.termination_tokens;
         let input_termination_token = termination_tokens.input.as_ref();
 
-        let mut ret = None::<i32>;
+        let mut ret = None::<SignumOrExitCode>;
         let mut can_receive_event = false;
-        let mut interrupted = false;
         let (event_tx, event_rx) = mpsc::unbounded_channel();
 
         debug!(
@@ -493,6 +490,7 @@ impl Server {
 
         let event_tx = can_receive_event.then_some(event_tx.clone());
         let graceful_exit_token = CancellationToken::new();
+        let main_worker_cancel_token = self.main_worker_surface.cancel.clone();
 
         let ServerFlags {
             tcp_nodelay,
@@ -505,10 +503,22 @@ impl Server {
         let request_read_timeout_dur = request_read_timeout_ms.map(Duration::from_millis);
         let mut terminate_signal_fut = get_termination_signal();
 
+        #[derive(Default, Clone, Copy, EnumAsInner)]
+        enum LoopState {
+            #[default]
+            Normal,
+            Interrupted,
+            MainWorkerDestroyed,
+        }
+
+        let mut loop_state = LoopState::Normal;
         loop {
-            let main_worker_req_tx = self.main_worker_req_tx.clone();
+            let main_worker_req_tx = self.main_worker_surface.msg_tx.clone();
+            let main_worker_cancel_fut = main_worker_cancel_token.cancelled();
             let event_tx = event_tx.clone();
             let metric_src = metric_src.clone();
+
+            pin!(main_worker_cancel_fut);
 
             tokio::select! {
                 msg = non_secure_listener.accept() => {
@@ -576,21 +586,39 @@ impl Server {
                     break;
                 }
 
+                _ = &mut main_worker_cancel_fut => {
+                    error!("main worker has been destroyed");
+                    loop_state = LoopState::MainWorkerDestroyed;
+                    break;
+                }
+
                 signum = &mut terminate_signal_fut => {
                     info!("shutdown signal received: {}", signum);
-                    ret = Some(signum);
+                    ret = Some(Left(signum));
                     break;
                 }
 
                 _ = signal::ctrl_c() => {
                     info!("interrupt signal received");
-                    interrupted = true;
+                    loop_state = LoopState::Interrupted;
                     break;
                 }
             }
         }
 
-        if !interrupted && graceful_exit_deadline_sec > 0 {
+        if loop_state.is_main_worker_destroyed() {
+            ret = Some(Right(std::process::ExitCode::FAILURE));
+
+            let Some(err) = self.main_worker_surface.exit.error().await else {
+                return Ok(ret);
+            };
+
+            error!("{}", format!("{err:?}"));
+
+            return Ok(ret);
+        }
+
+        if !loop_state.is_interrupted() && graceful_exit_deadline_sec > 0 {
             static REQ_METRIC_CHECK_SLEEP_DUR: Duration = Duration::from_millis(10);
 
             let wait_fut = async move {
@@ -673,7 +701,9 @@ impl Server {
                     error!("received interrupt signal while waiting workers");
                 }
             }
-        } else if !interrupted && metric_src.received_requests() != metric_src.handled_requests() {
+        } else if !loop_state.is_interrupted()
+            && metric_src.received_requests() != metric_src.handled_requests()
+        {
             warn!("runtime exits immediately since the graceful exit feature has been disabled");
         }
 

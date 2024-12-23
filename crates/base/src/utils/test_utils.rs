@@ -9,14 +9,16 @@ use std::{
 };
 
 use crate::{
-    rt_worker::{
-        worker_ctx::{create_user_worker_pool, create_worker, CreateWorkerArgs, TerminationToken},
-        worker_pool::{SupervisorPolicy, WorkerPoolPolicy},
-    },
     server::ServerFlags,
+    worker::{
+        self,
+        pool::{SupervisorPolicy, WorkerPoolPolicy},
+        TerminationToken,
+    },
 };
 
 use anyhow::{bail, Context, Error};
+use either::Either::Right;
 use event_worker::events::WorkerEventWithMetadata;
 use futures_util::{future::BoxFuture, Future, FutureExt};
 use http_v02::{Request, Response};
@@ -117,18 +119,6 @@ impl Future for RequestScopeGuard {
     }
 }
 
-pub trait WorkerContextInitOptsForTesting {
-    fn with_policy(self, policy: SupervisorPolicy) -> CreateWorkerArgs
-    where
-        Self: Sized;
-}
-
-impl WorkerContextInitOptsForTesting for WorkerContextInitOpts {
-    fn with_policy(self, policy: SupervisorPolicy) -> CreateWorkerArgs {
-        (self, policy).into()
-    }
-}
-
 pub struct TestBedBuilder {
     main_service_path: PathBuf,
     worker_pool_policy: Option<WorkerPoolPolicy>,
@@ -217,7 +207,7 @@ impl TestBedBuilder {
         let ((_, worker_pool_tx), pool_termination_token) = {
             let token = TerminationToken::new();
             (
-                create_user_worker_pool(
+                worker::create_user_worker_pool(
                     Arc::new(self.flags),
                     self.worker_pool_policy
                         .unwrap_or_else(test_user_worker_pool_policy),
@@ -233,41 +223,39 @@ impl TestBedBuilder {
             )
         };
 
-        let main_worker_init_opts = WorkerContextInitOpts {
-            service_path: self.main_service_path,
-            no_module_cache: false,
-            import_map_path: None,
-            env_vars: std::env::vars().collect(),
-            timing: None,
-            maybe_eszip: None,
-            maybe_entrypoint: None,
-            maybe_decorator: None,
-            maybe_module_code: None,
-            conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
-                worker_pool_tx,
-                shared_metric_src: None,
-                event_worker_metric_src: None,
-            }),
-            static_patterns: vec![],
-
-            maybe_jsx_import_source_config: None,
-            maybe_s3_fs_config: None,
-            maybe_tmp_fs_config: None,
-        };
-
         let main_termination_token = TerminationToken::new();
-        let ctx = create_worker(
-            Arc::new(self.flags),
-            (main_worker_init_opts, main_termination_token.clone()),
-            None,
-        )
-        .await
-        .unwrap();
+        let main_worker_surface = worker::WorkerSurfaceBuilder::new()
+            .sever_flags(Right(self.flags))
+            .termination_token(main_termination_token.clone())
+            .init_opts(WorkerContextInitOpts {
+                service_path: self.main_service_path,
+                no_module_cache: false,
+                import_map_path: None,
+                env_vars: std::env::vars().collect(),
+                timing: None,
+                maybe_eszip: None,
+                maybe_entrypoint: None,
+                maybe_decorator: None,
+                maybe_module_code: None,
+                conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
+                    worker_pool_tx,
+                    shared_metric_src: None,
+                    event_worker_metric_src: None,
+                }),
+                static_patterns: vec![],
+
+                maybe_jsx_import_source_config: None,
+                maybe_s3_fs_config: None,
+                maybe_tmp_fs_config: None,
+            })
+            .build()
+            .await
+            .unwrap();
 
         TestBed {
             pool_termination_token,
             main_termination_token,
-            main_worker_msg_tx: ctx.msg_tx,
+            main_worker_surface,
         }
     }
 }
@@ -275,7 +263,7 @@ impl TestBedBuilder {
 pub struct TestBed {
     pool_termination_token: TerminationToken,
     main_termination_token: TerminationToken,
-    main_worker_msg_tx: mpsc::UnboundedSender<WorkerRequestMsg>,
+    main_worker_surface: worker::WorkerSurface,
 }
 
 impl TestBed {
@@ -291,7 +279,7 @@ impl TestBed {
 
         let req: Request<Body> = request_factory_fn(http_v02::request::Builder::new())?;
 
-        let _ = self.main_worker_msg_tx.send(WorkerRequestMsg {
+        let _ = self.main_worker_surface.msg_tx.send(WorkerRequestMsg {
             req,
             res_tx,
             conn_token: Some(conn_token.clone()),
@@ -323,7 +311,7 @@ impl TestBed {
 
 pub async fn create_test_user_worker<Opt: Into<CreateTestUserWorkerArgs>>(
     opts: Opt,
-) -> Result<(mpsc::UnboundedSender<WorkerRequestMsg>, RequestScope), Error> {
+) -> Result<(worker::WorkerSurface, RequestScope), Error> {
     let CreateTestUserWorkerArgs(mut opts, maybe_policy) = opts.into();
     let (req_start_tx, req_start_rx) = mpsc::unbounded_channel();
     let (req_end_tx, req_end_rx) = mpsc::unbounded_channel();
@@ -336,26 +324,23 @@ pub async fn create_test_user_worker<Opt: Into<CreateTestUserWorkerArgs>>(
         ..Default::default()
     });
 
-    Ok({
-        let ctx = create_worker(
-            Arc::default(),
-            opts.with_policy(policy)
-                .with_termination_token(termination_token.clone()),
-            None,
-        )
+    let worker_surface = worker::WorkerSurfaceBuilder::new()
+        .init_opts(opts)
+        .policy(policy)
+        .termination_token(termination_token.clone())
+        .build()
         .await?;
 
-        (
-            ctx.msg_tx,
-            RequestScope {
-                policy,
-                req_start_tx,
-                req_end_tx,
-                termination_token,
-                conn_token: CancellationToken::new(),
-            },
-        )
-    })
+    Ok((
+        worker_surface,
+        RequestScope {
+            policy,
+            req_start_tx,
+            req_end_tx,
+            termination_token,
+            conn_token: CancellationToken::new(),
+        },
+    ))
 }
 
 pub fn test_user_worker_pool_policy() -> WorkerPoolPolicy {

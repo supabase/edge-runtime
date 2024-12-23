@@ -76,13 +76,24 @@ impl Resource for TokioDuplexResource {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+struct ListenMarker(CancellationToken);
+
+impl Drop for ListenMarker {
+    fn drop(&mut self) {
+        self.0.cancel();
+    }
+}
+
+impl Resource for ListenMarker {}
+
 #[op2]
 #[serde]
-pub fn op_net_listen(_state: &mut OpState) -> Result<(ResourceId, IpAddr), AnyError> {
+pub fn op_net_listen(state: &mut OpState) -> Result<(ResourceId, IpAddr), AnyError> {
     // this is a noop
     // TODO: customize to match the service ip and port
     Ok((
-        0,
+        state.resource_table.add(ListenMarker::default()),
         IpAddr {
             hostname: "0.0.0.0".to_string(),
             port: 9999,
@@ -94,7 +105,15 @@ pub fn op_net_listen(_state: &mut OpState) -> Result<(ResourceId, IpAddr), AnyEr
 #[serde]
 pub async fn op_net_accept(
     state: Rc<RefCell<OpState>>,
+    #[smi] rid: ResourceId,
 ) -> Result<(ResourceId, IpAddr, IpAddr), AnyError> {
+    let accept_token = state
+        .borrow()
+        .resource_table
+        .get::<ListenMarker>(rid)?
+        .0
+        .clone();
+
     // we do not want to keep the op_state locked,
     // so we take the channel receiver from it and release op state.
     // we need to add it back later after processing a message.
@@ -112,11 +131,10 @@ pub async fn op_net_accept(
         )
     };
 
-    if rx.is_none() {
+    let Some(rx) = rx else {
         return Err(bad_resource("duplex stream receiver is already used"));
-    }
+    };
 
-    let rx = rx.unwrap();
     let mut rx = scopeguard::guard(rx, {
         let state = state.clone();
         move |value| {
@@ -127,8 +145,14 @@ pub async fn op_net_accept(
         }
     });
 
-    let Some((stream, conn_token)) = rx.recv().await else {
-        return Err(bad_resource("duplex stream channel is closed"));
+    let (stream, conn_token) = match tokio::select! {
+        ret = rx.recv() => { ret }
+        _ = accept_token.cancelled() => { None }
+    } {
+        Some(ret) => ret,
+        None => {
+            return Err(bad_resource("duplex stream channel is closed"));
+        }
     };
 
     let resource = TokioDuplexResource::new(stream);
@@ -148,7 +172,7 @@ pub async fn op_net_accept(
             async move {
                 let _lt_track = span!(Level::DEBUG, "lt_track", id);
                 tokio::select! {
-                    _ = runtime_token.0.cancelled_owned() => {
+                    _ = runtime_token.cancelled_owned() => {
                         if !token.is_cancelled() {
                             token.cancel();
                         }

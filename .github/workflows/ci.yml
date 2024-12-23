@@ -13,7 +13,7 @@ env:
   CARGO_TERM_COLOR: always
   RUSTUP_MAX_RETRIES: 10
   ORT_DYLIB_PATH: /tmp/onnxruntime/lib/libonnxruntime.so
-  RUST_LOG: event_worker=trace
+  RUST_LOG: sb_event_worker=trace
 
 jobs:
   cargo-fmt:

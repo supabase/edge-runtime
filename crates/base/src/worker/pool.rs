@@ -460,8 +460,6 @@ impl WorkerPool {
                     if tx.send(Ok(CreateUserWorkerResult { key: uuid })).is_err() {
                         error!("main worker receiver dropped")
                     };
-
-                    status.demand.fetch_add(1, Ordering::Release);
                 }
                 Err(err) => {
                     error!("{err:#}");
@@ -501,6 +499,8 @@ impl WorkerPool {
                 let exit = worker.exit.clone();
                 let cancel = worker.cancel.clone();
                 let (req_start_tx, req_end_tx) = profile.timing_tx_pair.clone();
+
+                profile.status.demand.fetch_add(1, Ordering::Release);
 
                 // Create a closure to handle the request and send the response
                 let request_handler = async move {
@@ -648,15 +648,7 @@ impl WorkerPool {
             .get(&worker_uuid)
             .map(|it| it.status.is_retired.clone())
         {
-            Some(is_retired) if !is_retired.is_raised() => {
-                self.user_workers
-                    .get(&worker_uuid)
-                    .map(|it| it.status.demand.as_ref())
-                    .unwrap()
-                    .fetch_add(1, Ordering::Release);
-
-                Some(worker_uuid)
-            }
+            Some(is_retired) if !is_retired.is_raised() => Some(worker_uuid),
 
             _ => {
                 self.retire(&worker_uuid);

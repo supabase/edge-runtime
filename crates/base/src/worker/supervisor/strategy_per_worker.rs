@@ -1,15 +1,24 @@
-use std::{future::pending, sync::atomic::Ordering, time::Duration};
+use std::{
+    future::pending,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
 #[cfg(debug_assertions)]
 use std::thread::ThreadId;
 
+use deno_core::unsync::AtomicFlag;
 use log::{error, info};
+use sb_core::PromiseMetrics;
 use sb_event_worker::events::ShutdownReason;
 use sb_workers::context::{Timing, TimingStatus, UserWorkerMsgs};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    deno_runtime::WillTerminateReason,
+    deno_runtime::{RuntimeState, WillTerminateReason},
     worker::supervisor::{
         create_wall_clock_beforeunload_alert, v8_handle_beforeunload, v8_handle_drain,
         v8_handle_early_drop_beforeunload, v8_handle_early_retire, wait_cpu_alarm, CPUUsage,
@@ -18,6 +27,77 @@ use crate::{
 };
 
 use super::{v8_handle_termination, Arguments, CPUUsageMetrics, V8HandleTerminationData};
+
+#[derive(Debug, Default)]
+struct State {
+    is_worker_entered: bool,
+    is_wall_clock_limit_disabled: bool,
+    is_wall_clock_beforeunload_armed: bool,
+    is_cpu_time_soft_limit_reached: bool,
+    is_mem_half_reached: bool,
+    is_waiting_for_termination: bool,
+    is_retired: Arc<AtomicFlag>,
+
+    wall_clock_alerts: usize,
+
+    req_ack_count: usize,
+    req_demand: Arc<AtomicUsize>,
+
+    runtime: Arc<RuntimeState>,
+    promise: PromiseMetrics,
+}
+
+impl Drop for State {
+    fn drop(&mut self) {
+        self.is_retired.raise();
+    }
+}
+
+impl State {
+    fn update_runtime_state(&mut self) {
+        self.is_mem_half_reached = self.runtime.mem_reached_half.is_raised();
+    }
+
+    fn worker_enter(&mut self) {
+        assert!(!self.is_worker_entered);
+        self.is_worker_entered = true;
+        self.update_runtime_state();
+    }
+
+    fn worker_leave(&mut self) {
+        assert!(self.is_worker_entered);
+        self.is_worker_entered = false;
+        self.update_runtime_state();
+    }
+
+    fn req_acknowledged(&mut self) {
+        self.req_ack_count += 1;
+        self.update_runtime_state();
+    }
+
+    fn is_retired(&self) -> bool {
+        self.is_retired.is_raised()
+    }
+
+    fn has_resource_alert(&self) -> bool {
+        self.is_waiting_for_termination
+            || self.is_cpu_time_soft_limit_reached
+            || self.is_mem_half_reached
+            || self.wall_clock_alerts == 2
+    }
+
+    fn have_all_reqs_been_acknowledged(&self) -> bool {
+        self.req_ack_count == self.req_demand.load(Ordering::Acquire)
+    }
+
+    fn have_all_pending_tasks_been_resolved(&self) -> bool {
+        self.have_all_reqs_been_acknowledged() && self.promise.have_all_promises_been_resolved()
+    }
+
+    fn can_early_drop(&self) -> bool {
+        self.has_resource_alert() && self.have_all_pending_tasks_been_resolved()
+    }
+}
 
 pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
     let Arguments {
@@ -50,28 +130,23 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
     let (cpu_timer, mut cpu_alarms_rx) = cpu_timer.unzip();
     let (soft_limit_ms, hard_limit_ms) = cpu_timer_param.limits();
 
-    let guard = scopeguard::guard(is_retired.clone(), |v| {
-        v.raise();
-    });
-
     #[cfg(debug_assertions)]
     let mut current_thread_id = Option::<ThreadId>::None;
 
     let wall_clock_limit_ms = runtime_opts.worker_timeout_ms;
 
-    let is_wall_clock_limit_disabled = wall_clock_limit_ms == 0;
-    let mut is_worker_entered = false;
-    let mut is_wall_clock_beforeunload_armed = false;
-    let mut is_cpu_time_soft_limit_reached = false;
-    let mut is_waiting_for_termination = false;
-    let mut have_all_reqs_been_acknowledged: bool;
+    let mut complete_reason = None::<ShutdownReason>;
+    let mut state = State {
+        is_wall_clock_limit_disabled: wall_clock_limit_ms == 0,
+        is_retired: is_retired.clone(),
+        req_demand: demand,
+        runtime: runtime_state,
+        promise: promise_metrics,
+        ..Default::default()
+    };
 
     let mut cpu_usage_metrics_rx = cpu_usage_metrics_rx.unwrap();
     let mut cpu_usage_ms = 0i64;
-
-    let mut complete_reason = None::<ShutdownReason>;
-    let mut wall_clock_alerts = 0;
-    let mut req_ack_count = 0usize;
 
     let wall_clock_limit_ms = if wall_clock_limit_ms < 2 {
         2
@@ -94,13 +169,18 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
         flags.beforeunload_wall_clock_pct,
     );
 
-    let early_retire_fn = || {
-        // we should raise a retire signal because subsequent incoming requests are unlikely to get
-        // enough wall clock time or cpu time
-        guard.raise();
+    let early_retire_fn = {
+        let is_retired = state.is_retired.clone();
+        let thread_safe_handle = thread_safe_handle.clone();
+        let waker = waker.clone();
+        move || {
+            // we should raise a retire signal because subsequent incoming requests are unlikely to get
+            // enough wall clock time or cpu time
+            is_retired.raise();
 
-        if thread_safe_handle.request_interrupt(v8_handle_early_retire, std::ptr::null_mut()) {
-            waker.wake();
+            if thread_safe_handle.request_interrupt(v8_handle_early_retire, std::ptr::null_mut()) {
+                waker.wake();
+            }
         }
     };
 
@@ -160,14 +240,15 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
                     Some(token) => token.inbound.cancelled().await,
                     None => pending().await,
                 }
-            }, if !is_waiting_for_termination => {
-                is_waiting_for_termination = true;
+            }, if !state.is_waiting_for_termination => {
+                state.is_waiting_for_termination = true;
 
                 early_retire_fn();
+
                 if let Some(func) = dispatch_drain_fn.take() {
                     func();
                 }
-                if promise_metrics.have_all_promises_been_resolved() {
+                if state.have_all_pending_tasks_been_resolved() {
                     if let Some(func) = dispatch_early_drop_beforeunload_fn.take() {
                         func();
                     }
@@ -199,8 +280,7 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
                             current_thread_id = Some(_thread_id);
                         }
 
-                        assert!(!is_worker_entered);
-                        is_worker_entered = true;
+                        state.worker_enter();
 
                         if !cpu_timer_param.is_disabled() {
                             if let Some(Err(err)) = cpu_timer.as_ref().map(|it| it.reset()) {
@@ -210,25 +290,23 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
                     }
 
                     CPUUsageMetrics::Leave(CPUUsage { accumulated, .. }) => {
-                        assert!(is_worker_entered);
+                        state.worker_leave();
 
-                        is_worker_entered = false;
                         cpu_usage_ms = accumulated / 1_000_000;
-                        have_all_reqs_been_acknowledged = req_ack_count == demand.load(Ordering::Acquire);
 
                         if !cpu_timer_param.is_disabled() {
                             if cpu_usage_ms >= hard_limit_ms as i64 {
                                 error!("CPU time hard limit reached: isolate: {:?}", key);
                                 complete_reason = Some(ShutdownReason::CPUTime);
-                            } else if cpu_usage_ms >= soft_limit_ms as i64 && !is_cpu_time_soft_limit_reached {
+                            } else if cpu_usage_ms >= soft_limit_ms as i64
+                                && !state.is_cpu_time_soft_limit_reached
+                            {
                                 early_retire_fn();
                                 error!("CPU time soft limit reached: isolate: {:?}", key);
 
-                                is_cpu_time_soft_limit_reached = true;
+                                state.is_cpu_time_soft_limit_reached = true;
 
-                                if have_all_reqs_been_acknowledged
-                                    && promise_metrics.have_all_promises_been_resolved()
-                                {
+                                if state.have_all_pending_tasks_been_resolved() {
                                     if let Some(func) = dispatch_early_drop_beforeunload_fn.take() {
                                         func();
                                     }
@@ -236,10 +314,7 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
                             }
                         }
 
-                        if (is_cpu_time_soft_limit_reached || is_waiting_for_termination)
-                                && have_all_reqs_been_acknowledged
-                                && promise_metrics.have_all_promises_been_resolved()
-                        {
+                        if state.can_early_drop() {
                             if let Some(func) = dispatch_early_drop_beforeunload_fn.take() {
                                 func();
                             }
@@ -249,17 +324,14 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
             }
 
             Some(_) = wait_cpu_alarm(cpu_alarms_rx.as_mut()) => {
-                if is_worker_entered {
-                    if !is_cpu_time_soft_limit_reached {
+                if state.is_worker_entered {
+                    if !state.is_cpu_time_soft_limit_reached {
                         early_retire_fn();
                         error!("CPU time soft limit reached: isolate: {:?}", key);
 
-                        is_cpu_time_soft_limit_reached = true;
-                        have_all_reqs_been_acknowledged = req_ack_count == demand.load(Ordering::Acquire);
+                        state.is_cpu_time_soft_limit_reached = true;
 
-                        if have_all_reqs_been_acknowledged
-                            && promise_metrics.have_all_promises_been_resolved()
-                        {
+                        if state.have_all_pending_tasks_been_resolved() {
                             if let Some(func) = dispatch_early_drop_beforeunload_fn.take() {
                                 func();
                             }
@@ -272,10 +344,9 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
             }
 
             Some(_) = req_end_rx.recv() => {
-                req_ack_count += 1;
-                have_all_reqs_been_acknowledged = req_ack_count == demand.load(Ordering::Acquire);
+                state.req_acknowledged();
 
-                if !is_cpu_time_soft_limit_reached {
+                if !state.has_resource_alert() {
                     if let Some(tx) = pool_msg_tx.clone() {
                         if tx.send(UserWorkerMsgs::Idle(key)).is_err() {
                             error!("failed to send idle msg to pool: {:?}", key);
@@ -283,42 +354,47 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
                     }
                 }
 
-                if have_all_reqs_been_acknowledged && guard.is_raised() {
+                if state.have_all_reqs_been_acknowledged() && state.is_retired() {
                     if let Some(func) = dispatch_drain_fn.take() {
                         func();
                     }
                 }
-
-                if !is_cpu_time_soft_limit_reached
-                    || !have_all_reqs_been_acknowledged
-                    || !promise_metrics.have_all_promises_been_resolved()
-                {
+                if !state.can_early_drop() {
                     continue;
                 }
-
                 if let Some(func) = dispatch_early_drop_beforeunload_fn.take() {
                     func();
                 }
             }
 
-            _ = wall_clock_duration_alert.tick(), if !is_wall_clock_limit_disabled => {
-                if wall_clock_alerts == 0 {
+            _ = wall_clock_duration_alert.tick(), if !state.is_wall_clock_limit_disabled => {
+                if state.wall_clock_alerts == 0 {
                     // first tick completes immediately
-                    wall_clock_alerts += 1;
-                } else if wall_clock_alerts == 1 {
+                    state.wall_clock_alerts += 1;
+                } else if state.wall_clock_alerts == 1 {
                     early_retire_fn();
                     error!("wall clock duration warning: isolate: {:?}", key);
-                    wall_clock_alerts += 1;
-                } else {
-                    let is_in_flight_req_exists = req_ack_count != demand.load(Ordering::Acquire);
 
-                    error!("wall clock duration reached: isolate: {:?} (in_flight_req_exists = {})", key, is_in_flight_req_exists);
+                    state.wall_clock_alerts += 1;
+
+                    if state.can_early_drop() {
+                        if let Some(func) = dispatch_early_drop_beforeunload_fn.take() {
+                            func();
+                        }
+                    }
+                } else {
+                    error!(
+                        "wall clock duration reached: isolate: {:?} (in_flight_req_exists = {})",
+                        key,
+                        !state.have_all_reqs_been_acknowledged()
+                    );
+
                     complete_reason = Some(ShutdownReason::WallClockTime);
                 }
             }
 
             _ = &mut wall_clock_beforeunload_alert,
-                if !is_wall_clock_limit_disabled && !is_wall_clock_beforeunload_armed
+                if !state.is_wall_clock_limit_disabled && !state.is_wall_clock_beforeunload_armed
             => {
                 let data_ptr_mut = Box::into_raw(Box::new(V8HandleBeforeunloadData {
                     reason: WillTerminateReason::WallClock
@@ -332,7 +408,7 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
                     drop(unsafe { Box::from_raw(data_ptr_mut) });
                 }
 
-                is_wall_clock_beforeunload_armed = true;
+                state.is_wall_clock_beforeunload_armed = true;
             }
 
             Some(_) = memory_limit_rx.recv() => {
@@ -348,9 +424,9 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
 
         match complete_reason.take() {
             Some(ShutdownReason::EarlyDrop) => {
-                terminate_fn(runtime_state.is_evaluating_mod());
+                terminate_fn(state.runtime.is_evaluating_mod());
                 return (
-                    if is_waiting_for_termination {
+                    if state.is_waiting_for_termination {
                         ShutdownReason::TerminationRequested
                     } else {
                         ShutdownReason::EarlyDrop

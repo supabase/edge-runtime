@@ -3295,6 +3295,88 @@ async fn test_should_not_wait_for_background_tests() {
     }
 }
 
+#[tokio::test]
+#[serial]
+async fn test_should_be_able_to_trigger_early_drop_with_wall_clock() {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let tb = TestBedBuilder::new("./test_cases/main")
+        .with_per_worker_policy(None)
+        .with_worker_event_sender(Some(tx))
+        .build()
+        .await;
+
+    let resp = tb
+        .request(|b| {
+            b.uri("/early-drop-wall-clock")
+                .header("x-worker-timeout-ms", HeaderValue::from_static("3000"))
+                .body(Body::empty())
+                .context("can't make request")
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status().as_u16(), StatusCode::OK);
+
+    sleep(Duration::from_secs(2)).await;
+    rx.close();
+    tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
+
+    while let Some(ev) = rx.recv().await {
+        let WorkerEvents::Log(ev) = ev.event else {
+            continue;
+        };
+        if ev.level != LogLevel::Info {
+            continue;
+        }
+        if ev.msg.contains("early_drop") {
+            return;
+        }
+    }
+
+    unreachable!("test failed");
+}
+
+#[tokio::test]
+#[serial]
+async fn test_should_be_able_to_trigger_early_drop_with_mem() {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let tb = TestBedBuilder::new("./test_cases/main")
+        .with_per_worker_policy(None)
+        .with_worker_event_sender(Some(tx))
+        .build()
+        .await;
+
+    let resp = tb
+        .request(|b| {
+            b.uri("/early-drop-mem")
+                .header("x-memory-limit-mb", HeaderValue::from_static("20"))
+                .body(Body::empty())
+                .context("can't make request")
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status().as_u16(), StatusCode::OK);
+
+    sleep(Duration::from_secs(2)).await;
+    rx.close();
+    tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
+
+    while let Some(ev) = rx.recv().await {
+        let WorkerEvents::Log(ev) = ev.event else {
+            continue;
+        };
+        if ev.level != LogLevel::Info {
+            continue;
+        }
+        if ev.msg.contains("early_drop") {
+            return;
+        }
+    }
+
+    unreachable!("test failed");
+}
+
 #[derive(Deserialize)]
 struct ErrorResponsePayload {
     msg: String,

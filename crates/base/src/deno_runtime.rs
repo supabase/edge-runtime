@@ -279,6 +279,7 @@ pub struct RuntimeState {
     pub event_loop_completed: Arc<AtomicFlag>,
     pub terminated: Arc<AtomicFlag>,
     pub found_inspector_session: Arc<AtomicFlag>,
+    pub mem_reached_half: Arc<AtomicFlag>,
 }
 
 impl RuntimeState {
@@ -1321,6 +1322,14 @@ where
                         {
                             return Poll::Ready(Err(err));
                         }
+                    }
+                }
+
+                if let Some(limit) = mem_state.limit {
+                    if total_malloced_bytes >= limit / 2 {
+                        state.mem_reached_half.raise();
+                    } else {
+                        state.mem_reached_half.lower();
                     }
                 }
 

@@ -804,10 +804,11 @@ dependencies = [
  "either",
  "enum-as-inner",
  "eszip",
- "event_worker",
  "fastwebsockets",
  "flume",
+ "fs",
  "futures-util",
+ "graph",
  "http 0.2.11",
  "http 1.0.0",
  "http-body-util",
@@ -819,8 +820,10 @@ dependencies = [
  "import_map",
  "libc",
  "log",
+ "module_loader",
  "monch",
  "notify",
+ "npm",
  "num-traits",
  "once_cell",
  "pin-project",
@@ -829,11 +832,8 @@ dependencies = [
  "sb_ai",
  "sb_core",
  "sb_env",
- "sb_fs",
- "sb_graph",
- "sb_module_loader",
+ "sb_event_worker",
  "sb_node",
- "sb_npm",
  "sb_os",
  "sb_workers",
  "scopeguard",
@@ -1368,9 +1368,9 @@ dependencies = [
  "deno_manifest",
  "env_logger",
  "glob",
+ "graph",
  "log",
  "once_cell",
- "sb_graph",
  "tokio",
  "tracing-subscriber",
 ]
@@ -2676,18 +2676,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "event_worker"
+name = "eszip_async_trait"
 version = "0.1.0"
 dependencies = [
- "anyhow",
- "base_mem_check",
- "deno_core",
- "enum-as-inner",
- "log",
- "serde",
- "tokio",
- "tracing",
- "uuid",
+ "eszip",
 ]
 
 [[package]]
@@ -2904,6 +2896,57 @@ dependencies = [
  "proc-macro2",
  "swc_macros_common",
  "syn 2.0.48",
+]
+
+[[package]]
+name = "fs"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "aws-config",
+ "aws-credential-types",
+ "aws-sdk-s3",
+ "aws-smithy-runtime",
+ "aws-smithy-runtime-api",
+ "base",
+ "ctor",
+ "deno_ast",
+ "deno_core",
+ "deno_fs",
+ "deno_io",
+ "deno_npm",
+ "deno_semver",
+ "dotenvy",
+ "either",
+ "enum-as-inner",
+ "eszip",
+ "eszip_async_trait",
+ "futures",
+ "headers",
+ "hyper 0.14.28",
+ "hyper-proxy",
+ "hyper-rustls 0.24.2",
+ "import_map",
+ "indexmap",
+ "log",
+ "memmap2",
+ "normalize-path",
+ "npm",
+ "once_cell",
+ "rand",
+ "rkyv",
+ "rustls 0.21.12",
+ "sb_core",
+ "sb_event_worker",
+ "sb_node",
+ "serde",
+ "serial_test",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "url",
 ]
 
 [[package]]
@@ -3168,6 +3211,47 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fdf242682df893b86f33a73828fb09ca4b2d3bb6cc95249707fc684d27484b91"
 dependencies = [
  "bitflags 2.5.0",
+]
+
+[[package]]
+name = "graph"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "dashmap",
+ "deno_ast",
+ "deno_cache_dir",
+ "deno_config",
+ "deno_core",
+ "deno_fs",
+ "deno_graph",
+ "deno_lockfile",
+ "deno_npm",
+ "deno_semver",
+ "deno_web",
+ "enum-as-inner",
+ "eszip",
+ "eszip_async_trait",
+ "fs",
+ "futures",
+ "glob",
+ "hashlink",
+ "import_map",
+ "log",
+ "npm",
+ "npm_cache",
+ "once_cell",
+ "pathdiff",
+ "rkyv",
+ "sb_core",
+ "sb_node",
+ "scopeguard",
+ "serde",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "urlencoding",
 ]
 
 [[package]]
@@ -4344,6 +4428,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "module_loader"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.21.7",
+ "deno_ast",
+ "deno_config",
+ "deno_core",
+ "deno_fs",
+ "deno_npm",
+ "deno_semver",
+ "deno_tls",
+ "eszip",
+ "eszip_async_trait",
+ "fs",
+ "futures-util",
+ "graph",
+ "import_map",
+ "log",
+ "monch",
+ "npm",
+ "once_cell",
+ "rkyv",
+ "sb_core",
+ "sb_node",
+ "serde",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "monch"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4513,6 +4628,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "npm"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "base32",
+ "base64 0.21.7",
+ "bincode",
+ "deno_ast",
+ "deno_config",
+ "deno_core",
+ "deno_fs",
+ "deno_graph",
+ "deno_lockfile",
+ "deno_npm",
+ "deno_semver",
+ "faster-hex",
+ "flate2",
+ "hex",
+ "indexmap",
+ "log",
+ "once_cell",
+ "percent-encoding",
+ "reqwest 0.12.4",
+ "ring 0.17.7",
+ "sb_core",
+ "sb_node",
+ "serde",
+ "tar",
+ "thiserror",
+]
+
+[[package]]
 name = "npm_cache"
 version = "0.1.0"
 dependencies = [
@@ -4523,8 +4670,8 @@ dependencies = [
  "deno_graph",
  "deno_web",
  "log",
+ "npm",
  "sb_core",
- "sb_npm",
  "tokio",
 ]
 
@@ -5973,133 +6120,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "sb_eszip_shared"
-version = "0.1.0"
-dependencies = [
- "eszip",
-]
-
-[[package]]
-name = "sb_fs"
+name = "sb_event_worker"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "async-trait",
- "aws-config",
- "aws-credential-types",
- "aws-sdk-s3",
- "aws-smithy-runtime",
- "aws-smithy-runtime-api",
- "base",
- "ctor",
- "deno_ast",
+ "base_mem_check",
  "deno_core",
- "deno_fs",
- "deno_io",
- "deno_npm",
- "deno_semver",
- "dotenvy",
- "either",
  "enum-as-inner",
- "eszip",
- "event_worker",
- "futures",
- "headers",
- "hyper 0.14.28",
- "hyper-proxy",
- "hyper-rustls 0.24.2",
- "import_map",
- "indexmap",
  "log",
- "memmap2",
- "normalize-path",
- "once_cell",
- "rand",
- "rkyv",
- "rustls 0.21.12",
- "sb_core",
- "sb_eszip_shared",
- "sb_node",
- "sb_npm",
- "serde",
- "serial_test",
- "tempfile",
- "thiserror",
- "tokio",
- "tracing",
- "url",
-]
-
-[[package]]
-name = "sb_graph"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "dashmap",
- "deno_ast",
- "deno_cache_dir",
- "deno_config",
- "deno_core",
- "deno_fs",
- "deno_graph",
- "deno_lockfile",
- "deno_npm",
- "deno_semver",
- "deno_web",
- "enum-as-inner",
- "eszip",
- "futures",
- "glob",
- "hashlink",
- "import_map",
- "log",
- "npm_cache",
- "once_cell",
- "pathdiff",
- "rkyv",
- "sb_core",
- "sb_eszip_shared",
- "sb_fs",
- "sb_node",
- "sb_npm",
- "scopeguard",
- "serde",
- "tempfile",
- "thiserror",
- "tokio",
- "urlencoding",
-]
-
-[[package]]
-name = "sb_module_loader"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64 0.21.7",
- "deno_ast",
- "deno_config",
- "deno_core",
- "deno_fs",
- "deno_npm",
- "deno_semver",
- "deno_tls",
- "eszip",
- "futures-util",
- "import_map",
- "log",
- "monch",
- "once_cell",
- "rkyv",
- "sb_core",
- "sb_eszip_shared",
- "sb_fs",
- "sb_graph",
- "sb_node",
- "sb_npm",
  "serde",
  "tokio",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -6179,38 +6211,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sb_npm"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "base32",
- "base64 0.21.7",
- "bincode",
- "deno_ast",
- "deno_config",
- "deno_core",
- "deno_fs",
- "deno_graph",
- "deno_lockfile",
- "deno_npm",
- "deno_semver",
- "faster-hex",
- "flate2",
- "hex",
- "indexmap",
- "log",
- "once_cell",
- "percent-encoding",
- "reqwest 0.12.4",
- "ring 0.17.7",
- "sb_core",
- "sb_node",
- "serde",
- "tar",
- "thiserror",
-]
-
-[[package]]
 name = "sb_os"
 version = "0.1.0"
 dependencies = [
@@ -6230,15 +6230,15 @@ dependencies = [
  "deno_core",
  "deno_http",
  "enum-as-inner",
- "event_worker",
+ "fs",
  "futures-util",
+ "graph",
  "http_utils",
  "hyper 0.14.28",
  "log",
  "once_cell",
  "sb_core",
- "sb_fs",
- "sb_graph",
+ "sb_event_worker",
  "scopeguard",
  "serde",
  "thiserror",

@@ -1,0 +1,29 @@
+[package]
+name = "cli"
+version = "0.1.0"
+edition = "2021"
+description = "A server based on Deno runtime, capable of running JavaScript, TypeScript, and WASM services"
+
+[[bin]]
+name = "edge-runtime"
+path = "src/main.rs"
+
+[dependencies]
+deno_core.workspace = true
+
+base.workspace = true
+deno_manifest.workspace = true
+graph.workspace = true
+
+anyhow.workspace = true
+log.workspace = true
+tokio.workspace = true
+glob.workspace = true
+once_cell.workspace = true
+clap.workspace = true
+tracing-subscriber = { workspace = true, optional = true }
+
+env_logger = "0.10.0"
+
+[features]
+tracing = ["dep:tracing-subscriber"]

@@ -1,8 +1,8 @@
 use std::{future::Future, sync::Arc};
 
 use anyhow::{Context, Error};
-use event_worker::events::{BootFailureEvent, WorkerEvents};
 use futures_util::FutureExt;
+use sb_event_worker::events::{BootFailureEvent, WorkerEvents};
 use sb_workers::context::{WorkerContextInitOpts, WorkerKind};
 use tokio::{
     sync::{mpsc, oneshot},

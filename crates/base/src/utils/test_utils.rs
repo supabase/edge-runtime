@@ -19,11 +19,11 @@ use crate::{
 
 use anyhow::{bail, Context, Error};
 use either::Either::Right;
-use event_worker::events::WorkerEventWithMetadata;
 use futures_util::{future::BoxFuture, Future, FutureExt};
 use http_v02::{Request, Response};
 use hyper_v014::Body;
 use pin_project::pin_project;
+use sb_event_worker::events::WorkerEventWithMetadata;
 
 use sb_workers::context::{
     MainWorkerRuntimeOpts, Timing, UserWorkerRuntimeOpts, WorkerContextInitOpts, WorkerRequestMsg,

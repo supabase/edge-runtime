@@ -6,12 +6,12 @@ use anyhow::{anyhow, bail, Context, Error};
 use deno_config::JsxImportSourceConfig;
 use either::Either::Left;
 use enum_as_inner::EnumAsInner;
-use event_worker::events::WorkerEventWithMetadata;
 use http_v02::Request;
 use hyper_v014::Body;
 use log::error;
 use sb_core::util::sync::AtomicFlag;
 use sb_core::SharedMetricSource;
+use sb_event_worker::events::WorkerEventWithMetadata;
 use sb_workers::context::{
     CreateUserWorkerResult, SendRequestResult, Timing, TimingStatus, UserWorkerMsgs,
     UserWorkerProfile, WorkerContextInitOpts, WorkerRuntimeOpts,

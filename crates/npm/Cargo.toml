@@ -1,10 +1,8 @@
 [package]
-name = "sb_npm"
+name = "npm"
 version = "0.1.0"
 authors = ["Supabase <team@supabase.com>"]
 edition = "2021"
-resolver = "2"
-description = "We'll take care of this later"
 license = "MIT"
 
 [lib]
@@ -20,8 +18,8 @@ deno_lockfile.workspace = true
 deno_graph.workspace = true
 deno_config = { workspace = true, features = ["workspace"] }
 
-sb_core = { version = "0.1.0", path = "../sb_core" }
-sb_node = { version = "0.1.0", path = "../node" }
+sb_core.workspace = true
+sb_node.workspace = true
 
 once_cell.workspace = true
 async-trait.workspace = true

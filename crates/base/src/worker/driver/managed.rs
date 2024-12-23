@@ -7,11 +7,11 @@ use crate::worker::supervisor::{self, v8_handle_beforeunload};
 use crate::worker::{DuplexStreamEntry, WorkerCx};
 use anyhow::Error;
 use base_mem_check::MemCheckState;
-use event_worker::events::{
-    ShutdownEvent, ShutdownReason, UncaughtExceptionEvent, WorkerEvents, WorkerMemoryUsed,
-};
 use futures_util::FutureExt;
 use log::error;
+use sb_event_worker::events::{
+    ShutdownEvent, ShutdownReason, UncaughtExceptionEvent, WorkerEvents, WorkerMemoryUsed,
+};
 use tokio::sync::mpsc;
 use tokio::sync::Mutex;
 use tokio::task::JoinError;

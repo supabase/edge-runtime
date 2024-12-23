@@ -2,11 +2,11 @@
 #![allow(clippy::async_yields_async)]
 
 use deno_config::JsxImportSourceConfig;
-use event_worker::events::{LogLevel, WorkerEvents};
+use graph::{emitter::EmitterFactory, generate_binary_eszip, EszipPayloadKind};
 use http_v02::{self as http, HeaderValue};
 use hyper_v014 as hyper;
 use reqwest_v011 as reqwest;
-use sb_graph::{emitter::EmitterFactory, generate_binary_eszip, EszipPayloadKind};
+use sb_event_worker::events::{LogLevel, WorkerEvents};
 use url::Url;
 
 use std::{

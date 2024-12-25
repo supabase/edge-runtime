@@ -1,10 +1,9 @@
 declare type BeforeunloadReason = "cpu" | "memory" | "wall_clock" | "early_drop" | "termination";
-declare interface BeforeunloadEvent extends CustomEvent<BeforeunloadReason> { }
 
 declare interface WindowEventMap {
     "load": Event;
     "unload": Event;
-    "beforeunload": BeforeunloadEvent;
+    "beforeunload": CustomEvent<BeforeunloadReason>;
     "drain": Event;
 }
 

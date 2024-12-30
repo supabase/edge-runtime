@@ -434,17 +434,17 @@ deno_core::extension!(
     ],
     esm_entry_point = "ext:sb_core_main_js/js/bootstrap.js",
     esm = [
-        "js/edge_runtime.js",
+        "js/00_serve.js",
+        "js/01_http.js",
         "js/async_hook.js",
-        "js/permissions.js",
+        "js/bootstrap.js",
+        "js/denoOverrides.js",
         "js/errors.js",
         "js/fieldUtils.js",
-        "js/promises.js",
         "js/http.js",
-        "js/denoOverrides.js",
+        "js/namespaces.js",
         "js/navigator.js",
-        "js/bootstrap.js",
-        "js/00_serve.js",
-        "js/01_http.js"
+        "js/permissions.js",
+        "js/promises.js",
     ]
 );

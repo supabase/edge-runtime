@@ -1,6 +1,6 @@
 import { core, primordials } from "ext:core/mod.js";
 
-import { MAIN_WORKER_API as ai } from "ext:sb_ai/js/ai.js";
+import { MAIN_WORKER_API, USER_WORKER_API } from "ext:sb_ai/js/ai.js";
 import { SUPABASE_USER_WORKERS } from "ext:sb_user_workers/user_workers.js";
 import { applySupabaseTag } from "ext:sb_core_main_js/js/http.js";
 import { waitUntil } from "ext:sb_core_main_js/js/async_hook.js";
@@ -20,7 +20,7 @@ function installEdgeRuntimeNamespace(kind, terminationRequestTokenRid) {
 	switch (kind) {
 		case "main":
 			props = {
-				ai,
+				ai: MAIN_WORKER_API,
 				userWorkers: SUPABASE_USER_WORKERS,
 				getRuntimeMetrics: () => /* async */ ops.op_runtime_metrics(),
 				applySupabaseTag: (src, dest) => applySupabaseTag(src, dest),
@@ -55,6 +55,25 @@ function installEdgeRuntimeNamespace(kind, terminationRequestTokenRid) {
 	});
 }
 
+/**
+ * @param {"user" | "main" | "event"} kind 
+ */
+function installSupabaseNamespace(kind) {
+	if (kind === "user") {
+		const props = {
+			ai: USER_WORKER_API
+		};
+
+		ObjectDefineProperty(globalThis, "Supabase", {
+			get() {
+				return props;
+			},
+			configurable: true,
+		});
+	}
+}
+
 export {
 	installEdgeRuntimeNamespace,
+	installSupabaseNamespace,
 }

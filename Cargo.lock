@@ -1653,6 +1653,7 @@ dependencies = [
  "cfg-if",
  "cpufeatures",
  "curve25519-dalek-derive",
+ "digest",
  "fiat-crypto 0.2.6",
  "rustc_version 0.4.0",
  "subtle",
@@ -2658,6 +2659,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "ed25519"
+version = "2.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "115531babc129696a58c64a4fef0a8bf9e9698629fb97e9e40767d235cfbcd53"
+dependencies = [
+ "pkcs8 0.10.2",
+ "signature 2.2.0",
+]
+
+[[package]]
+name = "ed25519-dalek"
+version = "2.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4a3daa8e81a3963a60642bcc1f90a670680bd4a77535faa384e9d1c79d620871"
+dependencies = [
+ "curve25519-dalek",
+ "ed25519",
+ "rand_core",
+ "serde",
+ "sha2",
+ "signature 2.2.0",
+ "subtle",
+ "zeroize",
+]
+
+[[package]]
 name = "ed448-goldilocks"
 version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3529,6 +3556,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ba4ff7128dee98c7dc9794b6a411377e1404dba1c97deb8d1a55297bd25d8af"
 dependencies = [
  "hashbrown 0.14.5",
+]
+
+[[package]]
+name = "hdrhistogram"
+version = "7.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "765c9198f173dd59ce26ff9f95ef0aafd0a0fe01fb9d72841bc5066a4c06511d"
+dependencies = [
+ "base64 0.21.7",
+ "byteorder",
+ "crossbeam-channel",
+ "flate2",
+ "nom",
+ "num-traits",
 ]
 
 [[package]]
@@ -4564,9 +4605,9 @@ dependencies = [
 
 [[package]]
 name = "memchr"
-version = "2.7.1"
+version = "2.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "523dc4f511e55ab87b694dc30d0f820d60906ef06413f93d4d7a1385599cc149"
+checksum = "78ca9ab1a0babb1e7d5695e3530886289c18cf2f87ec19a575a0abdce112e3a3"
 
 [[package]]
 name = "memmap2"
@@ -4828,6 +4869,29 @@ dependencies = [
  "bitflags 2.6.0",
  "cfg-if",
  "libc",
+]
+
+[[package]]
+name = "node_resolver"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "660943fa818b5bc52e8271864c994bef99a2cae87a9f7573a5ac637f500df8fb"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "boxed_error",
+ "deno_media_type",
+ "deno_package_json",
+ "deno_path_util",
+ "futures",
+ "lazy-regex",
+ "once_cell",
+ "path-clean",
+ "regex",
+ "serde_json",
+ "thiserror 2.0.8",
+ "tokio",
+ "url",
 ]
 
 [[package]]
@@ -5373,6 +5437,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "pkcs5"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e847e2c91a18bfa887dd028ec33f2fe6f25db77db3619024764914affe8b69a6"
+dependencies = [
+ "aes",
+ "cbc",
+ "der 0.7.8",
+ "pbkdf2",
+ "scrypt",
+ "sha2",
+ "spki 0.7.3",
+]
+
+[[package]]
 name = "pkcs8"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5389,6 +5468,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f950b2377845cebe5cf8b5165cb3cc1a5e0fa5cfa3e1f7f55707d8fd82e0a7b7"
 dependencies = [
  "der 0.7.8",
+ "pkcs5",
+ "rand_core",
  "spki 0.7.3",
 ]
 
@@ -6410,10 +6491,14 @@ dependencies = [
  "deno_fs",
  "deno_media_type",
  "deno_net",
+ "deno_package_json",
+ "deno_permissions",
  "deno_whoami",
  "digest",
  "dsa",
  "ecb",
+ "ecdsa 0.16.9",
+ "ed25519-dalek",
  "elliptic-curve 0.13.8",
  "errno 0.2.8",
  "faster-hex",
@@ -6430,7 +6515,9 @@ dependencies = [
  "libz-sys",
  "md-5",
  "md4",
+ "memchr",
  "nix 0.27.1",
+ "node_resolver",
  "num-bigint",
  "num-bigint-dig",
  "num-integer",
@@ -6442,6 +6529,7 @@ dependencies = [
  "path-clean",
  "pbkdf2",
  "pin-project-lite",
+ "pkcs8 0.10.2",
  "rand",
  "regex",
  "reqwest",
@@ -6458,9 +6546,12 @@ dependencies = [
  "simd-json",
  "sm3",
  "spki 0.7.3",
+ "stable_deref_trait",
  "thiserror 2.0.8",
  "tokio",
+ "tokio-eld",
  "url",
+ "webpki-root-certs",
  "winapi",
  "windows-sys 0.59.0",
  "x25519-dalek",
@@ -7837,6 +7928,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tokio-eld"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9166030f05d6bc5642bdb8f8c2be31eb3c02cd465d662bcdc2df82d4aa41a584"
+dependencies = [
+ "hdrhistogram",
+ "tokio",
+]
+
+[[package]]
 name = "tokio-macros"
 version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8475,6 +8576,15 @@ checksum = "b8e38c0608262c46d4a56202ebabdeb094cef7e560ca7a226c6bf055188aa4ea"
 dependencies = [
  "ring 0.16.20",
  "untrusted 0.7.1",
+]
+
+[[package]]
+name = "webpki-root-certs"
+version = "0.26.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9cd5da49bdf1f30054cfe0b8ce2958b8fbeb67c4d82c8967a598af481bef255c"
+dependencies = [
+ "rustls-pki-types",
 ]
 
 [[package]]

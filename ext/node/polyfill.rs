@@ -4,21 +4,21 @@ use deno_core::ModuleSpecifier;
 
 /// e.g. `is_builtin_node_module("assert")`
 pub fn is_builtin_node_module(module_name: &str) -> bool {
-    SUPPORTED_BUILTIN_NODE_MODULES
-        .iter()
-        .any(|m| *m == module_name)
+  SUPPORTED_BUILTIN_NODE_MODULES
+    .iter()
+    .any(|m| *m == module_name)
 }
 
 /// Ex. returns `fs` for `node:fs`
 pub fn get_module_name_from_builtin_node_module_specifier(
-    specifier: &ModuleSpecifier,
+  specifier: &ModuleSpecifier,
 ) -> Option<&str> {
-    if specifier.scheme() != "node" {
-        return None;
-    }
+  if specifier.scheme() != "node" {
+    return None;
+  }
 
-    let (_, specifier) = specifier.as_str().split_once(':')?;
-    Some(specifier)
+  let (_, specifier) = specifier.as_str().split_once(':')?;
+  Some(specifier)
 }
 
 macro_rules! generate_builtin_node_module_lists {

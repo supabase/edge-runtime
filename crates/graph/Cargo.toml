@@ -1,27 +1,27 @@
 [package]
 name = "graph"
 version = "0.1.0"
-authors = ["Supabase <team@supabase.com>"]
-edition = "2021"
-license = "MIT"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
 
 [lib]
 path = "lib.rs"
 
 [dependencies]
-deno_core.workspace = true
 deno_ast.workspace = true
-deno_fs.workspace = true
-deno_npm.workspace = true
-deno_graph.workspace = true
-deno_semver.workspace = true
-deno_web.workspace = true
-deno_lockfile.workspace = true
 deno_cache_dir.workspace = true
 deno_config.workspace = true
+deno_core.workspace = true
+deno_fs.workspace = true
+deno_graph.workspace = true
+deno_lockfile.workspace = true
+deno_npm.workspace = true
+deno_semver.workspace = true
+deno_web.workspace = true
 
-npm.workspace = true
-npm_cache.workspace = true
+# npm_cache.workspace = true
+# npm.workspace = true
 eszip_async_trait.workspace = true
 fs.workspace = true
 
@@ -29,23 +29,23 @@ sb_core.workspace = true
 sb_node.workspace = true
 
 anyhow.workspace = true
-import_map.workspace = true
 async-trait.workspace = true
-log.workspace = true
-serde.workspace = true
-tokio.workspace = true
-once_cell.workspace = true
-urlencoding.workspace = true
-glob.workspace = true
-futures.workspace = true
-scopeguard.workspace = true
-thiserror.workspace = true
 eszip = { workspace = true, features = ["xxhash3"] }
+futures.workspace = true
+glob.workspace = true
+import_map.workspace = true
+log.workspace = true
+once_cell.workspace = true
 rkyv = { workspace = true, features = ["validation"] }
+scopeguard.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+urlencoding.workspace = true
 
+dashmap = "5.5.3"
 hashlink = "0.8"
 pathdiff = "0.2"
-dashmap = "5.5.3"
 
 [dev-dependencies]
 tempfile.workspace = true

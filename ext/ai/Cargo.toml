@@ -1,9 +1,9 @@
 [package]
 name = "sb_ai"
 version = "0.1.0"
-authors = ["Supabase <team@supabase.com>"]
-edition = "2021"
-license = "MIT"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
 
 [lib]
 path = "lib.rs"
@@ -14,33 +14,33 @@ deno_core.workspace = true
 base_rt.workspace = true
 
 anyhow.workspace = true
-log.workspace = true
-serde.workspace = true
-futures.workspace = true
-futures-util = { workspace = true, features = ["io"] }
-fxhash.workspace = true
-faster-hex.workspace = true
-xxhash-rust = { workspace = true, features = ["std", "xxh3"] }
-reqwest.workspace = true
-tokio.workspace = true
-tokio-util = { workspace = true, features = ["compat"] }
 clap = { workspace = true, features = ["derive"] }
-once_cell.workspace = true
 ctor.workspace = true
+faster-hex.workspace = true
+futures-util = { workspace = true, features = ["io"] }
+futures.workspace = true
+fxhash.workspace = true
+log.workspace = true
+once_cell.workspace = true
+reqwest.workspace = true
 scopeguard.workspace = true
-tracing.workspace = true
+serde.workspace = true
+tokio-util = { workspace = true, features = ["compat"] }
+tokio.workspace = true
 tracing-subscriber.workspace = true
+tracing.workspace = true
+xxhash-rust = { workspace = true, features = ["std", "xxh3"] }
 
+convert_case = "0.6"
 ndarray = "0.15"
 ndarray-linalg = "0.15"
 rand = "0.8"
-convert_case = "0.6"
 tokenizers = { version = ">=0.13.4", default-features = false, features = [ "onig" ] }
 
-ort-sys = "=2.0.0-rc.2"
 ort = { version = "=2.0.0-rc.2", default-features = false, features = [
-  "ndarray",
+  "cuda",
   "half",
   "load-dynamic",
-  "cuda",
+  "ndarray",
 ] }
+ort-sys = "=2.0.0-rc.2"

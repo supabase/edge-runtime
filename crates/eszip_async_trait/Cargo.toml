@@ -1,9 +1,9 @@
 [package]
 name = "eszip_async_trait"
 version = "0.1.0"
-authors = ["Supabase <team@supabase.com>"]
-edition = "2021"
-license = "MIT"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
 
 [lib]
 path = "lib.rs"

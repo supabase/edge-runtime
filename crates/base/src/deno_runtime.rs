@@ -613,9 +613,9 @@ where
         }
         _ => {
           bail!(
-                        "Unknown certificate store \"{0}\" specified (allowed: \"system,mozilla\")",
-                        store
-                    );
+            "Unknown certificate store \"{0}\" specified (allowed: \"system,mozilla\")",
+            store
+          );
         }
       }
     }

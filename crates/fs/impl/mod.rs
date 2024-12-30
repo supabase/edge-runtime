@@ -1,6 +1,6 @@
 use std::{
-    io,
-    path::{Path, PathBuf},
+  io,
+  path::{Path, PathBuf},
 };
 
 use deno_io::fs::FsResult;
@@ -14,13 +14,13 @@ pub mod tmp_fs;
 pub mod virtual_fs;
 
 trait TryNormalizePath {
-    fn try_normalize(&self) -> FsResult<PathBuf>;
+  fn try_normalize(&self) -> FsResult<PathBuf>;
 }
 
 impl TryNormalizePath for Path {
-    fn try_normalize(&self) -> FsResult<PathBuf> {
-        NormalizePath::try_normalize(self).ok_or(deno_io::fs::FsError::Io(io::Error::from(
-            io::ErrorKind::InvalidInput,
-        )))
-    }
+  fn try_normalize(&self) -> FsResult<PathBuf> {
+    NormalizePath::try_normalize(self).ok_or(deno_io::fs::FsError::Io(
+      io::Error::from(io::ErrorKind::InvalidInput),
+    ))
+  }
 }

@@ -4,10 +4,10 @@ use deno_core::op2;
 
 #[op2(fast)]
 pub fn op_is_ascii(#[buffer] buf: &[u8]) -> bool {
-    buf.is_ascii()
+  buf.is_ascii()
 }
 
 #[op2(fast)]
 pub fn op_is_utf8(#[buffer] buf: &[u8]) -> bool {
-    std::str::from_utf8(buf).is_ok()
+  std::str::from_utf8(buf).is_ok()
 }

@@ -47,7 +47,7 @@ use deno_core::op2;
 
 #[op2(fast)]
 pub fn op_node_process_kill() -> Result<i32, AnyError> {
-    Err(not_supported())
+  Err(not_supported())
 }
 
 #[op2(fast)]

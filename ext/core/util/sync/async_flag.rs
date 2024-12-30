@@ -6,15 +6,15 @@ use tokio_util::sync::CancellationToken;
 pub struct AsyncFlag(CancellationToken);
 
 impl AsyncFlag {
-    pub fn raise(&self) {
-        self.0.cancel();
-    }
+  pub fn raise(&self) {
+    self.0.cancel();
+  }
 
-    pub fn is_raised(&self) -> bool {
-        self.0.is_cancelled()
-    }
+  pub fn is_raised(&self) -> bool {
+    self.0.is_cancelled()
+  }
 
-    pub fn wait_raised(&self) -> impl std::future::Future<Output = ()> + '_ {
-        self.0.cancelled()
-    }
+  pub fn wait_raised(&self) -> impl std::future::Future<Output = ()> + '_ {
+    self.0.cancelled()
+  }
 }

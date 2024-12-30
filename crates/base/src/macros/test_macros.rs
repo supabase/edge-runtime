@@ -1,36 +1,36 @@
 #[macro_export]
 macro_rules! integration_test_listen_fut {
-    ($port:expr, $tls:expr, $main_file:expr, $policy:expr, $import_map:expr, $flag:expr, $tx:expr, $token:expr) => {{
-        use $crate::macros::test_macros::__private;
+  ($port:expr, $tls:expr, $main_file:expr, $policy:expr, $import_map:expr, $flag:expr, $tx:expr, $token:expr) => {{
+    use $crate::macros::test_macros::__private;
 
-        use __private::futures_util::FutureExt;
-        use __private::Tls;
+    use __private::futures_util::FutureExt;
+    use __private::Tls;
 
-        let tls: Option<Tls> = $tls.clone();
+    let tls: Option<Tls> = $tls.clone();
 
-        __private::start_server(
-            "0.0.0.0",
-            $port,
-            tls,
-            String::from($main_file),
-            None,
-            None,
-            $policy,
-            $import_map,
-            $flag,
-            Some($tx.clone()),
-            $crate::server::WorkerEntrypoints {
-                main: None,
-                events: None,
-            },
-            $token.clone(),
-            vec![],
-            None,
-            Some("https://esm.sh/preact".to_string()),
-            Some("jsx-runtime".to_string()),
-        )
-        .boxed()
-    }};
+    __private::start_server(
+      "0.0.0.0",
+      $port,
+      tls,
+      String::from($main_file),
+      None,
+      None,
+      $policy,
+      $import_map,
+      $flag,
+      Some($tx.clone()),
+      $crate::server::WorkerEntrypoints {
+        main: None,
+        events: None,
+      },
+      $token.clone(),
+      vec![],
+      None,
+      Some("https://esm.sh/preact".to_string()),
+      Some("jsx-runtime".to_string()),
+    )
+    .boxed()
+  }};
 }
 
 #[macro_export]
@@ -189,48 +189,50 @@ macro_rules! integration_test {
 
 #[doc(hidden)]
 pub mod __private {
-    use std::future::Future;
+  use std::future::Future;
 
-    use reqwest_v011::{Error, RequestBuilder, Response};
-    use sb_core::SharedMetricSource;
-    use tokio::sync::mpsc;
+  use reqwest_v011::{Error, RequestBuilder, Response};
+  use sb_core::SharedMetricSource;
+  use tokio::sync::mpsc;
 
-    use crate::server::ServerEvent;
+  use crate::server::ServerEvent;
 
-    pub use crate::commands::start_server;
-    pub use crate::server::ServerFlags;
-    pub use crate::server::ServerHealth;
-    pub use crate::server::Tls;
-    pub use crate::worker::TerminationToken;
-    pub use futures_util;
-    pub use reqwest_v011;
+  pub use crate::commands::start_server;
+  pub use crate::server::ServerFlags;
+  pub use crate::server::ServerHealth;
+  pub use crate::server::Tls;
+  pub use crate::worker::TerminationToken;
+  pub use futures_util;
+  pub use reqwest_v011;
 
-    /// NOTE(Nyannyacha): This was defined to enable pattern matching in closure
-    /// argument positions.
-    type ReqTuple = (
-        u16,
-        &'static str,
-        Option<RequestBuilder>,
-        mpsc::UnboundedReceiver<ServerEvent>,
-        SharedMetricSource,
-    );
+  /// NOTE(Nyannyacha): This was defined to enable pattern matching in closure
+  /// argument positions.
+  type ReqTuple = (
+    u16,
+    &'static str,
+    Option<RequestBuilder>,
+    mpsc::UnboundedReceiver<ServerEvent>,
+    SharedMetricSource,
+  );
 
-    pub async fn infer_req_closure_signature<F, R>(
-        closure: F,
-        args: ReqTuple,
-    ) -> Option<Result<Response, Error>>
-    where
-        F: FnOnce(ReqTuple) -> R,
-        R: Future<Output = Option<Result<Response, Error>>>,
-    {
-        closure(args).await
-    }
+  pub async fn infer_req_closure_signature<F, R>(
+    closure: F,
+    args: ReqTuple,
+  ) -> Option<Result<Response, Error>>
+  where
+    F: FnOnce(ReqTuple) -> R,
+    R: Future<Output = Option<Result<Response, Error>>>,
+  {
+    closure(args).await
+  }
 
-    pub async fn infer_resp_closure_signature<F, R>(closure: F, arg0: Result<Response, Error>)
-    where
-        F: FnOnce(Result<Response, Error>) -> R,
-        R: Future<Output = ()>,
-    {
-        closure(arg0).await;
-    }
+  pub async fn infer_resp_closure_signature<F, R>(
+    closure: F,
+    arg0: Result<Response, Error>,
+  ) where
+    F: FnOnce(Result<Response, Error>) -> R,
+    R: Future<Output = ()>,
+  {
+    closure(arg0).await;
+  }
 }

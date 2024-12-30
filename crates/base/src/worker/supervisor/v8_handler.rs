@@ -17,99 +17,118 @@ use super::IsolateMemoryStats;
 
 #[repr(C)]
 pub struct V8HandleTerminationData {
-    pub should_terminate: bool,
-    pub isolate_memory_usage_tx: Option<oneshot::Sender<IsolateMemoryStats>>,
+  pub should_terminate: bool,
+  pub isolate_memory_usage_tx: Option<oneshot::Sender<IsolateMemoryStats>>,
 }
 
-pub extern "C" fn v8_handle_termination(isolate: &mut v8::Isolate, data: *mut std::ffi::c_void) {
-    let mut data = unsafe { Box::from_raw(data as *mut V8HandleTerminationData) };
+pub extern "C" fn v8_handle_termination(
+  isolate: &mut v8::Isolate,
+  data: *mut std::ffi::c_void,
+) {
+  let mut data = unsafe { Box::from_raw(data as *mut V8HandleTerminationData) };
 
-    // log memory usage
-    let mut heap_stats = v8::HeapStatistics::default();
+  // log memory usage
+  let mut heap_stats = v8::HeapStatistics::default();
 
-    isolate.get_heap_statistics(&mut heap_stats);
+  isolate.get_heap_statistics(&mut heap_stats);
 
-    let usage = IsolateMemoryStats {
-        used_heap_size: heap_stats.used_heap_size(),
-        external_memory: heap_stats.external_memory(),
-    };
+  let usage = IsolateMemoryStats {
+    used_heap_size: heap_stats.used_heap_size(),
+    external_memory: heap_stats.external_memory(),
+  };
 
-    if let Some(usage_tx) = data.isolate_memory_usage_tx.take() {
-        if usage_tx.send(usage).is_err() {
-            log::error!("failed to send isolate memory usage - receiver may have been dropped");
-        }
+  if let Some(usage_tx) = data.isolate_memory_usage_tx.take() {
+    if usage_tx.send(usage).is_err() {
+      log::error!(
+        "failed to send isolate memory usage - receiver may have been dropped"
+      );
     }
+  }
 
-    if data.should_terminate {
-        isolate.terminate_execution();
-    }
+  if data.should_terminate {
+    isolate.terminate_execution();
+  }
 }
 
 #[repr(C)]
 pub struct V8HandleBeforeunloadData {
-    pub reason: WillTerminateReason,
+  pub reason: WillTerminateReason,
 }
 
-pub extern "C" fn v8_handle_beforeunload(isolate: &mut v8::Isolate, data: *mut std::ffi::c_void) {
-    let data = unsafe { Box::from_raw(data as *mut V8HandleBeforeunloadData) };
+pub extern "C" fn v8_handle_beforeunload(
+  isolate: &mut v8::Isolate,
+  data: *mut std::ffi::c_void,
+) {
+  let data = unsafe { Box::from_raw(data as *mut V8HandleBeforeunloadData) };
 
-    JsRuntime::op_state_from(isolate)
-        .borrow()
-        .borrow::<V8TaskSpawner>()
-        .spawn(move |scope| {
-            if let Err(err) =
-                MaybeDenoRuntime::<()>::Isolate(scope).dispatch_beforeunload_event(data.reason)
-            {
-                log::error!(
-                    "found an error while dispatching the beforeunload event: {}",
-                    err
-                );
-            }
-        });
+  JsRuntime::op_state_from(isolate)
+    .borrow()
+    .borrow::<V8TaskSpawner>()
+    .spawn(move |scope| {
+      if let Err(err) = MaybeDenoRuntime::<()>::Isolate(scope)
+        .dispatch_beforeunload_event(data.reason)
+      {
+        log::error!(
+          "found an error while dispatching the beforeunload event: {}",
+          err
+        );
+      }
+    });
 }
 
 #[repr(C)]
 pub struct V8HandleEarlyDropData {
-    pub token: CancellationToken,
+  pub token: CancellationToken,
 }
 
 pub extern "C" fn v8_handle_early_drop_beforeunload(
-    isolate: &mut v8::Isolate,
-    data: *mut std::ffi::c_void,
+  isolate: &mut v8::Isolate,
+  data: *mut std::ffi::c_void,
 ) {
-    let data = unsafe { Box::from_raw(data as *mut V8HandleEarlyDropData) };
+  let data = unsafe { Box::from_raw(data as *mut V8HandleEarlyDropData) };
 
-    JsRuntime::op_state_from(isolate)
-        .borrow()
-        .borrow::<V8TaskSpawner>()
-        .spawn(move |scope| {
-            if let Err(err) = MaybeDenoRuntime::<()>::Isolate(scope)
-                .dispatch_beforeunload_event(WillTerminateReason::EarlyDrop)
-            {
-                log::error!(
-                    "found an error while dispatching the beforeunload event: {}",
-                    err
-                );
-            } else {
-                data.token.cancel();
-            }
-        });
+  JsRuntime::op_state_from(isolate)
+    .borrow()
+    .borrow::<V8TaskSpawner>()
+    .spawn(move |scope| {
+      if let Err(err) = MaybeDenoRuntime::<()>::Isolate(scope)
+        .dispatch_beforeunload_event(WillTerminateReason::EarlyDrop)
+      {
+        log::error!(
+          "found an error while dispatching the beforeunload event: {}",
+          err
+        );
+      } else {
+        data.token.cancel();
+      }
+    });
 }
 
 #[instrument(level = "debug", skip_all)]
-pub extern "C" fn v8_handle_early_retire(isolate: &mut v8::Isolate, _data: *mut std::ffi::c_void) {
-    isolate.low_memory_notification();
-    debug!("sent low mem notification");
+pub extern "C" fn v8_handle_early_retire(
+  isolate: &mut v8::Isolate,
+  _data: *mut std::ffi::c_void,
+) {
+  isolate.low_memory_notification();
+  debug!("sent low mem notification");
 }
 
 #[instrument(level = "debug", skip_all)]
-pub extern "C" fn v8_handle_drain(isolate: &mut v8::Isolate, _data: *mut std::ffi::c_void) {
-    JsRuntime::op_state_from(isolate)
-        .borrow()
-        .borrow::<V8TaskSpawner>()
-        .spawn(move |scope| {
-            if let Err(err) = MaybeDenoRuntime::<()>::Isolate(scope).dispatch_drain_event() {
-                log::error!("found an error while dispatching the drain event: {}", err);
-            }
-        });
+pub extern "C" fn v8_handle_drain(
+  isolate: &mut v8::Isolate,
+  _data: *mut std::ffi::c_void,
+) {
+  JsRuntime::op_state_from(isolate)
+    .borrow()
+    .borrow::<V8TaskSpawner>()
+    .spawn(move |scope| {
+      if let Err(err) =
+        MaybeDenoRuntime::<()>::Isolate(scope).dispatch_drain_event()
+      {
+        log::error!(
+          "found an error while dispatching the drain event: {}",
+          err
+        );
+      }
+    });
 }

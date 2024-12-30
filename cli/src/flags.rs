@@ -1,63 +1,63 @@
 use std::{net::SocketAddr, path::PathBuf};
 
 use clap::{
-    arg,
-    builder::{BoolishValueParser, FalseyValueParser, TypedValueParser},
-    crate_version, value_parser, ArgAction, ArgGroup, Command, ValueEnum,
+  arg,
+  builder::{BoolishValueParser, FalseyValueParser, TypedValueParser},
+  crate_version, value_parser, ArgAction, ArgGroup, Command, ValueEnum,
 };
 use graph::Checksum;
 
 #[derive(ValueEnum, Default, Clone, Copy)]
 #[repr(u8)]
 pub(super) enum EszipV2ChecksumKind {
-    #[default]
-    NoChecksum = 0,
-    Sha256 = 1,
-    XxHash3 = 2,
+  #[default]
+  NoChecksum = 0,
+  Sha256 = 1,
+  XxHash3 = 2,
 }
 
 impl From<EszipV2ChecksumKind> for Option<Checksum> {
-    fn from(value: EszipV2ChecksumKind) -> Self {
-        Checksum::from_u8(value as u8)
-    }
+  fn from(value: EszipV2ChecksumKind) -> Self {
+    Checksum::from_u8(value as u8)
+  }
 }
 
 pub(super) fn get_cli() -> Command {
-    Command::new(env!("CARGO_BIN_NAME"))
-        .about(env!("CARGO_PKG_DESCRIPTION"))
-        .version(format!(
-            "{}\ndeno {} ({}, {})",
-            crate_version!(),
-            deno_manifest::version(),
-            env!("PROFILE"),
-            env!("TARGET")
-        ))
-        .arg_required_else_help(true)
-        .arg(
-            arg!(-v --verbose "Use verbose output")
-                .conflicts_with("quiet")
-                .global(true)
-                .action(ArgAction::SetTrue),
-        )
-        .arg(
-            arg!(-q --quiet "Do not print any log messages")
-                .conflicts_with("verbose")
-                .global(true)
-                .action(ArgAction::SetTrue),
-        )
-        .arg(
-            arg!(--"log-source")
-                .help("Include source file and line in log messages")
-                .global(true)
-                .action(ArgAction::SetTrue),
-        )
-        .subcommand(get_start_command())
-        .subcommand(get_bundle_command())
-        .subcommand(get_unbundle_command())
+  Command::new(env!("CARGO_BIN_NAME"))
+    .about(env!("CARGO_PKG_DESCRIPTION"))
+    .version(format!(
+      "{}\ndeno {} ({}, {})",
+      crate_version!(),
+      deno_manifest::version(),
+      env!("PROFILE"),
+      env!("TARGET")
+    ))
+    .arg_required_else_help(true)
+    .arg(
+      arg!(-v --verbose "Use verbose output")
+        .conflicts_with("quiet")
+        .global(true)
+        .action(ArgAction::SetTrue),
+    )
+    .arg(
+      arg!(-q --quiet "Do not print any log messages")
+        .conflicts_with("verbose")
+        .global(true)
+        .action(ArgAction::SetTrue),
+    )
+    .arg(
+      arg!(--"log-source")
+        .help("Include source file and line in log messages")
+        .global(true)
+        .action(ArgAction::SetTrue),
+    )
+    .subcommand(get_start_command())
+    .subcommand(get_bundle_command())
+    .subcommand(get_unbundle_command())
 }
 
 fn get_start_command() -> Command {
-    Command::new("start")
+  Command::new("start")
         .about("Start the server")
         .arg(arg!(-i --ip <HOST>).help("Host IP address to listen on").default_value("0.0.0.0"))
         .arg(
@@ -250,7 +250,7 @@ fn get_start_command() -> Command {
 }
 
 fn get_bundle_command() -> Command {
-    Command::new("bundle")
+  Command::new("bundle")
         .about(concat!(
             "Creates an 'eszip' file that can be executed by the EdgeRuntime. ",
             "Such file contains all the modules in contained in a single binary."
@@ -287,16 +287,16 @@ fn get_bundle_command() -> Command {
 }
 
 fn get_unbundle_command() -> Command {
-    Command::new("unbundle")
-        .about("Unbundles an .eszip file into the specified directory")
-        .arg(
-            arg!(--"output" <DIR>)
-                .help("Path to extract the ESZIP content")
-                .default_value("./"),
-        )
-        .arg(
-            arg!(--"eszip" <DIR>)
-                .help("Path of eszip to extract")
-                .required(true),
-        )
+  Command::new("unbundle")
+    .about("Unbundles an .eszip file into the specified directory")
+    .arg(
+      arg!(--"output" <DIR>)
+        .help("Path to extract the ESZIP content")
+        .default_value("./"),
+    )
+    .arg(
+      arg!(--"eszip" <DIR>)
+        .help("Path of eszip to extract")
+        .required(true),
+    )
 }

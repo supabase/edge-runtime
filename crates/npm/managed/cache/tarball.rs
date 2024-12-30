@@ -36,12 +36,12 @@ type LoadFuture = LocalBoxFuture<'static, LoadResult>;
 
 #[derive(Debug, Clone)]
 enum MemoryCacheItem {
-    /// The cache item hasn't finished yet.
-    Pending(Arc<MultiRuntimeAsyncValueCreator<LoadResult>>),
-    /// The result errored.
-    Errored(Arc<AnyError>),
-    /// This package has already been cached.
-    Cached,
+  /// The cache item hasn't finished yet.
+  Pending(Arc<MultiRuntimeAsyncValueCreator<LoadResult>>),
+  /// The result errored.
+  Errored(Arc<AnyError>),
+  /// This package has already been cached.
+  Cached,
 }
 
 /// Coordinates caching of tarballs being loaded from
@@ -50,92 +50,93 @@ enum MemoryCacheItem {
 /// This is shared amongst all the workers.
 #[derive(Debug)]
 pub struct TarballCache {
+  cache: Arc<NpmCache>,
+  fs: Arc<dyn FileSystem>,
+  http_client_provider: Arc<HttpClientProvider>,
+  npmrc: Arc<ResolvedNpmRc>,
+  memory_cache: Mutex<HashMap<PackageNv, MemoryCacheItem>>,
+}
+
+impl TarballCache {
+  pub fn new(
     cache: Arc<NpmCache>,
     fs: Arc<dyn FileSystem>,
     http_client_provider: Arc<HttpClientProvider>,
     npmrc: Arc<ResolvedNpmRc>,
-    memory_cache: Mutex<HashMap<PackageNv, MemoryCacheItem>>,
-}
+  ) -> Self {
+    Self {
+      cache,
+      fs,
+      http_client_provider,
+      npmrc,
+      memory_cache: Default::default(),
+    }
+  }
 
-impl TarballCache {
-    pub fn new(
-        cache: Arc<NpmCache>,
-        fs: Arc<dyn FileSystem>,
-        http_client_provider: Arc<HttpClientProvider>,
-        npmrc: Arc<ResolvedNpmRc>,
-    ) -> Self {
-        Self {
-            cache,
-            fs,
-            http_client_provider,
-            npmrc,
-            memory_cache: Default::default(),
+  pub async fn ensure_package(
+    self: &Arc<Self>,
+    package: &PackageNv,
+    dist: &NpmPackageVersionDistInfo,
+  ) -> Result<(), AnyError> {
+    self
+      .ensure_package_inner(package, dist)
+      .await
+      .with_context(|| format!("Failed caching npm package '{}'.", package))
+  }
+
+  async fn ensure_package_inner(
+    self: &Arc<Self>,
+    package_nv: &PackageNv,
+    dist: &NpmPackageVersionDistInfo,
+  ) -> Result<(), AnyError> {
+    let cache_item = {
+      let mut mem_cache = self.memory_cache.lock();
+      if let Some(cache_item) = mem_cache.get(package_nv) {
+        cache_item.clone()
+      } else {
+        let value_creator = MultiRuntimeAsyncValueCreator::new({
+          let tarball_cache = self.clone();
+          let package_nv = package_nv.clone();
+          let dist = dist.clone();
+          Box::new(move || {
+            tarball_cache.create_setup_future(package_nv.clone(), dist.clone())
+          })
+        });
+        let cache_item = MemoryCacheItem::Pending(Arc::new(value_creator));
+        mem_cache.insert(package_nv.clone(), cache_item.clone());
+        cache_item
+      }
+    };
+
+    match cache_item {
+      MemoryCacheItem::Cached => Ok(()),
+      MemoryCacheItem::Errored(err) => Err(anyhow!("{}", err)),
+      MemoryCacheItem::Pending(creator) => {
+        let result = creator.get().await;
+        match result {
+          Ok(_) => {
+            *self.memory_cache.lock().get_mut(package_nv).unwrap() =
+              MemoryCacheItem::Cached;
+            Ok(())
+          }
+          Err(err) => {
+            let result_err = anyhow!("{}", err);
+            *self.memory_cache.lock().get_mut(package_nv).unwrap() =
+              MemoryCacheItem::Errored(err);
+            Err(result_err)
+          }
         }
+      }
     }
+  }
 
-    pub async fn ensure_package(
-        self: &Arc<Self>,
-        package: &PackageNv,
-        dist: &NpmPackageVersionDistInfo,
-    ) -> Result<(), AnyError> {
-        self.ensure_package_inner(package, dist)
-            .await
-            .with_context(|| format!("Failed caching npm package '{}'.", package))
-    }
-
-    async fn ensure_package_inner(
-        self: &Arc<Self>,
-        package_nv: &PackageNv,
-        dist: &NpmPackageVersionDistInfo,
-    ) -> Result<(), AnyError> {
-        let cache_item = {
-            let mut mem_cache = self.memory_cache.lock();
-            if let Some(cache_item) = mem_cache.get(package_nv) {
-                cache_item.clone()
-            } else {
-                let value_creator = MultiRuntimeAsyncValueCreator::new({
-                    let tarball_cache = self.clone();
-                    let package_nv = package_nv.clone();
-                    let dist = dist.clone();
-                    Box::new(move || {
-                        tarball_cache.create_setup_future(package_nv.clone(), dist.clone())
-                    })
-                });
-                let cache_item = MemoryCacheItem::Pending(Arc::new(value_creator));
-                mem_cache.insert(package_nv.clone(), cache_item.clone());
-                cache_item
-            }
-        };
-
-        match cache_item {
-            MemoryCacheItem::Cached => Ok(()),
-            MemoryCacheItem::Errored(err) => Err(anyhow!("{}", err)),
-            MemoryCacheItem::Pending(creator) => {
-                let result = creator.get().await;
-                match result {
-                    Ok(_) => {
-                        *self.memory_cache.lock().get_mut(package_nv).unwrap() =
-                            MemoryCacheItem::Cached;
-                        Ok(())
-                    }
-                    Err(err) => {
-                        let result_err = anyhow!("{}", err);
-                        *self.memory_cache.lock().get_mut(package_nv).unwrap() =
-                            MemoryCacheItem::Errored(err);
-                        Err(result_err)
-                    }
-                }
-            }
-        }
-    }
-
-    fn create_setup_future(
-        self: &Arc<Self>,
-        package_nv: PackageNv,
-        dist: NpmPackageVersionDistInfo,
-    ) -> LoadFuture {
-        let tarball_cache = self.clone();
-        async move {
+  fn create_setup_future(
+    self: &Arc<Self>,
+    package_nv: PackageNv,
+    dist: NpmPackageVersionDistInfo,
+  ) -> LoadFuture {
+    let tarball_cache = self.clone();
+    async move {
       let registry_url = tarball_cache.npmrc.get_registry_url(&package_nv.name);
       let package_folder =
         tarball_cache.cache.package_folder_for_nv_and_url(&package_nv, registry_url);
@@ -226,5 +227,5 @@ impl TarballCache {
     }
     .map(|r| r.map_err(Arc::new))
     .boxed_local()
-    }
+  }
 }

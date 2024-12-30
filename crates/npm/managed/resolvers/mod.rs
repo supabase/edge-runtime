@@ -23,30 +23,30 @@ use super::resolution::NpmResolution;
 
 #[allow(clippy::too_many_arguments)]
 pub fn create_npm_fs_resolver(
-    fs: Arc<dyn FileSystem>,
-    npm_cache: Arc<NpmCache>,
-    pkg_json_deps_provider: &Arc<PackageJsonInstallDepsProvider>,
-    resolution: Arc<NpmResolution>,
-    tarball_cache: Arc<TarballCache>,
-    maybe_node_modules_path: Option<PathBuf>,
-    system_info: NpmSystemInfo,
+  fs: Arc<dyn FileSystem>,
+  npm_cache: Arc<NpmCache>,
+  pkg_json_deps_provider: &Arc<PackageJsonInstallDepsProvider>,
+  resolution: Arc<NpmResolution>,
+  tarball_cache: Arc<TarballCache>,
+  maybe_node_modules_path: Option<PathBuf>,
+  system_info: NpmSystemInfo,
 ) -> Arc<dyn NpmPackageFsResolver> {
-    match maybe_node_modules_path {
-        Some(node_modules_folder) => Arc::new(LocalNpmPackageResolver::new(
-            npm_cache,
-            fs,
-            pkg_json_deps_provider.clone(),
-            resolution,
-            tarball_cache,
-            node_modules_folder,
-            system_info,
-        )),
-        None => Arc::new(GlobalNpmPackageResolver::new(
-            npm_cache,
-            fs,
-            tarball_cache,
-            resolution,
-            system_info,
-        )),
-    }
+  match maybe_node_modules_path {
+    Some(node_modules_folder) => Arc::new(LocalNpmPackageResolver::new(
+      npm_cache,
+      fs,
+      pkg_json_deps_provider.clone(),
+      resolution,
+      tarball_cache,
+      node_modules_folder,
+      system_info,
+    )),
+    None => Arc::new(GlobalNpmPackageResolver::new(
+      npm_cache,
+      fs,
+      tarball_cache,
+      resolution,
+      system_info,
+    )),
+  }
 }

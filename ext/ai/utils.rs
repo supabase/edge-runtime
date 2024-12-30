@@ -11,66 +11,68 @@ use xxhash_rust::xxh3::Xxh3;
 
 #[instrument(fields(%kind, url = %url))]
 pub async fn fetch_and_cache_from_url(
-    kind: &'static str,
-    url: Url,
-    cache_id: Option<String>,
+  kind: &'static str,
+  url: Url,
+  cache_id: Option<String>,
 ) -> Result<PathBuf, AnyError> {
-    let cache_id = cache_id.unwrap_or(fxhash::hash(url.as_str()).to_string());
-    let download_dir = std::env::var("SB_AI_CACHE_DIR")
-        .map_err(AnyError::from)
-        .map(PathBuf::from)
-        .or_else(|_| {
-            ort::sys::internal::dirs::cache_dir().context("could not determine cache directory")
-        })?
-        .join(kind)
-        .join(&cache_id);
+  let cache_id = cache_id.unwrap_or(fxhash::hash(url.as_str()).to_string());
+  let download_dir = std::env::var("SB_AI_CACHE_DIR")
+    .map_err(AnyError::from)
+    .map(PathBuf::from)
+    .or_else(|_| {
+      ort::sys::internal::dirs::cache_dir()
+        .context("could not determine cache directory")
+    })?
+    .join(kind)
+    .join(&cache_id);
 
-    tokio::fs::create_dir_all(&download_dir)
-        .await
-        .context("could not able to create directories")?;
+  tokio::fs::create_dir_all(&download_dir)
+    .await
+    .context("could not able to create directories")?;
 
-    let filename = url
-        .path_segments()
-        .and_then(Iterator::last)
-        .context("missing filename in URL")?;
+  let filename = url
+    .path_segments()
+    .and_then(Iterator::last)
+    .context("missing filename in URL")?;
 
-    let filepath = download_dir.join(filename);
-    let checksum_path = filepath.with_file_name(format!("{filename}.checksum"));
+  let filepath = download_dir.join(filename);
+  let checksum_path = filepath.with_file_name(format!("{filename}.checksum"));
 
-    let is_filepath_exists = tokio::fs::try_exists(&filepath)
-        .await
-        .map_err(AnyError::from)?;
+  let is_filepath_exists = tokio::fs::try_exists(&filepath)
+    .await
+    .map_err(AnyError::from)?;
 
-    let is_checksum_path_exists = tokio::fs::try_exists(&checksum_path)
-        .await
-        .map_err(AnyError::from)?;
+  let is_checksum_path_exists = tokio::fs::try_exists(&checksum_path)
+    .await
+    .map_err(AnyError::from)?;
 
-    let is_checksum_valid = is_checksum_path_exists
-        && 'scope: {
-            let Some(old_checksum_str) = tokio::fs::read_to_string(&checksum_path).await.ok()
-            else {
-                break 'scope false;
-            };
+  let is_checksum_valid = is_checksum_path_exists
+    && 'scope: {
+      let Some(old_checksum_str) =
+        tokio::fs::read_to_string(&checksum_path).await.ok()
+      else {
+        break 'scope false;
+      };
 
-            let filepath = filepath.clone();
-            let checksum = tokio::task::spawn_blocking(move || {
-                let mut file = std::fs::File::open(filepath).ok()?;
-                let mut hasher = Xxh3::new();
-                let _ = std::io::copy(&mut file, &mut hasher).ok()?;
+      let filepath = filepath.clone();
+      let checksum = tokio::task::spawn_blocking(move || {
+        let mut file = std::fs::File::open(filepath).ok()?;
+        let mut hasher = Xxh3::new();
+        let _ = std::io::copy(&mut file, &mut hasher).ok()?;
 
-                Some(hasher.finish().to_be_bytes())
-            })
-            .await;
+        Some(hasher.finish().to_be_bytes())
+      })
+      .await;
 
-            let Ok(Some(checksum)) = checksum else {
-                break 'scope false;
-            };
+      let Ok(Some(checksum)) = checksum else {
+        break 'scope false;
+      };
 
-            old_checksum_str == faster_hex::hex_string(&checksum)
-        };
+      old_checksum_str == faster_hex::hex_string(&checksum)
+    };
 
-    let span = info_span!("download", filepath = %filepath.to_string_lossy());
-    async move {
+  let span = info_span!("download", filepath = %filepath.to_string_lossy());
+  async move {
         if is_filepath_exists && is_checksum_valid {
             info!("binary already exists, skipping download");
             Ok(filepath.clone())

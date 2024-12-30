@@ -35,10 +35,9 @@ import * as WebGPUSurface from 'ext:deno_webgpu/02_surface.js';
 import 'ext:sb_ai/js/onnxruntime/cache_adapter.js';
 
 import { SUPABASE_ENV } from 'ext:sb_env/env.js';
-import { USER_WORKER_API as ai } from 'ext:sb_ai/js/ai.js';
 
 import { SupabaseEventListener } from 'ext:sb_user_event_worker/event_worker.js';
-import { installEdgeRuntimeNamespace } from 'ext:sb_core_main_js/js/edge_runtime.js';
+import { installEdgeRuntimeNamespace, installSupabaseNamespace } from 'ext:sb_core_main_js/js/namespaces.js';
 import { promiseRejectMacrotaskCallback } from 'ext:sb_core_main_js/js/promises.js';
 import { installPromiseHook } from 'ext:sb_core_main_js/js/async_hook.js';
 import { registerErrors } from 'ext:sb_core_main_js/js/errors.js';
@@ -545,6 +544,7 @@ globalThis.bootstrapSBEdge = (opts, ctx) => {
 
 	installPromiseHook(kind);
 	installEdgeRuntimeNamespace(kind, ctx.terminationRequestToken);
+	installSupabaseNamespace(kind);
 
 	ObjectDefineProperty(globalThis, 'SUPABASE_VERSION', readOnly(String(version.runtime)));
 	ObjectDefineProperty(globalThis, 'DENO_VERSION', readOnly(version.deno));

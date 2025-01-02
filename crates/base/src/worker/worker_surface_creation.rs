@@ -14,7 +14,6 @@ use sb_workers::context::{
     WorkerExit, WorkerRequestMsg, WorkerRuntimeOpts,
 };
 use tokio::sync::{mpsc, oneshot};
-use tokio_util::sync::CancellationToken;
 
 use crate::{inspector_server::Inspector, server::ServerFlags};
 
@@ -329,8 +328,7 @@ impl WorkerSurfaceBuilder {
             worker_builder_hook,
         } = self;
 
-        let (worker_boot_result_tx, worker_boot_result_rx) =
-            oneshot::channel::<Result<(MetricSource, CancellationToken), anyhow::Error>>();
+        let (worker_boot_result_tx, worker_boot_result_rx) = oneshot::channel();
 
         let flags = flags.unwrap_or_default();
         let init_opts = init_opts.context("init_opts must be specified")?;

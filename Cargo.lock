@@ -6226,6 +6226,7 @@ name = "sb_workers"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base_rt",
  "bytes",
  "deno_config",
  "deno_core",

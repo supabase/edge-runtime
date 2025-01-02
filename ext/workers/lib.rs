@@ -94,16 +94,13 @@ pub struct UserWorkerCreateOptions {
 }
 
 #[op2(async)]
-#[string]
+#[serde]
 pub async fn op_user_worker_create(
     state: Rc<RefCell<OpState>>,
     #[serde] opts: UserWorkerCreateOptions,
-) -> Result<String, AnyError> {
+) -> Result<(String, ResourceId), AnyError> {
     let result_rx = {
-        let op_state = state.borrow();
-        let tx = op_state.borrow::<mpsc::UnboundedSender<UserWorkerMsgs>>();
-        let (result_tx, result_rx) = oneshot::channel::<Result<CreateUserWorkerResult, Error>>();
-
+        let (tx, rx) = oneshot::channel::<Result<CreateUserWorkerResult, Error>>();
         let UserWorkerCreateOptions {
             service_path,
             env_vars,
@@ -183,7 +180,7 @@ pub async fn op_user_worker_create(
                             deno_core::resolve_url_or_path(
                                 // FIXME: The type alias does not have a unique
                                 // type id and should not be used here.
-                                op_state.borrow::<ModuleSpecifier>().as_str(),
+                                state.borrow().borrow::<ModuleSpecifier>().as_str(),
                                 std::env::current_dir()?.as_path(),
                             )?
                         },
@@ -195,8 +192,12 @@ pub async fn op_user_worker_create(
             maybe_tmp_fs_config,
         };
 
-        tx.send(UserWorkerMsgs::Create(user_worker_options, result_tx))?;
-        result_rx
+        state
+            .borrow()
+            .borrow::<mpsc::UnboundedSender<UserWorkerMsgs>>()
+            .send(UserWorkerMsgs::Create(user_worker_options, tx))?;
+
+        rx
     };
 
     match result_rx.await {
@@ -209,7 +210,13 @@ pub async fn op_user_worker_create(
         )),
 
         Ok(Err(err)) => Err(custom_error("InvalidWorkerCreation", format!("{err:#}"))),
-        Ok(Ok(v)) => Ok(v.key.to_string()),
+        Ok(Ok(CreateUserWorkerResult { key, token })) => Ok((
+            key.to_string(),
+            state
+                .borrow_mut()
+                .resource_table
+                .add(UserWorkerCancellationToken(token.clone())),
+        )),
     }
 }
 
@@ -585,4 +592,38 @@ impl Stream for BodyStream {
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         self.0.poll_recv(cx)
     }
+}
+
+struct UserWorkerCancellationToken(CancellationToken);
+
+impl Resource for UserWorkerCancellationToken {
+    fn name(&self) -> std::borrow::Cow<str> {
+        std::any::type_name::<Self>().into()
+    }
+}
+
+#[op2(async)]
+#[serde]
+pub async fn op_user_user_worker_wait_token_cancelled(
+    state: Rc<RefCell<OpState>>,
+    #[smi] rid: ResourceId,
+) -> Result<(), AnyError> {
+    let token = state
+        .borrow()
+        .resource_table
+        .get::<UserWorkerCancellationToken>(rid)?
+        .0
+        .clone();
+
+    token.cancelled().await;
+    Ok(())
+}
+
+#[op2(fast)]
+pub fn op_user_worker_is_active(state: &mut OpState, #[smi] rid: ResourceId) -> bool {
+    state
+        .resource_table
+        .get::<UserWorkerCancellationToken>(rid)
+        .map(|it| !it.0.is_cancelled())
+        .unwrap_or_default()
 }

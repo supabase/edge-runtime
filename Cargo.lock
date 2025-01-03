@@ -1371,6 +1371,7 @@ dependencies = [
  "graph",
  "log",
  "once_cell",
+ "sb_event_worker",
  "tokio",
  "tracing-subscriber",
 ]

@@ -4,7 +4,7 @@ use deno_core::error::AnyError;
 use deno_core::op2;
 use deno_core::OpState;
 use tokio::sync::mpsc;
-use tracing::{event, trace};
+use tracing::trace;
 
 #[op2(fast)]
 fn op_user_worker_log(
@@ -35,11 +35,19 @@ fn op_user_worker_log(
         trace!(?metadata);
         tx.send(metadata)?;
     } else {
-        match level {
-            LogLevel::Debug => event!(tracing::Level::DEBUG, "{msg}"),
-            LogLevel::Info => event!(tracing::Level::INFO, "{msg}"),
-            LogLevel::Warning => event!(tracing::Level::WARN, "{msg}"),
-            LogLevel::Error => event!(tracing::Level::ERROR, "{msg}"),
+        #[cfg(feature = "tracing")]
+        {
+            match level {
+                LogLevel::Debug => tracing::event!(tracing::Level::DEBUG, "{msg}"),
+                LogLevel::Info => tracing::event!(tracing::Level::INFO, "{msg}"),
+                LogLevel::Warning => tracing::event!(tracing::Level::WARN, "{msg}"),
+                LogLevel::Error => tracing::event!(tracing::Level::ERROR, "{msg}"),
+            }
+        }
+
+        #[cfg(not(feature = "tracing"))]
+        {
+            log::error!("[{:?}] {}", level, msg.to_string());
         }
     }
 

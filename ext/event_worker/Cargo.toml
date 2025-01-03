@@ -20,3 +20,6 @@ tokio.workspace = true
 log.workspace = true
 tracing.workspace = true
 enum-as-inner.workspace = true
+
+[features]
+tracing = []

@@ -1462,6 +1462,7 @@ dependencies = [
  "glob",
  "log",
  "once_cell",
+ "ext_event_worker",
  "tokio",
  "tracing-subscriber",
 ]

@@ -40,11 +40,19 @@ fn op_user_worker_log(
     trace!(?metadata);
     tx.send(metadata)?;
   } else {
-    match level {
-      LogLevel::Debug => event!(tracing::Level::DEBUG, "{msg}"),
-      LogLevel::Info => event!(tracing::Level::INFO, "{msg}"),
-      LogLevel::Warning => event!(tracing::Level::WARN, "{msg}"),
-      LogLevel::Error => event!(tracing::Level::ERROR, "{msg}"),
+    #[cfg(feature = "tracing")]
+    {
+      match level {
+        LogLevel::Debug => tracing::event!(tracing::Level::DEBUG, "{msg}"),
+        LogLevel::Info => tracing::event!(tracing::Level::INFO, "{msg}"),
+        LogLevel::Warning => tracing::event!(tracing::Level::WARN, "{msg}"),
+        LogLevel::Error => tracing::event!(tracing::Level::ERROR, "{msg}"),
+      }
+    }
+
+    #[cfg(not(feature = "tracing"))]
+    {
+      log::error!("[{:?}] {}", level, msg.to_string());
     }
   }
 

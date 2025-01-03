@@ -15,6 +15,8 @@ base.workspace = true
 deno_manifest.workspace = true
 graph.workspace = true
 
+sb_event_worker = { workspace = true, optional = true, features = ["tracing"] }
+
 anyhow.workspace = true
 log.workspace = true
 tokio.workspace = true
@@ -26,4 +28,4 @@ tracing-subscriber = { workspace = true, optional = true }
 env_logger = "0.10.0"
 
 [features]
-tracing = ["dep:tracing-subscriber"]
+tracing = ["dep:tracing-subscriber", "dep:sb_event_worker"]

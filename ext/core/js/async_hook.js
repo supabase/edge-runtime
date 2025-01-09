@@ -6,39 +6,36 @@ const { Promise } = primordials;
 const PROMISES = new Set();
 
 function waitUntilInner(maybePromise) {
-    if (maybePromise instanceof Promise) {
-        ops.op_tap_promise_metrics("init");
-        PROMISES.add(maybePromise);
-    }
+  if (maybePromise instanceof Promise) {
+    ops.op_tap_promise_metrics("init");
+    PROMISES.add(maybePromise);
+  }
 
-    return maybePromise;
+  return maybePromise;
 }
 
 function waitUntil(maybePromise) {
-    return waitUntilInner(maybePromise);
+  return waitUntilInner(maybePromise);
 }
 
 /**
- * @param {"user" | "main" | "event"} kind 
+ * @param {"user" | "main" | "event"} kind
  */
 function installPromiseHook(kind) {
-    if (kind !== "user") {
-        return;
-    }
+  if (kind !== "user") {
+    return;
+  }
 
-    core.setPromiseHooks(
-        null,
-        null,
-        null,
-        promise => {
-            if (PROMISES.delete(promise)) {
-                ops.op_tap_promise_metrics("resolve");
-            }
-        },
-    );
+  core.setPromiseHooks(
+    null,
+    null,
+    null,
+    (promise) => {
+      if (PROMISES.delete(promise)) {
+        ops.op_tap_promise_metrics("resolve");
+      }
+    },
+  );
 }
 
-export {
-    waitUntil,
-    installPromiseHook
-}
+export { installPromiseHook, waitUntil };

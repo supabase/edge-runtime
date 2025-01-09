@@ -1,67 +1,88 @@
-// TODO: Remove the line below after updating the rust toolchain to v1.81.
-#![allow(clippy::blocks_in_conditions)]
-
 use core::slice;
-use std::{
-  borrow::Cow,
-  cell::RefCell,
-  ffi::OsStr,
-  fmt::Debug,
-  io::{self, Cursor},
-  mem,
-  os::fd::AsRawFd,
-  path::{Path, PathBuf},
-  pin::Pin,
-  rc::Rc,
-  sync::Arc,
-  time::{Duration, SystemTime, UNIX_EPOCH},
-};
+use std::borrow::Cow;
+use std::cell::RefCell;
+use std::ffi::OsStr;
+use std::fmt::Debug;
+use std::io::Cursor;
+use std::io::{self};
+use std::mem;
+use std::os::fd::AsRawFd;
+use std::path::Path;
+use std::path::PathBuf;
+use std::pin::Pin;
+use std::rc::Rc;
+use std::sync::Arc;
+use std::time::Duration;
+use std::time::SystemTime;
+use std::time::UNIX_EPOCH;
 
 use super::TryNormalizePath;
-use anyhow::{anyhow, Context};
-use aws_config::{retry::RetryConfig, AppName, BehaviorVersion, Region};
-use aws_credential_types::{
-  credential_fn::provide_credentials_fn, Credentials,
-};
-use aws_sdk_s3::{
-  config::{SharedCredentialsProvider, SharedHttpClient},
-  error::SdkError,
-  operation::{
-    head_object::HeadObjectError,
-    upload_part::{UploadPartError, UploadPartOutput},
-  },
-  primitives::{ByteStream, DateTime},
-  types::{CompletedMultipartUpload, CompletedPart, Delete, ObjectIdentifier},
-  Config,
-};
+use anyhow::anyhow;
+use anyhow::Context;
+use aws_config::retry::RetryConfig;
+use aws_config::AppName;
+use aws_config::BehaviorVersion;
+use aws_config::Region;
+use aws_credential_types::credential_fn::provide_credentials_fn;
+use aws_credential_types::Credentials;
+use aws_sdk_s3::config::SharedCredentialsProvider;
+use aws_sdk_s3::config::SharedHttpClient;
+use aws_sdk_s3::error::SdkError;
+use aws_sdk_s3::operation::head_object::HeadObjectError;
+use aws_sdk_s3::operation::upload_part::UploadPartError;
+use aws_sdk_s3::operation::upload_part::UploadPartOutput;
+use aws_sdk_s3::primitives::ByteStream;
+use aws_sdk_s3::primitives::DateTime;
+use aws_sdk_s3::types::CompletedMultipartUpload;
+use aws_sdk_s3::types::CompletedPart;
+use aws_sdk_s3::types::Delete;
+use aws_sdk_s3::types::ObjectIdentifier;
+use aws_sdk_s3::Config;
 use aws_smithy_runtime::client::http::hyper_014::HyperClientBuilder;
 use aws_smithy_runtime_api::client::orchestrator::HttpResponse;
-use deno_core::{
-  AsyncRefCell, BufMutView, BufView, RcRef, ResourceHandleFd, WriteOutcome,
-};
-use deno_fs::{AccessCheckCb, FsDirEntry, FsFileType, OpenOptions};
-use deno_io::fs::{File, FsError, FsResult, FsStat};
+use deno_core::AsyncRefCell;
+use deno_core::BufMutView;
+use deno_core::BufView;
+use deno_core::RcRef;
+use deno_core::ResourceHandleFd;
+use deno_core::WriteOutcome;
+use deno_fs::AccessCheckCb;
+use deno_fs::FsDirEntry;
+use deno_fs::FsFileType;
+use deno_fs::OpenOptions;
+use deno_io::fs::File;
+use deno_io::fs::FsError;
+use deno_io::fs::FsResult;
+use deno_io::fs::FsStat;
 use either::Either;
 use enum_as_inner::EnumAsInner;
-use futures::{
-  future::{BoxFuture, Shared},
-  io::AllowStdIo,
-  stream::FuturesUnordered,
-  AsyncWriteExt, FutureExt, StreamExt, TryFutureExt,
-};
+use futures::future::BoxFuture;
+use futures::future::Shared;
+use futures::io::AllowStdIo;
+use futures::stream::FuturesUnordered;
+use futures::AsyncWriteExt;
+use futures::FutureExt;
+use futures::StreamExt;
+use futures::TryFutureExt;
 
-use memmap2::{MmapOptions, MmapRaw};
+use memmap2::MmapOptions;
+use memmap2::MmapRaw;
 use once_cell::sync::OnceCell;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 use tempfile::tempfile;
-use tokio::{
-  io::{AsyncBufRead, AsyncReadExt},
-  sync::RwLock,
-  task::JoinError,
-};
-use tracing::{
-  debug, error, info_span, instrument, trace, trace_span, warn, Instrument,
-};
+use tokio::io::AsyncBufRead;
+use tokio::io::AsyncReadExt;
+use tokio::sync::RwLock;
+use tokio::task::JoinError;
+use tracing::debug;
+use tracing::error;
+use tracing::info_span;
+use tracing::instrument;
+use tracing::trace;
+use tracing::trace_span;
+use tracing::warn;
+use tracing::Instrument;
 
 const MIN_PART_SIZE: usize = 1024 * 1024 * 5;
 
@@ -246,7 +267,9 @@ impl S3FsConfig {
 
   fn get_thread_local_shared_http_client() -> SharedHttpClient {
     thread_local! {
-        static CLIENT: RefCell<OnceCell<SharedHttpClient>> = const { RefCell::new(OnceCell::new()) };
+        static CLIENT: RefCell<OnceCell<SharedHttpClient>> = const {
+          RefCell::new(OnceCell::new())
+        };
     }
 
     CLIENT.with(|it| {
@@ -278,9 +301,13 @@ fn resolve_proxy_connector() -> Option<
   >,
 > {
   use headers::Authorization;
-  use hyper_proxy::{Intercept, Proxy, ProxyConnector};
-  use hyper_rustls::{HttpsConnector, HttpsConnectorBuilder};
-  use hyper_v014::{client::HttpConnector, Uri};
+  use hyper_proxy::Intercept;
+  use hyper_proxy::Proxy;
+  use hyper_proxy::ProxyConnector;
+  use hyper_rustls::HttpsConnector;
+  use hyper_rustls::HttpsConnectorBuilder;
+  use hyper_v014::client::HttpConnector;
+  use hyper_v014::Uri;
   use once_cell::sync::Lazy;
   use url::Url;
 
@@ -1282,32 +1309,36 @@ impl S3WriteUploadMethod {
             .map_err(io::Error::other)?;
 
           return Err(FsError::Io(io::Error::other(
-                        "upload was aborted because some parts were not successfully uploaded",
-                    )));
+            "upload was aborted because some parts were not successfully uploaded",
+          )));
         }
 
         client
-                    .complete_multipart_upload()
-                    .bucket(bucket_name)
-                    .key(key)
-                    .upload_id(mem::take(&mut multi_part.upload_id))
-                    .multipart_upload(
-                        CompletedMultipartUpload::builder()
-                            .set_parts({
-                                let mut parts = mem::take(&mut multi_part.parts);
+          .complete_multipart_upload()
+          .bucket(bucket_name)
+          .key(key)
+          .upload_id(mem::take(&mut multi_part.upload_id))
+          .multipart_upload(
+            CompletedMultipartUpload::builder()
+              .set_parts({
+                let mut parts = mem::take(&mut multi_part.parts);
 
-                                parts.sort_by(|a, b| {
-                                    a.part_number().unwrap().cmp(&b.part_number().unwrap())
-                                });
+                parts.sort_by(|a, b| {
+                  a.part_number().unwrap().cmp(&b.part_number().unwrap())
+                });
 
-                                trace!(idx_list = ?parts.iter().map(|it| it.part_number().unwrap()).collect::<Vec<_>>());
-                                Some(parts)
-                            })
-                            .build(),
-                    )
-                    .send()
-                    .await
-                    .map_err(io::Error::other)?;
+                trace!(
+                  idx_list = ?parts
+                    .iter()
+                    .map(|it| it.part_number().unwrap()).collect::<Vec<_>>()
+                );
+                Some(parts)
+              })
+              .build(),
+          )
+          .send()
+          .await
+          .map_err(io::Error::other)?;
       }
 
       Self::PutObject => {
@@ -1833,14 +1864,16 @@ where
 
 #[cfg(test)]
 mod test {
-  use std::{io, path::PathBuf, sync::Arc};
+  use std::io;
+  use std::path::PathBuf;
+  use std::sync::Arc;
 
   use aws_config::BehaviorVersion;
   use aws_sdk_s3::{self as s3};
-  use aws_smithy_runtime::client::http::test_util::{
-    ReplayEvent, StaticReplayClient,
-  };
-  use deno_fs::{FileSystem, OpenOptions};
+  use aws_smithy_runtime::client::http::test_util::ReplayEvent;
+  use aws_smithy_runtime::client::http::test_util::StaticReplayClient;
+  use deno_fs::FileSystem;
+  use deno_fs::OpenOptions;
   use once_cell::sync::Lazy;
 
   static OPEN_CREATE: Lazy<OpenOptions> = Lazy::new(|| OpenOptions {

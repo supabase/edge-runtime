@@ -2,33 +2,44 @@ use crate::inspector_server::Inspector;
 use crate::server::ServerFlags;
 use crate::worker::WorkerSurfaceBuilder;
 
-use anyhow::{anyhow, bail, Context, Error};
+use anyhow::anyhow;
+use anyhow::bail;
+use anyhow::Context;
+use anyhow::Error;
 use deno_config::JsxImportSourceConfig;
 use either::Either::Left;
 use enum_as_inner::EnumAsInner;
+use ext_core::util::sync::AtomicFlag;
+use ext_core::SharedMetricSource;
+use ext_event_worker::events::WorkerEventWithMetadata;
+use ext_workers::context::CreateUserWorkerResult;
+use ext_workers::context::SendRequestResult;
+use ext_workers::context::Timing;
+use ext_workers::context::TimingStatus;
+use ext_workers::context::UserWorkerMsgs;
+use ext_workers::context::UserWorkerProfile;
+use ext_workers::context::WorkerContextInitOpts;
+use ext_workers::context::WorkerRuntimeOpts;
+use ext_workers::errors::WorkerError;
 use http_v02::Request;
 use hyper_v014::Body;
 use log::error;
-use sb_core::util::sync::AtomicFlag;
-use sb_core::SharedMetricSource;
-use sb_event_worker::events::WorkerEventWithMetadata;
-use sb_workers::context::{
-  CreateUserWorkerResult, SendRequestResult, Timing, TimingStatus,
-  UserWorkerMsgs, UserWorkerProfile, WorkerContextInitOpts, WorkerRuntimeOpts,
-};
-use sb_workers::errors::WorkerError;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+use std::collections::HashSet;
 use std::convert::Infallible;
 use std::future::pending;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::mpsc;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::oneshot::Sender;
-use tokio::sync::{
-  mpsc, Notify, OwnedSemaphorePermit, Semaphore, TryAcquireError,
-};
+use tokio::sync::Notify;
+use tokio::sync::OwnedSemaphorePermit;
+use tokio::sync::Semaphore;
+use tokio::sync::TryAcquireError;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -313,9 +324,9 @@ impl WorkerPool {
         match sem.clone().try_acquire_owned() {
           Ok(permit) => return Create(Some(permit), tx),
           Err(TryAcquireError::NoPermits) if force_create => {
-            // NOTE(Nyannyacha): Do we need to consider counting the
-            // permit count (that means it affects maximum
-            // parallelism) if in the force creation mode?
+            // NOTE(Nyannyacha): Do we need to consider counting the permit
+            // count (that means it affects maximum parallelism) if in the force
+            // creation mode?
             return Create(None, tx);
           }
 
@@ -325,30 +336,40 @@ impl WorkerPool {
         tokio::pin!(wait_timeout);
         loop {
           tokio::select! {
-              maybe_key = notify_rx.recv_async() => {
-                  match maybe_key {
-                      Err(x) => {
-                          if tx.send(Err(anyhow!("worker channel is no longer valid: {}", x))).is_err() {
-                              error!("main worker receiver dropped");
-                          }
-                          return Stop;
-                      }
-
-                      Ok(Some(_)) => return Resend(tx),
-                      Ok(None) => {
-                          if let Ok(permit) = sem.clone().try_acquire_owned() {
-                              return Create(Some(permit), tx);
-                          }
-                      }
-                  }
-              },
-
-              () = &mut wait_timeout => {
-                  if tx.send(Err(anyhow!("worker did not respond in time"))).is_err() {
-                      error!("main worker receiver dropped");
+            maybe_key = notify_rx.recv_async() => {
+              match maybe_key {
+                Err(x) => {
+                  if
+                    tx
+                      .send(Err(anyhow!(
+                        "worker channel is no longer valid: {}", x
+                      )))
+                      .is_err()
+                  {
+                    error!("main worker receiver dropped");
                   }
                   return Stop;
+                }
+
+                Ok(Some(_)) => return Resend(tx),
+                Ok(None) => {
+                  if let Ok(permit) = sem.clone().try_acquire_owned() {
+                    return Create(Some(permit), tx);
+                  }
+                }
               }
+            },
+
+            () = &mut wait_timeout => {
+              if
+                tx
+                  .send(Err(anyhow!("worker did not respond in time")))
+                  .is_err()
+              {
+                error!("main worker receiver dropped");
+              }
+              return Stop;
+            }
           }
         }
       }
@@ -530,17 +551,15 @@ impl WorkerPool {
             let fence = Arc::new(Notify::const_new());
 
             if let Err(ex) = req_start_tx.send(fence.clone()) {
-              // NOTE(Nyannyacha): The only way to be trapped in
-              // this branch is if the supervisor associated with
-              // the isolate has been terminated for some reason,
-              // such as a wall-clock timeout.
+              // NOTE(Nyannyacha): The only way to be trapped in this branch is
+              // if the supervisor associated with the isolate has been
+              // terminated for some reason, such as a wall-clock timeout.
               //
-              // It can be expected enough if many isolates are
-              // created at once due to requests rapidly
-              // increasing.
+              // It can be expected enough if many isolates are created at once
+              // due to requests rapidly increasing.
               //
-              // To prevent this, we must give a wall-clock time
-              // limit enough to each supervisor.
+              // To prevent this, we must give a wall-clock time limit enough to
+              // each supervisor.
               error!("failed to notify the fence to the supervisor");
               return Err(ex).with_context(|| {
                 "failed to notify the fence to the supervisor"
@@ -548,13 +567,17 @@ impl WorkerPool {
             }
 
             tokio::select! {
-                _ = fence.notified() => {}
-                _ = cancel.cancelled() => {
-                    bail!(exit
-                        .error()
-                        .await
-                        .unwrap_or(anyhow!(WorkerError::RequestCancelledBySupervisor)))
-                }
+              _ = fence.notified() => {}
+              _ = cancel.cancelled() => {
+                bail!(
+                  exit
+                    .error()
+                    .await
+                    .unwrap_or(
+                      anyhow!(WorkerError::RequestCancelledBySupervisor)
+                    )
+                )
+              }
             }
           }
 
@@ -716,66 +739,69 @@ pub async fn create_user_worker_pool(
       // Handle errors within tasks and log them - do not bubble up errors.
       loop {
         tokio::select! {
-            _ = async {
+          _ = async {
+            if let Some(token) = token {
+                token.inbound.cancelled().await;
+            } else {
+                pending::<()>().await;
+            }
+          }, if !termination_requested => {
+            termination_requested = true;
+
+            if worker_pool.user_workers.is_empty() {
                 if let Some(token) = token {
-                    token.inbound.cancelled().await;
-                } else {
-                    pending::<()>().await;
+                    token.outbound.cancel();
                 }
-            }, if !termination_requested => {
-                termination_requested = true;
 
-                if worker_pool.user_workers.is_empty() {
-                    if let Some(token) = token {
-                        token.outbound.cancel();
-                    }
-
-                    break;
-                }
+                break;
             }
+          }
 
-            msg = user_worker_msgs_rx.recv() => {
-                match msg {
-                    None => break,
-                    Some(UserWorkerMsgs::Create(worker_options, tx)) => {
-                        worker_pool.create_user_worker(WorkerContextInitOpts {
-                            static_patterns: static_patterns.clone(),
-                            maybe_jsx_import_source_config: {
-                                if worker_options.maybe_jsx_import_source_config.is_some() {
-                                    worker_options.maybe_jsx_import_source_config
-                                } else {
-                                    jsx.clone()
-                                }
-                            },
-                            ..worker_options
-                        }, tx, token.map(TerminationToken::child_token));
+          msg = user_worker_msgs_rx.recv() => {
+            match msg {
+              None => break,
+              Some(UserWorkerMsgs::Create(worker_options, tx)) => {
+                worker_pool.create_user_worker(WorkerContextInitOpts {
+                  static_patterns: static_patterns.clone(),
+                  maybe_jsx_import_source_config: {
+                    if worker_options.maybe_jsx_import_source_config.is_some() {
+                      worker_options.maybe_jsx_import_source_config
+                    } else {
+                      jsx.clone()
                     }
+                  },
+                  ..worker_options,
+                }, tx, token.map(TerminationToken::child_token));
+              }
 
-                    Some(UserWorkerMsgs::Created(key, profile)) => {
-                        worker_pool.add_user_worker(key, profile);
-                    }
+              Some(UserWorkerMsgs::Created(key, profile)) => {
+                worker_pool.add_user_worker(key, profile);
+              }
 
-                    Some(UserWorkerMsgs::SendRequest(key, req, res_tx, conn_token)) => {
-                        worker_pool.send_request(&key, req, res_tx, conn_token);
-                    }
+              Some(UserWorkerMsgs::SendRequest(key, req, res_tx, conn_token)) => {
+                worker_pool.send_request(&key, req, res_tx, conn_token);
+              }
 
-                    Some(UserWorkerMsgs::Idle(key)) => {
-                        worker_pool.idle(&key);
-                    }
+              Some(UserWorkerMsgs::Idle(key)) => {
+                worker_pool.idle(&key);
+              }
 
-                    Some(UserWorkerMsgs::Shutdown(key)) => {
-                        worker_pool.shutdown(&key);
+              Some(UserWorkerMsgs::Shutdown(key)) => {
+                worker_pool.shutdown(&key);
 
-                        if termination_requested && worker_pool.user_workers.is_empty() {
-                            if let Some(token) = token {
-                                token.outbound.cancel();
-                            }
+                if
+                  termination_requested
+                    && worker_pool.user_workers.is_empty()
+                {
+                  if let Some(token) = token {
+                    token.outbound.cancel();
+                  }
 
-                            break;
-                        }
-                    }
+                  break;
                 }
+              }
             }
+          }
         }
       }
 

@@ -44,8 +44,8 @@ fn op_system_memory_info() -> Option<MemInfo> {
 }
 
 deno_core::extension!(
-  sb_os,
+  os,
   ops = [op_system_memory_info],
-  esm_entry_point = "ext:sb_os/os.js",
+  esm_entry_point = "ext:os/os.js",
   esm = ["os.js"]
 );

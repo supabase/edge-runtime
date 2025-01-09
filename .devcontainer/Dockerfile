@@ -11,6 +11,7 @@ COPY scripts/install_onnx.sh /tmp/install_onnx.sh
 
 WORKDIR /tmp
 
-ENV DENO_INSTALL=/deno
+ENV DENO_INSTALL=/usr/local
+ENV DPRINT_INSTALL=/usr/local
 
 RUN /tmp/install.sh $TARGETPLATFORM

@@ -200,8 +200,10 @@ fn register_sigalrm() {
 
   use futures::StreamExt;
   use linux::SignalMsg;
-  use log::{debug, error};
-  use signal_hook::{consts::signal, iterator::exfiltrator::raw};
+  use log::debug;
+  use log::error;
+  use signal_hook::consts::signal;
+  use signal_hook::iterator::exfiltrator::raw;
   use signal_hook_tokio::SignalsInfo;
 
   let (sig_timer_id_tx, mut sig_timer_id_rx) =
@@ -213,61 +215,67 @@ fn register_sigalrm() {
   let mut sig_msg_rx = linux::SIG_MSG_CHAN.1.lock().unwrap().take().unwrap();
 
   std::thread::Builder::new()
-        .name("sb-cpu-timer".into())
-        .spawn(|| {
-            let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-            let sig_receiver_handle = rt.spawn(async move {
-                let mut signals = SignalsInfo::with_exfiltrator([signal::SIGALRM], raw::WithRawSiginfo).unwrap();
+    .name("sb-cpu-timer".into())
+    .spawn(|| {
+      let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+      let sig_receiver_handle = rt.spawn(async move {
+        let mut signals =
+          SignalsInfo::with_exfiltrator([signal::SIGALRM], raw::WithRawSiginfo)
+            .unwrap();
 
-                while let Some(siginfo) = signals.next().await {
-                    let _ = sig_timer_id_tx.send(unsafe { siginfo.si_value().sival_ptr as usize });
-                }
-            });
+        while let Some(siginfo) = signals.next().await {
+          let _ = sig_timer_id_tx
+            .send(unsafe { siginfo.si_value().sival_ptr as usize });
+        }
+      });
 
-            let msg_handle = rt.spawn(async move {
-                loop {
-                    tokio::select! {
-                        Some(msg) = sig_msg_rx.recv() => {
-                            match msg {
-                                SignalMsg::Alarm(ref timer_id) => {
-                                    if let Some(cpu_timer) = registry.get(timer_id) {
-                                        let tx = cpu_timer.cpu_alarm_val.cpu_alarms_tx.clone();
+      let msg_handle = rt.spawn(async move {
+        loop {
+          tokio::select! {
+            Some(msg) = sig_msg_rx.recv() => {
+              match msg {
+                SignalMsg::Alarm(ref timer_id) => {
+                    if let Some(cpu_timer) = registry.get(timer_id) {
+                      let tx = cpu_timer.cpu_alarm_val.cpu_alarms_tx.clone();
 
-                                        if tx.send(()).is_err() {
-                                            debug!("failed to send cpu alarm to the provided channel");
-                                        }
-                                    } else {
-                                        // NOTE: Unix signals are being
-                                        // delivered asynchronously, and there
-                                        // are no guarantees to cancel the
-                                        // signal after a timer has been
-                                        // deleted, and after a signal is
-                                        // received, there may no longer be a
-                                        // target to accept it.
-                                        error!("can't find the cpu alarm signal matched with the received timer id: {}", *timer_id);
-                                    }
-                                }
-
-                                SignalMsg::Add((timer_id, cpu_timer)) => {
-                                    let _ = registry.insert(timer_id, cpu_timer);
-                                }
-
-                                SignalMsg::Remove(ref timer_id) => {
-                                    let _ = registry.remove(timer_id);
-                                }
-                            }
-                        }
-
-                        Some(id) = sig_timer_id_rx.recv() => {
-                            let _ = sig_msg_tx.send(SignalMsg::Alarm(id));
-                        }
+                      if tx.send(()).is_err() {
+                        debug!("failed to send cpu alarm to the provided channel");
+                      }
+                    } else {
+                      // NOTE: Unix signals are being delivered asynchronously,
+                      // and there are no guarantees to cancel the signal after
+                      // a timer has been deleted, and after a signal is
+                      // received, there may no longer be a target to accept it.
+                      error!(
+                        "can't find the cpu alarm signal matched with the received timer id: {}",
+                        *timer_id
+                      );
                     }
                 }
-            });
 
-            rt.block_on(async move {
-                let _ = tokio::join!(sig_receiver_handle, msg_handle);
-            });
-        })
-        .unwrap();
+                SignalMsg::Add((timer_id, cpu_timer)) => {
+                  let _ = registry.insert(timer_id, cpu_timer);
+                }
+
+                SignalMsg::Remove(ref timer_id) => {
+                  let _ = registry.remove(timer_id);
+                }
+              }
+            }
+
+            Some(id) = sig_timer_id_rx.recv() => {
+              let _ = sig_msg_tx.send(SignalMsg::Alarm(id));
+            }
+          }
+        }
+      });
+
+      rt.block_on(async move {
+        let _ = tokio::join!(sig_receiver_handle, msg_handle);
+      });
+    })
+    .unwrap();
 }

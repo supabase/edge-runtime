@@ -20,13 +20,13 @@ deno_npm.workspace = true
 deno_semver.workspace = true
 deno_web.workspace = true
 
-# npm_cache.workspace = true
+# cli_cache.workspace = true
 # npm.workspace = true
 eszip_async_trait.workspace = true
 fs.workspace = true
 
-sb_core.workspace = true
-sb_node.workspace = true
+ext_core.workspace = true
+ext_node.workspace = true
 
 anyhow.workspace = true
 async-trait.workspace = true
@@ -48,5 +48,5 @@ hashlink = "0.8"
 pathdiff = "0.2"
 
 [dev-dependencies]
-tempfile.workspace = true
 enum-as-inner.workspace = true
+tempfile.workspace = true

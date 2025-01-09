@@ -2,26 +2,30 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::deno_runtime::{
-  DenoRuntime, RunOptionsBuilder, WillTerminateReason,
-};
-use crate::worker::supervisor::{self, v8_handle_beforeunload};
-use crate::worker::{DuplexStreamEntry, WorkerCx};
+use crate::deno_runtime::DenoRuntime;
+use crate::deno_runtime::RunOptionsBuilder;
+use crate::deno_runtime::WillTerminateReason;
+use crate::worker::supervisor::v8_handle_beforeunload;
+use crate::worker::supervisor::{self};
+use crate::worker::DuplexStreamEntry;
+use crate::worker::WorkerCx;
 use anyhow::Error;
 use base_mem_check::MemCheckState;
+use ext_event_worker::events::ShutdownEvent;
+use ext_event_worker::events::ShutdownReason;
+use ext_event_worker::events::UncaughtExceptionEvent;
+use ext_event_worker::events::WorkerEvents;
+use ext_event_worker::events::WorkerMemoryUsed;
 use futures_util::FutureExt;
 use log::error;
-use sb_event_worker::events::{
-  ShutdownEvent, ShutdownReason, UncaughtExceptionEvent, WorkerEvents,
-  WorkerMemoryUsed,
-};
 use tokio::sync::mpsc;
 use tokio::sync::Mutex;
 use tokio::task::JoinError;
 use tokio::time::timeout;
 use tracing::warn;
 
-use super::{BaseCx, WorkerDriver};
+use super::BaseCx;
+use super::WorkerDriver;
 
 const SUPERVISE_DEADLINE_SEC: Duration = Duration::from_secs(15);
 
@@ -168,10 +172,10 @@ impl WorkerDriver for Managed {
         );
 
         tokio::select! {
-            _ = runtime_drop_token.cancelled() => {},
-            Ok(_) = tokio::signal::ctrl_c() => {
-                warn!("interrupt signal received");
-            }
+          _ = runtime_drop_token.cancelled() => {},
+          Ok(_) = tokio::signal::ctrl_c() => {
+            warn!("interrupt signal received");
+          }
         }
       }
 

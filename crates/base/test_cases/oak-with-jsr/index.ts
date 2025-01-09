@@ -4,10 +4,10 @@ import { Router } from "jsr:@oak/oak/router";
 const router = new Router();
 
 router
-	// Note: path will be prefixed with function name
-	.get("/oak-with-jsr", (context) => {
-		context.response.body = "meow";
-	});
+  // Note: path will be prefixed with function name
+  .get("/oak-with-jsr", (context) => {
+    context.response.body = "meow";
+  });
 
 const app = new Application();
 

@@ -1,6 +1,8 @@
-use anyhow::{anyhow, Error};
+use anyhow::anyhow;
+use anyhow::Error;
 use deno_core::url::Url;
-use import_map::{parse_from_json, ImportMap};
+use import_map::parse_from_json;
+use import_map::ImportMap;
 use std::fs;
 use std::path::Path;
 use urlencoding::decode;

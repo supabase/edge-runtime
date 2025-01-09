@@ -1,57 +1,69 @@
-use std::{
-  path::{Path, PathBuf},
-  sync::Arc,
-};
+use std::path::Path;
+use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::Context;
 use deno_config::JsxImportSourceConfig;
 use either::Either;
-use graph::{DecoratorType, EszipPayloadKind};
-use sb_core::{MetricSource, SharedMetricSource};
-use sb_event_worker::events::{
-  BootEvent, WorkerEventWithMetadata, WorkerEvents,
-};
-use sb_workers::context::{
-  EventWorkerRuntimeOpts, MainWorkerRuntimeOpts, UserWorkerMsgs,
-  WorkerContextInitOpts, WorkerExit, WorkerRequestMsg, WorkerRuntimeOpts,
-};
-use tokio::sync::{mpsc, oneshot};
+use ext_core::MetricSource;
+use ext_core::SharedMetricSource;
+use ext_event_worker::events::BootEvent;
+use ext_event_worker::events::WorkerEventWithMetadata;
+use ext_event_worker::events::WorkerEvents;
+use ext_workers::context::EventWorkerRuntimeOpts;
+use ext_workers::context::MainWorkerRuntimeOpts;
+use ext_workers::context::UserWorkerMsgs;
+use ext_workers::context::WorkerContextInitOpts;
+use ext_workers::context::WorkerExit;
+use ext_workers::context::WorkerRequestMsg;
+use ext_workers::context::WorkerRuntimeOpts;
+use graph::DecoratorType;
+use graph::EszipPayloadKind;
+use tokio::sync::mpsc;
+use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
-use crate::{inspector_server::Inspector, server::ServerFlags};
+use crate::inspector_server::Inspector;
+use crate::server::ServerFlags;
 
-use super::{
-  driver::WorkerDriver, pool::SupervisorPolicy,
-  termination_token::TerminationToken,
-  utils::send_event_if_event_worker_available, WorkerBuilder, WorkerSurface,
-};
+use super::driver::WorkerDriver;
+use super::pool::SupervisorPolicy;
+use super::termination_token::TerminationToken;
+use super::utils::send_event_if_event_worker_available;
+use super::WorkerBuilder;
+use super::WorkerSurface;
 
 mod request {
-  use std::{future::pending, io::ErrorKind, sync::Arc, time::Duration};
+  use std::future::pending;
+  use std::io::ErrorKind;
+  use std::sync::Arc;
+  use std::time::Duration;
 
   use deno_core::unsync::AtomicFlag;
-  use http_utils::{
-    io::Upgraded2,
-    utils::{emit_status_code, get_upgrade_type},
-  };
+  use ext_workers::context::WorkerKind;
+  use ext_workers::context::WorkerRequestMsg;
+  use http_utils::io::Upgraded2;
+  use http_utils::utils::emit_status_code;
+  use http_utils::utils::get_upgrade_type;
   use http_v02::StatusCode;
-  use hyper_v014::{client::conn::http1, upgrade::OnUpgrade, Body, Response};
+  use hyper_v014::client::conn::http1;
+  use hyper_v014::upgrade::OnUpgrade;
+  use hyper_v014::Body;
+  use hyper_v014::Response;
   use once_cell::sync::Lazy;
-  use sb_workers::context::{WorkerKind, WorkerRequestMsg};
-  use tokio::{
-    io,
-    net::TcpStream,
-    sync::{mpsc, oneshot},
-    time::sleep,
-  };
+  use tokio::io;
+  use tokio::net::TcpStream;
+  use tokio::sync::mpsc;
+  use tokio::sync::oneshot;
+  use tokio::time::sleep;
   use tokio_rustls::server::TlsStream;
   use tracing::warn;
 
-  use crate::{
-    server::ServerFlags,
-    timeout::{self, CancelOnWriteTimeout, ReadTimeoutStream},
-    worker::DuplexStreamEntry,
-  };
+  use crate::server::ServerFlags;
+  use crate::timeout::CancelOnWriteTimeout;
+  use crate::timeout::ReadTimeoutStream;
+  use crate::timeout::{self};
+  use crate::worker::DuplexStreamEntry;
 
   pub(super) async fn handle_request(
     flags: Arc<ServerFlags>,
@@ -142,10 +154,14 @@ mod request {
     };
 
     let res = tokio::select! {
-        resp = request_sender.send_request(req) => resp,
-        _ = maybe_cancel_fut => {
-            Ok(emit_status_code(http_v02::StatusCode::GATEWAY_TIMEOUT, None, false))
-        }
+      resp = request_sender.send_request(req) => resp,
+      _ = maybe_cancel_fut => {
+        Ok(emit_status_code(
+          http_v02::StatusCode::GATEWAY_TIMEOUT,
+          None,
+          false
+        ))
+      }
     };
 
     let Ok(res) = res else {

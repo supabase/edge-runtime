@@ -1,17 +1,21 @@
-use std::{future::Future, sync::Arc};
+use std::future::Future;
+use std::sync::Arc;
 
-use anyhow::{Context, Error};
+use anyhow::Context;
+use anyhow::Error;
+use ext_event_worker::events::BootFailureEvent;
+use ext_event_worker::events::WorkerEvents;
+use ext_workers::context::WorkerContextInitOpts;
+use ext_workers::context::WorkerKind;
 use futures_util::FutureExt;
-use sb_event_worker::events::{BootFailureEvent, WorkerEvents};
-use sb_workers::context::{WorkerContextInitOpts, WorkerKind};
-use tokio::{
-  sync::{mpsc, oneshot},
-  task::JoinError,
-};
+use tokio::sync::mpsc;
+use tokio::sync::oneshot;
+use tokio::task::JoinError;
 use tokio_util::task::LocalPoolHandle;
 
 use crate::deno_runtime::DenoRuntime;
-use crate::worker::{DuplexStreamEntry, WorkerCx};
+use crate::worker::DuplexStreamEntry;
+use crate::worker::WorkerCx;
 
 mod managed;
 mod user;

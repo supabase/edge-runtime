@@ -1,5 +1,5 @@
 [package]
-name = "sb_ai"
+name = "ext_ai"
 version = "0.1.0"
 authors.workspace = true
 edition.workspace = true
@@ -17,30 +17,25 @@ anyhow.workspace = true
 clap = { workspace = true, features = ["derive"] }
 ctor.workspace = true
 faster-hex.workspace = true
-futures-util = { workspace = true, features = ["io"] }
 futures.workspace = true
+futures-util = { workspace = true, features = ["io"] }
 fxhash.workspace = true
 log.workspace = true
 once_cell.workspace = true
 reqwest.workspace = true
 scopeguard.workspace = true
 serde.workspace = true
-tokio-util = { workspace = true, features = ["compat"] }
 tokio.workspace = true
-tracing-subscriber.workspace = true
+tokio-util = { workspace = true, features = ["compat"] }
 tracing.workspace = true
+tracing-subscriber.workspace = true
 xxhash-rust = { workspace = true, features = ["std", "xxh3"] }
 
 convert_case = "0.6"
 ndarray = "0.15"
 ndarray-linalg = "0.15"
 rand = "0.8"
-tokenizers = { version = ">=0.13.4", default-features = false, features = [ "onig" ] }
+tokenizers = { version = ">=0.13.4", default-features = false, features = ["onig"] }
 
-ort = { version = "=2.0.0-rc.2", default-features = false, features = [
-  "cuda",
-  "half",
-  "load-dynamic",
-  "ndarray",
-] }
+ort = { version = "=2.0.0-rc.2", default-features = false, features = ["cuda", "half", "load-dynamic", "ndarray"] }
 ort-sys = "=2.0.0-rc.2"

@@ -19,8 +19,8 @@ deno_semver.workspace = true
 # npm.workspace = true
 eszip_async_trait.workspace = true
 
-sb_core.workspace = true
-sb_node.workspace = true
+ext_core.workspace = true
+ext_node.workspace = true
 
 anyhow.workspace = true
 async-trait.workspace = true
@@ -56,7 +56,7 @@ rustls = { version = "0.21", optional = true }
 [dev-dependencies]
 base.workspace = true
 
-sb_event_worker.workspace = true
+ext_event_worker.workspace = true
 
 ctor.workspace = true
 rand.workspace = true
@@ -68,8 +68,8 @@ dotenvy = "0.15"
 
 [features]
 unsafe-proxy = [
-    "dep:headers",
-    "dep:hyper-proxy",
-    "dep:hyper-rustls",
-    "dep:rustls",
+  "dep:headers",
+  "dep:hyper-proxy",
+  "dep:hyper-rustls",
+  "dep:rustls",
 ]

@@ -8,48 +8,48 @@ import copy from "rollup-plugin-copy";
 import fg from "fast-glob";
 
 const getEntryPoints = (entryPoints) => {
-    const files = fg.sync(entryPoints, { absolute: true });
+  const files = fg.sync(entryPoints, { absolute: true });
 
-    const entities = files.map((file) => {
-        const [key] = file.match(/(?<=k6\/).*$/) || [];
-        const keyWithoutExt = key?.replace(/\.[^.]*$/, "");
+  const entities = files.map((file) => {
+    const [key] = file.match(/(?<=k6\/).*$/) || [];
+    const keyWithoutExt = key?.replace(/\.[^.]*$/, "");
 
-        return [keyWithoutExt, file];
-    });
+    return [keyWithoutExt, file];
+  });
 
-    return Object.fromEntries(entities);
+  return Object.fromEntries(entities);
 };
 
 export default defineConfig({
-    mode: "production",
-    build: {
-        lib: {
-            entry: getEntryPoints(["./specs/*.ts"]),
-            fileName: "[name]",
-            formats: ["cjs"],
-        },
-        outDir: "dist",
-        minify: false,
-        rollupOptions: {
-            external: [new RegExp(/^(k6|https?\:\/\/)(\/.*)?/)],
-        },
+  mode: "production",
+  build: {
+    lib: {
+      entry: getEntryPoints(["./specs/*.ts"]),
+      fileName: "[name]",
+      formats: ["cjs"],
     },
-    resolve: {
-        extensions: [".ts", ".js"],
+    outDir: "dist",
+    minify: false,
+    rollupOptions: {
+      external: [new RegExp(/^(k6|https?\:\/\/)(\/.*)?/)],
     },
-    plugins: [
-        copy({
-            targets: [
-                {
-                    src: "assets/**/*",
-                    dest: "dist",
-                },
-            ],
-        }),
-        babel({
-            babelHelpers: "bundled",
-            exclude: /node_modules/,
-        }),
-        nodeResolve(),
-    ],
+  },
+  resolve: {
+    extensions: [".ts", ".js"],
+  },
+  plugins: [
+    copy({
+      targets: [
+        {
+          src: "assets/**/*",
+          dest: "dist",
+        },
+      ],
+    }),
+    babel({
+      babelHelpers: "bundled",
+      exclude: /node_modules/,
+    }),
+    nodeResolve(),
+  ],
 });

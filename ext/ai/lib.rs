@@ -2,14 +2,24 @@ mod consts;
 mod onnxruntime;
 mod utils;
 
-use anyhow::{anyhow, bail, Context, Error};
+use anyhow::anyhow;
+use anyhow::bail;
+use anyhow::Context;
+use anyhow::Error;
 use base_rt::BlockingScopeCPUUsageMetricExt;
 use deno_core::error::AnyError;
+use deno_core::op2;
+use deno_core::JsRuntime;
 use deno_core::OpState;
-use deno_core::{op2, JsRuntime, V8CrossThreadTaskSpawner};
+use deno_core::V8CrossThreadTaskSpawner;
 use futures::TryFutureExt;
-use ndarray::{Array1, Array2, ArrayView3, Axis, Ix3};
-use ndarray_linalg::norm::{normalize, NormalizeAxis};
+use ndarray::Array1;
+use ndarray::Array2;
+use ndarray::ArrayView3;
+use ndarray::Axis;
+use ndarray::Ix3;
+use ndarray_linalg::norm::normalize;
+use ndarray_linalg::norm::NormalizeAxis;
 use ort::inputs;
 use reqwest::Url;
 use session::load_session_from_url;
@@ -18,22 +28,26 @@ use std::rc::Rc;
 use std::sync::Arc;
 use tokenizers::Tokenizer;
 use tokio::runtime::Handle;
-use tokio::sync::{mpsc, OnceCell};
+use tokio::sync::mpsc;
+use tokio::sync::OnceCell;
 use tokio::task;
 
 use onnxruntime::*;
-use tracing::{debug_span, error, trace_span, Instrument};
+use tracing::debug_span;
+use tracing::error;
+use tracing::trace_span;
+use tracing::Instrument;
 
 deno_core::extension!(
-  sb_ai,
+  ai,
   ops = [
-    op_sb_ai_run_model,
-    op_sb_ai_init_model,
-    op_sb_ai_try_cleanup_unused_session,
-    op_sb_ai_ort_init_session,
-    op_sb_ai_ort_run_session,
+    op_ai_run_model,
+    op_ai_init_model,
+    op_ai_try_cleanup_unused_session,
+    op_ai_ort_init_session,
+    op_ai_ort_run_session,
   ],
-  esm_entry_point = "ext:sb_ai/js/ai.js",
+  esm_entry_point = "ext:ai/js/ai.js",
   esm = [
     "js/ai.js",
     "js/util/event_stream_parser.mjs",
@@ -279,7 +293,7 @@ async fn run_gte(
 
 #[op2(async)]
 #[serde]
-pub async fn op_sb_ai_init_model(
+pub async fn op_ai_init_model(
   state: Rc<RefCell<OpState>>,
   #[string] name: String,
 ) -> Result<(), AnyError> {
@@ -292,7 +306,7 @@ pub async fn op_sb_ai_init_model(
 
 #[op2(async)]
 #[serde]
-pub async fn op_sb_ai_run_model(
+pub async fn op_ai_run_model(
   state: Rc<RefCell<OpState>>,
   #[string] name: String,
   #[string] prompt: String,
@@ -308,7 +322,7 @@ pub async fn op_sb_ai_run_model(
 
 #[op2(async)]
 #[bigint]
-pub async fn op_sb_ai_try_cleanup_unused_session(
-) -> Result<usize, anyhow::Error> {
+pub async fn op_ai_try_cleanup_unused_session() -> Result<usize, anyhow::Error>
+{
   session::cleanup().await
 }

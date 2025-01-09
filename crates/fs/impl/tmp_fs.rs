@@ -1,26 +1,35 @@
 // TODO: Remove the line below after updating the rust toolchain to v1.81.
 #![allow(clippy::blocks_in_conditions)]
 
-use std::{
-  io::{self, SeekFrom},
-  path::{Path, PathBuf},
-  process::Stdio,
-  rc::Rc,
-  sync::{
-    atomic::{AtomicUsize, Ordering},
-    Arc,
-  },
-};
+use std::io::SeekFrom;
+use std::io::{self};
+use std::path::Path;
+use std::path::PathBuf;
+use std::process::Stdio;
+use std::rc::Rc;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
 
 use anyhow::Context;
-use deno_core::{
-  unsync::AtomicFlag, BufMutView, BufView, ResourceHandleFd, WriteOutcome,
-};
-use deno_fs::{AccessCheckCb, FsDirEntry, FsFileType, RealFs};
-use deno_io::fs::{File, FsError, FsResult, FsStat};
-use serde::{Deserialize, Serialize};
+use deno_core::unsync::AtomicFlag;
+use deno_core::BufMutView;
+use deno_core::BufView;
+use deno_core::ResourceHandleFd;
+use deno_core::WriteOutcome;
+use deno_fs::AccessCheckCb;
+use deno_fs::FsDirEntry;
+use deno_fs::FsFileType;
+use deno_fs::RealFs;
+use deno_io::fs::File;
+use deno_io::fs::FsError;
+use deno_io::fs::FsResult;
+use deno_io::fs::FsStat;
+use serde::Deserialize;
+use serde::Serialize;
 use tempfile::TempDir;
-use tracing::{instrument, trace};
+use tracing::instrument;
+use tracing::trace;
 
 use super::TryNormalizePath;
 
@@ -908,20 +917,21 @@ impl deno_io::fs::File for TmpObject {
 
 #[cfg(test)]
 mod test {
-  use std::{
-    io,
-    path::{Path, PathBuf},
-    rc::Rc,
-    sync::atomic::Ordering,
-  };
+  use std::io;
+  use std::path::Path;
+  use std::path::PathBuf;
+  use std::rc::Rc;
+  use std::sync::atomic::Ordering;
 
-  use deno_fs::{FileSystem, OpenOptions};
+  use deno_fs::FileSystem;
+  use deno_fs::OpenOptions;
   use deno_io::fs::File;
   use once_cell::sync::Lazy;
   use rand::RngCore;
   use tokio::fs::read;
 
-  use super::{TmpFs, TmpFsConfig};
+  use super::TmpFs;
+  use super::TmpFsConfig;
 
   const KIB: usize = 1024;
   const MIB: usize = KIB * 1024;

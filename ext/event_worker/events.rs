@@ -1,6 +1,7 @@
 use base_mem_check::MemCheckState;
 use enum_as_inner::EnumAsInner;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Debug)]

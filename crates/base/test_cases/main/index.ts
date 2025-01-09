@@ -1,4 +1,4 @@
-console.log('main function started');
+console.log("main function started");
 
 function parseIntFromHeadersOrDefault(req: Request, key: string, val: number) {
   const headerValue = req.headers.get(key);
@@ -22,27 +22,43 @@ Deno.serve((req: Request) => {
   const service_name = path_parts[1];
 
   if (!service_name || service_name === "") {
-    const error = { msg: "missing function name in request" }
+    const error = { msg: "missing function name in request" };
     return new Response(
       JSON.stringify(error),
       { status: 400, headers: { "Content-Type": "application/json" } },
-    )
+    );
   }
 
   const servicePath = `./test_cases/${service_name}`;
   console.error(`serving the request with ${servicePath}`);
 
   const createWorker = async () => {
-    const memoryLimitMb = parseIntFromHeadersOrDefault(req, "x-memory-limit-mb", 150);
-    const workerTimeoutMs = parseIntFromHeadersOrDefault(req, "x-worker-timeout-ms", 10 * 60 * 1000);
-    const cpuTimeSoftLimitMs = parseIntFromHeadersOrDefault(req, "x-cpu-time-soft-limit-ms", 10 * 60 * 1000);
-    const cpuTimeHardLimitMs = parseIntFromHeadersOrDefault(req, "x-cpu-time-hard-limit-ms", 10 * 60 * 1000);
+    const memoryLimitMb = parseIntFromHeadersOrDefault(
+      req,
+      "x-memory-limit-mb",
+      150,
+    );
+    const workerTimeoutMs = parseIntFromHeadersOrDefault(
+      req,
+      "x-worker-timeout-ms",
+      10 * 60 * 1000,
+    );
+    const cpuTimeSoftLimitMs = parseIntFromHeadersOrDefault(
+      req,
+      "x-cpu-time-soft-limit-ms",
+      10 * 60 * 1000,
+    );
+    const cpuTimeHardLimitMs = parseIntFromHeadersOrDefault(
+      req,
+      "x-cpu-time-hard-limit-ms",
+      10 * 60 * 1000,
+    );
     const noModuleCache = false;
     const importMapPath = null;
     const envVarsObj = Deno.env.toObject();
-    const envVars = Object.keys(envVarsObj).map(k => [k, envVarsObj[k]]);
+    const envVars = Object.keys(envVarsObj).map((k) => [k, envVarsObj[k]]);
     const context = {
-      sourceMap: req.headers.get("x-context-source-map") == "true"
+      sourceMap: req.headers.get("x-context-source-map") == "true",
     };
 
     return await EdgeRuntime.userWorkers.create({
@@ -54,9 +70,9 @@ Deno.serve((req: Request) => {
       noModuleCache,
       importMapPath,
       envVars,
-      context
+      context,
     });
-  }
+  };
 
   const callWorker = async () => {
     try {
@@ -69,13 +85,13 @@ Deno.serve((req: Request) => {
       // 	return await callWorker();
       // }
 
-      const error = { msg: e.toString() }
+      const error = { msg: e.toString() };
       return new Response(
         JSON.stringify(error),
         { status: 500, headers: { "Content-Type": "application/json" } },
       );
     }
-  }
+  };
 
   return callWorker();
-})
+});

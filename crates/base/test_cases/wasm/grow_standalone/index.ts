@@ -1,5 +1,4 @@
-
-/* 
+/*
 WAT sample
     (module
         (memory 1)
@@ -23,17 +22,17 @@ let instance = new WebAssembly.Instance(mod, imports);
 wasm = instance.exports;
 
 function grow(param: number): number {
-    return wasm.grow(param);
+  return wasm.grow(param);
 }
 
 // NOTE: Just defined to prevent the JsRuntime leave from the event loop
-Deno.serve(() => { /* do nothing */ });
+Deno.serve(() => {/* do nothing */});
 
 // NOTE(Nyannyacha): This memory overcommit uses the built-in instruction so in
 // edge-runtime side cannot install a trap for this allocation directly without
 // patching the V8 codebase. Therefore, we should have to use fixed-time
 // window-based tracing here.
 grow(
-    350 // 350 pages ~= 22.9376 Mib
+  350, // 350 pages ~= 22.9376 Mib
 );
 console.log(wasm.memory.buffer.byteLength); // to prevent optimization

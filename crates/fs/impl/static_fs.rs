@@ -1,12 +1,20 @@
 use crate::rt::SYNC_IO_RT;
-use crate::{EszipStaticFiles, FileBackedVfs};
+use crate::EszipStaticFiles;
+use crate::FileBackedVfs;
 use deno_core::normalize_path;
-use deno_fs::{AccessCheckCb, FsDirEntry, FsFileType, OpenOptions};
-use deno_io::fs::{File, FsError, FsResult, FsStat};
+use deno_fs::AccessCheckCb;
+use deno_fs::FsDirEntry;
+use deno_fs::FsFileType;
+use deno_fs::OpenOptions;
+use deno_io::fs::File;
+use deno_io::fs::FsError;
+use deno_io::fs::FsResult;
+use deno_io::fs::FsStat;
 use deno_npm::resolution::ValidSerializedNpmResolutionSnapshot;
 use std::fmt::Debug;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 

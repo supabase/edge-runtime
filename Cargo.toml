@@ -2,25 +2,24 @@
 resolver = "2"
 members = [
   "cli",
+  "crates/base",
   "crates/base_mem_check",
   "crates/base_rt",
-  "crates/base",
   "crates/cpu_timer",
-  "crates/deno_manifest",
   "crates/eszip_async_trait",
   "crates/fs",
   "crates/graph",
   "crates/http_utils",
   "crates/module_loader",
+  "deno",
   "ext/ai",
   "ext/core",
   "ext/env",
   "ext/event_worker",
+  "ext/node",
   "ext/os",
   "ext/workers",
-  "ext/node",
-  # "crates/npm_cache",
-  # "crates/npm",
+  # "upstream/npm",
 ]
 
 [workspace.package]
@@ -30,6 +29,8 @@ license = "MIT"
 repository = "https://github.com/supabase/edge-runtime"
 
 [workspace.dependencies]
+deno = { path = "./deno" }
+
 deno_ast = { version = "=0.44.0", features = ["transpiling"] }
 deno_core = "0.324.0"
 
@@ -64,28 +65,25 @@ deno_websocket = "0.187.0"
 deno_webstorage = "0.177.0"
 
 # local crates
-cli = { version = "0.1.0", path = "./cli" }
 base = { version = "0.1.0", path = "./crates/base" }
 base_mem_check = { version = "0.1.0", path = "./crates/base_mem_check" }
 base_rt = { version = "0.1.0", path = "./crates/base_rt" }
+cli = { version = "0.1.0", path = "./cli" }
 cpu_timer = { version = "0.1.0", path = "./crates/cpu_timer" }
-deno_manifest = { path = "./crates/deno_manifest" }
 eszip_async_trait = { version = "0.1.0", path = "./crates/eszip_async_trait" }
 fs = { version = "0.1.0", path = "./crates/fs" }
 graph = { version = "0.1.0", path = "./crates/graph" }
 http_utils = { version = "0.1.0", path = "./crates/http_utils" }
 module_loader = { version = "0.1.0", path = "./crates/module_loader" }
-# npm = { version = "0.1.0", path = "./crates/npm" }
-# npm_cache = { version = "0.1.0", path = "./crates/npm_cache" }
 
 # local exts
-sb_ai = { version = "0.1.0", path = "./ext/ai" }
-sb_core = { version = "0.1.0", path = "./ext/core" }
-sb_env = { version = "0.1.0", path = "./ext/env"}
-sb_event_worker = { version = "0.1.0", path = "./ext/event_worker" }
-sb_node = { version = "0.1.0", path = "./ext/node" }
-sb_os = { version = "0.1.0", path = "./ext/os" }
-sb_workers = { version = "0.1.0", path = "./ext/workers" }
+ext_ai = { version = "0.1.0", path = "./ext/ai" }
+ext_core = { version = "0.1.0", path = "./ext/core" }
+ext_env = { version = "0.1.0", path = "./ext/env" }
+ext_event_worker = { version = "0.1.0", path = "./ext/event_worker" }
+ext_node = { version = "0.1.0", path = "./ext/node" }
+ext_os = { version = "0.1.0", path = "./ext/os" }
+ext_workers = { version = "0.1.0", path = "./ext/workers" }
 
 # local deps
 clap = { version = "4.5.16", features = ["cargo", "string", "env"] }
@@ -125,12 +123,12 @@ futures = "0.3.21"
 glob = "0.3.1"
 h2 = "0.4.4"
 http = "1.0"
-http_v02 = { package = "http", version = "0.2.9" }
 http-body-util = "0.1.2"
+http_v02 = { package = "http", version = "0.2.9" }
 httparse = "1.8.0"
 hyper = { version = "1.4.1", features = ["full"] }
-hyper_v014 = { package = "hyper", version = "0.14.26", features = ["runtime", "http1"] }
 hyper-util = { version = "=0.1.7", features = ["tokio", "server", "server-auto"] }
+hyper_v014 = { package = "hyper", version = "0.14.26", features = ["runtime", "http1"] }
 indexmap = { version = "2", features = ["serde"] }
 lazy-regex = "3"
 libc = "0.2.126"
@@ -170,6 +168,7 @@ url = { version = "2.5", features = ["serde", "expose_internals"] }
 uuid = { version = "1.3.0", features = ["v4"] }
 webpki-root-certs = "0.26.5"
 webpki-roots = "0.26"
+yoke = { version = "0.7.4", features = ["derive"] }
 
 # upstream resolvers
 deno_npm_cache = "0.2.0"
@@ -193,7 +192,7 @@ windows-sys = { version = "0.59.0", features = ["Win32_Foundation", "Win32_Media
 
 [patch.crates-io]
 # If the PR is merged upstream, remove the line below.
-deno_core = { git = "https://github.com/supabase/deno_core", branch = "293-supabase" }
+# deno_core = { git = "https://github.com/supabase/deno_core", branch = "293-supabase" }
 eszip = { git = "https://github.com/supabase/eszip", branch = "fix-pub-vis-0-80-0" }
 
 [profile.dind]

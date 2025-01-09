@@ -5,16 +5,14 @@
 
 import { Console } from "ext:deno_node/internal/console/constructor.mjs";
 import * as DenoConsole from "ext:deno_console/01_console.js";
-import {
-  nonEnumerable,
-} from "ext:sb_core_main_js/js/fieldUtils.js";
+import { nonEnumerable } from "ext:core_main_js/js/fieldUtils.js";
 
 import { core } from "ext:core/mod.js";
 
 // Don't rely on global `console` because during bootstrapping, it is pointing
 // to native `console` object provided by V8.
 const _intConsole = nonEnumerable(
-    new DenoConsole.Console((msg, level) => core.print(msg, level > 1)),
+  new DenoConsole.Console((msg, level) => core.print(msg, level > 1)),
 );
 const console = _intConsole.value;
 

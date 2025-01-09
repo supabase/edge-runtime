@@ -67,4 +67,4 @@ ObjectDefineProperties(Navigator.prototype, {
 });
 const NavigatorPrototype = Navigator.prototype;
 
-export {Navigator, navigator, setNumCpus, setLanguage, setUserAgent}
+export { Navigator, navigator, setLanguage, setNumCpus, setUserAgent };

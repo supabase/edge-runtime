@@ -1,13 +1,17 @@
-use anyhow::{anyhow, bail};
-use hyper_v014::{Body, Request, Response};
-use sb_event_worker::events::{
-  EventMetadata, WorkerEventWithMetadata, WorkerEvents,
-};
-use sb_workers::{
-  context::{WorkerExit, WorkerRequestMsg, WorkerRuntimeOpts},
-  errors::WorkerError,
-};
-use tokio::sync::{mpsc, oneshot};
+use anyhow::anyhow;
+use anyhow::bail;
+use ext_event_worker::events::EventMetadata;
+use ext_event_worker::events::WorkerEventWithMetadata;
+use ext_event_worker::events::WorkerEvents;
+use ext_workers::context::WorkerExit;
+use ext_workers::context::WorkerRequestMsg;
+use ext_workers::context::WorkerRuntimeOpts;
+use ext_workers::errors::WorkerError;
+use hyper_v014::Body;
+use hyper_v014::Request;
+use hyper_v014::Response;
+use tokio::sync::mpsc;
+use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
 pub fn get_event_metadata(conf: &WorkerRuntimeOpts) -> EventMetadata {
@@ -46,14 +50,16 @@ pub async fn send_user_worker_request(
 
   // wait for the response back from the worker
   let res = tokio::select! {
-      () = cancel.cancelled() => {
-          bail!(exit
-              .error()
-              .await
-              .unwrap_or(anyhow!(WorkerError::RequestCancelledBySupervisor)))
-      }
+    () = cancel.cancelled() => {
+      bail!(
+        exit
+          .error()
+          .await
+          .unwrap_or(anyhow!(WorkerError::RequestCancelledBySupervisor))
+      )
+    }
 
-      res = res_rx => res,
+    res = res_rx => res,
   }?;
 
   match res {

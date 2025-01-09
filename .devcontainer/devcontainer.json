@@ -4,9 +4,6 @@
     "dockerfile": "Dockerfile",
     "context": ".."
   },
-  "containerEnv": {
-    "PATH": "${localEnv:PATH}:/deno/bin"
-  },
   "features": {
     "ghcr.io/devcontainers/features/docker-in-docker:2": {},
     "ghcr.io/jungaretti/features/make:1": {}
@@ -33,7 +30,8 @@
         "ms-azuretools.vscode-docker",
         "ms-vscode.hexeditor",
         "vadimcn.vscode-lldb",
-        "denoland.vscode-deno"
+        "denoland.vscode-deno",
+        "dprint.dprint"
       ]
     }
   }

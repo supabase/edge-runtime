@@ -1,53 +1,77 @@
 pub mod context;
 pub mod errors;
 
-use crate::context::{
-  CreateUserWorkerResult, UserWorkerMsgs, UserWorkerRuntimeOpts,
-  WorkerContextInitOpts, WorkerRuntimeOpts,
-};
+use crate::context::CreateUserWorkerResult;
+use crate::context::UserWorkerMsgs;
+use crate::context::UserWorkerRuntimeOpts;
+use crate::context::WorkerContextInitOpts;
+use crate::context::WorkerRuntimeOpts;
 use anyhow::Error;
 use context::SendRequestResult;
 use deno_config::JsxImportSourceConfig;
-use deno_core::error::{custom_error, type_error, AnyError};
+use deno_core::error::custom_error;
+use deno_core::error::type_error;
+use deno_core::error::AnyError;
 use deno_core::futures::stream::Peekable;
-use deno_core::futures::{FutureExt, Stream, StreamExt};
-use deno_core::{op2, serde_json, ModuleSpecifier};
-use deno_core::{
-  AsyncRefCell, AsyncResult, BufView, ByteString, CancelFuture, CancelHandle,
-  CancelTryFuture, JsBuffer, OpState, RcRef, Resource, ResourceId,
-  WriteOutcome,
-};
-use deno_http::{HttpRequestReader, HttpStreamReadResource};
+use deno_core::futures::FutureExt;
+use deno_core::futures::Stream;
+use deno_core::futures::StreamExt;
+use deno_core::op2;
+use deno_core::serde_json;
+use deno_core::AsyncRefCell;
+use deno_core::AsyncResult;
+use deno_core::BufView;
+use deno_core::ByteString;
+use deno_core::CancelFuture;
+use deno_core::CancelHandle;
+use deno_core::CancelTryFuture;
+use deno_core::JsBuffer;
+use deno_core::ModuleSpecifier;
+use deno_core::OpState;
+use deno_core::RcRef;
+use deno_core::Resource;
+use deno_core::ResourceId;
+use deno_core::WriteOutcome;
+use deno_http::HttpRequestReader;
+use deno_http::HttpStreamReadResource;
 use errors::WorkerError;
+use ext_core::conn_sync::ConnWatcher;
 use fs::s3_fs::S3FsConfig;
 use fs::tmp_fs::TmpFsConfig;
-use graph::{DecoratorType, EszipPayloadKind};
+use graph::DecoratorType;
+use graph::EszipPayloadKind;
 use http_utils::utils::get_upgrade_type;
 use hyper_v014::body::HttpBody;
-use hyper_v014::header::{HeaderName, HeaderValue, CONTENT_LENGTH};
+use hyper_v014::header::HeaderName;
+use hyper_v014::header::HeaderValue;
+use hyper_v014::header::CONTENT_LENGTH;
 use hyper_v014::upgrade::OnUpgrade;
-use hyper_v014::{Body, Method, Request};
+use hyper_v014::Body;
+use hyper_v014::Method;
+use hyper_v014::Request;
 use log::error;
 use once_cell::sync::Lazy;
-use sb_core::conn_sync::ConnWatcher;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::rc::Rc;
-use std::task::{Context, Poll};
-use tokio::sync::{mpsc, oneshot};
+use std::task::Context;
+use std::task::Poll;
+use tokio::sync::mpsc;
+use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 deno_core::extension!(
-  sb_user_workers,
+  user_workers,
   ops = [
     op_user_worker_create,
     op_user_worker_fetch_build,
     op_user_worker_fetch_send,
   ],
-  esm_entry_point = "ext:sb_user_workers/user_workers.js",
+  esm_entry_point = "ext:user_workers/user_workers.js",
   esm = ["user_workers.js",]
 );
 

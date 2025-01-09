@@ -119,9 +119,9 @@ pub async fn op_net_accept(
     .0
     .clone();
 
-  // we do not want to keep the op_state locked,
-  // so we take the channel receiver from it and release op state.
-  // we need to add it back later after processing a message.
+  // we do not want to keep the op_state locked, so we take the channel receiver
+  // from it and release op state. we need to add it back later after processing
+  // a message.
   let (rx, runtime_token) = {
     let mut op_state = state.borrow_mut();
 
@@ -151,8 +151,8 @@ pub async fn op_net_accept(
   });
 
   let (stream, conn_token) = match tokio::select! {
-      ret = rx.recv() => { ret }
-      _ = accept_token.cancelled() => { None }
+    ret = rx.recv() => { ret }
+    _ = accept_token.cancelled() => { None }
   } {
     Some(ret) => ret,
     None => {
@@ -163,8 +163,8 @@ pub async fn op_net_accept(
   let resource = TokioDuplexResource::new(stream);
   let id = resource.id;
 
-  // since the op state was dropped before,
-  // reborrow and add the channel receiver again
+  // since the op state was dropped before, reborrow and add the channel
+  // receiver again
   drop(rx);
 
   let mut op_state = state.borrow_mut();
@@ -177,13 +177,13 @@ pub async fn op_net_accept(
       async move {
         let _lt_track = span!(Level::DEBUG, "lt_track", id);
         tokio::select! {
-            _ = runtime_token.cancelled_owned() => {
-                if !token.is_cancelled() {
-                    token.cancel();
-                }
+          _ = runtime_token.cancelled_owned() => {
+            if !token.is_cancelled() {
+              token.cancel();
             }
+          }
 
-            _ = token.cancelled() => {}
+          _ = token.cancelled() => {}
         }
       }
     }));
@@ -213,7 +213,7 @@ pub fn op_net_unsupported(_state: &mut OpState) -> Result<(), AnyError> {
 }
 
 deno_core::extension!(
-  sb_core_net,
+  core_net,
   middleware = |op| match op.name {
     "op_net_listen_tcp" => op.with_implementation_from(&op_net_listen()),
     "op_net_accept_tcp" => op.with_implementation_from(&op_net_accept()),

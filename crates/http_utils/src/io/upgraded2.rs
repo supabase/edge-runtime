@@ -1,14 +1,16 @@
 // Copyright 2014-2021 Sean McArthur
 // SPDX-License-Identifier: MIT
 
-use std::{
-  fmt, io,
-  pin::Pin,
-  task::{Context, Poll},
-};
+use std::fmt;
+use std::io;
+use std::pin::Pin;
+use std::task::Context;
+use std::task::Poll;
 
 use bytes::Bytes;
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio::io::AsyncRead;
+use tokio::io::AsyncWrite;
+use tokio::io::ReadBuf;
 
 use super::Rewind;
 

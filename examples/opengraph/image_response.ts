@@ -197,13 +197,13 @@ export class ImageResponse extends Response {
     const result = new ReadableStream({
       async start(controller) {
         try {
-          console.log('init yoga wasm');
+          console.log("init yoga wasm");
           const fetchRes = await yoga_wasm;
           console.log(fetchRes);
           const res = await WebAssembly.instantiateStreaming(fetchRes);
           console.log(res);
         } catch (e) {
-          console.log('error in init yoga');
+          console.log("error in init yoga");
           console.log(e);
         }
 
@@ -241,7 +241,7 @@ export class ImageResponse extends Response {
         controller.close();
       },
     });
-    console.log('result is ready')
+    console.log("result is ready");
     console.log(result);
 
     super(result, {

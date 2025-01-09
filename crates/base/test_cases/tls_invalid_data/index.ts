@@ -1,10 +1,10 @@
 Deno.serve(async () => {
-    let passed = false;
-    try {
-        const tcpConn = await Deno.connect({ hostname: "deno.land", port: 443 });
-        const tlsConn = await Deno.startTls(tcpConn, {
-            hostname: "foo.land",
-            caCerts: [`-----BEGIN CERTIFICATE-----
+  let passed = false;
+  try {
+    const tcpConn = await Deno.connect({ hostname: "deno.land", port: 443 });
+    const tlsConn = await Deno.startTls(tcpConn, {
+      hostname: "foo.land",
+      caCerts: [`-----BEGIN CERTIFICATE-----
 MIIDIzCCAgugAwIBAgIJAMKPPW4tsOymMA0GCSqGSIb3DQEBCwUAMCcxCzAJBgNV
 BAYTAlVTMRgwFgYDVQQDDA9FeGFtcGxlLVJvb3QtQ0EwIBcNMTkxMDIxMTYyODIy
 WhgPMjExODA5MjcxNjI4MjJaMCcxCzAJBgNVBAYTAlVTMRgwFgYDVQQDDA9FeGFt
@@ -24,16 +24,15 @@ kyIWJwk2zJReKcJMgi1aIinDM9ao/dca1G99PHOw8dnr4oyoTiv8ao6PWiSRHHMi
 MNf4EgWfK+tZMnuqfpfO9740KzfcVoMNo4QJD4yn5YxroUOO/Azi
 -----END CERTIFICATE-----
 `],
-        });
+    });
 
-        await tlsConn.handshake();
+    await tlsConn.handshake();
+  } catch (e) {
+    passed = e instanceof Deno.errors.InvalidData;
+  }
 
-    } catch (e) {
-        passed = e instanceof Deno.errors.InvalidData;
-    }
-
-    return new Response(
-        JSON.stringify({ passed }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-    )
-})
+  return new Response(
+    JSON.stringify({ passed }),
+    { status: 200, headers: { "Content-Type": "application/json" } },
+  );
+});

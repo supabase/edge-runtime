@@ -2,8 +2,10 @@ use deno_core::v8;
 use deno_core::v8::UniqueRef;
 use futures::task::AtomicWaker;
 use std::ffi::c_void;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use std::sync::RwLock;
 
 pub struct CustomAllocator {
   max: usize,

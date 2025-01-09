@@ -1,40 +1,44 @@
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use base_mem_check::WorkerHeapStatistics;
 use base_rt::DropToken;
 use deno_core::error::AnyError;
+use deno_core::op2;
+use deno_core::v8;
+use deno_core::JsRuntime;
 use deno_core::OpState;
-use deno_core::{op2, JsRuntime};
-use deno_core::{v8, ResourceId};
+use deno_core::ResourceId;
 use enum_as_inner::EnumAsInner;
 use futures::task::AtomicWaker;
 use futures::FutureExt;
 use log::error;
 use serde::Serialize;
 use tokio::sync::oneshot;
-use tracing::{debug, debug_span};
+use tracing::debug;
+use tracing::debug_span;
 
-mod npm;
+// mod npm;
 mod upgrade;
 
-pub mod auth_tokens;
-pub mod cache;
+// pub mod auth_tokens;
+// pub mod cache;
 pub mod cert;
 pub mod conn_sync;
-pub mod emit;
-pub mod errors_rt;
+// pub mod emit;
+// pub mod errors_rt;
 pub mod external_memory;
 pub mod http;
 pub mod http_start;
 pub mod net;
-pub mod node;
-pub mod permissions;
+// pub mod node;
+// pub mod permissions;
 pub mod runtime;
-pub mod transpiler;
-pub mod util;
+// pub mod transpiler;
+// pub mod util;
 
 pub use npm::create_default_npmrc;
 pub use npm::create_npmrc;
@@ -442,35 +446,35 @@ pub fn op_bootstrap_unstable_args(_state: &mut OpState) -> Vec<String> {
 }
 
 deno_core::extension!(
-    sb_core_main_js,
-    ops = [
-        // op_is_terminal,
-        op_stdin_set_raw,
-        op_console_size,
-        op_read_line_prompt,
-        op_set_exit_code,
-        op_runtime_metrics,
-        op_schedule_mem_check,
-        op_runtime_memory_usage,
-        op_set_raw,
-        op_bootstrap_unstable_args,
-        op_raise_segfault,
-        op_tap_promise_metrics,
-        op_cancel_drop_token,
-    ],
-    esm_entry_point = "ext:sb_core_main_js/js/bootstrap.js",
-    esm = [
-        "js/00_serve.js",
-        "js/01_http.js",
-        "js/async_hook.js",
-        "js/bootstrap.js",
-        "js/denoOverrides.js",
-        "js/errors.js",
-        "js/fieldUtils.js",
-        "js/http.js",
-        "js/namespaces.js",
-        "js/navigator.js",
-        "js/permissions.js",
-        "js/promises.js",
-    ]
+  core_main_js,
+  ops = [
+    // op_is_terminal,
+    op_stdin_set_raw,
+    op_console_size,
+    op_read_line_prompt,
+    op_set_exit_code,
+    op_runtime_metrics,
+    op_schedule_mem_check,
+    op_runtime_memory_usage,
+    op_set_raw,
+    op_bootstrap_unstable_args,
+    op_raise_segfault,
+    op_tap_promise_metrics,
+    op_cancel_drop_token,
+  ],
+  esm_entry_point = "ext:core_main_js/js/bootstrap.js",
+  esm = [
+    "js/00_serve.js",
+    "js/01_http.js",
+    "js/async_hook.js",
+    "js/bootstrap.js",
+    "js/denoOverrides.js",
+    "js/errors.js",
+    "js/fieldUtils.js",
+    "js/http.js",
+    "js/namespaces.js",
+    "js/navigator.js",
+    "js/permissions.js",
+    "js/promises.js",
+  ]
 );

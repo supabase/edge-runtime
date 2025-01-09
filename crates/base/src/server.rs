@@ -1,23 +1,38 @@
 use crate::inspector_server::Inspector;
 use crate::worker::pool::WorkerPoolPolicy;
-use crate::worker::{self, TerminationToken};
+use crate::worker::TerminationToken;
+use crate::worker::{self};
 use crate::InspectorOption;
-use anyhow::{anyhow, bail, Context, Error};
+use anyhow::anyhow;
+use anyhow::bail;
+use anyhow::Context;
+use anyhow::Error;
 use deno_config::JsxImportSourceConfig;
-use either::Either::{self, Left, Right};
+use either::Either::Left;
+use either::Either::Right;
+use either::Either::{self};
 use enum_as_inner::EnumAsInner;
-use futures_util::future::{poll_fn, BoxFuture};
-use futures_util::{FutureExt, Stream};
+use ext_core::SharedMetricSource;
+use ext_workers::context::WorkerRequestMsg;
+use futures_util::future::poll_fn;
+use futures_util::future::BoxFuture;
+use futures_util::FutureExt;
+use futures_util::Stream;
 use graph::DecoratorType;
-use hyper_v014::{
-  server::conn::Http, service::Service, Body, Request, Response,
-};
-use log::{debug, error, info, trace, warn};
+use hyper_v014::server::conn::Http;
+use hyper_v014::service::Service;
+use hyper_v014::Body;
+use hyper_v014::Request;
+use hyper_v014::Response;
+use log::debug;
+use log::error;
+use log::info;
+use log::trace;
+use log::warn;
 use rustls_pemfile::read_one_from_slice;
 use rustls_pemfile::Item;
-use sb_core::SharedMetricSource;
-use sb_workers::context::WorkerRequestMsg;
-use std::future::{pending, Future};
+use std::future::pending;
+use std::future::Future;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
@@ -28,13 +43,18 @@ use std::sync::Arc;
 use std::task::Poll;
 use std::time::Duration;
 use tls_listener::TlsListener;
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::AsyncRead;
+use tokio::io::AsyncWrite;
 use tokio::net::TcpListener;
 use tokio::pin;
-use tokio::sync::mpsc::{Sender, UnboundedSender};
-use tokio::sync::{mpsc, oneshot};
-use tokio::time::{sleep, timeout};
-use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use tokio::sync::mpsc;
+use tokio::sync::mpsc::Sender;
+use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::oneshot;
+use tokio::time::sleep;
+use tokio::time::timeout;
+use tokio_rustls::rustls::pki_types::CertificateDer;
+use tokio_rustls::rustls::pki_types::PrivateKeyDer;
 use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::TlsAcceptor;
 use tokio_util::sync::CancellationToken;
@@ -184,12 +204,12 @@ impl Service<Request<Body>> for WorkerService {
 
         async move {
           tokio::select! {
-              _ = cancel.cancelled() => {
-                  metric_src_inner.incl_handled_requests();
-              }
-              // TODO: I think it would be good to introduce the hard
-              // timeout here to prevent the requester's inability to get
-              // the response for any reason.
+            _ = cancel.cancelled() => {
+              metric_src_inner.incl_handled_requests();
+            }
+            // TODO: I think it would be good to introduce the hard timeout here
+            // to prevent the requester's inability to get the response for any
+            // reason.
           }
         }
       });
@@ -536,88 +556,88 @@ impl Server {
       pin!(main_worker_cancel_fut);
 
       tokio::select! {
-          msg = non_secure_listener.accept() => {
-              match msg {
-                  Ok((stream, _)) => {
-                      if tcp_nodelay {
-                          let _ = stream.set_nodelay(true);
-                      }
-
-                      accept_stream(
-                          stream,
-                          main_worker_req_tx,
-                          event_tx,
-                          metric_src,
-                          graceful_exit_token.clone(),
-                          request_read_timeout_dur
-                      )
-                  }
-                  Err(e) => error!("socket error: {}", e)
-              }
-          }
-
-          msg = async {
-              if let Some((listener, _addr)) = secure_listener.as_mut() {
-                  listener.accept()
-              } else {
-                  pending::<()>().await;
-                  unreachable!();
-              }.await
-          } => {
-              match msg {
-                  Ok((stream, _)) => {
-                      if tcp_nodelay {
-                          let _ = stream.get_ref().0.set_nodelay(true);
-                      }
-
-                      accept_stream(
-                          stream,
-                          main_worker_req_tx,
-                          event_tx,
-                          metric_src,
-                          graceful_exit_token.clone(),
-                          request_read_timeout_dur
-                      )
-                  }
-                  Err(e) => error!("socket error: {}", e)
-              }
-          }
-
-          _ = async move {
-              if let Some(token) = input_termination_token {
-                  token.inbound.cancelled()
-              } else {
-                  pending::<()>().await;
-                  unreachable!();
-              }.await
-          } => {
-              info!("termination token resolved");
-
-              if graceful_exit_deadline_sec == 0 {
-                  graceful_exit_deadline_sec = u64::MAX;
-                  graceful_exit_keepalive_deadline_ms = graceful_exit_keepalive_deadline_ms.map(|_| u64::MAX);
+        msg = non_secure_listener.accept() => {
+          match msg {
+            Ok((stream, _)) => {
+              if tcp_nodelay {
+                let _ = stream.set_nodelay(true);
               }
 
-              break;
+              accept_stream(
+                stream,
+                main_worker_req_tx,
+                event_tx,
+                metric_src,
+                graceful_exit_token.clone(),
+                request_read_timeout_dur
+              )
+            }
+            Err(e) => error!("socket error: {}", e)
+          }
+        }
+
+        msg = async {
+          if let Some((listener, _addr)) = secure_listener.as_mut() {
+            listener.accept()
+          } else {
+            pending::<()>().await;
+            unreachable!();
+          }.await
+        } => {
+          match msg {
+            Ok((stream, _)) => {
+              if tcp_nodelay {
+                  let _ = stream.get_ref().0.set_nodelay(true);
+              }
+
+              accept_stream(
+                stream,
+                main_worker_req_tx,
+                event_tx,
+                metric_src,
+                graceful_exit_token.clone(),
+                request_read_timeout_dur
+              )
+            }
+            Err(e) => error!("socket error: {}", e)
+        }
+        }
+
+        _ = async move {
+          if let Some(token) = input_termination_token {
+            token.inbound.cancelled()
+          } else {
+            pending::<()>().await;
+            unreachable!();
+          }.await
+        } => {
+          info!("termination token resolved");
+
+          if graceful_exit_deadline_sec == 0 {
+            graceful_exit_deadline_sec = u64::MAX;
+            graceful_exit_keepalive_deadline_ms = graceful_exit_keepalive_deadline_ms.map(|_| u64::MAX);
           }
 
-          _ = &mut main_worker_cancel_fut => {
-              error!("main worker has been destroyed");
-              loop_state = LoopState::MainWorkerDestroyed;
-              break;
-          }
+          break;
+        }
 
-          signum = &mut terminate_signal_fut => {
-              info!("shutdown signal received: {}", signum);
-              ret = Some(Left(signum));
-              break;
-          }
+        _ = &mut main_worker_cancel_fut => {
+          error!("main worker has been destroyed");
+          loop_state = LoopState::MainWorkerDestroyed;
+          break;
+        }
 
-          _ = signal::ctrl_c() => {
-              info!("interrupt signal received");
-              loop_state = LoopState::Interrupted;
-              break;
-          }
+        signum = &mut terminate_signal_fut => {
+          info!("shutdown signal received: {}", signum);
+          ret = Some(Left(signum));
+          break;
+        }
+
+        _ = signal::ctrl_c() => {
+          info!("interrupt signal received");
+          loop_state = LoopState::Interrupted;
+          break;
+        }
       }
     }
 
@@ -705,18 +725,18 @@ impl Server {
         timeout(Duration::from_secs(graceful_exit_deadline_sec), wait_fut);
 
       tokio::select! {
-          res = timeout_fut => {
-              if res.is_err() {
-                  error!(
-                      "did not able to terminate the workers within {} seconds",
-                      graceful_exit_deadline_sec,
-                  );
-              }
+        res = timeout_fut => {
+          if res.is_err() {
+            error!(
+              "did not able to terminate the workers within {} seconds",
+              graceful_exit_deadline_sec,
+            );
           }
+        }
 
-          _ = signal::ctrl_c() => {
-              error!("received interrupt signal while waiting workers");
-          }
+        _ = signal::ctrl_c() => {
+          error!("received interrupt signal while waiting workers");
+        }
       }
     } else if !loop_state.is_interrupted()
       && metric_src.received_requests() != metric_src.handled_requests()
@@ -800,11 +820,11 @@ fn accept_stream<I>(
 
       let conn_result = loop {
         tokio::select! {
-            res = conn_fut.as_mut() => break res,
-            _ = graceful_exit_token.cancelled(), if !shutting_down => {
-                shutting_down = true;
-                conn_fut.as_mut().graceful_shutdown();
-            }
+          res = conn_fut.as_mut() => break res,
+          _ = graceful_exit_token.cancelled(), if !shutting_down => {
+            shutting_down = true;
+            conn_fut.as_mut().graceful_shutdown();
+          }
         }
       };
 

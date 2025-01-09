@@ -9,24 +9,17 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use deno_core::error::AnyError;
-use deno_core::located_script_name;
 use deno_core::op2;
 use deno_core::url::Url;
 #[allow(unused_imports)]
 use deno_core::v8;
 use deno_core::v8::ExternalReference;
-use deno_core::JsRuntime;
-use deno_core::ModuleSpecifier;
-use deno_core::OpState;
-use deno_fs::sync::MaybeSend;
-use deno_fs::sync::MaybeSync;
 use node_resolver::errors::ClosestPkgJsonError;
+use node_resolver::NpmPackageFolderResolverRc;
 use once_cell::sync::Lazy;
 
 extern crate libz_sys as zlib;
 
-pub mod analyze;
-pub mod errors;
 mod global;
 pub mod ops;
 mod polyfill;
@@ -37,11 +30,11 @@ pub use node_resolver::PathClean;
 pub use ops::ipc::ChildPipeFd;
 pub use ops::ipc::IpcJsonStreamResource;
 pub use ops::ipc::IpcRefTracker;
-// use ops::vm;
-// pub use ops::vm::create_v8_context;
-// pub use ops::vm::init_global_template;
-// pub use ops::vm::ContextInitMode;
-// pub use ops::vm::VM_CONTEXT_INDEX;
+use ops::vm;
+pub use ops::vm::create_v8_context;
+pub use ops::vm::init_global_template;
+pub use ops::vm::ContextInitMode;
+pub use ops::vm::VM_CONTEXT_INDEX;
 pub use polyfill::is_builtin_node_module;
 pub use polyfill::SUPPORTED_BUILTIN_NODE_MODULES;
 pub use polyfill::SUPPORTED_BUILTIN_NODE_MODULES_WITH_PREFIX;
@@ -85,6 +78,7 @@ pub trait NodePermissions {
     kind: &str,
     api_name: &str,
   ) -> Result<(), PermissionCheckError>;
+  #[must_use = "the resolved return value to mitigate time-of-check to time-of-use issues"]
   fn check_write_with_api_name(
     &mut self,
     path: &str,
@@ -93,6 +87,7 @@ pub trait NodePermissions {
 }
 
 impl NodePermissions for deno_permissions::PermissionsContainer {
+  #[inline(always)]
   fn check_net_url(
     &mut self,
     url: &Url,
@@ -109,6 +104,7 @@ impl NodePermissions for deno_permissions::PermissionsContainer {
     deno_permissions::PermissionsContainer::check_net(self, &host, api_name)
   }
 
+  #[inline(always)]
   fn check_read_with_api_name(
     &mut self,
     path: &str,
@@ -130,6 +126,7 @@ impl NodePermissions for deno_permissions::PermissionsContainer {
     deno_permissions::PermissionsContainer::query_read_all(self)
   }
 
+  #[inline(always)]
   fn check_write_with_api_name(
     &mut self,
     path: &str,
@@ -337,13 +334,13 @@ deno_core::extension!(deno_node,
     ops::v8::op_v8_write_uint32,
     ops::v8::op_v8_write_uint64,
     ops::v8::op_v8_write_value,
-    // ops::vm::op_vm_create_script,
-    // ops::vm::op_vm_create_context,
-    // ops::vm::op_vm_script_run_in_context,
-    // ops::vm::op_vm_is_context,
-    // ops::vm::op_vm_compile_function,
-    // ops::vm::op_vm_script_get_source_map_url,
-    // ops::vm::op_vm_script_create_cached_data,
+    ops::vm::op_vm_create_script,
+    ops::vm::op_vm_create_context,
+    ops::vm::op_vm_script_run_in_context,
+    ops::vm::op_vm_is_context,
+    ops::vm::op_vm_compile_function,
+    ops::vm::op_vm_script_get_source_map_url,
+    ops::vm::op_vm_script_create_cached_data,
     ops::idna::op_node_idna_domain_to_ascii,
     ops::idna::op_node_idna_domain_to_unicode,
     ops::idna::op_node_idna_punycode_to_ascii,
@@ -643,8 +640,8 @@ deno_core::extension!(deno_node,
     "node:http" = "http.ts",
     "node:http2" = "http2.ts",
     "node:https" = "https.ts",
-    "node:inspector" = "inspector.js",
-    "node:inspector/promises" = "inspector/promises.js",
+    // "node:inspector" = "inspector.js",
+    // "node:inspector/promises" = "inspector/promises.js",
     "node:module" = "01_require.js",
     "node:net" = "net.ts",
     "node:os" = "os.ts",
@@ -697,77 +694,77 @@ deno_core::extension!(deno_node,
   global_object_middleware = global_object_middleware,
   customizer = |ext: &mut deno_core::Extension| {
     let external_references = [
-      // vm::QUERY_MAP_FN.with(|query| {
-      //   ExternalReference {
-      //     named_query: *query,
-      //   }
-      // }),
-      // vm::GETTER_MAP_FN.with(|getter| {
-      //   ExternalReference {
-      //     named_getter: *getter,
-      //   }
-      // }),
-      // vm::SETTER_MAP_FN.with(|setter| {
-      //   ExternalReference {
-      //     named_setter: *setter,
-      //   }
-      // }),
-      // vm::DESCRIPTOR_MAP_FN.with(|descriptor| {
-      //   ExternalReference {
-      //     named_getter: *descriptor,
-      //   }
-      // }),
-      // vm::DELETER_MAP_FN.with(|deleter| {
-      //   ExternalReference {
-      //     named_deleter: *deleter,
-      //   }
-      // }),
-      // vm::ENUMERATOR_MAP_FN.with(|enumerator| {
-      //   ExternalReference {
-      //     enumerator: *enumerator,
-      //   }
-      // }),
-      // vm::DEFINER_MAP_FN.with(|definer| {
-      //   ExternalReference {
-      //     named_definer: *definer,
-      //   }
-      // }),
+      vm::QUERY_MAP_FN.with(|query| {
+        ExternalReference {
+          named_query: *query,
+        }
+      }),
+      vm::GETTER_MAP_FN.with(|getter| {
+        ExternalReference {
+          named_getter: *getter,
+        }
+      }),
+      vm::SETTER_MAP_FN.with(|setter| {
+        ExternalReference {
+          named_setter: *setter,
+        }
+      }),
+      vm::DESCRIPTOR_MAP_FN.with(|descriptor| {
+        ExternalReference {
+          named_getter: *descriptor,
+        }
+      }),
+      vm::DELETER_MAP_FN.with(|deleter| {
+        ExternalReference {
+          named_deleter: *deleter,
+        }
+      }),
+      vm::ENUMERATOR_MAP_FN.with(|enumerator| {
+        ExternalReference {
+          enumerator: *enumerator,
+        }
+      }),
+      vm::DEFINER_MAP_FN.with(|definer| {
+        ExternalReference {
+          named_definer: *definer,
+        }
+      }),
 
-      // vm::INDEXED_QUERY_MAP_FN.with(|query| {
-      //   ExternalReference {
-      //     indexed_query: *query,
-      //   }
-      // }),
-      // vm::INDEXED_GETTER_MAP_FN.with(|getter| {
-      //   ExternalReference {
-      //     indexed_getter: *getter,
-      //   }
-      // }),
-      // vm::INDEXED_SETTER_MAP_FN.with(|setter| {
-      //   ExternalReference {
-      //     indexed_setter: *setter,
-      //   }
-      // }),
-      // vm::INDEXED_DESCRIPTOR_MAP_FN.with(|descriptor| {
-      //   ExternalReference {
-      //     indexed_getter: *descriptor,
-      //   }
-      // }),
-      // vm::INDEXED_DELETER_MAP_FN.with(|deleter| {
-      //   ExternalReference {
-      //     indexed_deleter: *deleter,
-      //   }
-      // }),
-      // vm::INDEXED_DEFINER_MAP_FN.with(|definer| {
-      //   ExternalReference {
-      //     indexed_definer: *definer,
-      //   }
-      // }),
-      // vm::INDEXED_ENUMERATOR_MAP_FN.with(|enumerator| {
-      //   ExternalReference {
-      //     enumerator: *enumerator,
-      //   }
-      // }),
+      vm::INDEXED_QUERY_MAP_FN.with(|query| {
+        ExternalReference {
+          indexed_query: *query,
+        }
+      }),
+      vm::INDEXED_GETTER_MAP_FN.with(|getter| {
+        ExternalReference {
+          indexed_getter: *getter,
+        }
+      }),
+      vm::INDEXED_SETTER_MAP_FN.with(|setter| {
+        ExternalReference {
+          indexed_setter: *setter,
+        }
+      }),
+      vm::INDEXED_DESCRIPTOR_MAP_FN.with(|descriptor| {
+        ExternalReference {
+          indexed_getter: *descriptor,
+        }
+      }),
+      vm::INDEXED_DELETER_MAP_FN.with(|deleter| {
+        ExternalReference {
+          indexed_deleter: *deleter,
+        }
+      }),
+      vm::INDEXED_DEFINER_MAP_FN.with(|definer| {
+        ExternalReference {
+          indexed_definer: *definer,
+        }
+      }),
+      vm::INDEXED_ENUMERATOR_MAP_FN.with(|enumerator| {
+        ExternalReference {
+          enumerator: *enumerator,
+        }
+      }),
 
       global::GETTER_MAP_FN.with(|getter| {
         ExternalReference {

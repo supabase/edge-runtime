@@ -1,7 +1,6 @@
-use std::{
-  io,
-  path::{Path, PathBuf},
-};
+use std::io;
+use std::path::Path;
+use std::path::PathBuf;
 
 use deno_io::fs::FsResult;
 use normalize_path::NormalizePath;

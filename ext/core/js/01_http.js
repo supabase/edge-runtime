@@ -164,7 +164,7 @@ class HttpConn {
     return {
       request,
       respondWith,
-      streamRid: readStreamRid 
+      streamRid: readStreamRid,
     };
   }
 

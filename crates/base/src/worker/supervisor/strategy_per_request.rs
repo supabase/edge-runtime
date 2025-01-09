@@ -1,20 +1,27 @@
-use std::{future::pending, sync::atomic::Ordering, time::Duration};
+use std::future::pending;
+use std::sync::atomic::Ordering;
+use std::time::Duration;
 
 #[cfg(debug_assertions)]
 use std::thread::ThreadId;
 
-use sb_event_worker::events::ShutdownReason;
-use sb_workers::context::{Timing, TimingStatus, UserWorkerMsgs};
+use ext_event_worker::events::ShutdownReason;
+use ext_workers::context::Timing;
+use ext_workers::context::TimingStatus;
+use ext_workers::context::UserWorkerMsgs;
 use tokio::time::Instant;
 
-use crate::{
-  deno_runtime::WillTerminateReason,
-  worker::supervisor::{
-    create_wall_clock_beforeunload_alert, v8_handle_beforeunload,
-    v8_handle_early_retire, v8_handle_termination, wait_cpu_alarm, CPUUsage,
-    CPUUsageMetrics, Tokens, V8HandleBeforeunloadData, V8HandleTerminationData,
-  },
-};
+use crate::deno_runtime::WillTerminateReason;
+use crate::worker::supervisor::create_wall_clock_beforeunload_alert;
+use crate::worker::supervisor::v8_handle_beforeunload;
+use crate::worker::supervisor::v8_handle_early_retire;
+use crate::worker::supervisor::v8_handle_termination;
+use crate::worker::supervisor::wait_cpu_alarm;
+use crate::worker::supervisor::CPUUsage;
+use crate::worker::supervisor::CPUUsageMetrics;
+use crate::worker::supervisor::Tokens;
+use crate::worker::supervisor::V8HandleBeforeunloadData;
+use crate::worker::supervisor::V8HandleTerminationData;
 
 use super::Arguments;
 
@@ -96,131 +103,133 @@ pub async fn supervise(
 
   loop {
     tokio::select! {
-        _ = supervise.cancelled() => {
-            return (ShutdownReason::TerminationRequested, cpu_usage_ms);
-        }
+      _ = supervise.cancelled() => {
+          return (ShutdownReason::TerminationRequested, cpu_usage_ms);
+      }
 
-        _ = async {
-            match termination.as_ref() {
-                Some(token) => token.inbound.cancelled().await,
-                None => pending().await,
+      _ = async {
+          match termination.as_ref() {
+              Some(token) => token.inbound.cancelled().await,
+              None => pending().await,
+          }
+      } => {
+          complete_reason = Some(ShutdownReason::TerminationRequested);
+      }
+
+      Some(metrics) = cpu_usage_metrics_rx.recv() => {
+        match metrics {
+          CPUUsageMetrics::Enter(_thread_id) => {
+            // INVARIANT: Thread ID MUST equal with previously captured Thread
+            // ID.
+            #[cfg(debug_assertions)]
+            {
+              assert!(current_thread_id.unwrap_or(_thread_id) == _thread_id);
+              current_thread_id = Some(_thread_id);
             }
-        } => {
-            complete_reason = Some(ShutdownReason::TerminationRequested);
-        }
 
-        Some(metrics) = cpu_usage_metrics_rx.recv() => {
-            match metrics {
-                CPUUsageMetrics::Enter(_thread_id) => {
-                    // INVARIANT: Thread ID MUST equal with previously captured
-                    // Thread ID.
-                    #[cfg(debug_assertions)]
-                    {
-                        assert!(current_thread_id.unwrap_or(_thread_id) == _thread_id);
-                        current_thread_id = Some(_thread_id);
-                    }
+            assert!(!is_worker_entered);
+            is_worker_entered = true;
 
-                    assert!(!is_worker_entered);
-                    is_worker_entered = true;
-
-                    if !cpu_timer_param.is_disabled() {
-                        if let Some(Err(err)) = cpu_timer.as_ref().map(|it| it.reset()) {
-                            log::error!("can't reset cpu timer: {}", err);
-                        }
-                    }
-                }
-
-                CPUUsageMetrics::Leave(CPUUsage { accumulated, diff }) => {
-                    assert!(is_worker_entered);
-
-                    is_worker_entered = false;
-                    cpu_usage_ms += diff / 1_000_000;
-                    cpu_usage_accumulated_ms = accumulated / 1_000_000;
-
-                    if !cpu_timer_param.is_disabled() {
-                        if cpu_usage_ms >= hard_limit_ms as i64 {
-                            log::error!("CPU time limit reached: isolate: {:?}", key);
-                            complete_reason = Some(ShutdownReason::CPUTime);
-                        }
-
-                        if let Some(Err(err)) = cpu_timer.as_ref().map(|it| it.reset()) {
-                            log::error!("can't reset cpu timer: {}", err);
-                        }
-                    }
-                }
+            if !cpu_timer_param.is_disabled() {
+              if let Some(Err(err)) = cpu_timer.as_ref().map(|it| it.reset()) {
+                log::error!("can't reset cpu timer: {}", err);
+              }
             }
-        }
+          }
 
-        Some(_) = wait_cpu_alarm(cpu_alarms_rx.as_mut()) => {
-            if is_worker_entered && req_start_ack {
+          CPUUsageMetrics::Leave(CPUUsage { accumulated, diff }) => {
+            assert!(is_worker_entered);
+
+            is_worker_entered = false;
+            cpu_usage_ms += diff / 1_000_000;
+            cpu_usage_accumulated_ms = accumulated / 1_000_000;
+
+            if !cpu_timer_param.is_disabled() {
+              if cpu_usage_ms >= hard_limit_ms as i64 {
                 log::error!("CPU time limit reached: isolate: {:?}", key);
                 complete_reason = Some(ShutdownReason::CPUTime);
+              }
+
+              if let Some(Err(err)) = cpu_timer.as_ref().map(|it| it.reset()) {
+                log::error!("can't reset cpu timer: {}", err);
+              }
             }
+          }
+        }
+      }
+
+      Some(_) = wait_cpu_alarm(cpu_alarms_rx.as_mut()) => {
+        if is_worker_entered && req_start_ack {
+          log::error!("CPU time limit reached: isolate: {:?}", key);
+          complete_reason = Some(ShutdownReason::CPUTime);
+        }
+      }
+
+      Some(notify) = req_start_rx.recv() => {
+        // INVARIANT: This branch MUST not be satisfied more than once during
+        // the same request cycle.
+        assert!(!req_start_ack, "supervisor has seen request start signal twice");
+
+        notify.notify_one();
+
+        if let Some(cpu_timer) = cpu_timer.as_ref() {
+          if let Err(ex) = cpu_timer.reset() {
+            log::error!("cannot reset the cpu timer: {}", ex);
+          }
         }
 
-        Some(notify) = req_start_rx.recv() => {
-            // INVARIANT: This branch MUST not be satisfied more than once
-            // during the same request cycle.
-            assert!(!req_start_ack, "supervisor has seen request start signal twice");
+        cpu_usage_ms = 0;
+        req_start_ack = true;
+        complete_reason = None;
+      }
 
-            notify.notify_one();
+      Some(_) = req_end_rx.recv() => {
+        // INVARIANT: This branch MUST be satisfied only once after the request
+        // start signal has arrived during the same request cycle.
+        assert!(
+          req_start_ack,
+          "supervisor observed the request end signal but did not see request start signal"
+        );
 
-            if let Some(cpu_timer) = cpu_timer.as_ref() {
-                if let Err(ex) = cpu_timer.reset() {
-                    log::error!("cannot reset the cpu timer: {}", ex);
-                }
-            }
+        req_ack_count += 1;
+        complete_reason = Some(ShutdownReason::EarlyDrop);
+      }
 
-            cpu_usage_ms = 0;
-            req_start_ack = true;
-            complete_reason = None;
+      _ = &mut wall_clock_duration_alert, if !is_wall_clock_limit_disabled => {
+        if !oneshot && req_ack_count != demand.load(Ordering::Acquire) {
+          wall_clock_duration_alert
+            .as_mut()
+            .reset(Instant::now() + wall_clock_duration);
+
+          continue;
+        } else {
+          log::error!("wall clock duraiton reached: isolate: {:?}", key);
+          complete_reason = Some(ShutdownReason::WallClockTime);
+        }
+      }
+
+      _ = &mut wall_clock_beforeunload_alert,
+          if !is_wall_clock_limit_disabled && !is_wall_clock_beforeunload_armed
+      => {
+        let data_ptr_mut = Box::into_raw(Box::new(V8HandleBeforeunloadData {
+            reason: WillTerminateReason::WallClock
+        }));
+
+        if thread_safe_handle
+            .request_interrupt(v8_handle_beforeunload, data_ptr_mut as *mut _)
+        {
+            waker.wake();
+        } else {
+            drop(unsafe { Box::from_raw(data_ptr_mut)});
         }
 
-        Some(_) = req_end_rx.recv() => {
-            // INVARIANT: This branch MUST be satisfied only once after the
-            // request start signal has arrived during the same request
-            // cycle.
-            assert!(req_start_ack, "supervisor observed the request end signal but did not see request start signal");
+        is_wall_clock_beforeunload_armed = true;
+      }
 
-            req_ack_count += 1;
-            complete_reason = Some(ShutdownReason::EarlyDrop);
-        }
-
-        _ = &mut wall_clock_duration_alert, if !is_wall_clock_limit_disabled => {
-            if !oneshot && req_ack_count != demand.load(Ordering::Acquire) {
-                wall_clock_duration_alert
-                    .as_mut()
-                    .reset(Instant::now() + wall_clock_duration);
-
-                continue;
-            } else {
-                log::error!("wall clock duraiton reached: isolate: {:?}", key);
-                complete_reason = Some(ShutdownReason::WallClockTime);
-            }
-        }
-
-        _ = &mut wall_clock_beforeunload_alert,
-            if !is_wall_clock_limit_disabled && !is_wall_clock_beforeunload_armed
-        => {
-            let data_ptr_mut = Box::into_raw(Box::new(V8HandleBeforeunloadData {
-                reason: WillTerminateReason::WallClock
-            }));
-
-            if thread_safe_handle
-                .request_interrupt(v8_handle_beforeunload, data_ptr_mut as *mut _)
-            {
-                waker.wake();
-            } else {
-                drop(unsafe { Box::from_raw(data_ptr_mut)});
-            }
-
-            is_wall_clock_beforeunload_armed = true;
-        }
-
-        Some(_) = memory_limit_rx.recv() => {
-            log::error!("memory limit reached for the worker: isolate: {:?}", key);
-            complete_reason = Some(ShutdownReason::Memory);
-        }
+      Some(_) = memory_limit_rx.recv() => {
+        log::error!("memory limit reached for the worker: isolate: {:?}", key);
+        complete_reason = Some(ShutdownReason::Memory);
+      }
     }
 
     match complete_reason.take() {

@@ -3,24 +3,32 @@ use crate::graph_fs::DenoGraphFsAdapter;
 use crate::jsr::CliJsrUrlProvider;
 use crate::resolver::CliGraphResolver;
 use anyhow::Context;
-use deno_core::error::{custom_error, AnyError};
+use cli_cache::file_fetcher::File;
+use deno_core::error::custom_error;
+use deno_core::error::AnyError;
 use deno_core::parking_lot::Mutex;
-use deno_core::{FastString, ModuleSpecifier};
+use deno_core::FastString;
+use deno_core::ModuleSpecifier;
 use deno_fs::FileSystem;
-use deno_graph::source::{Loader, LoaderChecksum, ResolveError};
-use deno_graph::{
-  GraphKind, JsrLoadError, ModuleError, ModuleGraph, ModuleLoadError,
-  SpecifierError,
-};
-use deno_graph::{ModuleGraphError, ResolutionError};
+use deno_graph::source::Loader;
+use deno_graph::source::LoaderChecksum;
+use deno_graph::source::ResolveError;
+use deno_graph::GraphKind;
+use deno_graph::JsrLoadError;
+use deno_graph::ModuleError;
+use deno_graph::ModuleGraph;
+use deno_graph::ModuleGraphError;
+use deno_graph::ModuleLoadError;
+use deno_graph::ResolutionError;
+use deno_graph::SpecifierError;
 use deno_lockfile::Lockfile;
-use deno_semver::package::{PackageNv, PackageReq};
+use deno_semver::package::PackageNv;
+use deno_semver::package::PackageReq;
 use eszip::EszipV2;
+use ext_core::cache::parsed_source::ParsedSourceCache;
+use ext_core::util::errors::get_error_class_name;
 use import_map::ImportMapError;
 use npm::CliNpmResolver;
-use npm_cache::file_fetcher::File;
-use sb_core::cache::parsed_source::ParsedSourceCache;
-use sb_core::util::errors::get_error_class_name;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -553,7 +561,7 @@ pub fn get_resolution_error_bare_node_specifier(
   error: &ResolutionError,
 ) -> Option<&str> {
   get_resolution_error_bare_specifier(error)
-    .filter(|specifier| sb_node::is_builtin_node_module(specifier))
+    .filter(|specifier| ext_node::is_builtin_node_module(specifier))
 }
 
 fn get_resolution_error_bare_specifier(

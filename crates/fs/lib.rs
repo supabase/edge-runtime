@@ -1,14 +1,21 @@
-use crate::virtual_fs::{FileBackedVfs, VfsBuilder, VfsRoot, VirtualDirectory};
-use anyhow::{bail, Context};
+use crate::virtual_fs::FileBackedVfs;
+use crate::virtual_fs::VfsBuilder;
+use crate::virtual_fs::VfsRoot;
+use crate::virtual_fs::VirtualDirectory;
+use anyhow::bail;
+use anyhow::Context;
 use deno_core::normalize_path;
 use deno_npm::NpmSystemInfo;
 use eszip::EszipV2;
-use eszip_async_trait::{AsyncEszipDataRead, STATIC_FILES_ESZIP_KEY};
+use eszip_async_trait::AsyncEszipDataRead;
+use eszip_async_trait::STATIC_FILES_ESZIP_KEY;
 use indexmap::IndexMap;
 use log::warn;
-use npm::{CliNpmResolver, InnerCliNpmResolverRef};
+use npm::CliNpmResolver;
+use npm::InnerCliNpmResolverRef;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 use url::Url;
 use virtual_fs::VfsEntry;
@@ -91,7 +98,8 @@ pub fn load_npm_vfs(
         .transpose()
     {
         Ok(Some(archived)) => Some(
-            <<Option<VirtualDirectory> as rkyv::Archive>::Archived as rkyv::Deserialize<
+            <<Option<VirtualDirectory> as rkyv::Archive>
+              ::Archived as rkyv::Deserialize<
                 Option<VirtualDirectory>,
                 rkyv::Infallible,
             >>::deserialize(archived, &mut rkyv::Infallible)
@@ -121,7 +129,7 @@ pub fn load_npm_vfs(
         name: "".to_string(),
         entries: vec![],
       },
-      root_path: root_dir_path, // < we should still use the temp, otherwise it might fail when doing `.start_with`
+      root_path: root_dir_path,
     }
   };
 
@@ -150,7 +158,7 @@ where
         let mut builder = VfsBuilder::new(root_path, add_content_callback_fn)?;
         let mut packages =
           npm_resolver.all_system_packages(&NpmSystemInfo::default());
-        packages.sort_by(|a, b| a.id.cmp(&b.id)); // determinism
+        packages.sort_by(|a, b| a.id.cmp(&b.id));
         for package in packages {
           let folder =
             npm_resolver.resolve_pkg_folder_from_pkg_id(&package.id)?;
@@ -162,37 +170,37 @@ where
         // the user's private registry information and means we don't have to bother
         // serializing all the different registry config into the binary.
         builder.with_root_dir(|root_dir| {
-                    root_dir.name = "node_modules".to_string();
-                    let mut new_entries = Vec::with_capacity(root_dir.entries.len());
-                    let mut localhost_entries = IndexMap::new();
-                    for entry in std::mem::take(&mut root_dir.entries) {
-                        match entry {
-                            VfsEntry::Dir(dir) => {
-                                for entry in dir.entries {
-                                    log::debug!("Flattening {} into node_modules", entry.name());
-                                    if let Some(existing) =
-                                        localhost_entries.insert(entry.name().to_string(), entry)
-                                    {
-                                        panic!(
-                                            "Unhandled scenario where a duplicate entry was found: {:?}",
-                                            existing
-                                        );
-                                    }
-                                }
-                            }
-                            VfsEntry::File(_) | VfsEntry::Symlink(_) => {
-                                new_entries.push(entry);
-                            }
-                        }
-                    }
-                    new_entries.push(VfsEntry::Dir(VirtualDirectory {
-                        name: "localhost".to_string(),
-                        entries: localhost_entries.into_iter().map(|(_, v)| v).collect(),
-                    }));
-                    // needs to be sorted by name
-                    new_entries.sort_by(|a, b| a.name().cmp(b.name()));
-                    root_dir.entries = new_entries;
-                });
+          root_dir.name = "node_modules".to_string();
+          let mut new_entries = Vec::with_capacity(root_dir.entries.len());
+          let mut localhost_entries = IndexMap::new();
+          for entry in std::mem::take(&mut root_dir.entries) {
+            match entry {
+              VfsEntry::Dir(dir) => {
+                for entry in dir.entries {
+                  log::debug!("Flattening {} into node_modules", entry.name());
+                  if let Some(existing) =
+                    localhost_entries.insert(entry.name().to_string(), entry)
+                  {
+                    panic!(
+                      "Unhandled scenario where a duplicate entry was found: {:?}",
+                      existing
+                    );
+                  }
+                }
+              }
+              VfsEntry::File(_) | VfsEntry::Symlink(_) => {
+                new_entries.push(entry);
+              }
+            }
+          }
+          new_entries.push(VfsEntry::Dir(VirtualDirectory {
+            name: "localhost".to_string(),
+            entries: localhost_entries.into_iter().map(|(_, v)| v).collect(),
+          }));
+          // needs to be sorted by name
+          new_entries.sort_by(|a, b| a.name().cmp(b.name()));
+          root_dir.entries = new_entries;
+        });
 
         Ok(builder)
       }

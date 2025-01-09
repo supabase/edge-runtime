@@ -1,19 +1,19 @@
-import { assertAlmostEquals, assertEquals } from 'jsr:@std/assert';
+import { assertAlmostEquals, assertEquals } from "jsr:@std/assert";
 import {
   env,
   pipeline,
-} from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.1';
+} from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.1";
 
-import { round6 } from '../util.ts';
+import { round6 } from "../util.ts";
 
 // Ensure we do not use browser cache
 env.useBrowserCache = false;
 env.allowLocalModels = false;
 
-const pipe = await pipeline('fill-mask', null, { device: 'auto' });
+const pipe = await pipeline("fill-mask", null, { device: "auto" });
 
 Deno.serve(async (req: Request) => {
-  const input = '[MASK] is the capital of England.';
+  const input = "[MASK] is the capital of England.";
   const output = await pipe(input);
   const snapshot = await req.json();
 

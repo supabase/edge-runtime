@@ -1,6 +1,9 @@
-use http_v02::{
-  header, response, HeaderMap, HeaderValue, Response, StatusCode,
-};
+use http_v02::header;
+use http_v02::response;
+use http_v02::HeaderMap;
+use http_v02::HeaderValue;
+use http_v02::Response;
+use http_v02::StatusCode;
 use hyper_v014::body::Body;
 
 pub fn get_upgrade_type(headers: &HeaderMap) -> Option<String> {

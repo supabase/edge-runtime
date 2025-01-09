@@ -51,4 +51,4 @@ fn op_http_start(
   Err(bad_resource_id())
 }
 
-deno_core::extension!(sb_core_http_start, ops = [op_http_start]);
+deno_core::extension!(core_http_start, ops = [op_http_start]);

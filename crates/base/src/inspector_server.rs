@@ -408,10 +408,10 @@ async fn server(
     let mut accept_fut = pin!(accept_fut);
 
     select! {
-        _ = register_inspector_handler => {},
-        _ = deregister_inspector_handler => unreachable!(),
-        _ = accept_fut => {},
-        _ = shutdown_server_rx => {}
+      _ = register_inspector_handler => {},
+      _ = deregister_inspector_handler => unreachable!(),
+      _ = accept_fut => {},
+      _ = shutdown_server_rx => {}
     }
   }
 
@@ -438,42 +438,42 @@ async fn pump_websocket_messages(
 ) {
   'pump: loop {
     tokio::select! {
-        Some(msg) = outbound_rx.next() => {
-            let msg = Frame::text(msg.content.into_bytes().into());
-            let _ = websocket.write_frame(msg).await;
-        }
-        msg = websocket.read_frame() => {
-            match msg {
-                Ok(msg) => {
-                    match msg.opcode {
-                        OpCode::Text => {
-                            if let Ok(s) = String::from_utf8(msg.payload.to_vec()) {
-                              let _ = inbound_tx.unbounded_send(s);
-                            }
-                        }
-                        OpCode::Close => {
-                            eprintln!("Debugger session ended");
-                            break 'pump;
-                        }
-                        _ => {
-                            // Ignore other messages.
-                        }
-                    }
+      Some(msg) = outbound_rx.next() => {
+        let msg = Frame::text(msg.content.into_bytes().into());
+        let _ = websocket.write_frame(msg).await;
+      }
+      msg = websocket.read_frame() => {
+        match msg {
+          Ok(msg) => {
+            match msg.opcode {
+              OpCode::Text => {
+                if let Ok(s) = String::from_utf8(msg.payload.to_vec()) {
+                  let _ = inbound_tx.unbounded_send(s);
                 }
-
-                Err(err) => {
-                    eprintln!("Debugger session ended: {}", err);
-                    break 'pump;
-                }
+              }
+              OpCode::Close => {
+                eprintln!("Debugger session ended");
+                break 'pump;
+              }
+              _ => {
+                  // Ignore other messages.
+              }
             }
-        }
-        Ok(_) = deregistered_watch_rx.wait_for(|it| *it) => {
-            eprintln!("Debugger session ended");
+          }
+
+          Err(err) => {
+            eprintln!("Debugger session ended: {}", err);
             break 'pump;
+          }
         }
-        else => {
-            break 'pump;
-        }
+      }
+      Ok(_) = deregistered_watch_rx.wait_for(|it| *it) => {
+        eprintln!("Debugger session ended");
+        break 'pump;
+      }
+      else => {
+        break 'pump;
+      }
     }
   }
 }

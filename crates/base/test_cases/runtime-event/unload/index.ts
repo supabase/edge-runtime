@@ -1,10 +1,9 @@
 addEventListener("unload", () => {
-    console.log("triggered", "unload");
+  console.log("triggered", "unload");
 });
 
-
 export default {
-    fetch() {
-        return new Response();
-    }
-}
+  fetch() {
+    return new Response();
+  },
+};

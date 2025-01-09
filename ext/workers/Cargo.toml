@@ -1,5 +1,5 @@
 [package]
-name = "sb_workers"
+name = "ext_workers"
 version = "0.1.0"
 authors.workspace = true
 edition.workspace = true
@@ -17,8 +17,8 @@ fs.workspace = true
 graph.workspace = true
 http_utils.workspace = true
 
-sb_core.workspace = true
-sb_event_worker.workspace = true
+ext_core.workspace = true
+ext_event_worker.workspace = true
 
 anyhow.workspace = true
 bytes.workspace = true
@@ -30,6 +30,6 @@ once_cell.workspace = true
 scopeguard.workspace = true
 serde.workspace = true
 thiserror.workspace = true
-tokio-util.workspace = true
 tokio.workspace = true
+tokio-util.workspace = true
 uuid.workspace = true

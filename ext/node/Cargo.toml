@@ -1,7 +1,7 @@
 # Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 [package]
-name = "sb_node"
+name = "ext_node"
 version = "0.1.0"
 authors.workspace = true
 edition.workspace = true
@@ -35,13 +35,12 @@ elliptic-curve.workspace = true
 faster-hex.workspace = true
 h2.workspace = true
 hkdf.workspace = true
-http_v02.workspace = true
 http.workspace = true
+http-body-util.workspace = true
 indexmap.workspace = true
 lazy-regex.workspace = true
 libc.workspace = true
 libz-sys.workspace = true
-nix.workspace = true
 num-bigint.workspace = true
 once_cell.workspace = true
 p224.workspace = true
@@ -49,7 +48,6 @@ p256.workspace = true
 p384.workspace = true
 rand.workspace = true
 regex.workspace = true
-reqwest.workspace = true
 ring.workspace = true
 rsa.workspace = true
 sec1.workspace = true
@@ -61,23 +59,25 @@ spki.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 url.workspace = true
-winapi.workspace = true
 webpki-root-certs.workspace = true
+winapi.workspace = true
+yoke.workspace = true
 
 aead-gcm-stream = "0.3"
 blake2 = "0.10.6"
 const-oid = "0.9.5"
+der = { version = "0.7.9", features = ["derive"] }
 digest = { version = "0.10.5", features = ["core-api", "std"] }
 dsa = "0.6.3"
 ecdsa = "0.16.9"
 ed25519-dalek = { version = "2.1.1", features = ["digest", "pkcs8", "rand_core", "signature"] }
 errno = "0.2.8"
 idna = "1.0.3"
-memchr = "2.7.4"
 ipnetwork = "0.20.0"
 k256 = "0.13.1"
 md-5 = { version = "0.10.5", features = ["oid"] }
 md4 = "0.10.2"
+memchr = "2.7.4"
 num-bigint-dig = "0.8.2"
 num-integer = "0.1.45"
 num-traits = "0.2.14"

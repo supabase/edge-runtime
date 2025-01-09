@@ -68,11 +68,11 @@ class NodeWorker extends EventEmitter {
   resourceLimits: Required<
     NonNullable<WorkerOptions["resourceLimits"]>
   > = {
-      maxYoungGenerationSizeMb: -1,
-      maxOldGenerationSizeMb: -1,
-      codeRangeSizeMb: -1,
-      stackSizeMb: 4,
-    };
+    maxYoungGenerationSizeMb: -1,
+    maxOldGenerationSizeMb: -1,
+    codeRangeSizeMb: -1,
+    stackSizeMb: 4,
+  };
 
   constructor(_specifier: URL | string, _options?: WorkerOptions) {
     super();
@@ -383,7 +383,7 @@ internals.__initWorkerThreads = (
     };
 
     // mocks
-    parentPort.setMaxListeners = () => { };
+    parentPort.setMaxListeners = () => {};
     parentPort.getMaxListeners = () => Infinity;
     parentPort.eventNames = () => [""];
     parentPort.listenerCount = () => 0;

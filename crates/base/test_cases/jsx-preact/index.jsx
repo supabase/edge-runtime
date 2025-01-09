@@ -4,4 +4,4 @@
 // </div>
 // );
 // console.log(jsx);
-globalThis.hello = (<div>Hello</div>);
+globalThis.hello = <div>Hello</div>;

@@ -1,13 +1,18 @@
 // Copyright 2014-2021 Sean McArthur
 // SPDX-License-Identifier: MIT
 
+use std::cmp;
+use std::io;
 use std::marker::Unpin;
 use std::pin::Pin;
-use std::task::{Context, Poll};
-use std::{cmp, io};
+use std::task::Context;
+use std::task::Poll;
 
-use bytes::{Buf, Bytes};
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use bytes::Buf;
+use bytes::Bytes;
+use tokio::io::AsyncRead;
+use tokio::io::AsyncWrite;
+use tokio::io::ReadBuf;
 
 /// Combine a buffer with an IO, rewinding reads to use the buffer.
 #[derive(Debug)]

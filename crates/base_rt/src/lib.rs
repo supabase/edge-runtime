@@ -1,19 +1,22 @@
-use std::{
-  num::NonZeroUsize,
-  sync::{
-    atomic::{AtomicI64, Ordering},
-    Arc,
-  },
-};
+use std::num::NonZeroUsize;
+use std::sync::atomic::AtomicI64;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
 
 use cpu_timer::get_thread_time;
-use deno_core::{
-  anyhow::Context, error::AnyError, OpState, Resource, V8CrossThreadTaskSpawner,
-};
+use deno_core::anyhow::Context;
+use deno_core::error::AnyError;
+use deno_core::OpState;
+use deno_core::Resource;
+use deno_core::V8CrossThreadTaskSpawner;
 use once_cell::sync::Lazy;
-use tokio::{runtime::Handle, sync::oneshot};
-use tokio_util::sync::{CancellationToken, WaitForCancellationFutureOwned};
-use tracing::{debug, debug_span, Instrument};
+use tokio::runtime::Handle;
+use tokio::sync::oneshot;
+use tokio_util::sync::CancellationToken;
+use tokio_util::sync::WaitForCancellationFutureOwned;
+use tracing::debug;
+use tracing::debug_span;
+use tracing::Instrument;
 
 pub mod error;
 
@@ -169,19 +172,19 @@ impl BlockingScopeCPUUsageMetricExt for &mut OpState {
       });
 
       handle.block_on({
-                async move {
-                    tokio::select! {
-                        _ = rx => {}
-                        _ = drop_token.cancelled() => {
-                            debug!(
-                                js_runtime_dropped = true,
-                                unreported_blocking_cpu_time_ms = diff_cpu_time_ns / 1_000_000
-                            );
-                        }
-                    }
-                }
-                .instrument(debug_span!("wait v8 task done"))
-            });
+        async move {
+          tokio::select! {
+            _ = rx => {}
+            _ = drop_token.cancelled() => {
+              debug!(
+                js_runtime_dropped = true,
+                unreported_blocking_cpu_time_ms = diff_cpu_time_ns / 1_000_000
+              );
+            }
+          }
+        }
+        .instrument(debug_span!("wait v8 task done"))
+      });
 
       result
     })

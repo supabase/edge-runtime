@@ -1,5 +1,4 @@
-
-console.log('main function started');
+console.log("main function started");
 
 Deno.serve(async (req: Request) => {
   const url = new URL(req.url);
@@ -8,11 +7,11 @@ Deno.serve(async (req: Request) => {
   const service_name = path_parts[1];
 
   if (!service_name || service_name === "") {
-    const error = { msg: "missing function name in request" }
+    const error = { msg: "missing function name in request" };
     return new Response(
       JSON.stringify(error),
       { status: 400, headers: { "Content-Type": "application/json" } },
-    )
+    );
   }
 
   const servicePath = `./test_cases/${service_name}`;
@@ -27,7 +26,7 @@ Deno.serve(async (req: Request) => {
     const noModuleCache = false;
     const importMapPath = null;
     const envVarsObj = Deno.env.toObject();
-    const envVars = Object.keys(envVarsObj).map(k => [k, envVarsObj[k]]);
+    const envVars = Object.keys(envVarsObj).map((k) => [k, envVarsObj[k]]);
 
     return await EdgeRuntime.userWorkers.create({
       servicePath,
@@ -37,9 +36,9 @@ Deno.serve(async (req: Request) => {
       cpuTimeHardLimitMs,
       noModuleCache,
       importMapPath,
-      envVars
+      envVars,
     });
-  }
+  };
 
   const callWorker = async () => {
     try {
@@ -52,13 +51,13 @@ Deno.serve(async (req: Request) => {
       // 	return await callWorker();
       // }
 
-      const error = { msg: e.toString() }
+      const error = { msg: e.toString() };
       return new Response(
         JSON.stringify(error),
         { status: 500, headers: { "Content-Type": "application/json" } },
       );
     }
-  }
+  };
 
   return callWorker();
-})
+});

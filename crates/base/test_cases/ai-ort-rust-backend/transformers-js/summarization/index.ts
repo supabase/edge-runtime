@@ -1,14 +1,14 @@
-import { assertGreater, assertLess } from 'jsr:@std/assert';
+import { assertGreater, assertLess } from "jsr:@std/assert";
 import {
   env,
   pipeline,
-} from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.1';
+} from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.1";
 
 // Ensure we do not use browser cache
 env.useBrowserCache = false;
 env.allowLocalModels = false;
 
-const pipe = await pipeline('summarization', null, { device: 'auto' });
+const pipe = await pipeline("summarization", null, { device: "auto" });
 
 Deno.serve(async () => {
   const input = [

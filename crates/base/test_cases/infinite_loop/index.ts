@@ -1,3 +1,3 @@
-console.log('Module loaded');
-while(true) {
+console.log("Module loaded");
+while (true) {
 }

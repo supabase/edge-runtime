@@ -5,26 +5,36 @@ pub(crate) mod onnx;
 pub(crate) mod session;
 
 use core::str;
-use std::{
-  borrow::Cow, cell::RefCell, collections::HashMap, rc::Rc, sync::Arc,
-};
+use std::borrow::Cow;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
+use std::sync::Arc;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::anyhow;
+use anyhow::Context;
+use anyhow::Result;
 use base_rt::BlockingScopeCPUUsageMetricExt;
-use deno_core::{
-  error::AnyError, op2, JsBuffer, JsRuntime, OpState, V8CrossThreadTaskSpawner,
-};
+use deno_core::error::AnyError;
+use deno_core::op2;
+use deno_core::JsBuffer;
+use deno_core::JsRuntime;
+use deno_core::OpState;
+use deno_core::V8CrossThreadTaskSpawner;
 
-use model::{Model, ModelInfo};
+use model::Model;
+use model::ModelInfo;
 use ort::Session;
 use reqwest::Url;
-use tensor::{JsTensor, ToJsTensor};
+use tensor::JsTensor;
+use tensor::ToJsTensor;
 use tokio::sync::oneshot;
-use tracing::{debug, trace};
+use tracing::debug;
+use tracing::trace;
 
 #[op2(async)]
 #[to_v8]
-pub async fn op_sb_ai_ort_init_session(
+pub async fn op_ai_ort_init_session(
   state: Rc<RefCell<OpState>>,
   #[buffer] model_bytes: JsBuffer,
 ) -> Result<ModelInfo> {
@@ -58,7 +68,7 @@ pub async fn op_sb_ai_ort_init_session(
 
 #[op2(async)]
 #[serde]
-pub async fn op_sb_ai_ort_run_session(
+pub async fn op_ai_ort_run_session(
   state: Rc<RefCell<OpState>>,
   #[string] model_id: String,
   #[serde] input_values: HashMap<String, JsTensor>,

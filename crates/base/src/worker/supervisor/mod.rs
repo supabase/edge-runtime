@@ -1,28 +1,38 @@
-use std::{future::pending, sync::Arc, time::Duration};
+use std::future::pending;
+use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::anyhow;
 use base_mem_check::MemCheckState;
-use cpu_timer::{CPUAlarmVal, CPUTimer};
-use deno_core::{v8, InspectorSessionProxy, LocalInspectorSession};
+use cpu_timer::CPUAlarmVal;
+use cpu_timer::CPUTimer;
+use deno_core::v8;
+use deno_core::InspectorSessionProxy;
+use deno_core::LocalInspectorSession;
 use enum_as_inner::EnumAsInner;
-use futures_util::{pin_mut, task::AtomicWaker};
-use sb_core::PromiseMetrics;
-use sb_event_worker::events::{ShutdownEvent, WorkerEvents, WorkerMemoryUsed};
-use sb_workers::context::{Timing, UserWorkerMsgs, UserWorkerRuntimeOpts};
-use tokio::sync::{
-  mpsc::{self, UnboundedReceiver},
-  oneshot, Mutex,
-};
+use ext_core::PromiseMetrics;
+use ext_event_worker::events::ShutdownEvent;
+use ext_event_worker::events::WorkerEvents;
+use ext_event_worker::events::WorkerMemoryUsed;
+use ext_workers::context::Timing;
+use ext_workers::context::UserWorkerMsgs;
+use ext_workers::context::UserWorkerRuntimeOpts;
+use futures_util::pin_mut;
+use futures_util::task::AtomicWaker;
+use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::mpsc::{self};
+use tokio::sync::oneshot;
+use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-use crate::{
-  deno_runtime::{DenoRuntime, RuntimeState},
-  server::ServerFlags,
-  utils::units::percentage_value,
-};
+use crate::deno_runtime::DenoRuntime;
+use crate::deno_runtime::RuntimeState;
+use crate::server::ServerFlags;
+use crate::utils::units::percentage_value;
 
-use super::{pool::SupervisorPolicy, termination_token::TerminationToken};
+use super::pool::SupervisorPolicy;
+use super::termination_token::TerminationToken;
 
 pub mod strategy_per_request;
 pub mod strategy_per_worker;
@@ -339,16 +349,16 @@ pub fn create_supervisor(
 
                       loop {
                         tokio::select! {
-                            _ = int.tick() => {
-                                if state.is_terminated() {
-                                    break
-                                }
+                          _ = int.tick() => {
+                            if state.is_terminated() {
+                              break
                             }
+                          }
 
-                            res = &mut fut => {
-                                res.unwrap();
-                                break
-                            }
+                          res = &mut fut => {
+                            res.unwrap();
+                            break
+                          }
                         }
                       }
                     }
@@ -380,8 +390,10 @@ pub fn create_supervisor(
       waker.wake();
 
       let memory_report = tokio::select! {
-          report = isolate_memory_usage_rx => report.map_err(anyhow::Error::from),
-          _ = runtime_drop_token.cancelled() => Err(anyhow!("termination requested"))
+        report = isolate_memory_usage_rx => report.map_err(anyhow::Error::from),
+        _ = runtime_drop_token.cancelled() => Err(
+          anyhow!("termination requested"
+        ))
       };
 
       let memory_used = match memory_report {

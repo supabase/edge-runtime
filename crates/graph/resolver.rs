@@ -1,37 +1,46 @@
-use std::{
-  borrow::Cow,
-  path::{Path, PathBuf},
-  sync::Arc,
-};
+use std::borrow::Cow;
+use std::path::Path;
+use std::path::PathBuf;
+use std::sync::Arc;
 
-use anyhow::{anyhow, Context};
+use anyhow::anyhow;
+use anyhow::Context;
 use async_trait::async_trait;
 use dashmap::DashSet;
 use deno_ast::MediaType;
-use deno_config::{
-  package_json::PackageJsonDepValue,
-  workspace::{MappedResolution, MappedResolutionError, WorkspaceResolver},
-  JsxImportSourceConfig,
-};
-use deno_core::{
-  error::AnyError, unsync::AtomicFlag, ModuleSourceCode, ModuleSpecifier,
-};
-use deno_graph::{
-  source::{
-    ResolutionMode, ResolveError, Resolver, UnknownBuiltInNodeModuleError,
-    DEFAULT_JSX_IMPORT_SOURCE_MODULE,
-  },
-  NpmLoadError, NpmResolvePkgReqsResult,
-};
+use deno_config::package_json::PackageJsonDepValue;
+use deno_config::workspace::MappedResolution;
+use deno_config::workspace::MappedResolutionError;
+use deno_config::workspace::WorkspaceResolver;
+use deno_config::JsxImportSourceConfig;
+use deno_core::error::AnyError;
+use deno_core::unsync::AtomicFlag;
+use deno_core::ModuleSourceCode;
+use deno_core::ModuleSpecifier;
+use deno_graph::source::ResolutionMode;
+use deno_graph::source::ResolveError;
+use deno_graph::source::Resolver;
+use deno_graph::source::UnknownBuiltInNodeModuleError;
+use deno_graph::source::DEFAULT_JSX_IMPORT_SOURCE_MODULE;
+use deno_graph::NpmLoadError;
+use deno_graph::NpmResolvePkgReqsResult;
 use deno_npm::resolution::NpmResolutionError;
-use deno_semver::{npm::NpmPackageReqReference, package::PackageReq};
-use npm::{byonm::ByonmCliNpmResolver, CliNpmResolver, InnerCliNpmResolverRef};
-use sb_core::node::CliNodeCodeTranslator;
-use sb_node::{
-  errors::{ClosestPkgJsonError, UrlToNodeResolutionError},
-  is_builtin_node_module, parse_npm_pkg_name, NodeModuleKind, NodeResolution,
-  NodeResolutionMode, NodeResolver, NpmResolver, PackageJson,
-};
+use deno_semver::npm::NpmPackageReqReference;
+use deno_semver::package::PackageReq;
+use ext_core::node::CliNodeCodeTranslator;
+use ext_node::errors::ClosestPkgJsonError;
+use ext_node::errors::UrlToNodeResolutionError;
+use ext_node::is_builtin_node_module;
+use ext_node::parse_npm_pkg_name;
+use ext_node::NodeModuleKind;
+use ext_node::NodeResolution;
+use ext_node::NodeResolutionMode;
+use ext_node::NodeResolver;
+use ext_node::NpmResolver;
+use ext_node::PackageJson;
+use npm::byonm::ByonmCliNpmResolver;
+use npm::CliNpmResolver;
+use npm::InnerCliNpmResolverRef;
 
 pub struct ModuleCodeStringSource {
   pub code: ModuleSourceCode,
@@ -219,7 +228,7 @@ impl CliNodeResolver {
       // If so, check if we need to store this specifier as being a CJS
       // resolution.
       let specifier =
-        sb_core::node::resolve_specifier_into_node_modules(&specifier);
+        ext_core::node::resolve_specifier_into_node_modules(&specifier);
       if self.in_npm_package(&specifier) {
         let resolution =
           self.node_resolver.url_to_node_resolution(specifier)?;

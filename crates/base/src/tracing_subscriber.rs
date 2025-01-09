@@ -1,5 +1,6 @@
 use ctor::ctor;
-use tracing_subscriber::{filter::LevelFilter, EnvFilter};
+use tracing_subscriber::filter::LevelFilter;
+use tracing_subscriber::EnvFilter;
 
 #[ctor]
 fn init_tracing_subscriber() {

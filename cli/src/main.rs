@@ -4,23 +4,31 @@ mod flags;
 #[cfg(not(feature = "tracing"))]
 mod logger;
 
-use anyhow::{anyhow, bail, Error};
+use anyhow::anyhow;
+use anyhow::bail;
+use anyhow::Error;
 use base::commands::start_server;
 
-use base::server::{ServerFlags, Tls, WorkerEntrypoints};
+use base::server::ServerFlags;
+use base::server::Tls;
+use base::server::WorkerEntrypoints;
 use base::utils::path::find_up;
 use base::utils::units::percentage_value;
-use base::worker::pool::{SupervisorPolicy, WorkerPoolPolicy};
-use base::{CacheSetting, DecoratorType, InspectorOption};
+use base::worker::pool::SupervisorPolicy;
+use base::worker::pool::WorkerPoolPolicy;
+use base::CacheSetting;
+use base::DecoratorType;
+use base::InspectorOption;
 use clap::ArgMatches;
 use deno_core::url::Url;
 use env::resolve_deno_runtime_env;
-use flags::{get_cli, EszipV2ChecksumKind};
+use flags::get_cli;
+use flags::EszipV2ChecksumKind;
 use graph::emitter::EmitterFactory;
+use graph::extract_from_file;
+use graph::generate_binary_eszip;
 use graph::import_map::load_import_map;
-use graph::{
-  extract_from_file, generate_binary_eszip, include_glob_patterns_in_eszip,
-};
+use graph::include_glob_patterns_in_eszip;
 use log::warn;
 use std::fs::File;
 use std::io::Write;

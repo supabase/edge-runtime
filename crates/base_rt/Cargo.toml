@@ -11,6 +11,6 @@ deno_core.workspace = true
 cpu_timer.workspace = true
 
 once_cell.workspace = true
-tokio-util = { workspace = true, features = ["rt"] }
 tokio.workspace = true
+tokio-util = { workspace = true, features = ["rt"] }
 tracing.workspace = true

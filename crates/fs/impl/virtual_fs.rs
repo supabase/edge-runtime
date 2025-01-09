@@ -22,12 +22,12 @@ use deno_io::fs::FsError;
 use deno_io::fs::FsResult;
 use deno_io::fs::FsStat;
 use eszip_async_trait::AsyncEszipDataRead;
+use ext_core::util::checksum;
+use ext_core::util::fs::canonicalize_path;
 use futures::future::OptionFuture;
 use rkyv::Archive;
 use rkyv::Deserialize;
 use rkyv::Serialize;
-use sb_core::util::checksum;
-use sb_core::util::fs::canonicalize_path;
 use thiserror::Error;
 
 use crate::rt::SYNC_IO_RT;

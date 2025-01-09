@@ -7,14 +7,21 @@ use std::hash::Hasher;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio_util::compat::FuturesAsyncWriteCompatExt;
-use tracing::{debug, instrument, trace};
+use tracing::debug;
+use tracing::instrument;
+use tracing::trace;
 use xxhash_rust::xxh3::Xxh3;
 
-use anyhow::{anyhow, Context, Error};
-use ort::{
-  CPUExecutionProvider, CUDAExecutionProvider, ExecutionProvider,
-  ExecutionProviderDispatch, GraphOptimizationLevel, Session, SessionBuilder,
-};
+use anyhow::anyhow;
+use anyhow::Context;
+use anyhow::Error;
+use ort::CPUExecutionProvider;
+use ort::CUDAExecutionProvider;
+use ort::ExecutionProvider;
+use ort::ExecutionProviderDispatch;
+use ort::GraphOptimizationLevel;
+use ort::Session;
+use ort::SessionBuilder;
 
 use crate::onnx::ensure_onnx_env_init;
 

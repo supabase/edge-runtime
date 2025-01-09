@@ -6,12 +6,16 @@
 //! If you need to call a v8 function that has side effects that might be calling the deno ops, you
 //! can safely call it through [`V8TaskSpawner`].
 
-use deno_core::{v8, JsRuntime, V8TaskSpawner};
+use deno_core::v8;
+use deno_core::JsRuntime;
+use deno_core::V8TaskSpawner;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, instrument};
+use tracing::debug;
+use tracing::instrument;
 
-use crate::deno_runtime::{MaybeDenoRuntime, WillTerminateReason};
+use crate::deno_runtime::MaybeDenoRuntime;
+use crate::deno_runtime::WillTerminateReason;
 
 use super::IsolateMemoryStats;
 

@@ -1,13 +1,27 @@
-use std::{ffi::c_void, fmt::Debug, mem::size_of, rc::Rc};
+use std::ffi::c_void;
+use std::fmt::Debug;
+use std::mem::size_of;
+use std::rc::Rc;
 
 use anyhow::anyhow;
-use deno_core::{error::AnyError, v8, JsBuffer, ToJsBuffer};
-use ort::{
-  AllocationDevice, AllocatorType, DynValue, DynValueTypeMarker,
-  IntoTensorElementType, MemoryInfo, MemoryType, SessionInputValue,
-  TensorElementType, TensorRefMut, ValueRefMut, ValueType,
-};
-use serde::{Deserialize, Serialize};
+use deno_core::error::AnyError;
+use deno_core::v8;
+use deno_core::JsBuffer;
+use deno_core::ToJsBuffer;
+use ort::AllocationDevice;
+use ort::AllocatorType;
+use ort::DynValue;
+use ort::DynValueTypeMarker;
+use ort::IntoTensorElementType;
+use ort::MemoryInfo;
+use ort::MemoryType;
+use ort::SessionInputValue;
+use ort::TensorElementType;
+use ort::TensorRefMut;
+use ort::ValueRefMut;
+use ort::ValueType;
+use serde::Deserialize;
+use serde::Serialize;
 
 // We zero-copy an ORT Tensor to a JS ArrayBuffer like:
 // https://github.com/denoland/deno_core/blob/7258aa325368a8e2c1271a25c1b4d537ed41e9c5/core/runtime/ops_rust_to_v8.rs#L370

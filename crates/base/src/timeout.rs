@@ -1,20 +1,22 @@
 // This implementation originated from the link below:
 // https://gist.github.com/programatik29/36d371c657392fd7f322e7342957b6d1
 
-use std::{
-  pin::Pin,
-  task::{ready, Poll},
-  time::Duration,
-};
+use std::pin::Pin;
+use std::task::ready;
+use std::task::Poll;
+use std::time::Duration;
 
 use enum_as_inner::EnumAsInner;
 use futures_util::Future;
 use pin_project::pin_project;
-use tokio::{
-  io::{AsyncRead, AsyncWrite},
-  sync::mpsc::{self, UnboundedReceiver, UnboundedSender},
-  time::{sleep, Instant, Sleep},
-};
+use tokio::io::AsyncRead;
+use tokio::io::AsyncWrite;
+use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc::{self};
+use tokio::time::sleep;
+use tokio::time::Instant;
+use tokio::time::Sleep;
 
 pub(super) enum State {
   Wait,

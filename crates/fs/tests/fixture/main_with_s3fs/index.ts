@@ -1,4 +1,4 @@
-console.log('main function started');
+console.log("main function started");
 
 export default {
   fetch(req: Request) {
@@ -18,24 +18,31 @@ export default {
         secretAccessKey: Deno.env.get("S3FS_TEST_SECRET_ACCESS_KEY"),
       },
       retryConfig: {
-        mode: "standard"
+        mode: "standard",
       },
     } as const;
 
     if (!Deno.env.get("S3FS_TEST_BUCKET_NAME")) {
-      return Response.json({ msg: "no bucket name were found for s3fs test" }, { status: 500 })
+      return Response.json({ msg: "no bucket name were found for s3fs test" }, {
+        status: 500,
+      });
     }
 
-    if (!s3FsConfig.credentials.accessKeyId || !s3FsConfig.credentials.secretAccessKey) {
-      return Response.json({ msg: "no credentials were found for s3fs test" }, { status: 500 });
+    if (
+      !s3FsConfig.credentials.accessKeyId ||
+      !s3FsConfig.credentials.secretAccessKey
+    ) {
+      return Response.json({ msg: "no credentials were found for s3fs test" }, {
+        status: 500,
+      });
     }
 
     if (!service_name || service_name === "") {
-      const error = { msg: "missing function name in request" }
+      const error = { msg: "missing function name in request" };
       return new Response(
         JSON.stringify(error),
         { status: 400, headers: { "Content-Type": "application/json" } },
-      )
+      );
     }
 
     const servicePath = `./tests/fixture/${service_name}`;
@@ -49,7 +56,7 @@ export default {
       const noModuleCache = true;
       const importMapPath = null;
       const envVarsObj = Deno.env.toObject();
-      const envVars = Object.keys(envVarsObj).map(k => [k, envVarsObj[k]]);
+      const envVars = Object.keys(envVarsObj).map((k) => [k, envVarsObj[k]]);
 
       return await EdgeRuntime.userWorkers.create({
         servicePath,
@@ -60,9 +67,9 @@ export default {
         noModuleCache,
         importMapPath,
         envVars,
-        s3FsConfig
+        s3FsConfig,
       });
-    }
+    };
 
     const callWorker = async () => {
       try {
@@ -75,14 +82,14 @@ export default {
         // 	return await callWorker();
         // }
 
-        const error = { msg: e.toString() }
+        const error = { msg: e.toString() };
         return new Response(
           JSON.stringify(error),
           { status: 500, headers: { "Content-Type": "application/json" } },
         );
       }
-    }
+    };
 
     return callWorker();
-  }
-}
+  },
+};

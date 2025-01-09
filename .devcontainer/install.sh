@@ -13,6 +13,7 @@ mv /tmp/onnxruntime/lib/libonnxruntime.so* /usr/lib
 curl -fsSL https://ollama.com/install.sh | sh
 
 # Deno
-mkdir -p /deno
 curl -fsSL https://deno.land/install.sh | bash -s -- v$DENO_VERSION
-chown -R vscode /deno
+
+# dprint
+curl -fsSL https://dprint.dev/install.sh | sh

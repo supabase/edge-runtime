@@ -2,69 +2,93 @@
 #![allow(clippy::async_yields_async)]
 
 use deno_config::JsxImportSourceConfig;
-use graph::{emitter::EmitterFactory, generate_binary_eszip, EszipPayloadKind};
-use http_v02::{self as http, HeaderValue};
+use ext_event_worker::events::LogLevel;
+use ext_event_worker::events::WorkerEvents;
+use graph::emitter::EmitterFactory;
+use graph::generate_binary_eszip;
+use graph::EszipPayloadKind;
+use http_v02::HeaderValue;
+use http_v02::{self as http};
 use hyper_v014 as hyper;
 use reqwest_v011 as reqwest;
-use sb_event_worker::events::{LogLevel, WorkerEvents};
 use url::Url;
 
-use std::{
-  borrow::Cow,
-  collections::HashMap,
-  io::{self, BufRead, Cursor},
-  net::{IpAddr, Ipv4Addr, SocketAddr},
-  path::{Path, PathBuf},
-  sync::Arc,
-  time::Duration,
-};
+use std::borrow::Cow;
+use std::collections::HashMap;
+use std::io::BufRead;
+use std::io::Cursor;
+use std::io::{self};
+use std::net::IpAddr;
+use std::net::Ipv4Addr;
+use std::net::SocketAddr;
+use std::path::Path;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::Context;
 use async_tungstenite::WebSocketStream;
-use base::{
-  integration_test, integration_test_listen_fut,
-  integration_test_with_server_flag,
-  server::{Server, ServerEvent, ServerFlags, ServerHealth, Tls},
-  worker, DecoratorType,
-};
-use base::{
-  utils::test_utils::{
-    self, create_test_user_worker, test_user_runtime_opts,
-    test_user_worker_pool_policy, TestBedBuilder,
-  },
-  worker::TerminationToken,
-};
-use deno_core::serde_json::{self, json};
-use futures_util::{future::BoxFuture, Future, FutureExt, SinkExt, StreamExt};
-use http::{Method, Request, Response as HttpResponse, StatusCode};
+use base::integration_test;
+use base::integration_test_listen_fut;
+use base::integration_test_with_server_flag;
+use base::server::Server;
+use base::server::ServerEvent;
+use base::server::ServerFlags;
+use base::server::ServerHealth;
+use base::server::Tls;
+use base::utils::test_utils::create_test_user_worker;
+use base::utils::test_utils::test_user_runtime_opts;
+use base::utils::test_utils::test_user_worker_pool_policy;
+use base::utils::test_utils::TestBedBuilder;
+use base::utils::test_utils::{self};
+use base::worker;
+use base::worker::TerminationToken;
+use base::DecoratorType;
+use deno_core::serde_json::json;
+use deno_core::serde_json::{self};
+use ext_core::SharedMetricSource;
+use ext_workers::context::MainWorkerRuntimeOpts;
+use ext_workers::context::WorkerContextInitOpts;
+use ext_workers::context::WorkerRequestMsg;
+use ext_workers::context::WorkerRuntimeOpts;
+use futures_util::future::BoxFuture;
+use futures_util::Future;
+use futures_util::FutureExt;
+use futures_util::SinkExt;
+use futures_util::StreamExt;
+use http::Method;
+use http::Request;
+use http::Response as HttpResponse;
+use http::StatusCode;
 use http_utils::utils::get_upgrade_type;
-use hyper::{body::to_bytes, Body};
-use reqwest::{
-  header,
-  multipart::{Form, Part},
-  Response,
-};
-use reqwest::{Certificate, Client, RequestBuilder};
-use sb_core::SharedMetricSource;
-use sb_workers::context::{
-  MainWorkerRuntimeOpts, WorkerContextInitOpts, WorkerRequestMsg,
-  WorkerRuntimeOpts,
-};
+use hyper::body::to_bytes;
+use hyper::Body;
+use reqwest::header;
+use reqwest::multipart::Form;
+use reqwest::multipart::Part;
+use reqwest::Certificate;
+use reqwest::Client;
+use reqwest::RequestBuilder;
+use reqwest::Response;
 use serde::Deserialize;
 use serial_test::serial;
-use tokio::{
-  fs,
-  io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
-  join,
-  net::TcpStream,
-  sync::{mpsc, oneshot},
-  time::{sleep, timeout},
-};
-use tokio_rustls::{
-  rustls::{pki_types::ServerName, ClientConfig, RootCertStore},
-  TlsConnector,
-};
-use tokio_util::{compat::TokioAsyncReadCompatExt, sync::CancellationToken};
+use tokio::fs;
+use tokio::io::AsyncRead;
+use tokio::io::AsyncReadExt;
+use tokio::io::AsyncWrite;
+use tokio::io::AsyncWriteExt;
+use tokio::join;
+use tokio::net::TcpStream;
+use tokio::sync::mpsc;
+use tokio::sync::oneshot;
+use tokio::time::sleep;
+use tokio::time::timeout;
+use tokio_rustls::rustls::pki_types::ServerName;
+use tokio_rustls::rustls::ClientConfig;
+use tokio_rustls::rustls::RootCertStore;
+use tokio_rustls::TlsConnector;
+use tokio_util::compat::TokioAsyncReadCompatExt;
+use tokio_util::sync::CancellationToken;
 use tungstenite::Message;
 use urlencoding::encode;
 
@@ -1201,12 +1225,12 @@ async fn req_failure_case_intentional_peer_reset(maybe_tls: Option<Tls>) {
         tokio::spawn(async move {
           loop {
             tokio::select! {
-                Some(ev) = ev.recv() => {
-                    let _ = server_ev_tx.send(ev);
-                    break;
-                }
+              Some(ev) = ev.recv() => {
+                let _ = server_ev_tx.send(ev);
+                break;
+              }
 
-                else => continue
+              else => continue
             }
           }
         });
@@ -1232,8 +1256,8 @@ async fn req_failure_case_intentional_peer_reset(maybe_tls: Option<Tls>) {
 
   let ev = loop {
     tokio::select! {
-        Some(ev) = server_ev_rx.recv() => break ev,
-        else => continue,
+      Some(ev) = server_ev_rx.recv() => break ev,
+      else => continue,
     }
   };
 
@@ -1441,13 +1465,13 @@ async fn test_graceful_shutdown() {
       token.cancel();
 
       tokio::select! {
-          Some(ServerEvent::Draining) = server_ev_rx.recv() => {
-              assert_eq!(metric_src.handled_requests(), 0);
-          }
+        Some(ServerEvent::Draining) = server_ev_rx.recv() => {
+          assert_eq!(metric_src.handled_requests(), 0);
+        }
 
-          else => {
-              panic!("event sequence does not match != ServerEvent::Draining");
-          }
+        else => {
+          panic!("event sequence does not match != ServerEvent::Draining");
+        }
       }
 
       while metric_src.active_io() > 0 {
@@ -1723,8 +1747,8 @@ async fn test_slowloris<F, R>(
   });
 
   tokio::select! {
-      _ = join_fut => {}
-      _ = &mut listen_fut => {}
+    _ = join_fut => {}
+    _ = &mut listen_fut => {}
   };
 
   if timeout(Duration::from_secs(10), rx).await.is_err() {
@@ -2916,7 +2940,7 @@ async fn test_tmp_fs_should_not_be_available_in_import_stmt() {
   );
 }
 
-// -- sb_ai: ORT @huggingface/transformers
+// -- ext_ai: ORT @huggingface/transformers
 async fn test_ort_transformers_js(script_path: &str) {
   fn visit_json(value: &mut serde_json::Value) {
     use serde_json::Number;
@@ -3092,7 +3116,7 @@ async fn test_ort_vision_zero_shot_image_classification() {
   test_ort_transformers_js("zero-shot-image-classification").await;
 }
 
-// -- sb_ai(cache): ORT @huggingface/transformers
+// -- ext_ai(cache): ORT @huggingface/transformers
 #[tokio::test]
 #[serial]
 async fn test_ort_cache_nlp_feature_extraction() {

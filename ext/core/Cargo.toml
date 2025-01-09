@@ -1,5 +1,5 @@
 [package]
-name = "sb_core"
+name = "ext_core"
 version = "0.1.0"
 authors.workspace = true
 edition.workspace = true
@@ -28,9 +28,8 @@ deno_webstorage.workspace = true
 
 base_mem_check.workspace = true
 base_rt.workspace = true
-deno_manifest.workspace = true
 
-sb_node.workspace = true
+ext_node.workspace = true
 
 anyhow.workspace = true
 async-trait.workspace = true
@@ -42,8 +41,8 @@ fs3.workspace = true
 futures.workspace = true
 http.workspace = true
 httparse.workspace = true
-hyper_v014.workspace = true
 hyper.workspace = true
+hyper_v014.workspace = true
 import_map.workspace = true
 indexmap.workspace = true
 libc.workspace = true
@@ -55,8 +54,8 @@ ring.workspace = true
 scopeguard.workspace = true
 serde.workspace = true
 thiserror.workspace = true
-tokio-util.workspace = true
 tokio.workspace = true
+tokio-util.workspace = true
 tracing.workspace = true
 
 cache_control = "=0.2.0"

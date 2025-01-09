@@ -1,30 +1,65 @@
 use crate::inspector_server::Inspector;
+use crate::snapshot;
 use crate::utils::json;
 use crate::utils::path::find_up;
-use crate::utils::units::{bytes_to_display, mib_to_bytes, percentage_value};
-use crate::worker::supervisor::{CPUUsage, CPUUsageMetrics};
-use crate::worker::{DuplexStreamEntry, Worker};
+use crate::utils::units::bytes_to_display;
+use crate::utils::units::mib_to_bytes;
+use crate::utils::units::percentage_value;
+use crate::worker::supervisor::CPUUsage;
+use crate::worker::supervisor::CPUUsageMetrics;
+use crate::worker::DuplexStreamEntry;
+use crate::worker::Worker;
 
-use anyhow::{anyhow, bail, Context, Error};
+use anyhow::anyhow;
+use anyhow::bail;
+use anyhow::Context;
+use anyhow::Error;
 use arc_swap::ArcSwapOption;
-use base_mem_check::{MemCheckState, WorkerHeapStatistics};
-use base_rt::{get_current_cpu_time_ns, BlockingScopeCPUUsage};
-use base_rt::{DenoRuntimeDropToken, DropToken};
-use cooked_waker::{IntoWaker, WakeRef};
+use base_mem_check::MemCheckState;
+use base_mem_check::WorkerHeapStatistics;
+use base_rt::get_current_cpu_time_ns;
+use base_rt::BlockingScopeCPUUsage;
+use base_rt::DenoRuntimeDropToken;
+use base_rt::DropToken;
+use cooked_waker::IntoWaker;
+use cooked_waker::WakeRef;
 use ctor::ctor;
 use deno_cache::SqliteBackedCache;
-use deno_core::error::{AnyError, JsError};
+use deno_core::error::AnyError;
+use deno_core::error::JsError;
+use deno_core::serde_json;
 use deno_core::unsync::AtomicFlag;
 use deno_core::url::Url;
-use deno_core::v8::{self, GCCallbackFlags, GCType, HeapStatistics, Isolate};
-use deno_core::{
-  serde_json, JsRuntime, ModuleId, ModuleLoader, ModuleSpecifier, OpState,
-  PollEventLoopOptions, ResolutionKind, RuntimeOptions,
-};
+use deno_core::v8::GCCallbackFlags;
+use deno_core::v8::GCType;
+use deno_core::v8::HeapStatistics;
+use deno_core::v8::Isolate;
+use deno_core::v8::{self};
+use deno_core::JsRuntime;
+use deno_core::ModuleId;
+use deno_core::ModuleLoader;
+use deno_core::ModuleSpecifier;
+use deno_core::OpState;
+use deno_core::PollEventLoopOptions;
+use deno_core::ResolutionKind;
+use deno_core::RuntimeOptions;
 use deno_http::DefaultHttpPropertyExtractor;
 use deno_tls::deno_native_certs::load_native_certs;
 use deno_tls::rustls::RootCertStore;
 use deno_tls::RootCertStoreProvider;
+use ext_ai::ai;
+use ext_core::cache::CacheSetting;
+use ext_core::cert::ValueRootCertStoreProvider;
+use ext_core::external_memory::CustomAllocator;
+use ext_core::permissions::Permissions;
+use ext_core::MemCheckWaker;
+use ext_core::PromiseMetrics;
+use ext_event_worker::events::EventMetadata;
+use ext_event_worker::events::WorkerEventWithMetadata;
+use ext_workers::context::UserWorkerMsgs;
+use ext_workers::context::WorkerContextInitOpts;
+use ext_workers::context::WorkerRuntimeOpts;
+use fs::deno_compile_fs::DenoCompileFileSystem;
 use fs::prefix_fs::PrefixFs;
 use fs::s3_fs::S3Fs;
 use fs::static_fs::StaticFs;
@@ -32,10 +67,16 @@ use fs::tmp_fs::TmpFs;
 use futures_util::future::poll_fn;
 use futures_util::task::AtomicWaker;
 use futures_util::FutureExt;
+use graph::emitter::EmitterFactory;
+use graph::generate_binary_eszip;
+use graph::import_map::load_import_map;
+use graph::include_glob_patterns_in_eszip;
+use graph::EszipPayloadKind;
 use log::error;
-use once_cell::sync::{Lazy, OnceCell};
-use sb_core::http::sb_core_http;
-use sb_core::http_start::sb_core_http_start;
+use module_loader::standalone::create_module_loader_for_standalone_from_eszip_kind;
+use module_loader::RuntimeProviders;
+use once_cell::sync::Lazy;
+use once_cell::sync::OnceCell;
 use scopeguard::ScopeGuard;
 use serde::Serialize;
 use std::borrow::Cow;
@@ -48,42 +89,23 @@ use std::marker::PhantomData;
 use std::mem::ManuallyDrop;
 use std::rc::Rc;
 use std::str::FromStr;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
+use std::sync::RwLock;
 use std::task::Poll;
 use std::thread::ThreadId;
 use std::time::Duration;
 use strum::IntoStaticStr;
-use tokio::sync::{mpsc, OwnedSemaphorePermit, Semaphore};
+use tokio::sync::mpsc;
+use tokio::sync::OwnedSemaphorePermit;
+use tokio::sync::Semaphore;
 use tokio::time::interval;
-use tokio_util::sync::{CancellationToken, PollSemaphore};
-use tracing::{debug, debug_span, instrument, trace, Instrument};
-
-use crate::snapshot;
-use fs::deno_compile_fs::DenoCompileFileSystem;
-use graph::emitter::EmitterFactory;
-use graph::import_map::load_import_map;
-use graph::{
-  generate_binary_eszip, include_glob_patterns_in_eszip, EszipPayloadKind,
-};
-use module_loader::standalone::create_module_loader_for_standalone_from_eszip_kind;
-use module_loader::RuntimeProviders;
-use sb_ai::sb_ai;
-use sb_core::cache::CacheSetting;
-use sb_core::cert::ValueRootCertStoreProvider;
-use sb_core::external_memory::CustomAllocator;
-use sb_core::net::sb_core_net;
-use sb_core::permissions::{sb_core_permissions, Permissions};
-use sb_core::runtime::sb_core_runtime;
-use sb_core::{sb_core_main_js, MemCheckWaker, PromiseMetrics};
-use sb_env::sb_env as sb_env_op;
-use sb_event_worker::events::{EventMetadata, WorkerEventWithMetadata};
-use sb_event_worker::js_interceptors::sb_events_js_interceptors;
-use sb_event_worker::sb_user_event_worker;
-use sb_node::deno_node;
-use sb_workers::context::{
-  UserWorkerMsgs, WorkerContextInitOpts, WorkerRuntimeOpts,
-};
-use sb_workers::sb_user_workers;
+use tokio_util::sync::CancellationToken;
+use tokio_util::sync::PollSemaphore;
+use tracing::debug;
+use tracing::debug_span;
+use tracing::instrument;
+use tracing::trace;
+use tracing::Instrument;
 
 const DEFAULT_ALLOC_CHECK_INT_MSEC: u64 = 1000;
 
@@ -116,12 +138,12 @@ pub static SHOULD_INCLUDE_MALLOCED_MEMORY_ON_MEMCHECK: OnceCell<bool> =
 pub static MAYBE_DENO_VERSION: OnceCell<String> = OnceCell::new();
 
 thread_local! {
-    // NOTE: Suppose we have met `.await` points while initializing a
-    // DenoRuntime. In that case, the current v8 isolate's thread-local state can be
-    // corrupted by a task initializing another DenoRuntime, so we must prevent this
-    // with a Semaphore.
+  // NOTE: Suppose we have met `.await` points while initializing a
+  // DenoRuntime. In that case, the current v8 isolate's thread-local state
+  // can be corrupted by a task initializing another DenoRuntime, so we must
+  // prevent this with a Semaphore.
 
-    static RUNTIME_CREATION_SEM: Arc<Semaphore> = Arc::new(Semaphore::new(1));
+  static RUNTIME_CREATION_SEM: Arc<Semaphore> = Arc::new(Semaphore::new(1));
 }
 
 #[ctor]
@@ -148,7 +170,7 @@ impl fmt::Debug for DenoRuntimeError {
 }
 
 fn get_error_class_name(e: &AnyError) -> &'static str {
-  sb_core::errors_rt::get_error_class_name(e).unwrap_or("Error")
+  ext_core::errors_rt::get_error_class_name(e).unwrap_or("Error")
 }
 
 #[derive(Default)]
@@ -231,14 +253,16 @@ pub trait GetRuntimeContext {
                 .unwrap_or("UNKNOWN"),
         },
         "flags": {
-            "SHOULD_DISABLE_DEPRECATED_API_WARNING": SHOULD_DISABLE_DEPRECATED_API_WARNING
-                .get()
-                .copied()
-                .unwrap_or_default(),
-            "SHOULD_USE_VERBOSE_DEPRECATED_API_WARNING": SHOULD_USE_VERBOSE_DEPRECATED_API_WARNING
-                .get()
-                .copied()
-                .unwrap_or_default()
+          "SHOULD_DISABLE_DEPRECATED_API_WARNING":
+            SHOULD_DISABLE_DEPRECATED_API_WARNING
+              .get()
+              .copied()
+              .unwrap_or_default(),
+          "SHOULD_USE_VERBOSE_DEPRECATED_API_WARNING":
+            SHOULD_USE_VERBOSE_DEPRECATED_API_WARNING
+              .get()
+              .copied()
+              .unwrap_or_default()
         }
     })
   }
@@ -384,7 +408,8 @@ pub struct DenoRuntime<RuntimeContext = DefaultRuntimeContext> {
   pub drop_token: CancellationToken,
   pub(crate) termination_request_token: CancellationToken,
 
-  pub env_vars: HashMap<String, String>, // TODO: does this need to be pub?
+  // TODO: does this need to be pub?
+  pub env_vars: HashMap<String, String>,
   pub conf: WorkerRuntimeOpts,
   pub s3_fs: Option<S3Fs>,
 
@@ -613,7 +638,10 @@ where
         }
         _ => {
           bail!(
-            "Unknown certificate store \"{0}\" specified (allowed: \"system,mozilla\")",
+            concat!(
+              "Unknown certificate store \"{0}\" specified ",
+              "(allowed: \"system,mozilla\")"
+            ),
             store
           );
         }
@@ -715,7 +743,10 @@ where
 
     let mod_code = module_code;
     let extensions = vec![
-      sb_core_permissions::init_ops(net_access_disabled, allow_net),
+      ext_core::permissions::core_permissions::init_ops(
+        net_access_disabled,
+        allow_net,
+      ),
       deno_webidl::deno_webidl::init_ops(),
       deno_console::deno_console::init_ops(),
       deno_url::deno_url::init_ops(),
@@ -748,25 +779,25 @@ where
       deno_http::deno_http::init_ops::<DefaultHttpPropertyExtractor>(),
       deno_io::deno_io::init_ops(stdio),
       deno_fs::deno_fs::init_ops::<Permissions>(file_system.clone()),
-      sb_env_op::init_ops(),
-      sb_ai::init_ops(),
-      sb_os::sb_os::init_ops(),
-      sb_user_workers::init_ops(),
-      sb_user_event_worker::init_ops(),
-      sb_events_js_interceptors::init_ops(),
-      sb_core_main_js::init_ops(),
-      sb_core_net::init_ops(),
-      sb_core_http::init_ops(),
-      sb_core_http_start::init_ops(),
+      ext_env::env::init_ops(),
+      ext_ai::ai::init_ops(),
+      ext_os::os::init_ops(),
+      ext_workers::user_workers::init_ops(),
+      ext_event_worker::user_event_worker::init_ops(),
+      ext_event_worker::js_interceptors::js_interceptors::init_ops(),
+      ext_core::core_main_js::init_ops(),
+      ext_core::net::core_net::init_ops(),
+      ext_core::http::core_http::init_ops(),
+      ext_core::http_start::core_http_start::init_ops(),
       // NOTE(AndresP): Order is matters. Otherwise, it will lead to hard
       // errors such as SIGBUS depending on the platform.
-      deno_node::init_ops::<Permissions>(
+      ext_node::deno_node::init_ops::<Permissions>(
         Some(node_resolver),
         Some(npm_resolver),
         file_system,
       ),
       deno_cache::deno_cache::init_ops::<SqliteBackedCache>(None),
-      sb_core_runtime::init_ops(Some(main_module_url.clone())),
+      ext_core::runtime::core_runtime::init_ops(Some(main_module_url.clone())),
     ];
 
     let mut create_params = None;
@@ -876,9 +907,10 @@ where
       let op_state_rc = js_runtime.op_state();
       let mut op_state = op_state_rc.borrow_mut();
 
-      // NOTE(Andreespirela): We do this because "NODE_DEBUG" is trying to be read during
-      // initialization, But we need the gotham state to be up-to-date.
-      op_state.put(sb_env::EnvVars::default());
+      // NOTE(Andreespirela): We do this because "NODE_DEBUG" is trying to be
+      // read during initialization, But we need the gotham state to be
+      // up-to-date.
+      op_state.put(ext_env::EnvVars::default());
     }
 
     if let Some(inspector) = worker.inspector.as_ref() {
@@ -915,7 +947,9 @@ where
         let op_state = js_runtime.op_state();
         let resource_table = &mut op_state.borrow_mut().resource_table;
         serde_json::json!({
-            "terminationRequestToken": resource_table.add(DropToken(termination_request_token.clone()))
+            "terminationRequestToken":
+              resource_table
+                .add(DropToken(termination_request_token.clone()))
         })
       };
 
@@ -1005,7 +1039,7 @@ where
         }
       }
 
-      op_state.put(sb_env::EnvVars(env_vars));
+      op_state.put(ext_env::EnvVars(env_vars));
       op_state.put(DenoRuntimeDropToken(DropToken(drop_token.clone())));
     }
 
@@ -1025,18 +1059,17 @@ where
         let waker = mem_check.waker.clone();
 
         async move {
-          // TODO(Nyannyacha): Should we introduce exponential
-          // backoff?
+          // TODO(Nyannyacha): Should we introduce exponential backoff?
           let mut int = interval(*ALLOC_CHECK_DUR);
           loop {
             tokio::select! {
-                _ = int.tick() => {
-                    waker.wake();
-                }
+              _ = int.tick() => {
+                waker.wake();
+              }
 
-                _ = drop_token.cancelled() => {
-                    break;
-                }
+              _ = drop_token.cancelled() => {
+                break;
+              }
             }
           }
         }
@@ -1094,8 +1127,8 @@ where
         v.raise();
       });
 
-    // NOTE: This is unnecessary on the LIFO task scheduler that can't steal
-    // the task from the other threads.
+    // NOTE: This is unnecessary on the LIFO task scheduler that can't steal the
+    // task from the other threads.
     let current_thread_id = std::thread::current().id();
     let mut accumulated_cpu_time_ns = 0i64;
 
@@ -1122,8 +1155,8 @@ where
           // XXX(Nyannyacha): Suppose the user skips this function by passing
           // the `--inspect` argument. In that case, the runtime may terminate
           // before the inspector session is connected if the function doesn't
-          // have a long execution time. Should we wait for an inspector
-          // session to connect with the V8?
+          // have a long execution time. Should we wait for an inspector session
+          // to connect with the V8?
           this.wait_for_inspector_session();
         }
 
@@ -1172,23 +1205,27 @@ where
         .instrument(span.clone());
 
       let mod_result = tokio::select! {
-          // Not using biased mode leads to non-determinism for relatively simple
-          // programs.
-          biased;
+        // Not using biased mode leads to non-determinism for relatively simple
+        // programs.
+        biased;
 
-          maybe_mod_result = &mut mod_result_rx => {
-              debug!("received module evaluate {:#?}", maybe_mod_result);
-              maybe_mod_result
+        maybe_mod_result = &mut mod_result_rx => {
+          debug!("received module evaluate {:#?}", maybe_mod_result);
+          maybe_mod_result
+        }
 
+        event_loop_result = event_loop_fut => {
+          if let Err(err) = event_loop_result {
+            Err(
+              anyhow!(
+                "event loop error while evaluating the module: {}",
+                err
+              )
+            )
+          } else {
+            mod_result_rx.await
           }
-
-          event_loop_result = event_loop_fut => {
-              if let Err(err) = event_loop_result {
-                  Err(anyhow!("event loop error while evaluating the module: {}", err))
-              } else {
-                  mod_result_rx.await
-              }
-          }
+        }
       };
 
       if let Err(err) = mod_result {
@@ -1247,7 +1284,8 @@ where
         return (Err(err), get_accumulated_cpu_time_ms!());
       }
 
-      // TODO(Nyannyacha): Here we also need to trigger the event for node platform (i.e; exit)
+      // TODO(Nyannyacha): Here we also need to trigger the event for node
+      // platform (i.e; exit)
     }
 
     (Ok(()), get_accumulated_cpu_time_ms!())
@@ -1293,9 +1331,9 @@ where
 
       poll_sem = None;
 
-      // INVARIANT: Only can steal current task by other threads when LIFO
-      // task scheduler heuristic disabled. Turning off the heuristic is
-      // unstable now, so it's not considered.
+      // INVARIANT: Only can steal current task by other threads when LIFO task
+      // scheduler heuristic disabled. Turning off the heuristic is unstable
+      // now, so it's not considered.
       #[cfg(debug_assertions)]
       assert_eq!(current_thread_id, std::thread::current().id());
 
@@ -1455,17 +1493,17 @@ where
 
     drop(base_rt::SUPERVISOR_RT.spawn(async move {
       tokio::select! {
-          _ = runtime_token.cancelled_owned() => {}
-          _ = exceeded_token.cancelled_owned() => {
-              let state = tokio::task::spawn_blocking({
-                  let state = state.clone();
-                  move || {
-                      *state.read().unwrap()
-                  }
-              }).await.unwrap();
+        _ = runtime_token.cancelled_owned() => {}
+        _ = exceeded_token.cancelled_owned() => {
+          let state = tokio::task::spawn_blocking({
+            let state = state.clone();
+            move || {
+              *state.read().unwrap()
+            }
+          }).await.unwrap();
 
-              cb(state);
-          }
+          cb(state);
+        }
       }
     }));
   }
@@ -1474,7 +1512,10 @@ where
   fn wait_for_inspector_session(&mut self) {
     debug!(has_inspector = self.worker.inspector.is_some());
     if let Some(inspector) = self.worker.inspector.as_ref() {
-      debug!(addr = %inspector.server.host, server.inspector = ?inspector.option);
+      debug!(
+        addr = %inspector.server.host,
+        server.inspector = ?inspector.option
+      );
       let inspector_impl = self.js_runtime.inspector();
       let mut inspector_impl_ref = inspector_impl.borrow_mut();
 
@@ -1691,7 +1732,8 @@ where
 
   /// Dispatches "load" event to the JavaScript runtime.
   ///
-  /// Does not poll event loop, and thus not await any of the "load" event handlers.
+  /// Does not poll event loop, and thus not await any of the "load" event
+  /// handlers.
   pub fn dispatch_load_event(&mut self) -> Result<(), AnyError> {
     self.dispatch_event_with_callback(
       |fns| &fns.dispatch_load_event_fn_global,
@@ -1700,9 +1742,9 @@ where
     )
   }
 
-  /// Dispatches "beforeunload" event to the JavaScript runtime. Returns a boolean
-  /// indicating if the event was prevented and thus event loop should continue
-  /// running.
+  /// Dispatches "beforeunload" event to the JavaScript runtime. Returns a
+  /// boolean indicating if the event was prevented and thus event loop should
+  /// continue running.
   pub fn dispatch_beforeunload_event(
     &mut self,
     reason: WillTerminateReason,
@@ -1723,14 +1765,15 @@ where
 
   /// Dispatches "unload" event to the JavaScript runtime.
   ///
-  /// Does not poll event loop, and thus not await any of the "unload" event handlers.
+  /// Does not poll event loop, and thus not await any of the "unload" event
+  /// handlers.
   pub fn dispatch_unload_event(&mut self) -> Result<(), AnyError> {
-    // NOTE(Nyannyacha): It is currently not possible to dispatch this event because the
-    // supervisor has forcibly pulled the isolate out of the running state and the
-    // `CancellationToken` prevents function invocation.
+    // NOTE(Nyannyacha): It is currently not possible to dispatch this event
+    // because the supervisor has forcibly pulled the isolate out of the running
+    // state and the `CancellationToken` prevents function invocation.
     //
-    // If we want to dispatch this event, we may need to provide an extra margin for the
-    // invocation.
+    // If we want to dispatch this event, we may need to provide an extra margin
+    // for the invocation.
 
     // self.v8_isolate().cancel_terminate_execution();
     self.dispatch_event_with_callback(
@@ -1742,7 +1785,8 @@ where
 
   /// Dispatches "drain" event to the JavaScript runtime.
   ///
-  /// Does not poll event loop, and thus not await any of the "drain" event handlers.
+  /// Does not poll event loop, and thus not await any of the "drain" event
+  /// handlers.
   pub fn dispatch_drain_event(&mut self) -> Result<(), AnyError> {
     self.dispatch_event_with_callback(
       |fns| &fns.dispatch_drain_event_fn_global,
@@ -1852,11 +1896,11 @@ fn terminate_execution_if_cancelled(
         request_interrupt_fn();
       } else {
         tokio::select! {
-            _ = token.cancelled_owned() => {
-                request_interrupt_fn();
-            }
+          _ = token.cancelled_owned() => {
+            request_interrupt_fn();
+          }
 
-            _ = cancel_task_token.cancelled_owned() => {}
+          _ = cancel_task_token.cancelled_owned() => {}
         }
       }
     }
@@ -1902,23 +1946,28 @@ extern "C" fn mem_check_gc_prologue_callback_fn(
 #[cfg(test)]
 mod test {
   use crate::deno_runtime::DenoRuntime;
-  use crate::worker::{DuplexStreamEntry, WorkerBuilder};
+  use crate::worker::DuplexStreamEntry;
+  use crate::worker::WorkerBuilder;
   use anyhow::Context;
   use deno_config::JsxImportSourceConfig;
   use deno_core::error::AnyError;
+  use deno_core::serde_json;
+  use deno_core::serde_v8;
+  use deno_core::v8;
   use deno_core::v8::GetPropertyNamesArgs;
-  use deno_core::{
-    serde_json, serde_v8, v8, FastString, ModuleCodeString,
-    PollEventLoopOptions,
-  };
+  use deno_core::FastString;
+  use deno_core::ModuleCodeString;
+  use deno_core::PollEventLoopOptions;
+  use ext_workers::context::MainWorkerRuntimeOpts;
+  use ext_workers::context::UserWorkerMsgs;
+  use ext_workers::context::UserWorkerRuntimeOpts;
+  use ext_workers::context::WorkerContextInitOpts;
+  use ext_workers::context::WorkerRuntimeOpts;
   use fs::s3_fs::S3FsConfig;
   use fs::tmp_fs::TmpFsConfig;
   use graph::emitter::EmitterFactory;
-  use graph::{generate_binary_eszip, EszipPayloadKind};
-  use sb_workers::context::{
-    MainWorkerRuntimeOpts, UserWorkerMsgs, UserWorkerRuntimeOpts,
-    WorkerContextInitOpts, WorkerRuntimeOpts,
-  };
+  use graph::generate_binary_eszip;
+  use graph::EszipPayloadKind;
   use serde::de::DeserializeOwned;
   use serde::Serialize;
   use serial_test::serial;
@@ -1926,7 +1975,8 @@ mod test {
   use std::fs::File;
   use std::io::Write;
   use std::marker::PhantomData;
-  use std::path::{Path, PathBuf};
+  use std::path::Path;
+  use std::path::PathBuf;
   use std::sync::Arc;
   use std::time::Duration;
   use tokio::sync::mpsc;

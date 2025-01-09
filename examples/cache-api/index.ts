@@ -2,7 +2,7 @@
 async function getData() {
   const cacheVersion = 1;
   const cacheName = `myapp-${cacheVersion}`;
-  const url = 'https://jsonplaceholder.typicode.com/todos/1';
+  const url = "https://jsonplaceholder.typicode.com/todos/1";
   let cachedData = await getCachedData(cacheName, url);
 
   return cachedData;
@@ -15,7 +15,7 @@ async function getCachedData(cacheName, url) {
   const maybeCached = await cache.match(url);
   if (maybeCached) return maybeCached;
 
-  console.log('Not found in cache, fetching');
+  console.log("Not found in cache, fetching");
   const response = await fetch(url);
   await cache.put(url, response.clone());
 
@@ -27,7 +27,7 @@ Deno.serve(async () => {
 
   const result = await response.json();
 
-  console.log('Result: ', result);
+  console.log("Result: ", result);
 
   return Response.json(result);
 });

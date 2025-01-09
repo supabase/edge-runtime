@@ -13,19 +13,21 @@ env:
   CARGO_TERM_COLOR: always
   RUSTUP_MAX_RETRIES: 10
   ORT_DYLIB_PATH: /tmp/onnxruntime/lib/libonnxruntime.so
-  RUST_LOG: sb_event_worker=trace
+  RUST_LOG: ext_event_worker=trace
 
 jobs:
   cargo-fmt:
-    name: "cargo fmt"
+    name: 'fmt'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: rustup show
-      - run: ./scripts/fmt.sh
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: deno run --allow-write --allow-read --allow-run --allow-net ./scripts/format.js --check
 
   cargo-clippy:
-    name: "cargo clippy"
+    name: 'cargo clippy'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -34,7 +36,7 @@ jobs:
       - run: ./scripts/clippy.sh
 
   cargo-test:
-    name: "cargo test"
+    name: 'cargo test'
     runs-on: ubuntu-latest
     steps:
       - name: Remove unwanted software
@@ -54,7 +56,7 @@ jobs:
 
       - uses: cardinalby/export-env-action@v2
         with:
-          envFile: ".env"
+          envFile: '.env'
 
       - name: Install ONNX Runtime Library
         run: ./scripts/install_onnx.sh ${{ env.ONNXRUNTIME_VERSION }} linux x64 /tmp/onnxruntime
@@ -79,4 +81,3 @@ jobs:
           SECRET_ACCESS_KEY: ${{ secrets.SUPABASE_S3_SECRET }}
 
       - run: ./scripts/test.sh --features base/tracing
-

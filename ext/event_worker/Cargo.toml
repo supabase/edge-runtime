@@ -1,5 +1,5 @@
 [package]
-name = "sb_event_worker"
+name = "ext_event_worker"
 version = "0.1.0"
 authors.workspace = true
 edition.workspace = true
@@ -11,7 +11,7 @@ path = "lib.rs"
 [dependencies]
 deno_core.workspace = true
 
-base_mem_check.workspace =  true
+base_mem_check.workspace = true
 
 anyhow.workspace = true
 enum-as-inner.workspace = true

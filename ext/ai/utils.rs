@@ -1,12 +1,21 @@
-use std::{hash::Hasher, path::PathBuf};
+use std::hash::Hasher;
+use std::path::PathBuf;
 
-use anyhow::{bail, Context};
+use anyhow::bail;
+use anyhow::Context;
 use deno_core::error::AnyError;
-use futures::{io::AllowStdIo, StreamExt};
+use futures::io::AllowStdIo;
+use futures::StreamExt;
 use reqwest::Url;
 use tokio::io::AsyncWriteExt;
 use tokio_util::compat::FuturesAsyncWriteCompatExt;
-use tracing::{debug, error, info, info_span, instrument, trace, Instrument};
+use tracing::debug;
+use tracing::error;
+use tracing::info;
+use tracing::info_span;
+use tracing::instrument;
+use tracing::trace;
+use tracing::Instrument;
 use xxhash_rust::xxh3::Xxh3;
 
 #[instrument(fields(%kind, url = %url))]
@@ -16,7 +25,7 @@ pub async fn fetch_and_cache_from_url(
   cache_id: Option<String>,
 ) -> Result<PathBuf, AnyError> {
   let cache_id = cache_id.unwrap_or(fxhash::hash(url.as_str()).to_string());
-  let download_dir = std::env::var("SB_AI_CACHE_DIR")
+  let download_dir = std::env::var("EXT_AI_CACHE_DIR")
     .map_err(AnyError::from)
     .map(PathBuf::from)
     .or_else(|_| {

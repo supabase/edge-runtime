@@ -1,5 +1,6 @@
 use base::deno_runtime;
-use clap::builder::{BoolishValueParser, TypedValueParser};
+use clap::builder::BoolishValueParser;
+use clap::builder::TypedValueParser;
 use once_cell::sync::OnceCell;
 
 pub(super) fn resolve_deno_runtime_env() {

@@ -6,24 +6,12 @@ mod supabase_startup_snapshot {
   use super::*;
   use deno_cache::SqliteBackedCache;
   use deno_core::error::AnyError;
-  use deno_core::snapshot::{create_snapshot, CreateSnapshotOptions};
+  use deno_core::snapshot::create_snapshot;
+  use deno_core::snapshot::CreateSnapshotOptions;
   use deno_core::Extension;
   use deno_fs::OpenOptions;
   use deno_http::DefaultHttpPropertyExtractor;
   use deno_io::fs::FsError;
-  use sb_ai::sb_ai;
-  use sb_core::http::sb_core_http;
-  use sb_core::http_start::sb_core_http_start;
-  use sb_core::net::sb_core_net;
-  use sb_core::permissions::sb_core_permissions;
-  use sb_core::runtime::sb_core_runtime;
-  use sb_core::sb_core_main_js;
-  use sb_core::transpiler::maybe_transpile_source;
-  use sb_env::sb_env;
-  use sb_event_worker::js_interceptors::sb_events_js_interceptors;
-  use sb_event_worker::sb_user_event_worker;
-  use sb_node::deno_node;
-  use sb_workers::sb_user_workers;
   use std::borrow::Cow;
   use std::io::Write;
   use std::path::Path;
@@ -167,7 +155,7 @@ mod supabase_startup_snapshot {
     }
   }
 
-  impl sb_node::NodePermissions for Permissions {
+  impl ext_node::NodePermissions for Permissions {
     fn check_net_url(
       &mut self,
       _url: &Url,
@@ -209,7 +197,7 @@ mod supabase_startup_snapshot {
     let user_agent = String::from("supabase");
     let fs = Arc::new(deno_fs::RealFs);
     let extensions: Vec<Extension> = vec![
-      sb_core_permissions::init_ops_and_esm(false, None),
+      ext_core_permissions::init_ops_and_esm(false, None),
       deno_webidl::deno_webidl::init_ops_and_esm(),
       deno_console::deno_console::init_ops_and_esm(),
       deno_url::deno_url::init_ops_and_esm(),
@@ -239,22 +227,22 @@ mod supabase_startup_snapshot {
       deno_http::deno_http::init_ops_and_esm::<DefaultHttpPropertyExtractor>(),
       deno_io::deno_io::init_ops_and_esm(Some(Default::default())),
       deno_fs::deno_fs::init_ops_and_esm::<Permissions>(fs.clone()),
-      sb_ai::init_ops_and_esm(),
-      sb_env::init_ops_and_esm(),
-      sb_os::sb_os::init_ops_and_esm(),
-      sb_user_workers::init_ops_and_esm(),
-      sb_user_event_worker::init_ops_and_esm(),
-      sb_events_js_interceptors::init_ops_and_esm(),
-      sb_core_main_js::init_ops_and_esm(),
-      sb_core_net::init_ops_and_esm(),
-      sb_core_http::init_ops_and_esm(),
-      sb_core_http_start::init_ops_and_esm(),
-      deno_node::init_ops_and_esm::<Permissions>(None, None, fs),
+      ext_ai::ai::init_ops_and_esm(),
+      ext_env::env::init_ops_and_esm(),
+      ext_os::os::init_ops_and_esm(),
+      ext_user_workers::user_workers::init_ops_and_esm(),
+      ext_user_event_worker::user_event_worker::init_ops_and_esm(),
+      ext_event_worker::js_interceptors::js_interceptors::init_ops_and_esm(),
+      ext_core::core_main_js::init_ops_and_esm(),
+      ext_core::net::core_net::init_ops_and_esm(),
+      ext_core::http::core_http::init_ops_and_esm(),
+      ext_core::http_start::core_http_start::init_ops_and_esm(),
+      ext_node::deno_node::init_ops_and_esm::<Permissions>(None, None, fs),
       // NOTE(kallebysantos):
       // Full `Web Cache API` via `SqliteBackedCache` is disabled. Cache flow is
-      // handled by `sb_ai: Cache Adapter`
+      // handled by `ext_ai: Cache Adapter`
       deno_cache::deno_cache::init_ops_and_esm::<SqliteBackedCache>(None),
-      sb_core_runtime::init_ops_and_esm(None),
+      ext_core::runtime::core_runtime::init_ops_and_esm(None),
     ];
 
     let snapshot = create_snapshot(

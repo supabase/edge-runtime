@@ -1,6 +1,7 @@
 const apis = {
   twemoji: (code: string) =>
-    "https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/svg/" + code.toLowerCase() + ".svg",
+    "https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/svg/" +
+    code.toLowerCase() + ".svg",
   openmoji: "https://cdn.jsdelivr.net/npm/@svgmoji/openmoji@2.0.0/svg/",
   blobmoji: "https://cdn.jsdelivr.net/npm/@svgmoji/blob@2.0.0/svg/",
   noto:

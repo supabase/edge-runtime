@@ -1,11 +1,12 @@
-use std::sync::{
-  atomic::{AtomicBool, Ordering},
-  Arc, Mutex,
-};
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use std::sync::Mutex;
 
 use ctor::ctor;
 use scopeguard::guard;
-use tracing::{error, instrument};
+use tracing::error;
+use tracing::instrument;
 
 static ONNX_INIT_ONNX_ENV_DONE: AtomicBool = AtomicBool::new(false);
 static ONNX_INIT_RESULT: Mutex<Option<Arc<ort::Error>>> = Mutex::new(None);
@@ -29,7 +30,7 @@ fn init_onnx_env() {
   let result = std::panic::catch_unwind(|| {
     // Create the ONNX Runtime environment, for all sessions created in this process.
     // TODO: Add CUDA execution provider
-    ort::init().with_name("SB_AI_ONNX").commit()
+    ort::init().with_name("EXT_AI_ONNX").commit()
   });
 
   match result {

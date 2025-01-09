@@ -1,35 +1,39 @@
-use std::{
-  future::pending,
-  sync::{
-    atomic::{AtomicUsize, Ordering},
-    Arc,
-  },
-  time::Duration,
-};
+use std::future::pending;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use std::time::Duration;
 
 #[cfg(debug_assertions)]
 use std::thread::ThreadId;
 
 use deno_core::unsync::AtomicFlag;
-use log::{error, info};
-use sb_core::PromiseMetrics;
-use sb_event_worker::events::ShutdownReason;
-use sb_workers::context::{Timing, TimingStatus, UserWorkerMsgs};
+use ext_core::PromiseMetrics;
+use ext_event_worker::events::ShutdownReason;
+use ext_workers::context::Timing;
+use ext_workers::context::TimingStatus;
+use ext_workers::context::UserWorkerMsgs;
+use log::error;
+use log::info;
 use tokio_util::sync::CancellationToken;
 
-use crate::{
-  deno_runtime::{RuntimeState, WillTerminateReason},
-  worker::supervisor::{
-    create_wall_clock_beforeunload_alert, v8_handle_beforeunload,
-    v8_handle_drain, v8_handle_early_drop_beforeunload, v8_handle_early_retire,
-    wait_cpu_alarm, CPUUsage, Tokens, V8HandleBeforeunloadData,
-    V8HandleEarlyDropData,
-  },
-};
+use crate::deno_runtime::RuntimeState;
+use crate::deno_runtime::WillTerminateReason;
+use crate::worker::supervisor::create_wall_clock_beforeunload_alert;
+use crate::worker::supervisor::v8_handle_beforeunload;
+use crate::worker::supervisor::v8_handle_drain;
+use crate::worker::supervisor::v8_handle_early_drop_beforeunload;
+use crate::worker::supervisor::v8_handle_early_retire;
+use crate::worker::supervisor::wait_cpu_alarm;
+use crate::worker::supervisor::CPUUsage;
+use crate::worker::supervisor::Tokens;
+use crate::worker::supervisor::V8HandleBeforeunloadData;
+use crate::worker::supervisor::V8HandleEarlyDropData;
 
-use super::{
-  v8_handle_termination, Arguments, CPUUsageMetrics, V8HandleTerminationData,
-};
+use super::v8_handle_termination;
+use super::Arguments;
+use super::CPUUsageMetrics;
+use super::V8HandleTerminationData;
 
 #[derive(Debug, Default)]
 struct State {
@@ -178,8 +182,8 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
     let thread_safe_handle = thread_safe_handle.clone();
     let waker = waker.clone();
     move || {
-      // we should raise a retire signal because subsequent incoming requests are unlikely to get
-      // enough wall clock time or cpu time
+      // we should raise a retire signal because subsequent incoming requests
+      // are unlikely to get enough wall clock time or cpu time
       is_retired.raise();
 
       if thread_safe_handle
@@ -241,195 +245,196 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
 
   loop {
     tokio::select! {
-        _ = supervise.cancelled() => {
-            complete_reason = Some(ShutdownReason::TerminationRequested);
+      _ = supervise.cancelled() => {
+        complete_reason = Some(ShutdownReason::TerminationRequested);
+      }
+
+      _ = async {
+        match termination.as_ref() {
+          Some(token) => token.inbound.cancelled().await,
+          None => pending().await,
         }
+      }, if !state.is_waiting_for_termination => {
+        state.is_waiting_for_termination = true;
 
-        _ = async {
-            match termination.as_ref() {
-                Some(token) => token.inbound.cancelled().await,
-                None => pending().await,
-            }
-        }, if !state.is_waiting_for_termination => {
-            state.is_waiting_for_termination = true;
+        early_retire_fn();
 
-            early_retire_fn();
-
-            if let Some(func) = dispatch_drain_fn.take() {
-                func();
-            }
-            if state.have_all_pending_tasks_been_resolved() {
-                if let Some(func) = dispatch_early_drop_beforeunload_fn.take() {
-                    func();
-                }
-            } else {
-                let is_retired = is_retired.clone();
-                let waker = waker.clone();
-
-                drop(tokio::spawn(async move {
-                    let mut interval = tokio::time::interval(Duration::from_secs(1));
-                    loop {
-                        interval.tick().await;
-                        waker.wake();
-                        if is_retired.is_raised() {
-                            break;
-                        }
-                    }
-                }));
-            }
+        if let Some(func) = dispatch_drain_fn.take() {
+          func();
         }
+        if state.have_all_pending_tasks_been_resolved() {
+          if let Some(func) = dispatch_early_drop_beforeunload_fn.take() {
+            func();
+          }
+        } else {
+          let is_retired = is_retired.clone();
+          let waker = waker.clone();
 
-        Some(metrics) = cpu_usage_metrics_rx.recv() => {
-            match metrics {
-                CPUUsageMetrics::Enter(_thread_id) => {
-                    // INVARIANT: Thread ID MUST equal with previously captured
-                    // Thread ID.
-                    #[cfg(debug_assertions)]
-                    {
-                        assert!(current_thread_id.unwrap_or(_thread_id) == _thread_id);
-                        current_thread_id = Some(_thread_id);
-                    }
-
-                    state.worker_enter();
-
-                    if !cpu_timer_param.is_disabled() {
-                        if let Some(Err(err)) = cpu_timer.as_ref().map(|it| it.reset()) {
-                            error!("can't reset cpu timer: {}", err);
-                        }
-                    }
-                }
-
-                CPUUsageMetrics::Leave(CPUUsage { accumulated, .. }) => {
-                    state.worker_leave();
-
-                    cpu_usage_ms = accumulated / 1_000_000;
-
-                    if !cpu_timer_param.is_disabled() {
-                        if cpu_usage_ms >= hard_limit_ms as i64 {
-                            error!("CPU time hard limit reached: isolate: {:?}", key);
-                            complete_reason = Some(ShutdownReason::CPUTime);
-                        } else if cpu_usage_ms >= soft_limit_ms as i64
-                            && !state.is_cpu_time_soft_limit_reached
-                        {
-                            early_retire_fn();
-                            error!("CPU time soft limit reached: isolate: {:?}", key);
-
-                            state.is_cpu_time_soft_limit_reached = true;
-
-                            if state.have_all_pending_tasks_been_resolved() {
-                                if let Some(func) = dispatch_early_drop_beforeunload_fn.take() {
-                                    func();
-                                }
-                            }
-                        }
-                    }
-
-                    if state.can_early_drop() {
-                        if let Some(func) = dispatch_early_drop_beforeunload_fn.take() {
-                            func();
-                        }
-                    }
-                }
+          drop(tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(1));
+            loop {
+              interval.tick().await;
+              waker.wake();
+              if is_retired.is_raised() {
+                break;
+              }
             }
+          }));
         }
+      }
 
-        Some(_) = wait_cpu_alarm(cpu_alarms_rx.as_mut()) => {
-            if state.is_worker_entered {
-                if !state.is_cpu_time_soft_limit_reached {
-                    early_retire_fn();
-                    error!("CPU time soft limit reached: isolate: {:?}", key);
-
-                    state.is_cpu_time_soft_limit_reached = true;
-
-                    if state.have_all_pending_tasks_been_resolved() {
-                        if let Some(func) = dispatch_early_drop_beforeunload_fn.take() {
-                            func();
-                        }
-                    }
-                } else {
-                    error!("CPU time hard limit reached: isolate: {:?}", key);
-                    complete_reason = Some(ShutdownReason::CPUTime);
-                }
-            }
-        }
-
-        Some(_) = req_end_rx.recv() => {
-            state.req_acknowledged();
-
-            if !state.has_resource_alert() {
-                if let Some(tx) = pool_msg_tx.clone() {
-                    if tx.send(UserWorkerMsgs::Idle(key)).is_err() {
-                        error!("failed to send idle msg to pool: {:?}", key);
-                    }
-                }
-            }
-
-            if state.have_all_reqs_been_acknowledged() && state.is_retired() {
-                if let Some(func) = dispatch_drain_fn.take() {
-                    func();
-                }
-            }
-            if !state.can_early_drop() {
-                continue;
-            }
-            if let Some(func) = dispatch_early_drop_beforeunload_fn.take() {
-                func();
-            }
-        }
-
-        _ = wall_clock_duration_alert.tick(), if !state.is_wall_clock_limit_disabled => {
-            if state.wall_clock_alerts == 0 {
-                // first tick completes immediately
-                state.wall_clock_alerts += 1;
-            } else if state.wall_clock_alerts == 1 {
-                early_retire_fn();
-                error!("wall clock duration warning: isolate: {:?}", key);
-
-                state.wall_clock_alerts += 1;
-
-                if state.can_early_drop() {
-                    if let Some(func) = dispatch_early_drop_beforeunload_fn.take() {
-                        func();
-                    }
-                }
-            } else {
-                error!(
-                    "wall clock duration reached: isolate: {:?} (in_flight_req_exists = {})",
-                    key,
-                    !state.have_all_reqs_been_acknowledged()
-                );
-
-                complete_reason = Some(ShutdownReason::WallClockTime);
-            }
-        }
-
-        _ = &mut wall_clock_beforeunload_alert,
-            if !state.is_wall_clock_limit_disabled && !state.is_wall_clock_beforeunload_armed
-        => {
-            let data_ptr_mut = Box::into_raw(Box::new(V8HandleBeforeunloadData {
-                reason: WillTerminateReason::WallClock
-            }));
-
-            if thread_safe_handle
-                .request_interrupt(v8_handle_beforeunload, data_ptr_mut as *mut _)
+      Some(metrics) = cpu_usage_metrics_rx.recv() => {
+        match metrics {
+          CPUUsageMetrics::Enter(_thread_id) => {
+            // INVARIANT: Thread ID MUST equal with previously captured Thread
+            // ID.
+            #[cfg(debug_assertions)]
             {
-                waker.wake();
-            } else {
-                drop(unsafe { Box::from_raw(data_ptr_mut) });
+              assert!(current_thread_id.unwrap_or(_thread_id) == _thread_id);
+              current_thread_id = Some(_thread_id);
             }
 
-            state.is_wall_clock_beforeunload_armed = true;
+            state.worker_enter();
+
+            if !cpu_timer_param.is_disabled() {
+              if let Some(Err(err)) = cpu_timer.as_ref().map(|it| it.reset()) {
+                error!("can't reset cpu timer: {}", err);
+              }
+            }
+          }
+
+          CPUUsageMetrics::Leave(CPUUsage { accumulated, .. }) => {
+            state.worker_leave();
+
+            cpu_usage_ms = accumulated / 1_000_000;
+
+            if !cpu_timer_param.is_disabled() {
+              if cpu_usage_ms >= hard_limit_ms as i64 {
+                error!("CPU time hard limit reached: isolate: {:?}", key);
+                complete_reason = Some(ShutdownReason::CPUTime);
+              } else if cpu_usage_ms >= soft_limit_ms as i64
+                  && !state.is_cpu_time_soft_limit_reached
+              {
+                early_retire_fn();
+                error!("CPU time soft limit reached: isolate: {:?}", key);
+
+                state.is_cpu_time_soft_limit_reached = true;
+
+                if state.have_all_pending_tasks_been_resolved() {
+                  if let Some(func) = dispatch_early_drop_beforeunload_fn.take() {
+                    func();
+                  }
+                }
+              }
+            }
+
+            if state.can_early_drop() {
+              if let Some(func) = dispatch_early_drop_beforeunload_fn.take() {
+                func();
+              }
+            }
+          }
+        }
+      }
+
+      Some(_) = wait_cpu_alarm(cpu_alarms_rx.as_mut()) => {
+        if state.is_worker_entered {
+          if !state.is_cpu_time_soft_limit_reached {
+            early_retire_fn();
+            error!("CPU time soft limit reached: isolate: {:?}", key);
+
+            state.is_cpu_time_soft_limit_reached = true;
+
+            if state.have_all_pending_tasks_been_resolved() {
+              if let Some(func) = dispatch_early_drop_beforeunload_fn.take() {
+                func();
+              }
+            }
+          } else {
+            error!("CPU time hard limit reached: isolate: {:?}", key);
+            complete_reason = Some(ShutdownReason::CPUTime);
+          }
+        }
+      }
+
+      Some(_) = req_end_rx.recv() => {
+        state.req_acknowledged();
+
+        if !state.has_resource_alert() {
+          if let Some(tx) = pool_msg_tx.clone() {
+            if tx.send(UserWorkerMsgs::Idle(key)).is_err() {
+              error!("failed to send idle msg to pool: {:?}", key);
+            }
+          }
         }
 
-        Some(_) = memory_limit_rx.recv() => {
-            error!("memory limit reached for the worker: isolate: {:?}", key);
-            complete_reason = Some(ShutdownReason::Memory);
+        if state.have_all_reqs_been_acknowledged() && state.is_retired() {
+          if let Some(func) = dispatch_drain_fn.take() {
+            func();
+          }
+        }
+        if !state.can_early_drop() {
+          continue;
+        }
+        if let Some(func) = dispatch_early_drop_beforeunload_fn.take() {
+          func();
+        }
+      }
+
+      _ = wall_clock_duration_alert.tick(), if !state.is_wall_clock_limit_disabled => {
+        if state.wall_clock_alerts == 0 {
+          // first tick completes immediately
+          state.wall_clock_alerts += 1;
+        } else if state.wall_clock_alerts == 1 {
+          early_retire_fn();
+          error!("wall clock duration warning: isolate: {:?}", key);
+
+          state.wall_clock_alerts += 1;
+
+          if state.can_early_drop() {
+            if let Some(func) = dispatch_early_drop_beforeunload_fn.take() {
+              func();
+            }
+          }
+        } else {
+          error!(
+            "wall clock duration reached: isolate: {:?} (in_flight_req_exists = {})",
+            key,
+            !state.have_all_reqs_been_acknowledged()
+          );
+
+          complete_reason = Some(ShutdownReason::WallClockTime);
+        }
+      }
+
+      _ = &mut wall_clock_beforeunload_alert,
+          if !state.is_wall_clock_limit_disabled && !state.is_wall_clock_beforeunload_armed
+      => {
+        let data_ptr_mut = Box::into_raw(Box::new(V8HandleBeforeunloadData {
+          reason: WillTerminateReason::WallClock
+        }));
+
+        if
+          thread_safe_handle
+            .request_interrupt(v8_handle_beforeunload, data_ptr_mut as *mut _)
+        {
+          waker.wake();
+        } else {
+          drop(unsafe { Box::from_raw(data_ptr_mut) });
         }
 
-        _ = &mut early_drop_fut => {
-            info!("early termination has been triggered: isolate: {:?}", key);
-            complete_reason = Some(ShutdownReason::EarlyDrop);
-        }
+        state.is_wall_clock_beforeunload_armed = true;
+      }
+
+      Some(_) = memory_limit_rx.recv() => {
+        error!("memory limit reached for the worker: isolate: {:?}", key);
+        complete_reason = Some(ShutdownReason::Memory);
+      }
+
+      _ = &mut early_drop_fut => {
+        info!("early termination has been triggered: isolate: {:?}", key);
+        complete_reason = Some(ShutdownReason::EarlyDrop);
+      }
     }
 
     match complete_reason.take() {

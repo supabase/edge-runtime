@@ -1,17 +1,22 @@
 interface reqPayload {
-	name: string;
+  name: string;
 }
 
-console.info('server started modified');
+console.info("server started modified");
 
 Deno.serve(async (req: Request) => {
-	const { name }: reqPayload = await req.json();
-	const data = {
-		message: `Hello ${name} from foo!`,
-	};
+  const { name }: reqPayload = await req.json();
+  const data = {
+    message: `Hello ${name} from foo!`,
+  };
 
-	return new Response(
-		JSON.stringify(data),
-		{ headers: { 'Content-Type': 'application/json', 'Connection': 'keep-alive' } },
-	);
+  return new Response(
+    JSON.stringify(data),
+    {
+      headers: {
+        "Content-Type": "application/json",
+        "Connection": "keep-alive",
+      },
+    },
+  );
 });

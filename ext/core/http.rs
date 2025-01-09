@@ -1,37 +1,51 @@
-use std::{borrow::Cow, cell::RefCell, pin::Pin, rc::Rc, task::Poll};
+use std::borrow::Cow;
+use std::cell::RefCell;
+use std::pin::Pin;
+use std::rc::Rc;
+use std::task::Poll;
 
-use anyhow::{bail, Context};
-use deno_core::{
-  error::{custom_error, AnyError},
-  op2, ByteString, OpDecl, OpState, RcRef, Resource, ResourceId,
-};
-use deno_http::{HttpRequestReader, HttpStreamReadResource};
+use anyhow::bail;
+use anyhow::Context;
+use deno_core::error::custom_error;
+use deno_core::error::AnyError;
+use deno_core::op2;
+use deno_core::ByteString;
+use deno_core::OpDecl;
+use deno_core::OpState;
+use deno_core::RcRef;
+use deno_core::Resource;
+use deno_core::ResourceId;
+use deno_http::HttpRequestReader;
+use deno_http::HttpStreamReadResource;
 use deno_websocket::ws_create_server_stream;
+use futures::future::BoxFuture;
 use futures::ready;
-use futures::{future::BoxFuture, FutureExt};
-use hyper_v014::upgrade::{OnUpgrade, Parts};
+use futures::FutureExt;
+use hyper_v014::upgrade::OnUpgrade;
+use hyper_v014::upgrade::Parts;
 use log::error;
 use serde::Serialize;
-use tokio::io::{
-  copy_bidirectional, AsyncReadExt, AsyncWriteExt, DuplexStream,
-};
-use tokio::{
-  io::{AsyncRead, AsyncWrite},
-  net::UnixStream,
-  sync::oneshot,
-};
+use tokio::io::copy_bidirectional;
+use tokio::io::AsyncRead;
+use tokio::io::AsyncReadExt;
+use tokio::io::AsyncWrite;
+use tokio::io::AsyncWriteExt;
+use tokio::io::DuplexStream;
+use tokio::net::UnixStream;
+use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
-use crate::upgrade::{UpgradeStream, WebSocketUpgrade};
+use crate::upgrade::UpgradeStream;
+use crate::upgrade::WebSocketUpgrade;
 
 deno_core::extension!(
-  sb_core_http,
+  core_http,
   ops = [
     op_http_upgrade_websocket2,
     op_http_upgrade_raw2,
     op_http_upgrade_raw2_fence
   ],
-  middleware = sb_http_middleware,
+  middleware = http_middleware,
 );
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -395,7 +409,7 @@ impl Resource for HttpUpgradeRawResponseFenceResource {
   }
 }
 
-fn sb_http_middleware(decl: OpDecl) -> OpDecl {
+fn http_middleware(decl: OpDecl) -> OpDecl {
   match decl.name {
     "op_http_upgrade_websocket" => {
       decl.with_implementation_from(&op_http_upgrade_websocket2())

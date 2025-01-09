@@ -13,5 +13,10 @@
   "imports": {
     "npm:@meowmeow/foobar": "npm:is-odd",
     "openai": "npm:openai"
+  },
+  "compilerOptions": {
+    "types": [
+      "./types/global.d.ts"
+    ]
   }
 }

@@ -1,22 +1,31 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 #![allow(unused)]
 
-use std::{borrow::Cow, marker::PhantomData, pin::Pin, rc::Rc};
+use std::borrow::Cow;
+use std::marker::PhantomData;
+use std::pin::Pin;
+use std::rc::Rc;
 
-use bytes::{Bytes, BytesMut};
-use deno_core::{
-  error::{custom_error, AnyError},
-  AsyncRefCell, AsyncResult, CancelHandle, CancelTryFuture, RcRef, Resource,
-};
+use bytes::Bytes;
+use bytes::BytesMut;
+use deno_core::error::custom_error;
+use deno_core::error::AnyError;
+use deno_core::AsyncRefCell;
+use deno_core::AsyncResult;
+use deno_core::CancelHandle;
+use deno_core::CancelTryFuture;
+use deno_core::RcRef;
+use deno_core::Resource;
 
 use httparse::Status;
-use hyper::{
-  header::{HeaderName, HeaderValue},
-  Response,
-};
-use memmem::{Searcher, TwoWaySearcher};
+use hyper::header::HeaderName;
+use hyper::header::HeaderValue;
+use hyper::Response;
+use memmem::Searcher;
+use memmem::TwoWaySearcher;
 use once_cell::sync::OnceCell;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncReadExt;
+use tokio::io::AsyncWriteExt;
 
 pub(crate) struct UpgradeStream {
   read: AsyncRefCell<tokio::io::ReadHalf<tokio::io::DuplexStream>>,

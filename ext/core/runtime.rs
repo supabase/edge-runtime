@@ -24,7 +24,7 @@ fn op_main_module(state: &mut OpState) -> Result<String, AnyError> {
   Ok(main)
 }
 
-deno_core::extension!(sb_core_runtime,
+deno_core::extension!(core_runtime,
     ops = [op_main_module],
     options = {
         main_module: Option<ModuleSpecifier>

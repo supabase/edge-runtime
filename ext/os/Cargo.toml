@@ -1,5 +1,5 @@
 [package]
-name = "sb_os"
+name = "ext_os"
 version = "0.1.0"
 authors.workspace = true
 edition.workspace = true
@@ -11,7 +11,7 @@ path = "lib.rs"
 [dependencies]
 deno_core.workspace = true
 
-sb_core.workspace = true
+ext_core.workspace = true
 
 libc.workspace = true
 serde.workspace = true

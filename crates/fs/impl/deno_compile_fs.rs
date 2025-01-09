@@ -1,9 +1,15 @@
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 
-use deno_fs::{
-  AccessCheckCb, FileSystem, FsDirEntry, FsFileType, OpenOptions, RealFs,
-};
-use deno_io::fs::{File, FsError, FsResult, FsStat};
+use deno_fs::AccessCheckCb;
+use deno_fs::FileSystem;
+use deno_fs::FsDirEntry;
+use deno_fs::FsFileType;
+use deno_fs::OpenOptions;
+use deno_fs::RealFs;
+use deno_io::fs::File;
+use deno_io::fs::FsError;
+use deno_io::fs::FsResult;
+use deno_io::fs::FsStat;
 use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;

@@ -6,7 +6,7 @@ const handle = setInterval(async () => {
     if (cleanupCount == 0) {
       return;
     }
-    console.log('EdgeRuntime.ai.tryCleanupUnusedSession', cleanupCount);
+    console.log("EdgeRuntime.ai.tryCleanupUnusedSession", cleanupCount);
   } catch (e) {
     console.error(e.toString());
   }
@@ -23,11 +23,11 @@ Deno.serve(async (req: Request) => {
   const service_name = pathname;
 
   if (!service_name || service_name === "") {
-    const error = { msg: "missing function name in request" }
+    const error = { msg: "missing function name in request" };
     return new Response(
       JSON.stringify(error),
       { status: 400, headers: { "Content-Type": "application/json" } },
-    )
+    );
   }
 
   const servicePath = path.join("test_cases/ai-ort-rust-backend", pathname);
@@ -40,7 +40,7 @@ Deno.serve(async (req: Request) => {
     const noModuleCache = false;
     const importMapPath = null;
     const envVarsObj = Deno.env.toObject();
-    const envVars = Object.keys(envVarsObj).map(k => [k, envVarsObj[k]]);
+    const envVars = Object.keys(envVarsObj).map((k) => [k, envVarsObj[k]]);
 
     return await EdgeRuntime.userWorkers.create({
       servicePath,
@@ -50,9 +50,9 @@ Deno.serve(async (req: Request) => {
       cpuTimeHardLimitMs,
       noModuleCache,
       importMapPath,
-      envVars
+      envVars,
     });
-  }
+  };
 
   const callWorker = async () => {
     try {
@@ -61,13 +61,13 @@ Deno.serve(async (req: Request) => {
     } catch (e) {
       console.error(e);
 
-      const error = { msg: e.toString() }
+      const error = { msg: e.toString() };
       return new Response(
         JSON.stringify(error),
         { status: 500, headers: { "Content-Type": "application/json" } },
       );
     }
-  }
+  };
 
   return await callWorker();
-})
+});

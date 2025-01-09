@@ -8,6 +8,7 @@ use num_traits::Zero;
 use rand::Rng;
 use std::ops::Deref;
 
+#[derive(Clone)]
 pub struct Prime(pub num_bigint_dig::BigUint);
 
 impl Prime {
@@ -301,14 +302,7 @@ mod tests {
       &BigInt::from(0xFFFF_FFFF_FFFF_FFFF_u64),
       16
     ));
-    assert!(!is_probably_prime(
-            &BigInt::parse_bytes(
-                b"12345678901234567890123456789012345678901234567890123456789012345678901234567890",
-                10
-            )
-            .unwrap(),
-            16
-        ));
+    assert!(!is_probably_prime(&BigInt::parse_bytes(b"12345678901234567890123456789012345678901234567890123456789012345678901234567890", 10).unwrap(), 16));
   }
 
   #[test]

@@ -1,18 +1,23 @@
 // Below is roughly originated from eszip@0.72.2/src/v2.rs
 
-use std::{
-  collections::HashMap,
-  sync::{Arc, Mutex},
-};
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::Mutex;
 
-use eszip::{
-  v2::{
-    read_npm_section, Checksum, EszipNpmPackageIndex, EszipV2Module,
-    EszipV2Modules, EszipV2SourceSlot, Options, Section,
-  },
-  EszipV2, ModuleKind, ParseError,
-};
-use futures::{io::BufReader, AsyncRead, AsyncReadExt};
+use eszip::v2::read_npm_section;
+use eszip::v2::Checksum;
+use eszip::v2::EszipNpmPackageIndex;
+use eszip::v2::EszipV2Module;
+use eszip::v2::EszipV2Modules;
+use eszip::v2::EszipV2SourceSlot;
+use eszip::v2::Options;
+use eszip::v2::Section;
+use eszip::EszipV2;
+use eszip::ModuleKind;
+use eszip::ParseError;
+use futures::io::BufReader;
+use futures::AsyncRead;
+use futures::AsyncReadExt;
 use hashlink::LinkedHashMap;
 
 const ESZIP_V2_MAGIC: &[u8; 8] = b"ESZIP_V2";

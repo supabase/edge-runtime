@@ -202,7 +202,7 @@ class Channel {
     return false;
   }
 
-  publish() { }
+  publish() {}
 
   runStores(_data, fn, thisArg, ...args) {
     return ReflectApply(fn, thisArg, args);

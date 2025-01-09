@@ -1,9 +1,10 @@
+use deno_core::error::not_supported;
+use deno_core::error::type_error;
 use deno_core::error::AnyError;
-use deno_core::error::{not_supported, type_error};
 use deno_core::op2;
 use deno_core::OpState;
-use sb_core::permissions::Permissions;
-use sb_node::NODE_ENV_VAR_ALLOWLIST;
+use ext_core::permissions::Permissions;
+use ext_node::NODE_ENV_VAR_ALLOWLIST;
 use std::collections::HashMap;
 
 #[derive(Default)]
@@ -24,9 +25,9 @@ impl std::ops::DerefMut for EnvVars {
 }
 
 deno_core::extension!(
-  sb_env,
+  env,
   ops = [op_set_env, op_env, op_get_env, op_delete_env],
-  esm_entry_point = "ext:sb_env/env.js",
+  esm_entry_point = "ext:env/env.js",
   esm = ["env.js"]
 );
 

@@ -1,13 +1,13 @@
 // @ts-ignore
-import { STATUS_CODE } from 'https://deno.land/std/http/status.ts';
+import { STATUS_CODE } from "https://deno.land/std/http/status.ts";
 
 Deno.serve(async (req: Request) => {
   const params = new URL(req.url).searchParams;
-  const model = params.get('model');
-  const session = new Supabase.ai.Session(model ?? 'llama2');
-  let prompt = params.get('prompt');
-  if (!prompt) throw new Error('prompt missing')
-  const stream = params.get('stream') === 'true' ?? false;
+  const model = params.get("model");
+  const session = new Supabase.ai.Session(model ?? "llama2");
+  let prompt = params.get("prompt");
+  if (!prompt) throw new Error("prompt missing");
+  const stream = params.get("stream") === "true" ?? false;
   const controller = new AbortController();
   const signal = AbortSignal.any([
     // req.signal,
@@ -17,22 +17,22 @@ Deno.serve(async (req: Request) => {
     // [1]: https://github.com/denoland/deno/issues/21653#issuecomment-2096544782
     // [2]: https://github.com/denoland/deno/issues/21590#issuecomment-2096544187
     // [3]: https://github.com/denoland/deno/pull/23425
-    controller.signal
+    controller.signal,
   ]);
 
-  let mode = params.get("mode") ?? 'ollama';
+  let mode = params.get("mode") ?? "ollama";
 
   switch (mode) {
-    case 'openaicompatible':
-      prompt = JSON.parse(prompt)
+    case "openaicompatible":
+      prompt = JSON.parse(prompt);
       break;
 
-    case 'ollama':
+    case "ollama":
     default: {
-      mode = 'ollama';
+      mode = "ollama";
     }
   }
-  console.log({prompt})
+  console.log({ prompt });
 
   if (stream) {
     const output = await session.run(prompt, {
@@ -69,14 +69,14 @@ Deno.serve(async (req: Request) => {
         for await (const _ of output) {
           // must be draining responses here to abort the backend llama request.
         }
-      }
+      },
     });
 
     return new Response(
       body.pipeThrough(new TextEncoderStream()),
       {
         headers: {
-          'Content-Type': 'text/event-stream',
+          "Content-Type": "text/event-stream",
         },
       },
     );
@@ -85,7 +85,7 @@ Deno.serve(async (req: Request) => {
       const output = await session.run(prompt, {
         stream,
         mode,
-        signal
+        signal,
       });
 
       console.log("done");
@@ -93,14 +93,14 @@ Deno.serve(async (req: Request) => {
     } catch (err) {
       console.error(err);
       return new Response(null, {
-        status: STATUS_CODE.InternalServerError
+        status: STATUS_CODE.InternalServerError,
       });
     }
   }
 });
 
 /* To invoke locally:
-Ollama Test: 
+Ollama Test:
 
 curl --get "http://localhost:9998/supa-ai-openaicompatible" \
 --data-urlencode "prompt=write a short rap song about Supabase, the Postgres Developer platform, as sung by Nicki Minaj" \

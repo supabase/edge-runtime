@@ -1,10 +1,14 @@
-use crate::events::{EventMetadata, LogEvent, LogLevel, WorkerEvents};
+use crate::events::EventMetadata;
+use crate::events::LogEvent;
+use crate::events::LogLevel;
+use crate::events::WorkerEvents;
 use crate::WorkerEventWithMetadata;
 use deno_core::error::AnyError;
 use deno_core::op2;
 use deno_core::OpState;
 use tokio::sync::mpsc;
-use tracing::{event, trace};
+use tracing::event;
+use tracing::trace;
 
 #[op2(fast)]
 fn op_user_worker_log(
@@ -47,4 +51,4 @@ fn op_user_worker_log(
   Ok(())
 }
 
-deno_core::extension!(sb_events_js_interceptors, ops = [op_user_worker_log,],);
+deno_core::extension!(js_interceptors, ops = [op_user_worker_log],);

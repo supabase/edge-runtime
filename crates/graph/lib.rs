@@ -1,35 +1,55 @@
 use crate::emitter::EmitterFactory;
 use crate::errors::EszipError;
-use crate::graph_util::{create_eszip_from_graph_raw, create_graph};
-use anyhow::{bail, Context};
+use crate::graph_util::create_eszip_from_graph_raw;
+use crate::graph_util::create_graph;
+use anyhow::bail;
+use anyhow::Context;
 use deno_ast::MediaType;
-use deno_core::futures::io::{AllowStdIo, BufReader};
+use deno_core::futures::io::AllowStdIo;
+use deno_core::futures::io::BufReader;
 use deno_core::url::Url;
-use deno_core::{FastString, JsBuffer, ModuleSpecifier};
-use deno_fs::{FileSystem, RealFs};
+use deno_core::FastString;
+use deno_core::JsBuffer;
+use deno_core::ModuleSpecifier;
+use deno_fs::FileSystem;
+use deno_fs::RealFs;
 use deno_npm::NpmSystemInfo;
-use eszip::v2::{
-  EszipV2Module, EszipV2Modules, EszipV2SourceSlot, Options, Section,
-};
-use eszip::{EszipV2, Module, ModuleKind, ParseError};
-use eszip_async_trait::{
-  AsyncEszipDataRead, NPM_RC_SCOPES_KEY, SOURCE_CODE_ESZIP_KEY,
-  STATIC_FILES_ESZIP_KEY, SUPABASE_ESZIP_VERSION, SUPABASE_ESZIP_VERSION_KEY,
-  VFS_ESZIP_KEY,
-};
-use fs::{build_vfs, VfsOpts};
+use eszip::v2::EszipV2Module;
+use eszip::v2::EszipV2Modules;
+use eszip::v2::EszipV2SourceSlot;
+use eszip::v2::Options;
+use eszip::v2::Section;
+use eszip::EszipV2;
+use eszip::Module;
+use eszip::ModuleKind;
+use eszip::ParseError;
+use eszip_async_trait::AsyncEszipDataRead;
+use eszip_async_trait::NPM_RC_SCOPES_KEY;
+use eszip_async_trait::SOURCE_CODE_ESZIP_KEY;
+use eszip_async_trait::STATIC_FILES_ESZIP_KEY;
+use eszip_async_trait::SUPABASE_ESZIP_VERSION;
+use eszip_async_trait::SUPABASE_ESZIP_VERSION_KEY;
+use eszip_async_trait::VFS_ESZIP_KEY;
+use fs::build_vfs;
+use fs::VfsOpts;
 use futures::future::OptionFuture;
-use futures::{AsyncReadExt, AsyncSeekExt};
+use futures::AsyncReadExt;
+use futures::AsyncSeekExt;
 use glob::glob;
 use log::error;
 use npm::InnerCliNpmResolverRef;
 use scopeguard::ScopeGuard;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::fs::{create_dir_all, File};
-use std::io::{Cursor, SeekFrom, Write};
-use std::path::{Path, PathBuf};
+use std::fs::create_dir_all;
+use std::fs::File;
+use std::io::Cursor;
+use std::io::SeekFrom;
+use std::io::Write;
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -963,7 +983,7 @@ pub async fn extract_eszip(payload: ExtractEszipPayload) -> bool {
 
   let file_specifiers = extract_file_specifiers(&eszip);
   if let Some(lowest_path) =
-    sb_core::util::path::find_lowest_path(&file_specifiers)
+    ext_core::util::path::find_lowest_path(&file_specifiers)
   {
     extract_modules(&eszip, &file_specifiers, &lowest_path, &output_folder)
       .await;
@@ -988,10 +1008,11 @@ pub async fn extract_from_file(
 
 #[cfg(test)]
 mod test {
-  use crate::{
-    extract_eszip, generate_binary_eszip, EmitterFactory, EszipPayloadKind,
-    ExtractEszipPayload,
-  };
+  use crate::extract_eszip;
+  use crate::generate_binary_eszip;
+  use crate::EmitterFactory;
+  use crate::EszipPayloadKind;
+  use crate::ExtractEszipPayload;
   use std::fs::remove_dir_all;
   use std::path::PathBuf;
   use std::sync::Arc;

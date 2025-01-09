@@ -1,6 +1,8 @@
-use log::{error, warn};
+use log::error;
+use log::warn;
 
-use crate::{errors::EszipError, LazyLoadableEszip};
+use crate::errors::EszipError;
+use crate::LazyLoadableEszip;
 
 pub async fn try_migrate_if_needed(
   mut eszip: LazyLoadableEszip,
@@ -57,19 +59,23 @@ pub async fn try_migrate_if_needed(
 }
 
 mod v0 {
-  use std::{collections::HashSet, sync::Arc};
+  use std::collections::HashSet;
+  use std::sync::Arc;
 
   use anyhow::Context;
   use deno_core::serde_json;
-  use eszip::{v2::EszipV2Modules, EszipV2};
-  use eszip_async_trait::{
-    AsyncEszipDataRead, SUPABASE_ESZIP_VERSION_KEY, VFS_ESZIP_KEY,
-  };
+  use eszip::v2::EszipV2Modules;
+  use eszip::EszipV2;
+  use eszip_async_trait::AsyncEszipDataRead;
+  use eszip_async_trait::SUPABASE_ESZIP_VERSION_KEY;
+  use eszip_async_trait::VFS_ESZIP_KEY;
   use futures::future::OptionFuture;
   use once_cell::sync::Lazy;
-  use serde::{Deserialize, Serialize};
+  use serde::Deserialize;
+  use serde::Serialize;
 
-  use crate::{eszip_migrate::v1, LazyLoadableEszip};
+  use crate::eszip_migrate::v1;
+  use crate::LazyLoadableEszip;
 
   #[derive(Serialize, Deserialize, Debug)]
   pub struct Directory {
@@ -221,7 +227,9 @@ mod v0 {
 }
 
 mod v1 {
-  use rkyv::{Archive, Deserialize, Serialize};
+  use rkyv::Archive;
+  use rkyv::Deserialize;
+  use rkyv::Serialize;
 
   #[derive(Archive, Serialize, Deserialize, Debug)]
   #[archive(
@@ -268,11 +276,13 @@ mod v1 {
 mod v1_1 {
   use std::sync::Arc;
 
-  use anyhow::{bail, Context};
-  use eszip::{v2::Checksum, EszipV2};
-  use eszip_async_trait::{
-    AsyncEszipDataRead, SUPABASE_ESZIP_VERSION_KEY, VFS_ESZIP_KEY,
-  };
+  use anyhow::bail;
+  use anyhow::Context;
+  use eszip::v2::Checksum;
+  use eszip::EszipV2;
+  use eszip_async_trait::AsyncEszipDataRead;
+  use eszip_async_trait::SUPABASE_ESZIP_VERSION_KEY;
+  use eszip_async_trait::VFS_ESZIP_KEY;
   use futures::future::OptionFuture;
 
   use crate::LazyLoadableEszip;
@@ -350,14 +360,16 @@ mod v1_1 {
 
 #[cfg(test)]
 mod test {
-  use eszip_async_trait::{AsyncEszipDataRead, VFS_ESZIP_KEY};
+  use eszip_async_trait::AsyncEszipDataRead;
+  use eszip_async_trait::VFS_ESZIP_KEY;
   use std::path::PathBuf;
   use tokio::fs;
 
-  use crate::{
-    eszip_migrate::try_migrate_if_needed, extract_eszip, payload_to_eszip,
-    EszipPayloadKind, ExtractEszipPayload,
-  };
+  use crate::eszip_migrate::try_migrate_if_needed;
+  use crate::extract_eszip;
+  use crate::payload_to_eszip;
+  use crate::EszipPayloadKind;
+  use crate::ExtractEszipPayload;
 
   const MIGRATE_TEST_DIR: &str = "../base/test_cases/eszip-migration";
 

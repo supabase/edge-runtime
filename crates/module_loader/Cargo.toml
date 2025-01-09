@@ -22,8 +22,8 @@ eszip_async_trait.workspace = true
 fs.workspace = true
 graph.workspace = true
 
-sb_core.workspace = true
-sb_node.workspace = true
+ext_core.workspace = true
+ext_node.workspace = true
 
 anyhow.workspace = true
 base64.workspace = true

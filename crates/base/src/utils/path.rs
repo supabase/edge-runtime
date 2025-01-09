@@ -1,4 +1,5 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 
 pub fn find_up<A, B>(filename: A, start: B) -> Option<PathBuf>
 where

@@ -124,6 +124,9 @@ Deno.serve(async (req: Request) => {
 		//
 		const cpuTimeSoftLimitMs = 10000;
 		const cpuTimeHardLimitMs = 20000;
+		const staticPatterns = [
+			'./examples/**/*.html',
+		];
 
 		return await EdgeRuntime.userWorkers.create({
 			servicePath,
@@ -134,6 +137,7 @@ Deno.serve(async (req: Request) => {
 			forceCreate,
 			cpuTimeSoftLimitMs,
 			cpuTimeHardLimitMs,
+			staticPatterns,
 			// maybeEszip,
 			// maybeEntrypoint,
 			// maybeModuleCode,

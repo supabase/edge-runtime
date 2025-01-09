@@ -62,6 +62,7 @@ interface UserWorkerCreateOptions {
 	workerTimeoutMs?: number | null;
 	cpuTimeSoftLimitMs?: number | null;
 	cpuTimeHardLimitMs?: number | null;
+	staticPatterns?: string[] | null;
 
 	s3FsConfig?: S3FsConfig | null;
 	tmpFsConfig?: TmpFsConfig | null;

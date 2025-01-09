@@ -110,6 +110,8 @@ pub struct UserWorkerCreateOptions {
   tmp_fs_config: Option<TmpFsConfig>,
 
   context: Option<JsonMap>,
+  #[serde(default)]
+  static_patterns: Vec<String>,
 }
 
 /// It is identical to [`PermissionsOptions`], except for `prompt`.
@@ -193,6 +195,7 @@ pub async fn op_user_worker_create(
       tmp_fs_config: maybe_tmp_fs_config,
 
       context,
+      static_patterns,
     } = opts;
 
     let user_worker_options = WorkerContextInitOpts {
@@ -229,7 +232,7 @@ pub async fn op_user_worker_create(
         }
       }),
 
-      static_patterns: vec![],
+      static_patterns,
       timing: None,
 
       maybe_eszip: maybe_eszip.map(EszipPayloadKind::JsBufferKind),

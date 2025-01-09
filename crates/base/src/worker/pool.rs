@@ -394,6 +394,7 @@ impl WorkerPool {
             maybe_entrypoint,
             maybe_s3_fs_config,
             maybe_tmp_fs_config,
+            static_patterns,
             ..
           } = worker_options;
 
@@ -408,7 +409,7 @@ impl WorkerPool {
                 maybe_eszip,
                 maybe_module_code,
                 maybe_entrypoint,
-                static_patterns: vec![],
+                static_patterns,
 
                 maybe_s3_fs_config,
                 maybe_tmp_fs_config,
@@ -755,7 +756,7 @@ pub async fn create_user_worker_pool(
               None => break,
               Some(UserWorkerMsgs::Create(worker_options, tx)) => {
                 worker_pool.create_user_worker(WorkerContextInitOpts {
-                  static_patterns: static_patterns.clone(),
+                  static_patterns: [worker_options.static_patterns, static_patterns.clone()].concat(),
                   ..worker_options
                 }, tx, token.map(TerminationToken::child_token));
               }

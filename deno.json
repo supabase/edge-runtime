@@ -4,7 +4,7 @@
     "./crates/base/test_cases"
   ],
   "fmt": {
-    "useTabs": true,
+    "useTabs": false,
     "lineWidth": 100,
     "indentWidth": 4,
     "singleQuote": true,

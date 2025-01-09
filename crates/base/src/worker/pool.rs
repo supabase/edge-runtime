@@ -365,6 +365,7 @@ impl WorkerPool {
                         maybe_jsx_import_source_config,
                         maybe_s3_fs_config,
                         maybe_tmp_fs_config,
+                        static_patterns,
                         ..
                     } = worker_options;
 
@@ -381,7 +382,7 @@ impl WorkerPool {
                                 maybe_module_code,
                                 maybe_entrypoint,
                                 maybe_decorator,
-                                static_patterns: vec![],
+                                static_patterns,
 
                                 maybe_jsx_import_source_config,
                                 maybe_s3_fs_config,
@@ -714,7 +715,7 @@ pub async fn create_user_worker_pool(
                             None => break,
                             Some(UserWorkerMsgs::Create(worker_options, tx)) => {
                                 worker_pool.create_user_worker(WorkerContextInitOpts {
-                                    static_patterns: static_patterns.clone(),
+                                    static_patterns: [worker_options.static_patterns, static_patterns.clone()].concat(),
                                     maybe_jsx_import_source_config: {
                                         if worker_options.maybe_jsx_import_source_config.is_some() {
                                             worker_options.maybe_jsx_import_source_config

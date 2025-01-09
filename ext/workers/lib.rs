@@ -91,6 +91,7 @@ pub struct UserWorkerCreateOptions {
     tmp_fs_config: Option<TmpFsConfig>,
 
     context: Option<JsonMap>,
+    #[serde(default)]
     static_patterns: Vec<String>,
 }
 

@@ -840,7 +840,6 @@ dependencies = [
  "module_loader",
  "monch",
  "notify",
- "npm",
  "num-traits",
  "once_cell",
  "pin-project",
@@ -1856,6 +1855,42 @@ dependencies = [
  "image",
  "serde",
  "thiserror 2.0.8",
+]
+
+[[package]]
+name = "deno_cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base32",
+ "base64 0.21.7",
+ "bincode",
+ "deno_ast",
+ "deno_cache_dir",
+ "deno_config",
+ "deno_core",
+ "deno_fs",
+ "deno_graph",
+ "deno_lockfile",
+ "deno_npm",
+ "deno_semver",
+ "deno_web",
+ "faster-hex",
+ "flate2",
+ "hex",
+ "indexmap",
+ "log",
+ "once_cell",
+ "percent-encoding",
+ "reqwest",
+ "ring 0.17.7",
+ "sb_core",
+ "sb_node",
+ "serde",
+ "tar",
+ "thiserror 2.0.8",
+ "tokio",
 ]
 
 [[package]]
@@ -3101,7 +3136,6 @@ dependencies = [
  "log",
  "memmap2",
  "normalize-path",
- "npm",
  "once_cell",
  "rand",
  "rkyv",
@@ -3408,8 +3442,6 @@ dependencies = [
  "hashlink 0.8.4",
  "import_map",
  "log",
- "npm",
- "npm_cache",
  "once_cell",
  "pathdiff",
  "rkyv",
@@ -4712,7 +4744,6 @@ dependencies = [
  "import_map",
  "log",
  "monch",
- "npm",
  "once_cell",
  "rkyv",
  "sb_core",
@@ -4927,54 +4958,6 @@ dependencies = [
  "mio",
  "walkdir",
  "windows-sys 0.48.0",
-]
-
-[[package]]
-name = "npm"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "base32",
- "base64 0.21.7",
- "bincode",
- "deno_ast",
- "deno_config",
- "deno_core",
- "deno_fs",
- "deno_graph",
- "deno_lockfile",
- "deno_npm",
- "deno_semver",
- "faster-hex",
- "flate2",
- "hex",
- "indexmap",
- "log",
- "once_cell",
- "percent-encoding",
- "reqwest",
- "ring 0.17.7",
- "sb_core",
- "sb_node",
- "serde",
- "tar",
- "thiserror 2.0.8",
-]
-
-[[package]]
-name = "npm_cache"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "deno_ast",
- "deno_cache_dir",
- "deno_core",
- "deno_graph",
- "deno_web",
- "log",
- "npm",
- "sb_core",
- "tokio",
 ]
 
 [[package]]
@@ -9145,8 +9128,3 @@ dependencies = [
  "quote",
  "syn 2.0.90",
 ]
-
-[[patch.unused]]
-name = "deno_core"
-version = "0.293.0"
-source = "git+https://github.com/supabase/deno_core?branch=293-supabase#d73dc1e1845d00cc2e8d2a32caf5859cc300386b"

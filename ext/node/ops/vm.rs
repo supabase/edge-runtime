@@ -6,6 +6,7 @@ use deno_core::serde_v8;
 use deno_core::v8;
 use deno_core::v8::MapFnTo;
 use deno_core::JsBuffer;
+use deno_core::OpState;
 use deno_permissions::PermissionsContainer;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
@@ -1054,6 +1055,7 @@ fn indexed_property_deleter<'s>(
 #[serde]
 pub fn op_vm_create_script<'a>(
   scope: &mut v8::HandleScope<'a>,
+  state: &mut OpState,
   source: v8::Local<'a, v8::String>,
   filename: v8::Local<'a, v8::Value>,
   line_offset: i32,
@@ -1085,6 +1087,7 @@ pub fn op_vm_create_script<'a>(
 #[op2(reentrant)]
 pub fn op_vm_script_run_in_context<'a>(
   scope: &mut v8::HandleScope<'a>,
+  state: &mut OpState,
   #[cppgc] script: &ContextifyScript,
   sandbox: Option<v8::Local<'a, v8::Object>>,
   #[serde] timeout: i64,
@@ -1111,6 +1114,7 @@ pub fn op_vm_script_run_in_context<'a>(
 #[op2(fast)]
 pub fn op_vm_create_context(
   scope: &mut v8::HandleScope,
+  state: &mut OpState,
   sandbox_obj: v8::Local<v8::Object>,
   #[string] name: String,
   #[string] origin: String,
@@ -1146,18 +1150,21 @@ pub fn op_vm_create_context(
 #[op2(fast)]
 pub fn op_vm_is_context(
   scope: &mut v8::HandleScope,
+  state: &mut OpState,
   sandbox_obj: v8::Local<v8::Value>,
 ) -> Result<bool, deno_core::error::AnyError> {
   state
     .borrow_mut::<PermissionsContainer>()
     .check_run_all("node:vm")?;
 
-  sandbox_obj
-    .try_into()
-    .map(|sandbox_obj| {
-      ContextifyContext::is_contextify_context(scope, sandbox_obj)
-    })
-    .unwrap_or(false)
+  Ok(
+    sandbox_obj
+      .try_into()
+      .map(|sandbox_obj| {
+        ContextifyContext::is_contextify_context(scope, sandbox_obj)
+      })
+      .unwrap_or(false),
+  )
 }
 
 #[derive(serde::Serialize)]
@@ -1173,6 +1180,7 @@ struct CompileResult<'s> {
 #[serde]
 pub fn op_vm_compile_function<'s>(
   scope: &mut v8::HandleScope<'s>,
+  state: &mut OpState,
   source: v8::Local<'s, v8::String>,
   filename: v8::Local<'s, v8::Value>,
   line_offset: i32,
@@ -1304,6 +1312,7 @@ pub fn op_vm_compile_function<'s>(
 #[op2]
 pub fn op_vm_script_get_source_map_url<'s>(
   scope: &mut v8::HandleScope<'s>,
+  state: &mut OpState,
   #[cppgc] script: &ContextifyScript,
 ) -> Result<v8::Local<'s, v8::Value>, deno_core::error::AnyError> {
   state
@@ -1311,12 +1320,13 @@ pub fn op_vm_script_get_source_map_url<'s>(
     .check_run_all("node:vm")?;
 
   let unbound_script = script.script.get(scope).unwrap();
-  unbound_script.get_source_mapping_url(scope)
+  Ok(unbound_script.get_source_mapping_url(scope))
 }
 
 #[op2]
 pub fn op_vm_script_create_cached_data<'s>(
   scope: &mut v8::HandleScope<'s>,
+  state: &mut OpState,
   #[cppgc] script: &ContextifyScript,
 ) -> Result<v8::Local<'s, v8::Value>, deno_core::error::AnyError> {
   state
@@ -1329,6 +1339,8 @@ pub fn op_vm_script_create_cached_data<'s>(
     None => vec![],
   };
   let backing_store = v8::ArrayBuffer::new_backing_store_from_vec(data);
-  v8::ArrayBuffer::with_backing_store(scope, &backing_store.make_shared())
-    .into()
+  Ok(
+    v8::ArrayBuffer::with_backing_store(scope, &backing_store.make_shared())
+      .into(),
+  )
 }

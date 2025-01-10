@@ -743,10 +743,10 @@ where
 
     let mod_code = module_code;
     let extensions = vec![
-      ext_core::permissions::core_permissions::init_ops(
-        net_access_disabled,
-        allow_net,
-      ),
+      // ext_core::permissions::core_permissions::init_ops(
+      //   net_access_disabled,
+      //   allow_net,
+      // ),
       deno_webidl::deno_webidl::init_ops(),
       deno_console::deno_console::init_ops(),
       deno_url::deno_url::init_ops(),

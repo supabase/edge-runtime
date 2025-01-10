@@ -1,4 +1,3 @@
-// build script
 use std::env;
 use std::path::PathBuf;
 
@@ -21,32 +20,6 @@ mod supabase_startup_snapshot {
 
   #[derive(Clone)]
   pub struct Permissions;
-
-  impl deno_net::NetPermissions for Permissions {
-    fn check_net<T: AsRef<str>>(
-      &mut self,
-      _host: &(T, Option<u16>),
-      _api_name: &str,
-    ) -> Result<(), deno_core::error::AnyError> {
-      unreachable!("snapshotting!")
-    }
-
-    fn check_read(
-      &mut self,
-      _p: &Path,
-      _api_name: &str,
-    ) -> Result<(), deno_core::error::AnyError> {
-      unreachable!("snapshotting!")
-    }
-
-    fn check_write(
-      &mut self,
-      _p: &Path,
-      _api_name: &str,
-    ) -> Result<(), deno_core::error::AnyError> {
-      unreachable!("snapshotting!")
-    }
-  }
 
   impl deno_fetch::FetchPermissions for Permissions {
     fn check_net_url(
@@ -78,6 +51,93 @@ mod supabase_startup_snapshot {
       _url: &deno_core::url::Url,
       _api_name: &str,
     ) -> Result<(), deno_core::error::AnyError> {
+      unreachable!("snapshotting!")
+    }
+  }
+
+  impl ext_node::NodePermissions for Permissions {
+    fn check_net_url(
+      &mut self,
+      _url: &Url,
+      _api_name: &str,
+    ) -> Result<(), AnyError> {
+      unreachable!("snapshotting!")
+    }
+
+    fn check_net(
+      &mut self,
+      host: (&str, Option<u16>),
+      api_name: &str,
+    ) -> Result<(), PermissionCheckError> {
+      unreachable!("snapshotting!")
+    }
+
+    fn check_read_path<'a>(
+      &mut self,
+      path: &'a Path,
+    ) -> Result<Cow<'a, Path>, PermissionCheckError> {
+      unreachable!("snapshotting!")
+    }
+
+    fn check_read_with_api_name(
+      &mut self,
+      _path: &Path,
+      _api_name: Option<&str>,
+    ) -> Result<(), AnyError> {
+      unreachable!("snapshotting!")
+    }
+
+    fn query_read_all(&mut self) -> bool {
+      unreachable!("snapshotting!")
+    }
+
+    fn check_write_with_api_name(
+      &mut self,
+      _path: &Path,
+      _api_name: Option<&str>,
+    ) -> Result<(), AnyError> {
+      unreachable!("snapshotting!")
+    }
+
+    fn check_sys(
+      &mut self,
+      _kind: &str,
+      _api_name: &str,
+    ) -> Result<(), AnyError> {
+      unreachable!("snapshotting!")
+    }
+  }
+
+  impl deno_net::NetPermissions for Permissions {
+    fn check_net<T: AsRef<str>>(
+      &mut self,
+      _host: &(T, Option<u16>),
+      _api_name: &str,
+    ) -> Result<(), deno_core::error::AnyError> {
+      unreachable!("snapshotting!")
+    }
+
+    fn check_read(
+      &mut self,
+      _p: &Path,
+      _api_name: &str,
+    ) -> Result<(), deno_core::error::AnyError> {
+      unreachable!("snapshotting!")
+    }
+
+    fn check_write(
+      &mut self,
+      _p: &Path,
+      _api_name: &str,
+    ) -> Result<(), deno_core::error::AnyError> {
+      unreachable!("snapshotting!")
+    }
+
+    fn check_write_path<'a>(
+      &mut self,
+      p: &'a Path,
+      api_name: &str,
+    ) -> Result<Cow<'a, Path>, PermissionCheckError> {
       unreachable!("snapshotting!")
     }
   }
@@ -153,42 +213,20 @@ mod supabase_startup_snapshot {
     ) -> Result<std::borrow::Cow<'a, Path>, FsError> {
       unreachable!("snapshotting!")
     }
-  }
 
-  impl ext_node::NodePermissions for Permissions {
-    fn check_net_url(
+    fn check_read_path<'a>(
       &mut self,
-      _url: &Url,
-      _api_name: &str,
-    ) -> Result<(), AnyError> {
+      path: &'a Path,
+      api_name: &str,
+    ) -> Result<Cow<'a, Path>, PermissionCheckError> {
       unreachable!("snapshotting!")
     }
 
-    fn check_read(&mut self, _path: &Path) -> Result<(), AnyError> {
-      unreachable!("snapshotting!")
-    }
-
-    fn check_read_with_api_name(
+    fn check_write_path<'a>(
       &mut self,
-      _path: &Path,
-      _api_name: Option<&str>,
-    ) -> Result<(), AnyError> {
-      unreachable!("snapshotting!")
-    }
-
-    fn check_sys(
-      &mut self,
-      _kind: &str,
-      _api_name: &str,
-    ) -> Result<(), AnyError> {
-      unreachable!("snapshotting!")
-    }
-
-    fn check_write_with_api_name(
-      &mut self,
-      _path: &Path,
-      _api_name: Option<&str>,
-    ) -> Result<(), AnyError> {
+      path: &'a Path,
+      api_name: &str,
+    ) -> Result<Cow<'a, Path>, PermissionCheckError> {
       unreachable!("snapshotting!")
     }
   }
@@ -197,7 +235,6 @@ mod supabase_startup_snapshot {
     let user_agent = String::from("supabase");
     let fs = Arc::new(deno_fs::RealFs);
     let extensions: Vec<Extension> = vec![
-      ext_core_permissions::init_ops_and_esm(false, None),
       deno_webidl::deno_webidl::init_ops_and_esm(),
       deno_console::deno_console::init_ops_and_esm(),
       deno_url::deno_url::init_ops_and_esm(),
@@ -224,7 +261,9 @@ mod supabase_startup_snapshot {
       ),
       deno_net::deno_net::init_ops_and_esm::<Permissions>(None, None),
       deno_tls::deno_tls::init_ops_and_esm(),
-      deno_http::deno_http::init_ops_and_esm::<DefaultHttpPropertyExtractor>(),
+      deno_http::deno_http::init_ops_and_esm::<DefaultHttpPropertyExtractor>(
+        deno_http::Options::default(),
+      ),
       deno_io::deno_io::init_ops_and_esm(Some(Default::default())),
       deno_fs::deno_fs::init_ops_and_esm::<Permissions>(fs.clone()),
       ext_ai::ai::init_ops_and_esm(),
@@ -237,7 +276,7 @@ mod supabase_startup_snapshot {
       ext_core::net::core_net::init_ops_and_esm(),
       ext_core::http::core_http::init_ops_and_esm(),
       ext_core::http_start::core_http_start::init_ops_and_esm(),
-      ext_node::deno_node::init_ops_and_esm::<Permissions>(None, None, fs),
+      ext_node::deno_node::init_ops_and_esm::<Permissions>(None, fs),
       // NOTE(kallebysantos):
       // Full `Web Cache API` via `SqliteBackedCache` is disabled. Cache flow is
       // handled by `ext_ai: Cache Adapter`

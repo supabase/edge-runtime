@@ -23,7 +23,7 @@ impl EmitCache {
       disk_cache,
       emit_failed_flag: Default::default(),
       file_serializer: EmitFileSerializer {
-        cli_version: crate::version::DENO_VERSION_INFO.deno,
+        cli_version: crate::version(),
       },
     }
   }

@@ -12,7 +12,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use anyhow::Context;
-use deno_core::unsync::AtomicFlag;
+use deno_core::unsync::sync::AtomicFlag;
 use deno_core::BufMutView;
 use deno_core::BufView;
 use deno_core::ResourceHandleFd;

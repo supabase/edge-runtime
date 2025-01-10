@@ -252,7 +252,11 @@ async fn op_http_upgrade_websocket2(
     let _ = copy_bidirectional(&mut rw, &mut theirs).await;
   });
 
-  ws_create_server_stream(&mut state.borrow_mut(), ours.into(), read_buf)
+  Ok(ws_create_server_stream(
+    &mut state.borrow_mut(),
+    ours.into(),
+    read_buf,
+  ))
 }
 
 #[op2]

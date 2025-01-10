@@ -58,8 +58,6 @@ tokio.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
 
-cache_control = "=0.2.0"
-chrono = { version = "=0.4.22", default-features = false, features = ["clock"] }
 data-url = "=0.3.0"
 encoding_rs = "=0.8.33"
 memmem = "0.1"

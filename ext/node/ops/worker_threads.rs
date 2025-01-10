@@ -58,6 +58,7 @@ where
   state
     .borrow_mut::<PermissionsContainer>()
     .check_run_all("node:v8")
+    .map_err(deno_core::error::AnyError::from)
     .map_err(WorkerThreadsFilenameError::Permission)?;
 
   if specifier.starts_with("data:") {

@@ -1,4 +1,11 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+
+use crate::args::CacheSetting;
+use crate::auth_tokens::AuthTokens;
+use crate::http_util::CacheSemantics;
+use crate::http_util::FetchOnceArgs;
+use crate::http_util::FetchOnceResult;
+use crate::http_util::HttpClientProvider;
 
 use deno_ast::MediaType;
 use deno_cache_dir::HttpCache;
@@ -10,10 +17,11 @@ use deno_core::parking_lot::Mutex;
 use deno_core::url::Url;
 use deno_core::ModuleSpecifier;
 use deno_graph::source::LoaderChecksum;
+use deno_permissions::PermissionsContainer;
 use deno_web::BlobStore;
 
-use anyhow::bail;
 use anyhow::Context;
+use http::header;
 use log::debug;
 
 use std::borrow::Cow;
@@ -23,14 +31,6 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::SystemTime;
-
-use ext_core::auth_tokens::AuthTokens;
-use ext_core::cache::fc_permissions::FcPermissions;
-use ext_core::cache::CacheSetting;
-use ext_core::util::http_util::CacheSemantics;
-use ext_core::util::http_util::FetchOnceArgs;
-use ext_core::util::http_util::FetchOnceResult;
-use ext_core::util::http_util::HttpClientProvider;
 
 pub const SUPPORTED_SCHEMES: [&str; 5] =
   ["data", "blob", "file", "http", "https"];
@@ -142,9 +142,17 @@ fn get_validated_scheme(
   }
 }
 
+#[derive(Debug, Copy, Clone)]
+pub enum FetchPermissionsOptionRef<'a> {
+  AllowAll,
+  DynamicContainer(&'a PermissionsContainer),
+  StaticContainer(&'a PermissionsContainer),
+}
+
 pub struct FetchOptions<'a> {
   pub specifier: &'a ModuleSpecifier,
-  pub permissions: FcPermissions,
+  pub permissions: FetchPermissionsOptionRef<'a>,
+  pub maybe_auth: Option<(header::HeaderName, header::HeaderValue)>,
   pub maybe_accept: Option<&'a str>,
   pub maybe_cache_setting: Option<&'a CacheSetting>,
 }
@@ -324,6 +332,7 @@ impl FileFetcher {
     maybe_accept: Option<&str>,
     cache_setting: &CacheSetting,
     maybe_checksum: Option<&LoaderChecksum>,
+    maybe_auth: Option<(header::HeaderName, header::HeaderValue)>,
   ) -> Result<FileOrRedirect, AnyError> {
     debug!(
       "FileFetcher::fetch_remote_no_follow - specifier: {}",
@@ -340,21 +349,37 @@ impl FileFetcher {
 
     if *cache_setting == CacheSetting::Only {
       return Err(custom_error(
-                "NotCached",
-                format!(
-                    "Specifier not found in cache: \"{specifier}\", --cached-only is specified."
-                ),
-            ));
+        "NotCached",
+        format!(
+          "Specifier not found in cache: \"{specifier}\", --cached-only is specified."
+        ),
+      ));
     }
 
-    log::log!(self.download_log_level, "{} {}", "Download", specifier);
-
-    let maybe_etag = self
+    let maybe_etag_cache_entry = self
       .http_cache
       .cache_item_key(specifier)
       .ok()
-      .and_then(|key| self.http_cache.read_headers(&key).ok().flatten())
-      .and_then(|headers| headers.get("etag").cloned());
+      .and_then(|key| {
+        self
+          .http_cache
+          .get(
+            &key,
+            maybe_checksum
+              .as_ref()
+              .map(|c| deno_cache_dir::Checksum::new(c.as_str())),
+          )
+          .ok()
+          .flatten()
+      })
+      .and_then(|cache_entry| {
+        cache_entry
+          .metadata
+          .headers
+          .get("etag")
+          .cloned()
+          .map(|etag| (cache_entry, etag))
+      });
     let maybe_auth_token = self.auth_tokens.get(specifier);
 
     async fn handle_request_or_server_error(
@@ -376,40 +401,25 @@ impl FileFetcher {
       }
     }
 
-    let mut maybe_etag = maybe_etag;
     let mut retried = false; // retry intermittent failures
-
-    loop {
+    let result = loop {
       let result = match self
         .http_client_provider
         .get_or_create()?
         .fetch_no_follow(FetchOnceArgs {
           url: specifier.clone(),
           maybe_accept: maybe_accept.map(ToOwned::to_owned),
-          maybe_etag: maybe_etag.clone(),
+          maybe_etag: maybe_etag_cache_entry
+            .as_ref()
+            .map(|(_, etag)| etag.clone()),
           maybe_auth_token: maybe_auth_token.clone(),
+          maybe_auth: maybe_auth.clone(),
         })
         .await?
       {
         FetchOnceResult::NotModified => {
-          let file_or_redirect =
-            self.fetch_cached_no_follow(specifier, maybe_checksum)?;
-          match file_or_redirect {
-            Some(file_or_redirect) => Ok(file_or_redirect),
-            None => {
-              // Someone may have deleted the body from the cache since
-              // it's currently stored in a separate file from the headers,
-              // so delete the etag and try again
-              if maybe_etag.is_some() {
-                debug!("Cache body not found. Trying again without etag.");
-                maybe_etag = None;
-                continue;
-              } else {
-                // should never happen
-                bail!("Your deno cache directory is in an unrecoverable state. Please delete it and try again.")
-              }
-            }
-          }
+          let (cache_entry, _) = maybe_etag_cache_entry.unwrap();
+          FileOrRedirect::from_deno_cache_entry(specifier, cache_entry)
         }
         FetchOnceResult::Redirect(redirect_url, headers) => {
           self.http_cache.set(specifier, headers, &[])?;
@@ -441,7 +451,9 @@ impl FileFetcher {
         }
       };
       break result;
-    }
+    };
+
+    result
   }
 
   /// Returns if the cache should be used for a given specifier.
@@ -491,15 +503,32 @@ impl FileFetcher {
   }
 
   /// Fetch a source file and asynchronously return it.
+  #[inline(always)]
   pub async fn fetch(
     &self,
     specifier: &ModuleSpecifier,
-    permissions: FcPermissions,
+    permissions: &PermissionsContainer,
+  ) -> Result<File, AnyError> {
+    self
+      .fetch_inner(
+        specifier,
+        None,
+        FetchPermissionsOptionRef::StaticContainer(permissions),
+      )
+      .await
+  }
+
+  async fn fetch_inner(
+    &self,
+    specifier: &ModuleSpecifier,
+    maybe_auth: Option<(header::HeaderName, header::HeaderValue)>,
+    permissions: FetchPermissionsOptionRef<'_>,
   ) -> Result<File, AnyError> {
     self
       .fetch_with_options(FetchOptions {
         specifier,
         permissions,
+        maybe_auth,
         maybe_accept: None,
         maybe_cache_setting: None,
       })
@@ -519,12 +548,14 @@ impl FileFetcher {
     max_redirect: usize,
   ) -> Result<File, AnyError> {
     let mut specifier = Cow::Borrowed(options.specifier);
+    let mut maybe_auth = options.maybe_auth.clone();
     for _ in 0..=max_redirect {
       match self
         .fetch_no_follow_with_options(FetchNoFollowOptions {
           fetch_options: FetchOptions {
             specifier: &specifier,
             permissions: options.permissions.clone(),
+            maybe_auth: maybe_auth.clone(),
             maybe_accept: options.maybe_accept,
             maybe_cache_setting: options.maybe_cache_setting,
           },
@@ -536,6 +567,10 @@ impl FileFetcher {
           return Ok(file);
         }
         FileOrRedirect::Redirect(redirect_specifier) => {
+          // If we were redirected to another origin, don't send the auth header anymore.
+          if redirect_specifier.origin() != specifier.origin() {
+            maybe_auth = None;
+          }
           specifier = Cow::Owned(redirect_specifier);
         }
       }
@@ -550,7 +585,7 @@ impl FileFetcher {
     options: FetchNoFollowOptions<'_>,
   ) -> Result<FileOrRedirect, AnyError> {
     let maybe_checksum = options.maybe_checksum;
-    let mut options = options.fetch_options;
+    let options = options.fetch_options;
     let specifier = options.specifier;
     // note: this debug output is used by the tests
     debug!(
@@ -558,7 +593,23 @@ impl FileFetcher {
       specifier
     );
     let scheme = get_validated_scheme(specifier)?;
-    options.permissions.check_specifier(specifier)?;
+    match options.permissions {
+      FetchPermissionsOptionRef::AllowAll => {
+        // allow
+      }
+      FetchPermissionsOptionRef::StaticContainer(permissions) => {
+        permissions.check_specifier(
+          specifier,
+          deno_permissions::CheckSpecifierKind::Static,
+        )?;
+      }
+      FetchPermissionsOptionRef::DynamicContainer(permissions) => {
+        permissions.check_specifier(
+          specifier,
+          deno_permissions::CheckSpecifierKind::Dynamic,
+        )?;
+      }
+    }
     if let Some(file) = self.memory_files.get(specifier) {
       Ok(FileOrRedirect::File(file))
     } else if scheme == "file" {
@@ -574,9 +625,9 @@ impl FileFetcher {
         .map(FileOrRedirect::File)
     } else if !self.allow_remote {
       Err(custom_error(
-                "NoRemote",
-                format!("A remote specifier was requested: \"{specifier}\", but --no-remote is specified."),
-            ))
+        "NoRemote",
+        format!("A remote specifier was requested: \"{specifier}\", but --no-remote is specified."),
+      ))
     } else {
       self
         .fetch_remote_no_follow(
@@ -584,6 +635,7 @@ impl FileFetcher {
           options.maybe_accept,
           options.maybe_cache_setting.unwrap_or(&self.cache_setting),
           maybe_checksum,
+          options.maybe_auth,
         )
         .await
     }

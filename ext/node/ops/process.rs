@@ -59,8 +59,11 @@ pub fn op_node_process_kill(
 
 #[op2(fast)]
 pub fn op_process_abort(state: &mut OpState) {
-  state
+  if state
     .borrow_mut::<PermissionsContainer>()
-    .check_run_all("process.abort")?;
-  std::process::abort();
+    .check_run_all("process.abort")
+    .is_ok()
+  {
+    std::process::abort();
+  }
 }

@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 
+use deno::util::checksum;
 use deno_core::anyhow::Context;
 use deno_core::error::AnyError;
 use deno_core::parking_lot::Mutex;
@@ -320,9 +321,10 @@ impl<'a> VfsEntryRef<'a> {
         is_directory: true,
         is_file: false,
         is_symlink: false,
+        mtime: None,
         atime: None,
         birthtime: None,
-        mtime: None,
+        ctime: None,
         blksize: 0,
         size: 0,
         dev: 0,
@@ -342,9 +344,10 @@ impl<'a> VfsEntryRef<'a> {
         is_directory: false,
         is_file: true,
         is_symlink: false,
+        mtime: None,
         atime: None,
         birthtime: None,
-        mtime: None,
+        ctime: None,
         blksize: 0,
         size: file.len,
         dev: 0,
@@ -364,9 +367,10 @@ impl<'a> VfsEntryRef<'a> {
         is_directory: false,
         is_file: false,
         is_symlink: true,
+        mtime: None,
         atime: None,
         birthtime: None,
-        mtime: None,
+        ctime: None,
         blksize: 0,
         size: 0,
         dev: 0,

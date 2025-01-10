@@ -2,13 +2,17 @@ pub mod args;
 pub mod auth_tokens;
 pub mod cache;
 pub mod emit;
+pub mod errors;
 pub mod file_fetcher;
 pub mod http_util;
 pub mod node;
 pub mod npm;
 pub mod npmrc;
 pub mod permissions;
+pub mod resolver;
+pub mod runtime;
 pub mod transpile;
+pub mod util;
 pub mod versions;
 
 pub fn version() -> &'static str {

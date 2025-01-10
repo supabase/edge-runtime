@@ -41,7 +41,7 @@ fn op_http_start(
       DuplexStream2::new(stream, token.clone()),
       addr,
       "http",
-    )?;
+    );
 
     let conn_watcher = state.resource_table.add(ConnWatcher(token));
 

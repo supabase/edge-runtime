@@ -21,27 +21,15 @@ use tokio::sync::oneshot;
 use tracing::debug;
 use tracing::debug_span;
 
-// mod npm;
 mod upgrade;
 
-// pub mod auth_tokens;
-// pub mod cache;
 pub mod cert;
 pub mod conn_sync;
-// pub mod emit;
-// pub mod errors_rt;
 pub mod external_memory;
 pub mod http;
 pub mod http_start;
 pub mod net;
-// pub mod node;
-// pub mod permissions;
 pub mod runtime;
-// pub mod transpiler;
-// pub mod util;
-
-pub use npm::create_default_npmrc;
-pub use npm::create_npmrc;
 
 pub struct MemCheckWaker(Arc<AtomicWaker>);
 

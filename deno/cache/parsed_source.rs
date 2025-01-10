@@ -7,8 +7,7 @@ use deno_ast::MediaType;
 use deno_ast::ModuleSpecifier;
 use deno_ast::ParsedSource;
 use deno_core::parking_lot::Mutex;
-use deno_graph::CapturingModuleParser;
-use deno_graph::ModuleParser;
+use deno_graph::CapturingEsParser;
 use deno_graph::ParseOptions;
 
 #[derive(Default)]
@@ -37,7 +36,7 @@ impl ParsedSourceCache {
     media_type: MediaType,
   ) -> deno_core::anyhow::Result<ParsedSource, deno_ast::ParseDiagnostic> {
     let parser = self.as_capturing_parser();
-    // this will conditionally parse because it's using a CapturingModuleParser
+    // this will conditionally parse because it's using a CapturingEsParser
     parser.parse_module(ParseOptions {
       specifier,
       source,
@@ -54,8 +53,8 @@ impl ParsedSourceCache {
 
   /// Creates a parser that will reuse a ParsedSource from the store
   /// if it exists, or else parse.
-  pub fn as_capturing_parser(&self) -> CapturingModuleParser {
-    CapturingModuleParser::new(None, self)
+  pub fn as_capturing_parser(&self) -> CapturingEsParser {
+    CapturingEsParser::new(None, self)
   }
 }
 
@@ -67,7 +66,7 @@ impl ParsedSourceCache {
 impl deno_graph::ParsedSourceStore for ParsedSourceCache {
   fn set_parsed_source(
     &self,
-    specifier: deno_graph::ModuleSpecifier,
+    specifier: ModuleSpecifier,
     parsed_source: ParsedSource,
   ) -> Option<ParsedSource> {
     self.sources.lock().insert(specifier, parsed_source)
@@ -75,14 +74,21 @@ impl deno_graph::ParsedSourceStore for ParsedSourceCache {
 
   fn get_parsed_source(
     &self,
-    specifier: &deno_graph::ModuleSpecifier,
+    specifier: &ModuleSpecifier,
   ) -> Option<ParsedSource> {
     self.sources.lock().get(specifier).cloned()
   }
 
+  fn remove_parsed_source(
+    &self,
+    specifier: &ModuleSpecifier,
+  ) -> Option<ParsedSource> {
+    self.sources.lock().remove(specifier)
+  }
+
   fn get_scope_analysis_parsed_source(
     &self,
-    specifier: &deno_graph::ModuleSpecifier,
+    specifier: &ModuleSpecifier,
   ) -> Option<ParsedSource> {
     let mut sources = self.sources.lock();
     let parsed_source = sources.get(specifier)?;

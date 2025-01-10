@@ -14,7 +14,7 @@ thread_local! {
   pub static GETTER_MAP_FN: v8::NamedPropertyGetterCallback<'static> = getter.map_fn_to();
   pub static SETTER_MAP_FN: v8::NamedPropertySetterCallback<'static> = setter.map_fn_to();
   pub static QUERY_MAP_FN: v8::NamedPropertyQueryCallback<'static> = query.map_fn_to();
-  pub static DELETER_MAP_FN: v8::NamedPropertyQueryCallback<'static> = deleter.map_fn_to();
+  pub static DELETER_MAP_FN: v8::NamedPropertyDeleterCallback<'static> = deleter.map_fn_to();
   pub static ENUMERATOR_MAP_FN: v8::NamedPropertyEnumeratorCallback<'static> = enumerator.map_fn_to();
   pub static DEFINER_MAP_FN: v8::NamedPropertyDefinerCallback<'static> = definer.map_fn_to();
   pub static DESCRIPTOR_MAP_FN: v8::NamedPropertyGetterCallback<'static> = descriptor.map_fn_to();

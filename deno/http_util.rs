@@ -1,7 +1,8 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 use crate::auth_tokens::AuthToken;
-use crate::util::versions_util::get_user_agent;
+use crate::versions::get_user_agent;
+
 use cache_control::Cachability;
 use cache_control::CacheControl;
 use chrono::DateTime;
@@ -11,17 +12,17 @@ use deno_core::error::AnyError;
 use deno_core::parking_lot::Mutex;
 use deno_core::url::Url;
 use deno_fetch::create_http_client;
-use deno_fetch::reqwest;
-use deno_fetch::reqwest::header::HeaderName;
-use deno_fetch::reqwest::header::HeaderValue;
-use deno_fetch::reqwest::header::ACCEPT;
-use deno_fetch::reqwest::header::AUTHORIZATION;
-use deno_fetch::reqwest::header::IF_NONE_MATCH;
-use deno_fetch::reqwest::header::LOCATION;
-use deno_fetch::reqwest::Response;
-use deno_fetch::reqwest::StatusCode;
 use deno_fetch::CreateHttpClientOptions;
 use deno_tls::RootCertStoreProvider;
+use header::HeaderName;
+use header::HeaderValue;
+use header::ACCEPT;
+use header::AUTHORIZATION;
+use header::IF_NONE_MATCH;
+use header::LOCATION;
+use http::header;
+use http::StatusCode;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::thread::ThreadId;
@@ -56,9 +57,9 @@ fn resolve_url_from_location(base_url: &Url, location: &str) -> Url {
   }
 }
 
-pub fn resolve_redirect_from_response(
+pub fn resolve_redirect_from_response<B>(
   request_url: &Url,
-  response: &Response,
+  response: &http::Response<B>,
 ) -> Result<Url, DownloadError> {
   debug_assert!(response.status().is_redirection());
   if let Some(location) = response.headers().get(LOCATION) {
@@ -241,6 +242,7 @@ pub struct FetchOnceArgs {
   pub maybe_accept: Option<String>,
   pub maybe_etag: Option<String>,
   pub maybe_auth_token: Option<AuthToken>,
+  pub maybe_auth: Option<(header::HeaderName, header::HeaderValue)>,
 }
 
 pub struct HttpClientProvider {

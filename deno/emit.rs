@@ -1,8 +1,11 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
-use crate::cache::common::FastInsecureHasher;
-use crate::cache::emit::EmitCache;
-use crate::cache::parsed_source::ParsedSourceCache;
+use crate::cache::EmitCache;
+use crate::cache::FastInsecureHasher;
+use crate::cache::ParsedSourceCache;
+use crate::resolver::CjsTracker;
+
+use deno_ast::ModuleKind;
 use deno_ast::TranspileOptions;
 use deno_core::error::AnyError;
 use deno_core::ModuleCodeString;
@@ -13,7 +16,8 @@ use deno_graph::ModuleGraph;
 use std::sync::Arc;
 
 pub struct Emitter {
-  emit_cache: EmitCache,
+  cjs_tracker: Arc<CjsTracker>,
+  emit_cache: Arc<EmitCache>,
   parsed_source_cache: Arc<ParsedSourceCache>,
   transpile_and_emit_options:
     Arc<(deno_ast::TranspileOptions, deno_ast::EmitOptions)>,
@@ -23,7 +27,8 @@ pub struct Emitter {
 
 impl Emitter {
   pub fn new(
-    emit_cache: EmitCache,
+    cjs_tracker: Arc<CjsTracker>,
+    emit_cache: Arc<EmitCache>,
     parsed_source_cache: Arc<ParsedSourceCache>,
     transpile_options: TranspileOptions,
     emit_options: deno_ast::EmitOptions,
@@ -35,6 +40,7 @@ impl Emitter {
       hasher.finish()
     };
     Self {
+      cjs_tracker,
       emit_cache,
       parsed_source_cache,
       transpile_and_emit_options: Arc::new((transpile_options, emit_options)),
@@ -98,9 +104,18 @@ impl Emitter {
         media_type,
       )?;
 
+      let mut options = self.transpile_and_emit_options.1.clone();
+      let is_cjs = self.cjs_tracker.is_cjs_with_known_is_script(
+        specifier,
+        media_type,
+        parsed_source.compute_is_script(),
+      )?;
       let transpiled_source = parsed_source.transpile(
         &self.transpile_and_emit_options.0,
-        &self.transpile_and_emit_options.1,
+        &deno_ast::TranspileModuleOptions {
+          module_kind: ModuleKind::from_is_cjs(is_cjs),
+        },
+        &options,
       )?;
 
       let source = transpiled_source.into_source();

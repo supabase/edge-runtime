@@ -1410,6 +1410,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmake"
+version = "0.1.52"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c682c223677e0e5b6b7f63a64b9351844c3f1b1678a68b7ee617e30fb082620e"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "codespan-reporting"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1772,6 +1781,8 @@ dependencies = [
  "deno_lockfile",
  "deno_net",
  "deno_npm",
+ "deno_npm_cache",
+ "deno_package_json",
  "deno_path_util",
  "deno_permissions",
  "deno_resolver",
@@ -1788,17 +1799,21 @@ dependencies = [
  "fs3",
  "hex",
  "http 1.0.0",
+ "http-body 1.0.0",
+ "http-body-util",
  "hyper 0.14.28",
  "hyper 1.5.2",
  "hyper-util",
  "import_map",
  "indexmap",
+ "junction",
  "libc",
  "log",
  "nix 0.27.1",
  "node_resolver",
  "notify",
  "once_cell",
+ "pathdiff",
  "percent-encoding",
  "rand",
  "regex",
@@ -1810,6 +1825,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "twox-hash",
+ "winapi",
 ]
 
 [[package]]
@@ -2276,6 +2292,37 @@ dependencies = [
  "monch",
  "serde",
  "serde_json",
+ "thiserror 2.0.8",
+ "url",
+]
+
+[[package]]
+name = "deno_npm_cache"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c5f2a9b36fd011cec755780a2ca68e0ed5ec829c747b2d4912495641bc74f77"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.21.7",
+ "boxed_error",
+ "deno_cache_dir",
+ "deno_core",
+ "deno_npm",
+ "deno_semver",
+ "deno_unsync",
+ "faster-hex",
+ "flate2",
+ "futures",
+ "http 1.0.0",
+ "log",
+ "parking_lot",
+ "percent-encoding",
+ "rand",
+ "ring 0.17.7",
+ "serde_json",
+ "tar",
+ "tempfile",
  "thiserror 2.0.8",
  "url",
 ]
@@ -3313,6 +3360,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5f54427cfd1c7829e2a139fcefea601bf088ebca651d2bf53ebc600eac295dae"
 dependencies = [
  "crc32fast",
+ "libz-sys",
  "miniz_oxide",
 ]
 
@@ -3421,7 +3469,6 @@ dependencies = [
  "enum-as-inner",
  "eszip",
  "eszip_async_trait",
- "ext_core",
  "ext_event_worker",
  "ext_node",
  "futures",
@@ -4801,6 +4848,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2d16453e800a8cf6dd2fc3eb4bc99b786a9b90c663b8559a5b1a041bf89e472"
 dependencies = [
  "cc",
+ "cmake",
+ "libc",
  "pkg-config",
  "vcpkg",
 ]

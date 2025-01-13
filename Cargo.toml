@@ -127,6 +127,7 @@ futures = "0.3.21"
 glob = "0.3.1"
 h2 = "0.4.4"
 http = "1.0"
+http-body = "1.0"
 http-body-util = "0.1.2"
 http_v02 = { package = "http", version = "0.2.9" }
 httparse = "1.8.0"
@@ -192,6 +193,7 @@ wgpu-types = "0.20"
 nix = "=0.27.1"
 
 # windows deps
+junction = "=0.2.0"
 winapi = "=0.3.9"
 windows-sys = { version = "0.59.0", features = ["Win32_Foundation", "Win32_Media", "Win32_Storage_FileSystem"] }
 

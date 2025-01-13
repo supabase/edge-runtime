@@ -59,18 +59,16 @@ function installEdgeRuntimeNamespace(kind, terminationRequestTokenRid) {
  * @param {"user" | "main" | "event"} kind 
  */
 function installSupabaseNamespace(kind) {
-	if (kind === "user") {
-		const props = {
-			ai: USER_WORKER_API
-		};
+  const props = {
+    ai: USER_WORKER_API
+  };
 
-		ObjectDefineProperty(globalThis, "Supabase", {
-			get() {
-				return props;
-			},
-			configurable: true,
-		});
-	}
+  ObjectDefineProperty(globalThis, "Supabase", {
+    get() {
+      return props;
+    },
+    configurable: true,
+  });
 }
 
 export {

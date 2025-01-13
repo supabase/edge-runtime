@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -172,14 +172,14 @@ impl SqlIncrementalCache {
     path: &Path,
   ) -> Result<Option<CacheDBHash>, AnyError> {
     let query = "
-        SELECT
-          source_hash
-        FROM
-          incrementalcache
-        WHERE
-          file_path=?1
-          AND state_hash=?2
-        LIMIT 1";
+      SELECT
+        source_hash
+      FROM
+        incrementalcache
+      WHERE
+        file_path=?1
+        AND state_hash=?2
+      LIMIT 1";
     let res = self.conn.query_row(
       query,
       params![path.to_string_lossy(), self.state_hash],
@@ -197,10 +197,10 @@ impl SqlIncrementalCache {
     source_hash: CacheDBHash,
   ) -> Result<(), AnyError> {
     let sql = "
-        INSERT OR REPLACE INTO
-          incrementalcache (file_path, state_hash, source_hash)
-        VALUES
-          (?1, ?2, ?3)";
+      INSERT OR REPLACE INTO
+        incrementalcache (file_path, state_hash, source_hash)
+      VALUES
+        (?1, ?2, ?3)";
     self.conn.execute(
       sql,
       params![path.to_string_lossy(), self.state_hash, source_hash],

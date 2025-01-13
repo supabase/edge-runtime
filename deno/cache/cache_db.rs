@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 use deno_core::error::AnyError;
 use deno_core::parking_lot::Mutex;
@@ -57,7 +57,7 @@ impl rusqlite::types::FromSql for CacheDBHash {
 }
 
 /// What should the cache should do on failure?
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub enum CacheFailure {
   /// Return errors if failure mode otherwise unspecified.
   #[default]
@@ -69,6 +69,7 @@ pub enum CacheFailure {
 }
 
 /// Configuration SQL and other parameters for a [`CacheDB`].
+#[derive(Debug)]
 pub struct CacheDBConfiguration {
   /// SQL to run for a new database.
   pub table_initializer: &'static str,
@@ -83,21 +84,22 @@ pub struct CacheDBConfiguration {
 impl CacheDBConfiguration {
   fn create_combined_sql(&self) -> String {
     format!(
-            concat!(
-                "PRAGMA journal_mode=WAL;",
-                "PRAGMA synchronous=NORMAL;",
-                "PRAGMA temp_store=memory;",
-                "PRAGMA page_size=4096;",
-                "PRAGMA mmap_size=6000000;",
-                "PRAGMA optimize;",
-                "CREATE TABLE IF NOT EXISTS info (key TEXT PRIMARY KEY, value TEXT NOT NULL);",
-                "{}",
-            ),
-            self.table_initializer
-        )
+      concat!(
+        "PRAGMA journal_mode=WAL;",
+        "PRAGMA synchronous=NORMAL;",
+        "PRAGMA temp_store=memory;",
+        "PRAGMA page_size=4096;",
+        "PRAGMA mmap_size=6000000;",
+        "PRAGMA optimize;",
+        "CREATE TABLE IF NOT EXISTS info (key TEXT PRIMARY KEY, value TEXT NOT NULL);",
+        "{}",
+      ),
+      self.table_initializer
+    )
   }
 }
 
+#[derive(Debug)]
 enum ConnectionState {
   Connected(Connection),
   Blackhole,
@@ -106,7 +108,7 @@ enum ConnectionState {
 
 /// A cache database that eagerly initializes itself off-thread, preventing initialization operations
 /// from blocking the main thread.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct CacheDB {
   // TODO(mmastrac): We can probably simplify our thread-safe implementation here
   conn: Arc<Mutex<OnceCell<ConnectionState>>>,
@@ -179,7 +181,6 @@ impl CacheDB {
 
   /// Useful for testing: re-create this cache DB with a different current version.
   #[cfg(test)]
-  #[allow(dead_code)]
   pub(crate) fn recreate_with_version(mut self, version: &'static str) -> Self {
     // By taking the lock, we know there are no initialization threads alive
     drop(self.conn.lock());
@@ -409,13 +410,9 @@ fn open_connection(
   // Failed, try deleting it
   let is_tty = std::io::stderr().is_terminal();
   log::log!(
-        if is_tty {
-            log::Level::Warn
-        } else {
-            log::Level::Trace
-        },
-        "Could not initialize cache database '{}', deleting and retrying... ({err:?})",
-        path.to_string_lossy()
+      if is_tty { log::Level::Warn } else { log::Level::Trace },
+      "Could not initialize cache database '{}', deleting and retrying... ({err:?})",
+      path.to_string_lossy()
     );
   if std::fs::remove_file(path).is_ok() {
     // Try a third time if we successfully deleted it

@@ -1,5 +1,13 @@
+mod package_json;
+
+use deno_core::parking_lot::Mutex;
+use deno_lockfile::Lockfile;
+use deno_npm_cache::NpmCacheSetting;
 use once_cell::sync::Lazy;
 use reqwest::Url;
+
+pub use package_json::NpmInstallDepsProvider;
+pub use package_json::PackageJsonDepValueParseWithLocationError;
 
 pub fn jsr_url() -> &'static Url {
   static JSR_URL: Lazy<Url> = Lazy::new(|| {
@@ -50,20 +58,27 @@ pub enum CacheSetting {
 }
 
 impl CacheSetting {
-  pub fn should_use_for_npm_package(&self, package_name: &str) -> bool {
+  pub fn as_npm_cache_setting(&self) -> NpmCacheSetting {
     match self {
-      CacheSetting::ReloadAll => false,
-      CacheSetting::ReloadSome(list) => {
-        if list.iter().any(|i| i == "npm:") {
-          return false;
+      CacheSetting::Only => NpmCacheSetting::Only,
+      CacheSetting::ReloadAll => NpmCacheSetting::ReloadAll,
+      CacheSetting::ReloadSome(values) => {
+        if values.iter().any(|v| v == "npm:") {
+          NpmCacheSetting::ReloadAll
+        } else {
+          NpmCacheSetting::ReloadSome {
+            npm_package_names: values
+              .iter()
+              .filter_map(|v| v.strip_prefix("npm:"))
+              .map(|n| n.to_string())
+              .collect(),
+          }
         }
-        let specifier = format!("npm:{package_name}");
-        if list.contains(&specifier) {
-          return false;
-        }
-        true
       }
-      _ => true,
+      CacheSetting::RespectHeaders => unreachable!(), // not supported
+      CacheSetting::Use => NpmCacheSetting::Use,
     }
   }
 }
+
+pub type CliLockfile = Mutex<Lockfile>;

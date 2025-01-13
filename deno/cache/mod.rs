@@ -10,6 +10,7 @@ use crate::util::fs::atomic_write_file_with_retries;
 
 use deno_ast::MediaType;
 use deno_core::futures;
+use deno_core::futures::FutureExt;
 use deno_core::ModuleSpecifier;
 use deno_graph::source::CacheInfo;
 use deno_graph::source::LoadFuture;
@@ -25,18 +26,27 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 mod cache_db;
+mod caches;
+mod check;
 mod common;
 mod deno_dir;
 mod disk_cache;
 mod emit;
+mod incremental;
 mod module_info;
 mod node;
 mod parsed_source;
 
 pub use cache_db::CacheDBHash;
+pub use caches::Caches;
+pub use check::TypeCheckCache;
 pub use common::FastInsecureHasher;
+pub use deno_dir::dirs::home_dir;
+pub use deno_dir::DenoDir;
+pub use deno_dir::DenoDirProvider;
 pub use disk_cache::DiskCache;
 pub use emit::EmitCache;
+pub use incremental::IncrementalCache;
 pub use module_info::ModuleInfoCache;
 pub use node::NodeAnalysisCache;
 pub use parsed_source::ParsedSourceCache;
@@ -52,11 +62,7 @@ impl deno_cache_dir::DenoCacheEnv for RealDenoCacheEnv {
     &self,
     path: &Path,
   ) -> std::io::Result<Cow<'static, [u8]>> {
-    match std::fs::read(path) {
-      Ok(s) => Ok(Some(s)),
-      Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
-      Err(err) => Err(err),
-    }
+    std::fs::read(path).map(Cow::Owned)
   }
 
   fn atomic_write_file(

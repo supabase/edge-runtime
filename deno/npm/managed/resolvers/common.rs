@@ -1,5 +1,6 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io::ErrorKind;
 use std::path::Path;
@@ -13,25 +14,22 @@ use deno_core::anyhow::Context;
 use deno_core::error::AnyError;
 use deno_core::futures;
 use deno_core::futures::StreamExt;
-use deno_core::url::Url;
 use deno_fs::FileSystem;
 use deno_npm::NpmPackageCacheFolderId;
 use deno_npm::NpmPackageId;
 use deno_npm::NpmResolutionPackage;
 
-use ext_node::errors::PackageFolderResolveError;
 use ext_node::NodePermissions;
+use node_resolver::errors::PackageFolderResolveError;
 
-use crate::managed::cache::TarballCache;
+use crate::npm::CliNpmTarballCache;
+use crate::npm::PackageCaching;
 
 /// Part of the resolution that interacts with the file system.
 #[async_trait(?Send)]
 pub trait NpmPackageFsResolver: Send + Sync {
-  /// Specifier for the root directory.
-  fn root_dir_url(&self) -> &Url;
-
   /// The local node_modules folder if it is applicable to the implementation.
-  fn node_modules_path(&self) -> Option<&PathBuf>;
+  fn node_modules_path(&self) -> Option<&Path>;
 
   fn maybe_package_folder(&self, package_id: &NpmPackageId) -> Option<PathBuf>;
 
@@ -58,13 +56,16 @@ pub trait NpmPackageFsResolver: Send + Sync {
     specifier: &ModuleSpecifier,
   ) -> Result<Option<NpmPackageCacheFolderId>, AnyError>;
 
-  async fn cache_packages(&self) -> Result<(), AnyError>;
+  async fn cache_packages<'a>(
+    &self,
+    caching: PackageCaching<'a>,
+  ) -> Result<(), AnyError>;
 
-  fn ensure_read_permission(
+  fn ensure_read_permission<'a>(
     &self,
     permissions: &mut dyn NodePermissions,
-    path: &Path,
-  ) -> Result<(), AnyError>;
+    path: &'a Path,
+  ) -> Result<Cow<'a, Path>, AnyError>;
 }
 
 #[derive(Debug)]
@@ -83,11 +84,15 @@ impl RegistryReadPermissionChecker {
     }
   }
 
-  pub fn ensure_registry_read_permission(
+  pub fn ensure_registry_read_permission<'a>(
     &self,
     permissions: &mut dyn NodePermissions,
-    path: &Path,
-  ) -> Result<(), AnyError> {
+    path: &'a Path,
+  ) -> Result<Cow<'a, Path>, AnyError> {
+    if permissions.query_read_all() {
+      return Ok(Cow::Borrowed(path)); // skip permissions checks below
+    }
+
     // allow reading if it's in the node_modules
     let is_path_in_node_modules = path.starts_with(&self.registry_path)
       && path
@@ -116,26 +121,27 @@ impl RegistryReadPermissionChecker {
             },
           }
         };
-      let Some(registry_path_canon) = canonicalize(&self.registry_path)? else {
-        return Ok(()); // not exists, allow reading
-      };
-      let Some(path_canon) = canonicalize(path)? else {
-        return Ok(()); // not exists, allow reading
-      };
-
-      if path_canon.starts_with(registry_path_canon) {
-        return Ok(());
+      if let Some(registry_path_canon) = canonicalize(&self.registry_path)? {
+        if let Some(path_canon) = canonicalize(path)? {
+          if path_canon.starts_with(registry_path_canon) {
+            return Ok(Cow::Owned(path_canon));
+          }
+        } else if path.starts_with(registry_path_canon)
+          || path.starts_with(&self.registry_path)
+        {
+          return Ok(Cow::Borrowed(path));
+        }
       }
     }
 
-    permissions.check_read(path)
+    permissions.check_read_path(path).map_err(Into::into)
   }
 }
 
 /// Caches all the packages in parallel.
 pub async fn cache_packages(
-  packages: Vec<NpmResolutionPackage>,
-  tarball_cache: &Arc<TarballCache>,
+  packages: &[NpmResolutionPackage],
+  tarball_cache: &Arc<CliNpmTarballCache>,
 ) -> Result<(), AnyError> {
   let mut futures_unordered = futures::stream::FuturesUnordered::new();
   for package in packages {

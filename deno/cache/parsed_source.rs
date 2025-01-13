@@ -8,7 +8,10 @@ use deno_ast::ModuleSpecifier;
 use deno_ast::ParsedSource;
 use deno_core::parking_lot::Mutex;
 use deno_graph::CapturingEsParser;
+use deno_graph::DefaultEsParser;
+use deno_graph::EsParser;
 use deno_graph::ParseOptions;
+use deno_graph::ParsedSourceStore;
 
 #[derive(Default)]
 pub struct ParsedSourceCache {
@@ -20,30 +23,38 @@ impl ParsedSourceCache {
     &self,
     module: &deno_graph::JsModule,
   ) -> Result<ParsedSource, deno_ast::ParseDiagnostic> {
-    self.get_or_parse_module(
-      &module.specifier,
-      module.source.clone(),
-      module.media_type,
-    )
-  }
-
-  /// Gets the matching `ParsedSource` from the cache
-  /// or parses a new one and stores that in the cache.
-  pub fn get_or_parse_module(
-    &self,
-    specifier: &deno_graph::ModuleSpecifier,
-    source: Arc<str>,
-    media_type: MediaType,
-  ) -> deno_core::anyhow::Result<ParsedSource, deno_ast::ParseDiagnostic> {
     let parser = self.as_capturing_parser();
     // this will conditionally parse because it's using a CapturingEsParser
-    parser.parse_module(ParseOptions {
+    parser.parse_program(ParseOptions {
+      specifier: &module.specifier,
+      source: module.source.clone(),
+      media_type: module.media_type,
+      scope_analysis: false,
+    })
+  }
+
+  pub fn remove_or_parse_module(
+    &self,
+    specifier: &ModuleSpecifier,
+    source: Arc<str>,
+    media_type: MediaType,
+  ) -> Result<ParsedSource, deno_ast::ParseDiagnostic> {
+    if let Some(parsed_source) = self.remove_parsed_source(specifier) {
+      if parsed_source.media_type() == media_type
+        && parsed_source.text().as_ref() == source.as_ref()
+      {
+        // note: message used tests
+        log::debug!("Removed parsed source: {}", specifier);
+        return Ok(parsed_source);
+      }
+    }
+    let options = ParseOptions {
       specifier,
       source,
       media_type,
-      // don't bother enabling because this method is currently only used for emitting
       scope_analysis: false,
-    })
+    };
+    DefaultEsParser.parse_program(options)
   }
 
   /// Frees the parsed source from memory.

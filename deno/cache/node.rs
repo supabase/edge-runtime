@@ -1,14 +1,15 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
-use crate::node::CliCjsAnalysis;
 use deno_core::error::AnyError;
 use deno_core::serde_json;
 use deno_webstorage::rusqlite::params;
 
+use crate::node::CliCjsAnalysis;
+
 use super::cache_db::CacheDB;
 use super::cache_db::CacheDBConfiguration;
-use super::cache_db::CacheDBHash;
 use super::cache_db::CacheFailure;
+use super::CacheDBHash;
 
 pub static NODE_ANALYSIS_CACHE_DB: CacheDBConfiguration =
   CacheDBConfiguration {

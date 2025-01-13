@@ -1,9 +1,17 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
+use base64::prelude::BASE64_STANDARD;
+use base64::Engine;
 use deno_core::ModuleSpecifier;
 use log::debug;
 use log::error;
+use std::borrow::Cow;
 use std::fmt;
+use std::net::IpAddr;
+use std::net::Ipv4Addr;
+use std::net::Ipv6Addr;
+use std::net::SocketAddr;
+use std::str::FromStr;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AuthTokenData {
@@ -13,18 +21,17 @@ pub enum AuthTokenData {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuthToken {
-  host: String,
+  host: AuthDomain,
   token: AuthTokenData,
 }
 
 impl fmt::Display for AuthToken {
-  #[allow(deprecated)]
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
     match &self.token {
       AuthTokenData::Bearer(token) => write!(f, "Bearer {token}"),
       AuthTokenData::Basic { username, password } => {
         let credentials = format!("{username}:{password}");
-        write!(f, "Basic {}", base64::encode(credentials))
+        write!(f, "Basic {}", BASE64_STANDARD.encode(credentials))
       }
     }
   }
@@ -36,6 +43,78 @@ impl fmt::Display for AuthToken {
 #[derive(Debug, Clone)]
 pub struct AuthTokens(Vec<AuthToken>);
 
+/// An authorization domain, either an exact or suffix match.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AuthDomain {
+  Ip(IpAddr),
+  IpPort(SocketAddr),
+  /// Suffix match, no dot. May include a port.
+  Suffix(Cow<'static, str>),
+}
+
+impl<T: ToString> From<T> for AuthDomain {
+  fn from(value: T) -> Self {
+    let s = value.to_string().to_lowercase();
+    if let Ok(ip) = SocketAddr::from_str(&s) {
+      return AuthDomain::IpPort(ip);
+    };
+    if s.starts_with('[') && s.ends_with(']') {
+      if let Ok(ip) = Ipv6Addr::from_str(&s[1..s.len() - 1]) {
+        return AuthDomain::Ip(ip.into());
+      }
+    } else if let Ok(ip) = Ipv4Addr::from_str(&s) {
+      return AuthDomain::Ip(ip.into());
+    }
+    if let Some(s) = s.strip_prefix('.') {
+      AuthDomain::Suffix(Cow::Owned(s.to_owned()))
+    } else {
+      AuthDomain::Suffix(Cow::Owned(s))
+    }
+  }
+}
+
+impl AuthDomain {
+  pub fn matches(&self, specifier: &ModuleSpecifier) -> bool {
+    let Some(host) = specifier.host_str() else {
+      return false;
+    };
+    match *self {
+      Self::Ip(ip) => {
+        let AuthDomain::Ip(parsed) = AuthDomain::from(host) else {
+          return false;
+        };
+        ip == parsed && specifier.port().is_none()
+      }
+      Self::IpPort(ip) => {
+        let AuthDomain::Ip(parsed) = AuthDomain::from(host) else {
+          return false;
+        };
+        ip.ip() == parsed && specifier.port() == Some(ip.port())
+      }
+      Self::Suffix(ref suffix) => {
+        let hostname = if let Some(port) = specifier.port() {
+          Cow::Owned(format!("{}:{}", host, port))
+        } else {
+          Cow::Borrowed(host)
+        };
+
+        if suffix.len() == hostname.len() {
+          return suffix == &hostname;
+        }
+
+        // If it's a suffix match, ensure a dot
+        if hostname.ends_with(suffix.as_ref())
+          && hostname.ends_with(&format!(".{suffix}"))
+        {
+          return true;
+        }
+
+        false
+      }
+    }
+  }
+}
+
 impl AuthTokens {
   /// Create a new set of tokens based on the provided string. It is intended
   /// that the string be the value of an environment variable and the string is
@@ -44,19 +123,19 @@ impl AuthTokens {
   pub fn new(maybe_tokens_str: Option<String>) -> Self {
     let mut tokens = Vec::new();
     if let Some(tokens_str) = maybe_tokens_str {
-      for token_str in tokens_str.split(';') {
+      for token_str in tokens_str.trim().split(';') {
         if token_str.contains('@') {
-          let pair: Vec<&str> = token_str.rsplitn(2, '@').collect();
-          let token = pair[1];
-          let host = pair[0].to_lowercase();
+          let mut iter = token_str.rsplitn(2, '@');
+          let host = AuthDomain::from(iter.next().unwrap());
+          let token = iter.next().unwrap();
           if token.contains(':') {
-            let pair: Vec<&str> = token.rsplitn(2, ':').collect();
-            let username = pair[1].to_string();
-            let password = pair[0].to_string();
+            let mut iter = token.rsplitn(2, ':');
+            let password = iter.next().unwrap().to_owned();
+            let username = iter.next().unwrap().to_owned();
             tokens.push(AuthToken {
               host,
               token: AuthTokenData::Basic { username, password },
-            })
+            });
           } else {
             tokens.push(AuthToken {
               host,
@@ -80,12 +159,7 @@ impl AuthTokens {
   /// matching is case insensitive.
   pub fn get(&self, specifier: &ModuleSpecifier) -> Option<AuthToken> {
     self.0.iter().find_map(|t| {
-      let hostname = if let Some(port) = specifier.port() {
-        format!("{}:{}", specifier.host_str()?, port)
-      } else {
-        specifier.host_str()?.to_string()
-      };
-      if hostname.to_lowercase().ends_with(&t.host) {
+      if t.host.matches(specifier) {
         Some(t.clone())
       } else {
         None

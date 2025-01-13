@@ -17,6 +17,7 @@ use deno_core::parking_lot::Mutex;
 use deno_core::url::Url;
 use deno_core::ModuleSpecifier;
 use deno_graph::source::LoaderChecksum;
+use deno_path_util::url_to_file_path;
 use deno_permissions::PermissionsContainer;
 use deno_web::BlobStore;
 
@@ -49,6 +50,24 @@ pub struct TextDecodedFile {
 pub enum FileOrRedirect {
   File(File),
   Redirect(ModuleSpecifier),
+}
+
+impl FileOrRedirect {
+  fn from_deno_cache_entry(
+    specifier: &ModuleSpecifier,
+    cache_entry: deno_cache_dir::CacheEntry,
+  ) -> Result<Self, AnyError> {
+    if let Some(redirect_to) = cache_entry.metadata.headers.get("location") {
+      let redirect = specifier.join(redirect_to)?;
+      Ok(FileOrRedirect::Redirect(redirect))
+    } else {
+      Ok(FileOrRedirect::File(File {
+        specifier: specifier.clone(),
+        maybe_headers: Some(cache_entry.metadata.headers),
+        source: Arc::from(cache_entry.content),
+      }))
+    }
+  }
 }
 
 /// A structure representing a source file.
@@ -116,14 +135,23 @@ impl MemoryFiles {
 
 /// Fetch a source file from the local file system.
 fn fetch_local(specifier: &ModuleSpecifier) -> Result<File, AnyError> {
-  let local = specifier.to_file_path().map_err(|_| {
+  let local = url_to_file_path(specifier).map_err(|_| {
     uri_error(format!("Invalid file path.\n  Specifier: {specifier}"))
   })?;
+  // If it doesnt have a extension, we want to treat it as typescript by default
+  let headers = if local.extension().is_none() {
+    Some(HashMap::from([(
+      "content-type".to_string(),
+      "application/typescript".to_string(),
+    )]))
+  } else {
+    None
+  };
   let bytes = fs::read(local)?;
 
   Ok(File {
     specifier: specifier.clone(),
-    maybe_headers: None,
+    maybe_headers: headers,
     source: bytes.into(),
   })
 }
@@ -134,9 +162,20 @@ fn get_validated_scheme(
 ) -> Result<String, AnyError> {
   let scheme = specifier.scheme();
   if !SUPPORTED_SCHEMES.contains(&scheme) {
+    // NOTE(bartlomieju): this message list additional `npm` and `jsr` schemes, but they should actually be handled
+    // before `file_fetcher.rs` APIs are even hit.
+    let mut all_supported_schemes = SUPPORTED_SCHEMES.to_vec();
+    all_supported_schemes.extend_from_slice(&["npm", "jsr"]);
+    all_supported_schemes.sort();
+    let scheme_list = all_supported_schemes
+      .iter()
+      .map(|scheme| format!(" - \"{}\"", scheme))
+      .collect::<Vec<_>>()
+      .join("\n");
     Err(generic_error(format!(
-            "Unsupported scheme \"{scheme}\" for module \"{specifier}\". Supported schemes: {SUPPORTED_SCHEMES:#?}"
-        )))
+      "Unsupported scheme \"{scheme}\" for module \"{specifier}\". Supported schemes:\n{}",
+      scheme_list
+    )))
   } else {
     Ok(scheme.to_string())
   }
@@ -242,45 +281,32 @@ impl FileFetcher {
     );
 
     let cache_key = self.http_cache.cache_item_key(specifier)?; // compute this once
-    let Some(headers) = self.http_cache.read_headers(&cache_key)? else {
-      return Ok(None);
-    };
-    if let Some(redirect_to) = headers.get("location") {
-      let redirect =
-        deno_core::resolve_import(redirect_to, specifier.as_str())?;
-      return Ok(Some(FileOrRedirect::Redirect(redirect)));
-    }
-    let result = self.http_cache.read_file_bytes(
+    let result = self.http_cache.get(
       &cache_key,
       maybe_checksum
         .as_ref()
         .map(|c| deno_cache_dir::Checksum::new(c.as_str())),
-      deno_cache_dir::GlobalToLocalCopy::Allow,
     );
-    let bytes = match result {
-      Ok(Some(bytes)) => bytes,
-      Ok(None) => return Ok(None),
+    match result {
+      Ok(Some(cache_data)) => Ok(Some(FileOrRedirect::from_deno_cache_entry(
+        specifier, cache_data,
+      )?)),
+      Ok(None) => Ok(None),
       Err(err) => match err {
-        deno_cache_dir::CacheReadFileError::Io(err) => return Err(err.into()),
+        deno_cache_dir::CacheReadFileError::Io(err) => Err(err.into()),
         deno_cache_dir::CacheReadFileError::ChecksumIntegrity(err) => {
           // convert to the equivalent deno_graph error so that it
           // enhances it if this is passed to deno_graph
-          return Err(
+          Err(
             deno_graph::source::ChecksumIntegrityError {
               actual: err.actual,
               expected: err.expected,
             }
             .into(),
-          );
+          )
         }
       },
-    };
-
-    Ok(Some(FileOrRedirect::File(File {
-      specifier: specifier.clone(),
-      maybe_headers: Some(headers),
-      source: Arc::from(bytes),
-    })))
+    }
   }
 
   /// Convert a data URL into a file, resulting in an error if the URL is
@@ -315,7 +341,7 @@ impl FileFetcher {
         )
       })?;
 
-    let bytes = blob.read_all().await?;
+    let bytes = blob.read_all().await;
     let headers =
       HashMap::from([("content-type".to_string(), blob.media_type.clone())]);
 
@@ -502,6 +528,27 @@ impl FileFetcher {
     }
   }
 
+  #[inline(always)]
+  pub async fn fetch_bypass_permissions(
+    &self,
+    specifier: &ModuleSpecifier,
+  ) -> Result<File, AnyError> {
+    self
+      .fetch_inner(specifier, None, FetchPermissionsOptionRef::AllowAll)
+      .await
+  }
+
+  #[inline(always)]
+  pub async fn fetch_bypass_permissions_with_maybe_auth(
+    &self,
+    specifier: &ModuleSpecifier,
+    maybe_auth: Option<(header::HeaderName, header::HeaderValue)>,
+  ) -> Result<File, AnyError> {
+    self
+      .fetch_inner(specifier, maybe_auth, FetchPermissionsOptionRef::AllowAll)
+      .await
+  }
+
   /// Fetch a source file and asynchronously return it.
   #[inline(always)]
   pub async fn fetch(
@@ -554,7 +601,7 @@ impl FileFetcher {
         .fetch_no_follow_with_options(FetchNoFollowOptions {
           fetch_options: FetchOptions {
             specifier: &specifier,
-            permissions: options.permissions.clone(),
+            permissions: options.permissions,
             maybe_auth: maybe_auth.clone(),
             maybe_accept: options.maybe_accept,
             maybe_cache_setting: options.maybe_cache_setting,

@@ -618,11 +618,10 @@ pub struct LaxSingleProcessFsFlag(
 );
 
 impl LaxSingleProcessFsFlag {
-  pub async fn lock(file_path: PathBuf, long_wait_message: &str) -> Self {
+  pub async fn lock(file_path: PathBuf, _long_wait_message: &str) -> Self {
     log::debug!("Acquiring file lock at {}", file_path.display());
     use fs3::FileExt;
     let last_updated_path = file_path.with_extension("lock.poll");
-    let start_instant = std::time::Instant::now();
     let open_result = std::fs::OpenOptions::new()
       .read(true)
       .write(true)
@@ -632,7 +631,6 @@ impl LaxSingleProcessFsFlag {
 
     match open_result {
       Ok(fs_file) => {
-        let mut pb_update_guard = None;
         let mut error_count = 0;
         while error_count < 10 {
           let lock_result = fs_file.try_lock_exclusive();
@@ -712,7 +710,6 @@ impl LaxSingleProcessFsFlag {
           }
         }
 
-        drop(pb_update_guard); // explicit for clarity
         Self(None)
       }
       Err(err) => {

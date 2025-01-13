@@ -1,3 +1,4 @@
+use std::fmt::Write;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -12,4 +13,9 @@ fn gen_rand_path_component() -> String {
     write!(&mut output, "{:02x}", rand::random::<u8>()).unwrap();
     output
   })
+}
+
+#[cfg_attr(windows, allow(dead_code))]
+pub fn relative_path(from: &Path, to: &Path) -> Option<PathBuf> {
+  pathdiff::diff_paths(to, from)
 }

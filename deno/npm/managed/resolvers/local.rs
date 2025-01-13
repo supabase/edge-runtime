@@ -14,6 +14,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use deno_ast::ModuleSpecifier;
+use deno_cache_dir::npm::mixed_case_package_name_decode;
 use deno_core::anyhow::Context;
 use deno_core::error::AnyError;
 use deno_core::futures::stream::FuturesUnordered;
@@ -25,26 +26,34 @@ use deno_npm::NpmPackageCacheFolderId;
 use deno_npm::NpmPackageId;
 use deno_npm::NpmResolutionPackage;
 use deno_npm::NpmSystemInfo;
+use deno_resolver::npm::normalize_pkg_name_for_node_modules_deno_folder;
 use deno_semver::package::PackageNv;
+use node_resolver::errors::PackageFolderResolveError;
+use node_resolver::errors::PackageFolderResolveIoError;
+use node_resolver::errors::PackageNotFoundError;
+use node_resolver::errors::ReferrerNotFoundError;
 use serde::Deserialize;
 use serde::Serialize;
 
-use crate::cache_dir::mixed_case_package_name_decode;
-use crate::cache_dir::mixed_case_package_name_encode;
-use crate::managed::PackageJsonInstallDepsProvider;
+use crate::args::NpmInstallDepsProvider;
+use crate::cache::CACHE_PERM;
+use crate::npm::CliNpmCache;
+use crate::npm::CliNpmTarballCache;
+use crate::npm::PackageCaching;
+use crate::util::fs::atomic_write_file_with_retries;
+use crate::util::fs::canonicalize_path_maybe_not_exists_with_fs;
+use crate::util::fs::clone_dir_recursive;
+use crate::util::fs::symlink_dir;
+use crate::util::fs::LaxSingleProcessFsFlag;
 
-use ext_core::cache::CACHE_PERM;
-use ext_core::util::fs::atomic_write_file_with_retries;
-use ext_core::util::fs::canonicalize_path_maybe_not_exists_with_fs;
-use ext_core::util::fs::clone_dir_recursive;
-use ext_core::util::fs::symlink_dir;
-use ext_core::util::fs::LaxSingleProcessFsFlag;
-use ext_node::errors::PackageFolderResolveError;
-use ext_node::errors::PackageFolderResolveErrorKind;
+// use ext_core::cache::CACHE_PERM;
+// use ext_core::util::fs::atomic_write_file_with_retries;
+// use ext_core::util::fs::canonicalize_path_maybe_not_exists_with_fs;
+// use ext_core::util::fs::clone_dir_recursive;
+// use ext_core::util::fs::symlink_dir;
+// use ext_core::util::fs::LaxSingleProcessFsFlag;
 use ext_node::NodePermissions;
 
-use super::super::cache::NpmCache;
-use super::super::cache::TarballCache;
 use super::super::resolution::NpmResolution;
 use super::common::NpmPackageFsResolver;
 use super::common::RegistryReadPermissionChecker;
@@ -53,11 +62,11 @@ use super::common::RegistryReadPermissionChecker;
 /// and resolves packages from it.
 #[derive(Debug)]
 pub struct LocalNpmPackageResolver {
-  cache: Arc<NpmCache>,
+  cache: Arc<CliNpmCache>,
   fs: Arc<dyn deno_fs::FileSystem>,
-  pkg_json_deps_provider: Arc<PackageJsonInstallDepsProvider>,
+  npm_install_deps_provider: Arc<NpmInstallDepsProvider>,
   resolution: Arc<NpmResolution>,
-  tarball_cache: Arc<TarballCache>,
+  tarball_cache: Arc<CliNpmTarballCache>,
   root_node_modules_path: PathBuf,
   root_node_modules_url: Url,
   system_info: NpmSystemInfo,
@@ -67,18 +76,18 @@ pub struct LocalNpmPackageResolver {
 impl LocalNpmPackageResolver {
   #[allow(clippy::too_many_arguments)]
   pub fn new(
-    cache: Arc<NpmCache>,
+    cache: Arc<CliNpmCache>,
     fs: Arc<dyn deno_fs::FileSystem>,
-    pkg_json_deps_provider: Arc<PackageJsonInstallDepsProvider>,
+    npm_install_deps_provider: Arc<NpmInstallDepsProvider>,
     resolution: Arc<NpmResolution>,
-    tarball_cache: Arc<TarballCache>,
+    tarball_cache: Arc<CliNpmTarballCache>,
     node_modules_folder: PathBuf,
     system_info: NpmSystemInfo,
   ) -> Self {
     Self {
       cache,
       fs: fs.clone(),
-      pkg_json_deps_provider,
+      npm_install_deps_provider,
       resolution,
       tarball_cache,
       registry_read_permission_checker: RegistryReadPermissionChecker::new(
@@ -140,12 +149,8 @@ impl LocalNpmPackageResolver {
 
 #[async_trait(?Send)]
 impl NpmPackageFsResolver for LocalNpmPackageResolver {
-  fn root_dir_url(&self) -> &Url {
-    &self.root_node_modules_url
-  }
-
-  fn node_modules_path(&self) -> Option<&PathBuf> {
-    Some(&self.root_node_modules_path)
+  fn node_modules_path(&self) -> Option<&Path> {
+    Some(self.root_node_modules_path.as_ref())
   }
 
   fn maybe_package_folder(&self, id: &NpmPackageId) -> Option<PathBuf> {
@@ -171,14 +176,14 @@ impl NpmPackageFsResolver for LocalNpmPackageResolver {
   ) -> Result<PathBuf, PackageFolderResolveError> {
     let maybe_local_path = self
       .resolve_folder_for_specifier(referrer)
-      .map_err(|err| PackageFolderResolveErrorKind::Io {
+      .map_err(|err| PackageFolderResolveIoError {
         package_name: name.to_string(),
         referrer: referrer.clone(),
         source: err,
       })?;
     let Some(local_path) = maybe_local_path else {
       return Err(
-        PackageFolderResolveErrorKind::NotFoundReferrer {
+        ReferrerNotFoundError {
           referrer: referrer.clone(),
           referrer_extra: None,
         }
@@ -206,7 +211,7 @@ impl NpmPackageFsResolver for LocalNpmPackageResolver {
     }
 
     Err(
-      PackageFolderResolveErrorKind::NotFoundPackage {
+      PackageNotFoundError {
         package_name: name.to_string(),
         referrer: referrer.clone(),
         referrer_extra: None,
@@ -224,15 +229,35 @@ impl NpmPackageFsResolver for LocalNpmPackageResolver {
     else {
       return Ok(None);
     };
-    let folder_name = folder_path.parent().unwrap().to_string_lossy();
-    Ok(get_package_folder_id_from_folder_name(&folder_name))
+    // ex. project/node_modules/.deno/preact@10.24.3/node_modules/preact/
+    let Some(node_modules_ancestor) = folder_path
+      .ancestors()
+      .find(|ancestor| ancestor.ends_with("node_modules"))
+    else {
+      return Ok(None);
+    };
+    let Some(folder_name) =
+      node_modules_ancestor.parent().and_then(|p| p.file_name())
+    else {
+      return Ok(None);
+    };
+    Ok(get_package_folder_id_from_folder_name(
+      &folder_name.to_string_lossy(),
+    ))
   }
 
-  async fn cache_packages(&self) -> Result<(), AnyError> {
+  async fn cache_packages<'a>(
+    &self,
+    caching: PackageCaching<'a>,
+  ) -> Result<(), AnyError> {
+    let snapshot = match caching {
+      PackageCaching::All => self.resolution.snapshot(),
+      PackageCaching::Only(reqs) => self.resolution.subset(&reqs),
+    };
     sync_resolution_with_fs(
-      &self.resolution.snapshot(),
+      &snapshot,
       &self.cache,
-      &self.pkg_json_deps_provider,
+      &self.npm_install_deps_provider,
       &self.tarball_cache,
       &self.root_node_modules_path,
       &self.system_info,
@@ -240,28 +265,45 @@ impl NpmPackageFsResolver for LocalNpmPackageResolver {
     .await
   }
 
-  fn ensure_read_permission(
+  fn ensure_read_permission<'a>(
     &self,
     permissions: &mut dyn NodePermissions,
-    path: &Path,
-  ) -> Result<(), AnyError> {
+    path: &'a Path,
+  ) -> Result<Cow<'a, Path>, AnyError> {
     self
       .registry_read_permission_checker
       .ensure_registry_read_permission(permissions, path)
   }
 }
 
+// /// `node_modules/.deno/<package>/node_modules/<package_name>`
+// ///
+// /// Where the actual package is stored.
+// fn local_node_modules_package_contents_path(
+//   local_registry_dir: &Path,
+//   package: &NpmResolutionPackage,
+// ) -> PathBuf {
+//   local_registry_dir
+//     .join(get_package_folder_id_folder_name(
+//       &package.get_package_cache_folder_id(),
+//     ))
+//     .join("node_modules")
+//     .join(&package.id.nv.name)
+// }
+
 /// Creates a pnpm style folder structure.
 #[allow(clippy::too_many_arguments)]
 async fn sync_resolution_with_fs(
   snapshot: &NpmResolutionSnapshot,
-  cache: &Arc<NpmCache>,
-  pkg_json_deps_provider: &PackageJsonInstallDepsProvider,
-  tarball_cache: &Arc<TarballCache>,
+  cache: &Arc<CliNpmCache>,
+  npm_install_deps_provider: &NpmInstallDepsProvider,
+  tarball_cache: &Arc<CliNpmTarballCache>,
   root_node_modules_dir_path: &Path,
   system_info: &NpmSystemInfo,
 ) -> Result<(), AnyError> {
-  if snapshot.is_empty() && pkg_json_deps_provider.workspace_pkgs().is_empty() {
+  if snapshot.is_empty()
+    && npm_install_deps_provider.workspace_pkgs().is_empty()
+  {
     return Ok(()); // don't create the directory
   }
 
@@ -612,17 +654,13 @@ fn get_package_folder_id_folder_name(
   folder_id: &NpmPackageCacheFolderId,
 ) -> String {
   let copy_str = if folder_id.copy_index == 0 {
-    "".to_string()
+    Cow::Borrowed("")
   } else {
-    format!("_{}", folder_id.copy_index)
+    Cow::Owned(format!("_{}", folder_id.copy_index))
   };
   let nv = &folder_id.nv;
-  let name = if nv.name.to_lowercase() == nv.name {
-    Cow::Borrowed(&nv.name)
-  } else {
-    Cow::Owned(format!("_{}", mixed_case_package_name_encode(&nv.name)))
-  };
-  format!("{}@{}{}", name, nv.version, copy_str).replace('/', "+")
+  let name = normalize_pkg_name_for_node_modules_deno_folder(&nv.name);
+  format!("{}@{}{}", name, nv.version, copy_str)
 }
 
 fn get_package_folder_id_from_folder_name(
@@ -663,41 +701,55 @@ fn symlink_package_dir(
   // need to delete the previous symlink before creating a new one
   let _ignore = fs::remove_dir_all(new_path);
 
+  let old_path_relative =
+    crate::util::path::relative_path(new_parent, old_path)
+      .unwrap_or_else(|| old_path.to_path_buf());
+
   #[cfg(windows)]
-  return junction_or_symlink_dir(old_path, new_path);
+  {
+    junction_or_symlink_dir(&old_path_relative, old_path, new_path)
+  }
   #[cfg(not(windows))]
-  symlink_dir(old_path, new_path)
+  {
+    symlink_dir(&old_path_relative, new_path).map_err(Into::into)
+  }
 }
 
 #[cfg(windows)]
 fn junction_or_symlink_dir(
+  old_path_relative: &Path,
   old_path: &Path,
   new_path: &Path,
 ) -> Result<(), AnyError> {
-  use deno_core::anyhow::bail;
-  // Use junctions because they're supported on ntfs file systems without
-  // needing to elevate privileges on Windows
+  static USE_JUNCTIONS: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
-  match junction::create(old_path, new_path) {
+  if USE_JUNCTIONS.load(std::sync::atomic::Ordering::Relaxed) {
+    // Use junctions because they're supported on ntfs file systems without
+    // needing to elevate privileges on Windows.
+    // Note: junctions don't support relative paths, so we need to use the
+    // absolute path here.
+    return junction::create(old_path, new_path)
+      .context("Failed creating junction in node_modules folder");
+  }
+
+  match symlink_dir(old_path_relative, new_path) {
     Ok(()) => Ok(()),
-    Err(junction_err) => {
-      if cfg!(debug) {
-        // When running the tests, junctions should be created, but if not then
-        // surface this error.
-        log::warn!("Error creating junction. {:#}", junction_err);
-      }
-
-      match symlink_dir(old_path, new_path) {
-                Ok(()) => Ok(()),
-                Err(symlink_err) => bail!(
-                    concat!(
-                        "Failed creating junction and fallback symlink in node_modules folder.\n\n",
-                        "{:#}\n\n{:#}",
-                    ),
-                    junction_err,
-                    symlink_err,
-                ),
-            }
+    Err(symlink_err)
+      if symlink_err.kind() == std::io::ErrorKind::PermissionDenied =>
+    {
+      USE_JUNCTIONS.store(true, std::sync::atomic::Ordering::Relaxed);
+      junction::create(old_path, new_path)
+        .context("Failed creating junction in node_modules folder")
+    }
+    Err(symlink_err) => {
+      log::warn!(
+        "{} Unexpected error symlinking node_modules: {symlink_err}",
+        colors::yellow("Warning")
+      );
+      USE_JUNCTIONS.store(true, std::sync::atomic::Ordering::Relaxed);
+      junction::create(old_path, new_path)
+        .context("Failed creating junction in node_modules folder")
     }
   }
 }

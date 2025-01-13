@@ -11,7 +11,6 @@ pub mod npmrc;
 pub mod permissions;
 pub mod resolver;
 pub mod runtime;
-pub mod transpile;
 pub mod util;
 pub mod versions;
 

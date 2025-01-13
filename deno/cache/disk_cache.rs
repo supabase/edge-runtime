@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 use super::CACHE_PERM;
 use crate::util::fs::atomic_write_file_with_retries;
@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use std::path::Prefix;
 use std::str;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct DiskCache {
   pub location: PathBuf,
 }

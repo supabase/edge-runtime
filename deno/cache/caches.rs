@@ -1,10 +1,10 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::cache::module_info::MODULE_INFO_CACHE_DB;
-use crate::util::versions_util::deno;
+use crate::version;
 use once_cell::sync::OnceCell;
 
 use super::cache_db::CacheDB;
@@ -43,9 +43,9 @@ impl Caches {
     cell
       .get_or_init(|| {
         if let Some(path) = path {
-          CacheDB::from_path(config, path, deno())
+          CacheDB::from_path(config, path, version())
         } else {
-          CacheDB::in_memory(config, deno())
+          CacheDB::in_memory(config, version())
         }
       })
       .clone()

@@ -57,21 +57,19 @@ function installEdgeRuntimeNamespace(kind, terminationRequestTokenRid) {
 }
 
 /**
- * @param {"user" | "main" | "event"} kind
+ * @param {"user" | "main" | "event"} _kind
  */
-function installSupabaseNamespace(kind) {
-  if (kind === "user") {
-    const props = {
-      ai: USER_WORKER_API,
-    };
+function installSupabaseNamespace(_kind) {
+  const props = {
+    ai: USER_WORKER_API,
+  };
 
-    ObjectDefineProperty(globalThis, "Supabase", {
-      get() {
-        return props;
-      },
-      configurable: true,
-    });
-  }
+  ObjectDefineProperty(globalThis, "Supabase", {
+    get() {
+      return props;
+    },
+    configurable: true,
+  });
 }
 
 export { installEdgeRuntimeNamespace, installSupabaseNamespace };

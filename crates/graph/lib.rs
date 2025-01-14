@@ -159,7 +159,7 @@ impl LazyLoadableEszip {
         if let Some(section) = self.maybe_data_section.clone() {
             let specifier = module.specifier.clone();
 
-            drop(tokio::spawn(async move {
+            drop(fs::IO_RT.spawn(async move {
                 match section.read_data_section_by_specifier(&specifier).await {
                     Ok(_) => {}
                     Err(err) => {

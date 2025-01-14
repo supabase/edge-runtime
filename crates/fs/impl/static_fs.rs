@@ -1,4 +1,4 @@
-use crate::rt::SYNC_IO_RT;
+use crate::rt::IO_RT;
 use crate::{EszipStaticFiles, FileBackedVfs};
 use deno_core::normalize_path;
 use deno_fs::{AccessCheckCb, FsDirEntry, FsFileType, OpenOptions};
@@ -350,7 +350,7 @@ impl deno_fs::FileSystem for StaticFs {
                 .and_then(|it| eszip.ensure_module(it))
             {
                 let Some(res) = std::thread::scope(|s| {
-                    s.spawn(move || SYNC_IO_RT.block_on(async move { file.source().await }))
+                    s.spawn(move || IO_RT.block_on(async move { file.source().await }))
                         .join()
                         .unwrap()
                 }) else {

@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use crate::rt::SYNC_IO_RT;
+use crate::rt::IO_RT;
 
 use super::virtual_fs::FileBackedVfs;
 
@@ -159,7 +159,7 @@ impl FileSystem for DenoCompileFileSystem {
                 let this = self.clone();
 
                 s.spawn(move || {
-                    SYNC_IO_RT.block_on(async move {
+                    IO_RT.block_on(async move {
                         this.copy_to_real_path_async(oldpath, newpath).await
                     })
                 })

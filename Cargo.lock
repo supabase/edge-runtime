@@ -1768,6 +1768,7 @@ dependencies = [
  "bincode",
  "cache_control",
  "chrono",
+ "dashmap",
  "deno_ast",
  "deno_cache_dir",
  "deno_config",
@@ -1807,6 +1808,7 @@ dependencies = [
  "import_map",
  "indexmap",
  "junction",
+ "lazy-regex",
  "libc",
  "log",
  "nix 0.27.1",
@@ -3086,8 +3088,8 @@ dependencies = [
 name = "ext_env"
 version = "0.1.0"
 dependencies = [
+ "deno",
  "deno_core",
- "ext_core",
  "ext_node",
 ]
 
@@ -3765,6 +3767,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "dashmap",
+ "deno",
  "deno_ast",
  "deno_cache_dir",
  "deno_config",
@@ -3773,6 +3776,8 @@ dependencies = [
  "deno_graph",
  "deno_lockfile",
  "deno_npm",
+ "deno_package_json",
+ "deno_resolver",
  "deno_semver",
  "deno_web",
  "enum-as-inner",
@@ -3786,6 +3791,7 @@ dependencies = [
  "hashlink 0.8.4",
  "import_map",
  "log",
+ "node_resolver",
  "once_cell",
  "pathdiff",
  "rkyv",

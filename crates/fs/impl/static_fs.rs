@@ -335,8 +335,7 @@ impl deno_fs::FileSystem for StaticFs {
             Ok(buf)
         } else {
             let eszip = self.vfs.eszip.as_ref();
-
-            if path.is_relative() {
+            let path = if path.is_relative() {
                 self.root_path.join(path)
             } else {
                 path.to_path_buf()

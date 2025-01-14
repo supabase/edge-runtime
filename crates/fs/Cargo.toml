@@ -18,10 +18,8 @@ deno_io.workspace = true
 deno_npm.workspace = true
 deno_semver.workspace = true
 
-# npm.workspace = true
 eszip_async_trait.workspace = true
 
-ext_core.workspace = true
 ext_node.workspace = true
 
 anyhow.workspace = true

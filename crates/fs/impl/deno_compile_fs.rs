@@ -159,9 +159,9 @@ impl FileSystem for DenoCompileFileSystem {
                 let this = self.clone();
 
                 s.spawn(move || {
-                    IO_RT.block_on(async move {
-                        this.copy_to_real_path_async(oldpath, newpath).await
-                    })
+                    IO_RT.block_on(
+                        async move { this.copy_to_real_path_async(oldpath, newpath).await },
+                    )
                 })
                 .join()
                 .unwrap()

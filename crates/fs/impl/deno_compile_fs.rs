@@ -118,7 +118,7 @@ impl FileSystem for DenoCompileFileSystem {
     &self,
     path: &Path,
     recursive: bool,
-    mode: u32,
+    mode: Option<u32>,
   ) -> FsResult<()> {
     self.error_if_in_vfs(path)?;
     RealFs.mkdir_sync(path, recursive, mode)
@@ -127,7 +127,7 @@ impl FileSystem for DenoCompileFileSystem {
     &self,
     path: PathBuf,
     recursive: bool,
-    mode: u32,
+    mode: Option<u32>,
   ) -> FsResult<()> {
     self.error_if_in_vfs(&path)?;
     RealFs.mkdir_async(path, recursive, mode).await

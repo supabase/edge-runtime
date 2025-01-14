@@ -1,6 +1,7 @@
 // TODO: Remove the line below after updating the rust toolchain to v1.81.
 #![allow(clippy::blocks_in_conditions)]
 
+use std::borrow::Cow;
 use std::io::SeekFrom;
 use std::io::{self};
 use std::path::Path;
@@ -316,7 +317,7 @@ impl deno_fs::FileSystem for TmpFs {
     &self,
     path: &Path,
     recursive: bool,
-    mode: u32,
+    mode: Option<u32>,
   ) -> FsResult<()> {
     RealFs.mkdir_sync(
       &self.root.path().join(path.try_normalize()?),
@@ -330,7 +331,7 @@ impl deno_fs::FileSystem for TmpFs {
     &self,
     path: PathBuf,
     recursive: bool,
-    mode: u32,
+    mode: Option<u32>,
   ) -> FsResult<()> {
     RealFs
       .mkdir_async(
@@ -761,14 +762,14 @@ impl deno_io::fs::File for TmpObject {
   }
 
   #[instrument(level = "trace", skip(self), err(Debug))]
-  fn read_all_sync(self: Rc<Self>) -> FsResult<Vec<u8>> {
+  fn read_all_sync(self: Rc<Self>) -> FsResult<Cow<'static, [u8]>> {
     self.file.clone().read_all_sync().inspect(|it| {
       trace!(nread = it.len());
     })
   }
 
   #[instrument(level = "trace", skip(self), ret, err(Debug))]
-  async fn read_all_async(self: Rc<Self>) -> FsResult<Vec<u8>> {
+  async fn read_all_async(self: Rc<Self>) -> FsResult<Cow<'static, [u8]>> {
     self.file.clone().read_all_async().await.inspect(|it| {
       trace!(nread = it.len());
     })

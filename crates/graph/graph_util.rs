@@ -1,9 +1,15 @@
 use crate::emitter::EmitterFactory;
 use crate::graph_fs::DenoGraphFsAdapter;
 use crate::jsr::CliJsrUrlProvider;
-use crate::resolver::CliGraphResolver;
+// use crate::resolver::CliGraphResolver;
 use anyhow::Context;
-use cli_cache::file_fetcher::File;
+use deno::args::CliLockfile;
+use deno::args::NpmCachingStrategy;
+use deno::cache;
+use deno::cache::ParsedSourceCache;
+use deno::resolver::CjsTracker;
+use deno::resolver::CliResolver;
+use deno_config::deno_json::JsxImportSourceConfig;
 use deno_core::error::custom_error;
 use deno_core::error::AnyError;
 use deno_core::parking_lot::Mutex;
@@ -12,6 +18,7 @@ use deno_core::ModuleSpecifier;
 use deno_fs::FileSystem;
 use deno_graph::source::Loader;
 use deno_graph::source::LoaderChecksum;
+use deno_graph::source::ResolutionKind;
 use deno_graph::source::ResolveError;
 use deno_graph::GraphKind;
 use deno_graph::JsrLoadError;
@@ -25,8 +32,6 @@ use deno_lockfile::Lockfile;
 use deno_semver::package::PackageNv;
 use deno_semver::package::PackageReq;
 use eszip::EszipV2;
-use ext_core::cache::parsed_source::ParsedSourceCache;
-use ext_core::util::errors::get_error_class_name;
 use import_map::ImportMapError;
 use npm::CliNpmResolver;
 use std::path::PathBuf;
@@ -144,6 +149,15 @@ pub fn graph_valid(
   }
 }
 
+pub struct CreateGraphOptions<'a> {
+  pub graph_kind: GraphKind,
+  pub roots: Vec<ModuleSpecifier>,
+  pub is_dynamic: bool,
+  /// Specify `None` to use the default CLI loader.
+  pub loader: Option<&'a mut dyn Loader>,
+  pub npm_caching: NpmCachingStrategy,
+}
+
 pub struct ModuleGraphBuilder {
   type_check: bool,
   emitter_factory: Arc<EmitterFactory>,
@@ -175,148 +189,129 @@ impl ModuleGraphBuilder {
     self.emitter_factory.npm_resolver().await
   }
 
-  pub async fn create_graph_with_loader(
-    &self,
-    graph_kind: GraphKind,
-    roots: Vec<ModuleSpecifier>,
-    loader: &mut dyn Loader,
-  ) -> Result<deno_graph::ModuleGraph, AnyError> {
-    let cli_resolver = self.resolver().await;
-    let graph_resolver = cli_resolver.as_graph_resolver();
-    let graph_npm_resolver = cli_resolver.create_graph_npm_resolver();
-    let psc = self.parsed_source_cache();
-    let analyzer = self
-      .emitter_factory
-      .module_info_cache()
-      .unwrap()
-      .as_module_analyzer(&psc);
-
-    let mut graph = ModuleGraph::new(graph_kind);
-    let fs = Arc::new(deno_fs::RealFs);
-    let fs = DenoGraphFsAdapter(fs.as_ref());
-    let lockfile = self.lockfile();
-    let mut locker = lockfile.as_ref().map(LockfileLocker);
-
-    self
-      .build_graph_with_npm_resolution(
-        &mut graph,
-        roots,
-        loader,
-        deno_graph::BuildOptions {
-          is_dynamic: false,
-          imports: vec![],
-          executor: Default::default(),
-          file_system: &fs,
-          jsr_url_provider: &CliJsrUrlProvider,
-          resolver: Some(graph_resolver),
-          npm_resolver: Some(&graph_npm_resolver),
-          module_analyzer: &analyzer,
-          reporter: None,
-          workspace_members: &[],
-          passthrough_jsr_specifiers: false,
-          locker: locker.as_mut().map(|l| l as _),
-        },
-      )
-      .await?;
-
-    if graph.has_node_specifier && self.type_check {
-      self
-        .npm_resolver()
-        .await?
-        .as_managed()
-        .unwrap()
-        .inject_synthetic_types_node_package()
-        .await?;
-    }
-
-    Ok(graph)
-  }
-
   pub async fn build_graph_with_npm_resolution<'a>(
     &self,
     graph: &mut ModuleGraph,
-    roots: Vec<ModuleSpecifier>,
-    loader: &'a mut dyn deno_graph::source::Loader,
-    options: deno_graph::BuildOptions<'a>,
+    options: CreateGraphOptions<'a>,
   ) -> Result<(), AnyError> {
-    // fill the graph with the information from the lockfile
-    let is_first_execution = graph.roots.is_empty();
-    if is_first_execution {
-      // populate the information from the lockfile
-      if let Some(lockfile) = &self.lockfile() {
-        let lockfile = lockfile.lock();
-        for (from, to) in &lockfile.content.redirects {
-          if let Ok(from) = ModuleSpecifier::parse(from) {
-            if let Ok(to) = ModuleSpecifier::parse(to) {
-              if !matches!(from.scheme(), "file" | "npm" | "jsr") {
-                graph.redirects.insert(from, to);
-              }
-            }
-          }
-        }
-        for (key, value) in &lockfile.content.packages.specifiers {
-          if let Some(key) = key
-            .strip_prefix("jsr:")
-            .and_then(|key| PackageReq::from_str(key).ok())
-          {
-            if let Some(value) = value
-              .strip_prefix("jsr:")
-              .and_then(|value| PackageNv::from_str(value).ok())
-            {
-              graph.packages.add_nv(key, value);
-            }
-          }
+    enum MutLoaderRef<'a> {
+      Borrowed(&'a mut dyn Loader),
+      Owned(cache::FetchCacher),
+    }
+
+    impl<'a> MutLoaderRef<'a> {
+      pub fn as_mut_loader(&mut self) -> &mut dyn Loader {
+        match self {
+          Self::Borrowed(loader) => *loader,
+          Self::Owned(loader) => loader,
         }
       }
     }
 
-    let initial_redirects_len = graph.redirects.len();
-    let initial_package_deps_len = graph.packages.package_deps_sum();
-    let initial_package_mappings_len = graph.packages.mappings().len();
+    struct LockfileLocker<'a>(&'a CliLockfile);
 
-    graph.build(roots, loader, options).await;
+    impl<'a> deno_graph::source::Locker for LockfileLocker<'a> {
+      fn get_remote_checksum(
+        &self,
+        specifier: &deno_ast::ModuleSpecifier,
+      ) -> Option<LoaderChecksum> {
+        self
+          .0
+          .lock()
+          .remote()
+          .get(specifier.as_str())
+          .map(|s| LoaderChecksum::new(s.clone()))
+      }
 
-    let has_redirects_changed = graph.redirects.len() != initial_redirects_len;
-    let has_jsr_package_deps_changed =
-      graph.packages.package_deps_sum() != initial_package_deps_len;
-    let has_jsr_package_mappings_changed =
-      graph.packages.mappings().len() != initial_package_mappings_len;
+      fn has_remote_checksum(
+        &self,
+        specifier: &deno_ast::ModuleSpecifier,
+      ) -> bool {
+        self.0.lock().remote().contains_key(specifier.as_str())
+      }
 
-    if has_redirects_changed
-      || has_jsr_package_deps_changed
-      || has_jsr_package_mappings_changed
-    {
-      if let Some(lockfile) = &self.lockfile() {
-        let mut lockfile = lockfile.lock();
-        // https redirects
-        if has_redirects_changed {
-          let graph_redirects = graph.redirects.iter().filter(|(from, _)| {
-            !matches!(from.scheme(), "npm" | "file" | "deno")
-          });
-          for (from, to) in graph_redirects {
-            lockfile.insert_redirect(from.to_string(), to.to_string());
-          }
-        }
-        // jsr package mappings
-        if has_jsr_package_mappings_changed {
-          for (from, to) in graph.packages.mappings() {
-            lockfile.insert_package_specifier(
-              format!("jsr:{}", from),
-              format!("jsr:{}", to),
-            );
-          }
-        }
-        // jsr packages
-        if has_jsr_package_deps_changed {
-          for (name, deps) in graph.packages.packages_with_deps() {
-            lockfile
-              .add_package_deps(&name.to_string(), deps.map(|s| s.to_string()));
-          }
-        }
+      fn set_remote_checksum(
+        &mut self,
+        specifier: &deno_ast::ModuleSpecifier,
+        checksum: LoaderChecksum,
+      ) {
+        self
+          .0
+          .lock()
+          .insert_remote(specifier.to_string(), checksum.into_string())
+      }
+
+      fn get_pkg_manifest_checksum(
+        &self,
+        package_nv: &PackageNv,
+      ) -> Option<LoaderChecksum> {
+        self
+          .0
+          .lock()
+          .content
+          .packages
+          .jsr
+          .get(package_nv)
+          .map(|s| LoaderChecksum::new(s.integrity.clone()))
+      }
+
+      fn set_pkg_manifest_checksum(
+        &mut self,
+        package_nv: &PackageNv,
+        checksum: LoaderChecksum,
+      ) {
+        // a value would only exist in here if two workers raced
+        // to insert the same package manifest checksum
+        self
+          .0
+          .lock()
+          .insert_package(package_nv.clone(), checksum.into_string());
       }
     }
 
-    Ok(())
+    let maybe_imports = if options.graph_kind.include_types() {
+      self.cli_options.to_compiler_option_types()?
+    } else {
+      Vec::new()
+    };
+    let analyzer = self.module_info_cache.as_module_analyzer();
+    let mut loader = match options.loader {
+      Some(loader) => MutLoaderRef::Borrowed(loader),
+      None => MutLoaderRef::Owned(self.create_graph_loader()),
+    };
+    let cli_resolver = &self.resolver;
+    let graph_resolver = self.create_graph_resolver()?;
+    let graph_npm_resolver =
+      cli_resolver.create_graph_npm_resolver(options.npm_caching);
+    let maybe_file_watcher_reporter = self
+      .maybe_file_watcher_reporter
+      .as_ref()
+      .map(|r| r.as_reporter());
+    let mut locker = self
+      .lockfile
+      .as_ref()
+      .map(|lockfile| LockfileLocker(lockfile));
+    self
+      .build_graph_with_npm_resolution_and_build_options(
+        graph,
+        options.roots,
+        loader.as_mut_loader(),
+        deno_graph::BuildOptions {
+          imports: maybe_imports,
+          is_dynamic: options.is_dynamic,
+          passthrough_jsr_specifiers: false,
+          executor: Default::default(),
+          file_system: &DenoGraphFsAdapter(self.fs.as_ref()),
+          jsr_url_provider: &CliJsrUrlProvider,
+          npm_resolver: Some(&graph_npm_resolver),
+          module_analyzer: &analyzer,
+          reporter: maybe_file_watcher_reporter,
+          resolver: Some(&graph_resolver),
+          locker: locker.as_mut().map(|l| l as _),
+        },
+        options.npm_caching,
+      )
+      .await
   }
 
   #[allow(clippy::borrow_deref_ref)]
@@ -417,6 +412,7 @@ pub async fn create_eszip_from_graph_raw(
     transpile_options,
     emit_options,
     relative_file_base: None,
+    npm_packages: None,
   })
 }
 
@@ -599,7 +595,7 @@ pub fn format_range(range: &deno_graph::Range) -> String {
   )
 }
 
-struct LockfileLocker<'a>(&'a Arc<Mutex<Lockfile>>);
+struct LockfileLocker<'a>(&'a Arc<CliLockfile>);
 
 impl<'a> deno_graph::source::Locker for LockfileLocker<'a> {
   fn get_remote_checksum(
@@ -654,5 +650,80 @@ impl<'a> deno_graph::source::Locker for LockfileLocker<'a> {
       .0
       .lock()
       .insert_package(package_nv.to_string(), checksum.into_string());
+  }
+}
+
+#[derive(Debug)]
+struct CliGraphResolver<'a> {
+  cjs_tracker: &'a CjsTracker,
+  resolver: &'a CliResolver,
+  jsx_import_source_config: Option<JsxImportSourceConfig>,
+}
+
+impl<'a> deno_graph::source::Resolver for CliGraphResolver<'a> {
+  fn default_jsx_import_source(&self) -> Option<String> {
+    self
+      .jsx_import_source_config
+      .as_ref()
+      .and_then(|c| c.default_specifier.clone())
+  }
+
+  fn default_jsx_import_source_types(&self) -> Option<String> {
+    self
+      .jsx_import_source_config
+      .as_ref()
+      .and_then(|c| c.default_types_specifier.clone())
+  }
+
+  fn jsx_import_source_module(&self) -> &str {
+    self
+      .jsx_import_source_config
+      .as_ref()
+      .map(|c| c.module.as_str())
+      .unwrap_or(deno_graph::source::DEFAULT_JSX_IMPORT_SOURCE_MODULE)
+  }
+
+  fn resolve(
+    &self,
+    raw_specifier: &str,
+    referrer_range: &deno_graph::Range,
+    resolution_kind: ResolutionKind,
+  ) -> Result<ModuleSpecifier, ResolveError> {
+    self.resolver.resolve(
+      raw_specifier,
+      &referrer_range.specifier,
+      referrer_range.range.start,
+      referrer_range
+        .resolution_mode
+        .map(to_node_resolution_mode)
+        .unwrap_or_else(|| {
+          self
+            .cjs_tracker
+            .get_referrer_kind(&referrer_range.specifier)
+        }),
+      to_node_resolution_kind(resolution_kind),
+    )
+  }
+}
+
+pub fn to_node_resolution_kind(
+  kind: ResolutionKind,
+) -> node_resolver::NodeResolutionKind {
+  match kind {
+    ResolutionKind::Execution => node_resolver::NodeResolutionKind::Execution,
+    ResolutionKind::Types => node_resolver::NodeResolutionKind::Types,
+  }
+}
+
+pub fn to_node_resolution_mode(
+  mode: deno_graph::source::ResolutionMode,
+) -> node_resolver::ResolutionMode {
+  match mode {
+    deno_graph::source::ResolutionMode::Import => {
+      node_resolver::ResolutionMode::Import
+    }
+    deno_graph::source::ResolutionMode::Require => {
+      node_resolver::ResolutionMode::Require
+    }
   }
 }

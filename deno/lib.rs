@@ -4,6 +4,7 @@ pub mod cache;
 pub mod emit;
 pub mod errors;
 pub mod file_fetcher;
+pub mod graph_util;
 pub mod http_util;
 pub mod node;
 pub mod npm;
@@ -13,6 +14,10 @@ pub mod resolver;
 pub mod runtime;
 pub mod util;
 pub mod versions;
+
+pub use deno_permissions::PermissionsContainer;
+pub use deno_resolver;
+pub use node_resolver;
 
 pub fn version() -> &'static str {
   env!("CARGO_PKG_VERSION")

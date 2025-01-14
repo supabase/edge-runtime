@@ -9,7 +9,7 @@ license.workspace = true
 path = "lib.rs"
 
 [dependencies]
+deno.workspace = true
 deno_core.workspace = true
 
-ext_core.workspace = true
 ext_node.workspace = true

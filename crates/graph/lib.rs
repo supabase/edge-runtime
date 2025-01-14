@@ -1022,7 +1022,7 @@ mod test {
   async fn test_module_code_no_eszip() {
     let eszip = generate_binary_eszip(
       PathBuf::from("../base/test_cases/npm/index.ts"),
-      Arc::new(EmitterFactory::new()),
+      Arc::new(EmitterFactory::default()),
       None,
       None,
       None,

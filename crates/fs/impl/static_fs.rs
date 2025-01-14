@@ -11,6 +11,7 @@ use deno_io::fs::FsError;
 use deno_io::fs::FsResult;
 use deno_io::fs::FsStat;
 use deno_npm::resolution::ValidSerializedNpmResolutionSnapshot;
+use std::borrow::Cow;
 use std::fmt::Debug;
 use std::io;
 use std::path::Path;
@@ -102,7 +103,7 @@ impl deno_fs::FileSystem for StaticFs {
     &self,
     _path: &Path,
     _recursive: bool,
-    _mode: u32,
+    _mode: Option<u32>,
   ) -> FsResult<()> {
     Err(FsError::NotSupported)
   }
@@ -111,7 +112,7 @@ impl deno_fs::FileSystem for StaticFs {
     &self,
     _path: PathBuf,
     _recursive: bool,
-    _mode: u32,
+    _mode: Option<u32>,
   ) -> FsResult<()> {
     Err(FsError::NotSupported)
   }
@@ -370,7 +371,7 @@ impl deno_fs::FileSystem for StaticFs {
     &self,
     path: &Path,
     _access_check: Option<AccessCheckCb>,
-  ) -> FsResult<Vec<u8>> {
+  ) -> FsResult<Cow<'static, [u8]>> {
     let is_npm = self.is_valid_npm_package(path);
     if is_npm {
       let options = OpenOptions::read();
@@ -408,7 +409,7 @@ impl deno_fs::FileSystem for StaticFs {
           );
         };
 
-        Ok(res.to_vec())
+        Ok(Cow::Owned(res.to_vec()))
       } else {
         Err(
           std::io::Error::new(
@@ -425,7 +426,7 @@ impl deno_fs::FileSystem for StaticFs {
     &'a self,
     path: PathBuf,
     access_check: Option<AccessCheckCb<'a>>,
-  ) -> FsResult<Vec<u8>> {
+  ) -> FsResult<Cow<'static, [u8]>> {
     self.read_file_sync(path.as_path(), access_check)
   }
 }

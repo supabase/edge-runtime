@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::io;
 use std::path::Path;
 use std::path::PathBuf;
@@ -191,7 +192,7 @@ where
     &self,
     path: &Path,
     recursive: bool,
-    mode: u32,
+    mode: Option<u32>,
   ) -> FsResult<()> {
     if path.starts_with(&self.prefix) {
       self.fs.mkdir_sync(
@@ -212,7 +213,7 @@ where
     &self,
     path: PathBuf,
     recursive: bool,
-    mode: u32,
+    mode: Option<u32>,
   ) -> FsResult<()> {
     if path.starts_with(&self.prefix) {
       self
@@ -968,7 +969,7 @@ where
     &self,
     path: &Path,
     access_check: Option<AccessCheckCb>,
-  ) -> FsResult<Vec<u8>> {
+  ) -> FsResult<Cow<'static, [u8]>> {
     if path.starts_with(&self.prefix) {
       self
         .fs
@@ -986,7 +987,7 @@ where
     &'a self,
     path: PathBuf,
     access_check: Option<AccessCheckCb<'a>>,
-  ) -> FsResult<Vec<u8>> {
+  ) -> FsResult<Cow<'static, [u8]>> {
     if path.starts_with(&self.prefix) {
       self
         .fs
@@ -1048,7 +1049,7 @@ where
     &self,
     path: &Path,
     access_check: Option<AccessCheckCb>,
-  ) -> FsResult<String> {
+  ) -> FsResult<Cow<'static, str>> {
     if path.starts_with(&self.prefix) {
       self.fs.read_text_file_lossy_sync(
         path.strip_prefix(&self.prefix).unwrap(),
@@ -1067,7 +1068,7 @@ where
     &'a self,
     path: PathBuf,
     access_check: Option<AccessCheckCb<'a>>,
-  ) -> FsResult<String> {
+  ) -> FsResult<Cow<'static, str>> {
     if path.starts_with(&self.prefix) {
       self
         .fs

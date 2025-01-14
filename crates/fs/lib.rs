@@ -2,8 +2,11 @@ use crate::virtual_fs::FileBackedVfs;
 use crate::virtual_fs::VfsBuilder;
 use crate::virtual_fs::VfsRoot;
 use crate::virtual_fs::VirtualDirectory;
+
 use anyhow::bail;
 use anyhow::Context;
+use deno::npm::CliNpmResolver;
+use deno::npm::InnerCliNpmResolverRef;
 use deno_core::normalize_path;
 use deno_npm::NpmSystemInfo;
 use eszip::EszipV2;
@@ -11,14 +14,13 @@ use eszip_async_trait::AsyncEszipDataRead;
 use eszip_async_trait::STATIC_FILES_ESZIP_KEY;
 use indexmap::IndexMap;
 use log::warn;
-use npm::CliNpmResolver;
-use npm::InnerCliNpmResolverRef;
+use url::Url;
+use virtual_fs::VfsEntry;
+
 use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
-use url::Url;
-use virtual_fs::VfsEntry;
 
 mod r#impl;
 mod rt;
@@ -146,16 +148,21 @@ where
   match opts.npm_resolver.as_inner() {
     InnerCliNpmResolverRef::Managed(npm_resolver) => {
       if let Some(node_modules_path) = npm_resolver.root_node_modules_path() {
-        let mut builder =
-          VfsBuilder::new(node_modules_path.clone(), add_content_callback_fn)?;
+        let mut builder = VfsBuilder::new(
+          node_modules_path.to_path_buf(),
+          add_content_callback_fn,
+        )?;
 
         builder.add_dir_recursive(node_modules_path)?;
         Ok(builder)
       } else {
         // DO NOT include the user's registry url as it may contain credentials,
         // but also don't make this dependent on the registry url
-        let root_path = npm_resolver.global_cache_root_folder();
-        let mut builder = VfsBuilder::new(root_path, add_content_callback_fn)?;
+        let global_cache_root_path = npm_resolver.global_cache_root_path();
+        let mut builder = VfsBuilder::new(
+          global_cache_root_path.to_path_buf(),
+          add_content_callback_fn,
+        )?;
         let mut packages =
           npm_resolver.all_system_packages(&NpmSystemInfo::default());
         packages.sort_by(|a, b| a.id.cmp(&b.id));

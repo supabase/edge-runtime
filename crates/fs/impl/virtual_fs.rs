@@ -11,6 +11,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use deno::util::checksum;
+use deno::util::fs::canonicalize_path;
 use deno_core::anyhow::Context;
 use deno_core::error::AnyError;
 use deno_core::parking_lot::Mutex;
@@ -23,8 +24,6 @@ use deno_io::fs::FsError;
 use deno_io::fs::FsResult;
 use deno_io::fs::FsStat;
 use eszip_async_trait::AsyncEszipDataRead;
-use ext_core::util::checksum;
-use ext_core::util::fs::canonicalize_path;
 use futures::future::OptionFuture;
 use rkyv::Archive;
 use rkyv::Deserialize;
@@ -723,18 +722,19 @@ impl deno_io::fs::File for FileBackedVfsFile {
     Err(FsError::NotSupported)
   }
 
-  fn read_all_sync(self: Rc<Self>) -> FsResult<Vec<u8>> {
+  fn read_all_sync(self: Rc<Self>) -> FsResult<Cow<'static, [u8]>> {
     std::thread::scope(|s| {
       let inner = (*self).clone();
 
       s.spawn(move || SYNC_IO_RT.block_on(inner.read_to_end()))
         .join()
         .unwrap()
+        .map(Cow::Owned)
     })
   }
-  async fn read_all_async(self: Rc<Self>) -> FsResult<Vec<u8>> {
+  async fn read_all_async(self: Rc<Self>) -> FsResult<Cow<'static, [u8]>> {
     let inner = (*self).clone();
-    inner.read_to_end().await
+    inner.read_to_end().await.map(Cow::Owned)
   }
 
   fn chmod_sync(self: Rc<Self>, _pathmode: u32) -> FsResult<()> {

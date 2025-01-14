@@ -46,6 +46,7 @@ base32.workspace = true
 base64.workspace = true
 cache_control.workspace = true
 chrono = { workspace = true, features = ["now"] }
+dashmap.workspace = true
 faster-hex.workspace = true
 flate2.workspace = true
 fs3.workspace = true
@@ -57,6 +58,7 @@ hyper-util.workspace = true
 hyper_v014.workspace = true
 import_map = { workspace = true, features = ["ext"] }
 indexmap.workspace = true
+lazy-regex.workspace = true
 libc.workspace = true
 log.workspace = true
 notify.workspace = true

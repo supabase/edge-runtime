@@ -11,11 +11,13 @@ use byonm::CliByonmNpmResolver;
 use deno_core::error::AnyError;
 use deno_core::url::Url;
 use deno_fs::FileSystem;
+use deno_resolver::npm::ByonmInNpmPackageChecker;
 use deno_resolver::npm::CliNpmReqResolver;
 use ext_node::NodePermissions;
 use http::HeaderName;
 use http::HeaderValue;
 pub use managed::*;
+use node_resolver::InNpmPackageChecker;
 use node_resolver::NpmPackageFolderResolver;
 
 use crate::http_util::HttpClientProvider;
@@ -124,6 +126,22 @@ impl deno_npm_cache::NpmCacheEnv for CliNpmCacheEnv {
 //   Snapshot(deno_npm::resolution::SerializedNpmResolutionSnapshot),
 //   Byonm,
 // }
+
+pub enum CreateInNpmPkgCheckerOptions<'a> {
+  Managed(CliManagedInNpmPkgCheckerCreateOptions<'a>),
+  Byonm,
+}
+
+pub fn create_in_npm_pkg_checker(
+  options: CreateInNpmPkgCheckerOptions,
+) -> Arc<dyn InNpmPackageChecker> {
+  match options {
+    CreateInNpmPkgCheckerOptions::Managed(options) => {
+      create_managed_in_npm_pkg_checker(options)
+    }
+    CreateInNpmPkgCheckerOptions::Byonm => Arc::new(ByonmInNpmPackageChecker),
+  }
+}
 
 pub enum InnerCliNpmResolverRef<'a> {
   Managed(&'a ManagedCliNpmResolver),

@@ -46,16 +46,29 @@ pub static MODULE_INFO_CACHE_DB: CacheDBConfiguration = CacheDBConfiguration {
 /// deno_graph.
 pub struct ModuleInfoCache {
   conn: CacheDB,
+  parsed_source_cache: Arc<ParsedSourceCache>,
 }
 
 impl ModuleInfoCache {
   #[cfg(test)]
-  pub fn new_in_memory(version: &'static str) -> Self {
-    Self::new(CacheDB::in_memory(&MODULE_INFO_CACHE_DB, version))
+  pub fn new_in_memory(
+    version: &'static str,
+    parsed_source_cache: Arc<ParsedSourceCache>,
+  ) -> Self {
+    Self::new(
+      CacheDB::in_memory(&MODULE_INFO_CACHE_DB, version),
+      parsed_source_cache,
+    )
   }
 
-  pub fn new(conn: CacheDB) -> Self {
-    Self { conn }
+  pub fn new(
+    conn: CacheDB,
+    parsed_source_cache: Arc<ParsedSourceCache>,
+  ) -> Self {
+    Self {
+      conn,
+      parsed_source_cache,
+    }
   }
 
   /// Useful for testing: re-create this cache DB with a different current version.
@@ -64,6 +77,7 @@ impl ModuleInfoCache {
   pub(crate) fn recreate_with_version(self, version: &'static str) -> Self {
     Self {
       conn: self.conn.recreate_with_version(version),
+      parsed_source_cache: self.parsed_source_cache,
     }
   }
 
@@ -114,13 +128,10 @@ impl ModuleInfoCache {
     Ok(())
   }
 
-  pub fn as_module_analyzer<'a>(
-    &'a self,
-    parsed_source_cache: &'a Arc<ParsedSourceCache>,
-  ) -> ModuleInfoCacheModuleAnalyzer<'a> {
+  pub fn as_module_analyzer(&self) -> ModuleInfoCacheModuleAnalyzer {
     ModuleInfoCacheModuleAnalyzer {
       module_info_cache: self,
-      parsed_source_cache,
+      parsed_source_cache: &self.parsed_source_cache,
     }
   }
 }

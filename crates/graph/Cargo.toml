@@ -9,6 +9,8 @@ license.workspace = true
 path = "lib.rs"
 
 [dependencies]
+deno.workspace = true
+
 deno_ast.workspace = true
 deno_cache_dir.workspace = true
 deno_config.workspace = true
@@ -17,11 +19,13 @@ deno_fs.workspace = true
 deno_graph.workspace = true
 deno_lockfile.workspace = true
 deno_npm.workspace = true
+deno_package_json.workspace = true
 deno_semver.workspace = true
 deno_web.workspace = true
 
-# cli_cache.workspace = true
-# npm.workspace = true
+deno_resolver.workspace = true
+node_resolver.workspace = true
+
 eszip_async_trait.workspace = true
 fs.workspace = true
 

@@ -459,7 +459,7 @@ impl deno_fs::FileSystem for S3Fs {
     &self,
     _path: &Path,
     _recursive: bool,
-    _mode: u32,
+    _mode: Option<u32>,
   ) -> FsResult<()> {
     Err(FsError::NotSupported)
   }
@@ -469,7 +469,7 @@ impl deno_fs::FileSystem for S3Fs {
     &self,
     path: PathBuf,
     recursive: bool,
-    _mode: u32,
+    _mode: Option<u32>,
   ) -> FsResult<()> {
     let (bucket_name, key) =
       try_get_bucket_name_and_key(path.try_normalize()?)?;
@@ -798,6 +798,7 @@ impl deno_fs::FileSystem for S3Fs {
         mtime: None,
         atime: None,
         birthtime: None,
+        ctime: None,
         dev: 0,
         ino: 0,
         mode: 0,
@@ -1635,12 +1636,12 @@ impl deno_io::fs::File for S3Object {
     }
   }
 
-  fn read_all_sync(self: Rc<Self>) -> FsResult<Vec<u8>> {
+  fn read_all_sync(self: Rc<Self>) -> FsResult<Cow<'static, [u8]>> {
     Err(FsError::NotSupported)
   }
 
   #[instrument(level = "trace", skip_all, fields(self.bucket_name, self.key), err(Debug))]
-  async fn read_all_async(self: Rc<Self>) -> FsResult<Vec<u8>> {
+  async fn read_all_async(self: Rc<Self>) -> FsResult<Cow<'static, [u8]>> {
     let resp = self
       .fs
       .client
@@ -1651,10 +1652,12 @@ impl deno_io::fs::File for S3Object {
       .await;
 
     match resp {
-      Ok(v) => Ok(v.body.collect().await.map_err(io::Error::other)?.to_vec()),
+      Ok(v) => Ok(Cow::Owned(
+        v.body.collect().await.map_err(io::Error::other)?.to_vec(),
+      )),
       Err(err) => Err(io::Error::other(err).into()),
     }
-    .inspect(|it| {
+    .inspect(|it: &Cow<'_, [u8]>| {
       trace!(nread = it.len());
     })
   }
@@ -1745,6 +1748,7 @@ impl deno_io::fs::File for S3Object {
       mtime: resp.last_modified.and_then(to_msec),
       atime: None,
       birthtime: None,
+      ctime: None,
       dev: 0,
       ino: 0,
       mode: 0,

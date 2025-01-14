@@ -63,7 +63,7 @@ impl RootCertStoreProvider for StandaloneRootCertStoreProvider {
 
 pub async fn create_module_loader_for_eszip<P>(
     mut eszip: LazyLoadableEszip,
-    base_dir_path: P,
+    static_root_path: P,
     metadata: Metadata,
     maybe_import_map: Option<ImportMap>,
     include_source_map: bool,
@@ -143,7 +143,7 @@ where
     .map(FastString::from);
 
     let snapshot = eszip.take_npm_snapshot();
-    let static_files = extract_static_files_from_eszip(&eszip, base_dir_path).await;
+    let static_files = extract_static_files_from_eszip(&eszip, static_root_path).await;
     let vfs_root_dir_path = npm_cache_dir.root_dir().to_owned();
 
     let (fs, vfs) = {
@@ -251,7 +251,7 @@ where
 
 pub async fn create_module_loader_for_standalone_from_eszip_kind<P>(
     eszip_payload_kind: EszipPayloadKind,
-    base_dir_path: P,
+    static_root_path: P,
     maybe_import_map: Option<ImportMap>,
     maybe_import_map_path: Option<String>,
     include_source_map: bool,
@@ -289,7 +289,7 @@ where
 
     create_module_loader_for_eszip(
         eszip,
-        base_dir_path,
+        static_root_path,
         Metadata {
             ca_stores: None,
             ca_data: None,

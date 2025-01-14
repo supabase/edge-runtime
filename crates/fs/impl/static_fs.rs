@@ -13,7 +13,7 @@ use std::sync::Arc;
 #[derive(Debug, Clone)]
 pub struct StaticFs {
     static_files: EszipStaticFiles,
-    base_dir_path: PathBuf,
+    root_path: PathBuf,
     vfs_path: PathBuf,
     snapshot: Option<ValidSerializedNpmResolutionSnapshot>,
     vfs: Arc<FileBackedVfs>,
@@ -22,7 +22,7 @@ pub struct StaticFs {
 impl StaticFs {
     pub fn new(
         static_files: EszipStaticFiles,
-        base_dir_path: PathBuf,
+        root_path: PathBuf,
         vfs_path: PathBuf,
         vfs: Arc<FileBackedVfs>,
         snapshot: Option<ValidSerializedNpmResolutionSnapshot>,
@@ -30,7 +30,7 @@ impl StaticFs {
         Self {
             vfs,
             static_files,
-            base_dir_path,
+            root_path,
             vfs_path,
             snapshot,
         }
@@ -335,8 +335,9 @@ impl deno_fs::FileSystem for StaticFs {
             Ok(buf)
         } else {
             let eszip = self.vfs.eszip.as_ref();
-            let path = if path.is_relative() {
-                self.base_dir_path.join(path)
+
+            if path.is_relative() {
+                self.root_path.join(path)
             } else {
                 path.to_path_buf()
             };

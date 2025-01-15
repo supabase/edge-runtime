@@ -30,7 +30,7 @@ use rkyv::Deserialize;
 use rkyv::Serialize;
 use thiserror::Error;
 
-use crate::rt::SYNC_IO_RT;
+use crate::rt::IO_RT;
 
 #[derive(Error, Debug)]
 #[error(
@@ -689,7 +689,7 @@ impl deno_io::fs::File for FileBackedVfsFile {
     std::thread::scope(|s| {
       let inner = (*self).clone();
 
-      s.spawn(move || SYNC_IO_RT.block_on(inner.read_to_buf(buf)))
+      s.spawn(move || IO_RT.block_on(inner.read_to_buf(buf)))
         .join()
         .unwrap()
     })

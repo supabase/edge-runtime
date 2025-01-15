@@ -13,6 +13,7 @@ pub use r#impl::s3_fs;
 pub use r#impl::static_fs;
 pub use r#impl::tmp_fs;
 pub use r#impl::virtual_fs;
+pub use rt::IO_RT;
 
 pub struct VfsOpts {
   pub npm_resolver: Arc<dyn CliNpmResolver>,

@@ -628,8 +628,7 @@ where
     let main_module_url = match entrypoint {
       Entrypoint::Key(key) => base_url.join(&key)?,
       Entrypoint::ModuleCode(_) => Url::parse(
-        user_context
-          .get("entrypoint")
+        maybe_entrypoint
           .and_then(|it| it.as_str())
           .with_context(|| "could not find entrypoint key")?,
       )?,

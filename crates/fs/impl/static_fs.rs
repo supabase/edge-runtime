@@ -18,7 +18,7 @@ use deno_io::fs::FsStat;
 use deno_npm::resolution::ValidSerializedNpmResolutionSnapshot;
 use eszip_trait::EszipStaticFiles;
 
-use crate::rt::SYNC_IO_RT;
+use crate::rt::IO_RT;
 use crate::FileBackedVfs;
 
 #[derive(Debug, Clone)]
@@ -396,11 +396,9 @@ impl deno_fs::FileSystem for StaticFs {
         .and_then(|it| eszip.ensure_module(it))
       {
         let Some(res) = std::thread::scope(|s| {
-          s.spawn(move || {
-            SYNC_IO_RT.block_on(async move { file.source().await })
-          })
-          .join()
-          .unwrap()
+          s.spawn(move || IO_RT.block_on(async move { file.source().await }))
+            .join()
+            .unwrap()
         }) else {
           return Err(
             std::io::Error::new(

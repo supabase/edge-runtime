@@ -22,6 +22,7 @@ pub use r#impl::s3_fs;
 pub use r#impl::static_fs;
 pub use r#impl::tmp_fs;
 pub use r#impl::virtual_fs;
+pub use rt::IO_RT;
 
 pub struct VfsOpts {
     pub npm_resolver: Arc<dyn CliNpmResolver>,
@@ -35,7 +36,7 @@ impl<T> LazyEszipV2 for T where T: std::ops::Deref<Target = EszipV2> + AsyncEszi
 
 pub async fn extract_static_files_from_eszip<P>(
     eszip: &dyn LazyEszipV2,
-    mapped_base_dir_path: P,
+    mapped_static_root_path: P,
 ) -> EszipStaticFiles
 where
     P: AsRef<Path>,
@@ -66,7 +67,7 @@ where
         };
 
         files.insert(
-            normalize_path(mapped_base_dir_path.as_ref().join(path)),
+            normalize_path(mapped_static_root_path.as_ref().join(path)),
             specifier.to_string(),
         );
     }

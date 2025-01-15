@@ -479,7 +479,7 @@ where
             .unwrap_or_default();
 
         if is_some_entry_point {
-            main_module_url = Url::parse(&maybe_entrypoint.unwrap())?;
+            main_module_url = Url::parse(&maybe_entrypoint.clone().unwrap())?;
         }
 
         let mut net_access_disabled = false;
@@ -620,9 +620,18 @@ where
             .and_then(serde_json::Value::as_bool)
             .unwrap_or_default();
 
+        let static_root_path = if is_some_entry_point {
+            match Url::parse(&maybe_entrypoint.clone().unwrap())?.to_file_path() {
+                Ok(path) => path.parent().unwrap().to_path_buf(),
+                Err(_) => base_dir_path,
+            }
+        } else {
+            base_dir_path
+        };
+
         let rt_provider = create_module_loader_for_standalone_from_eszip_kind(
             eszip,
-            base_dir_path.clone(),
+            static_root_path.clone(),
             maybe_import_map,
             import_map_path,
             has_inspector || need_source_map,
@@ -658,7 +667,7 @@ where
         let file_system = build_file_system_fn(if is_user_worker {
             Arc::new(StaticFs::new(
                 static_files,
-                base_dir_path,
+                static_root_path,
                 vfs_path,
                 vfs,
                 npm_snapshot,

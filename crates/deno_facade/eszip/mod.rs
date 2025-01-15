@@ -436,18 +436,21 @@ impl EszipDataSection {
   ) -> Result<(), ParseError> {
     // NOTE: Below codes is roughly originated from eszip@0.72.2/src/v2.rs
 
-    let this = {
-      let sem = self.read_all_barrier.clone();
+    let sem = self.read_all_barrier.clone();
+    let this = loop {
       let permit = sem
         .acquire_many(READ_ALL_BARRIER_MAX_PERMITS as u32)
         .await
         .unwrap();
 
-      let this = Arc::into_inner(self).unwrap();
-
-      sem.close();
-      drop(permit);
-      this
+      if Arc::strong_count(&self) != 1 {
+        drop(permit);
+        tokio::task::yield_now().await;
+        continue;
+      } else {
+        sem.close();
+        break Arc::into_inner(self).unwrap();
+      }
     };
 
     let modules = this.modules;

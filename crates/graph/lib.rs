@@ -28,7 +28,7 @@ use std::fs::{create_dir_all, File};
 use std::io::{Cursor, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Semaphore};
 
 mod eszip_parse;
 
@@ -43,6 +43,8 @@ pub mod jsx_util;
 pub mod resolver;
 
 pub use eszip::v2::Checksum;
+
+const READ_ALL_BARRIER_MAX_PERMITS: usize = 10;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -158,14 +160,20 @@ impl LazyLoadableEszip {
 
         if let Some(section) = self.maybe_data_section.clone() {
             let specifier = module.specifier.clone();
+            let sem = section.read_all_barrier.clone();
 
             drop(fs::IO_RT.spawn(async move {
+                let permit = sem.acquire_owned().await.unwrap();
+
                 match section.read_data_section_by_specifier(&specifier).await {
                     Ok(_) => {}
                     Err(err) => {
                         error!("failed to read module data from the data section: {}", err);
                     }
                 }
+
+                drop(section);
+                drop(permit);
             }));
         }
 
@@ -222,6 +230,7 @@ pub struct EszipDataSection {
     sources_len: Arc<Mutex<Option<u64>>>,
     locs_by_specifier: Arc<Mutex<Option<HashMap<String, EszipDataSectionMetadata>>>>,
     loaded_locs_by_specifier: Arc<Mutex<HashMap<String, EszipDataLoc>>>,
+    read_all_barrier: Arc<Semaphore>,
 }
 
 impl EszipDataSection {
@@ -239,6 +248,7 @@ impl EszipDataSection {
             sources_len: Arc::default(),
             locs_by_specifier: Arc::default(),
             loaded_locs_by_specifier: Arc::default(),
+            read_all_barrier: Arc::new(Semaphore::new(READ_ALL_BARRIER_MAX_PERMITS)),
         }
     }
 
@@ -408,7 +418,20 @@ impl EszipDataSection {
     pub async fn read_data_section_all(self: Arc<Self>) -> Result<(), ParseError> {
         // NOTE: Below codes is roughly originated from eszip@0.72.2/src/v2.rs
 
-        let this = Arc::into_inner(self).unwrap();
+        let this = {
+            let sem = self.read_all_barrier.clone();
+            let permit = sem
+                .acquire_many(READ_ALL_BARRIER_MAX_PERMITS as u32)
+                .await
+                .unwrap();
+
+            let this = Arc::into_inner(self).unwrap();
+
+            sem.close();
+            drop(permit);
+            this
+        };
+
         let modules = this.modules;
         let checksum_size = this
             .options

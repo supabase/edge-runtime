@@ -1,14 +1,15 @@
-pub mod context;
-pub mod errors;
-
 use crate::context::CreateUserWorkerResult;
 use crate::context::UserWorkerMsgs;
 use crate::context::UserWorkerRuntimeOpts;
 use crate::context::WorkerContextInitOpts;
 use crate::context::WorkerRuntimeOpts;
+
 use anyhow::Error;
 use context::SendRequestResult;
-use deno_config::JsxImportSourceConfig;
+use deno::deno_http::HttpRequestReader;
+use deno::deno_http::HttpStreamReadResource;
+use deno_config::deno_json::JsxImportSourceConfig;
+use deno_core;
 use deno_core::error::custom_error;
 use deno_core::error::type_error;
 use deno_core::error::AnyError;
@@ -32,14 +33,12 @@ use deno_core::RcRef;
 use deno_core::Resource;
 use deno_core::ResourceId;
 use deno_core::WriteOutcome;
-use deno_http::HttpRequestReader;
-use deno_http::HttpStreamReadResource;
+use deno_facade::DecoratorType;
+use deno_facade::EszipPayloadKind;
 use errors::WorkerError;
 use ext_core::conn_sync::ConnWatcher;
 use fs::s3_fs::S3FsConfig;
 use fs::tmp_fs::TmpFsConfig;
-use graph::DecoratorType;
-use graph::EszipPayloadKind;
 use http_utils::utils::get_upgrade_type;
 use hyper_v014::body::HttpBody;
 use hyper_v014::header::HeaderName;
@@ -63,6 +62,9 @@ use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
+
+pub mod context;
+pub mod errors;
 
 deno_core::extension!(
   user_workers,

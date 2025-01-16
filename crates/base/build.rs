@@ -2,55 +2,59 @@ use std::env;
 use std::path::PathBuf;
 
 mod supabase_startup_snapshot {
-  use super::*;
-  use deno_cache::SqliteBackedCache;
-  use deno_core::error::AnyError;
-  use deno_core::snapshot::create_snapshot;
-  use deno_core::snapshot::CreateSnapshotOptions;
-  use deno_core::Extension;
-  use deno_fs::OpenOptions;
-  use deno_http::DefaultHttpPropertyExtractor;
-  use deno_io::fs::FsError;
   use std::borrow::Cow;
   use std::io::Write;
   use std::path::Path;
   use std::rc::Rc;
   use std::sync::Arc;
-  use url::Url;
+
+  use deno::deno_fs::OpenOptions;
+  use deno::deno_http::DefaultHttpPropertyExtractor;
+  use deno::deno_io::fs::FsError;
+  use deno::deno_permissions::PermissionCheckError;
+  use deno::runtime::shared::maybe_transpile_source;
+  use deno::PermissionsContainer;
+  use deno_cache::SqliteBackedCache;
+  use deno_core::snapshot::create_snapshot;
+  use deno_core::snapshot::CreateSnapshotOptions;
+  use deno_core::url::Url;
+  use deno_core::Extension;
+
+  use super::*;
 
   #[derive(Clone)]
   pub struct Permissions;
 
-  impl deno_fetch::FetchPermissions for Permissions {
+  impl deno::deno_fetch::FetchPermissions for Permissions {
     fn check_net_url(
       &mut self,
-      _url: &deno_core::url::Url,
+      _url: &Url,
       _api_name: &str,
-    ) -> Result<(), deno_core::error::AnyError> {
+    ) -> Result<(), PermissionCheckError> {
       unreachable!("snapshotting!")
     }
 
-    fn check_read(
+    fn check_read<'a>(
       &mut self,
-      _p: &Path,
+      _p: &'a Path,
       _api_name: &str,
-    ) -> Result<(), deno_core::error::AnyError> {
+    ) -> Result<Cow<'a, Path>, PermissionCheckError> {
       unreachable!("snapshotting!")
     }
   }
 
-  impl deno_web::TimersPermission for Permissions {
+  impl deno::deno_web::TimersPermission for Permissions {
     fn allow_hrtime(&mut self) -> bool {
       unreachable!("snapshotting!")
     }
   }
 
-  impl deno_websocket::WebSocketPermissions for Permissions {
+  impl deno::deno_websocket::WebSocketPermissions for Permissions {
     fn check_net_url(
       &mut self,
-      _url: &deno_core::url::Url,
+      _url: &Url,
       _api_name: &str,
-    ) -> Result<(), deno_core::error::AnyError> {
+    ) -> Result<(), PermissionCheckError> {
       unreachable!("snapshotting!")
     }
   }
@@ -60,30 +64,30 @@ mod supabase_startup_snapshot {
       &mut self,
       _url: &Url,
       _api_name: &str,
-    ) -> Result<(), AnyError> {
+    ) -> Result<(), PermissionCheckError> {
       unreachable!("snapshotting!")
     }
 
     fn check_net(
       &mut self,
-      host: (&str, Option<u16>),
-      api_name: &str,
+      _host: (&str, Option<u16>),
+      _api_name: &str,
     ) -> Result<(), PermissionCheckError> {
       unreachable!("snapshotting!")
     }
 
     fn check_read_path<'a>(
       &mut self,
-      path: &'a Path,
+      _path: &'a Path,
     ) -> Result<Cow<'a, Path>, PermissionCheckError> {
       unreachable!("snapshotting!")
     }
 
     fn check_read_with_api_name(
       &mut self,
-      _path: &Path,
+      _path: &str,
       _api_name: Option<&str>,
-    ) -> Result<(), AnyError> {
+    ) -> Result<PathBuf, PermissionCheckError> {
       unreachable!("snapshotting!")
     }
 
@@ -93,9 +97,9 @@ mod supabase_startup_snapshot {
 
     fn check_write_with_api_name(
       &mut self,
-      _path: &Path,
+      _path: &str,
       _api_name: Option<&str>,
-    ) -> Result<(), AnyError> {
+    ) -> Result<PathBuf, PermissionCheckError> {
       unreachable!("snapshotting!")
     }
 
@@ -103,46 +107,46 @@ mod supabase_startup_snapshot {
       &mut self,
       _kind: &str,
       _api_name: &str,
-    ) -> Result<(), AnyError> {
+    ) -> Result<(), PermissionCheckError> {
       unreachable!("snapshotting!")
     }
   }
 
-  impl deno_net::NetPermissions for Permissions {
+  impl deno::deno_net::NetPermissions for Permissions {
     fn check_net<T: AsRef<str>>(
       &mut self,
       _host: &(T, Option<u16>),
       _api_name: &str,
-    ) -> Result<(), deno_core::error::AnyError> {
+    ) -> Result<(), PermissionCheckError> {
       unreachable!("snapshotting!")
     }
 
     fn check_read(
       &mut self,
-      _p: &Path,
+      _p: &str,
       _api_name: &str,
-    ) -> Result<(), deno_core::error::AnyError> {
+    ) -> Result<PathBuf, PermissionCheckError> {
       unreachable!("snapshotting!")
     }
 
     fn check_write(
       &mut self,
-      _p: &Path,
+      _p: &str,
       _api_name: &str,
-    ) -> Result<(), deno_core::error::AnyError> {
+    ) -> Result<PathBuf, PermissionCheckError> {
       unreachable!("snapshotting!")
     }
 
     fn check_write_path<'a>(
       &mut self,
-      p: &'a Path,
-      api_name: &str,
+      _p: &'a Path,
+      _api_name: &str,
     ) -> Result<Cow<'a, Path>, PermissionCheckError> {
       unreachable!("snapshotting!")
     }
   }
 
-  impl deno_fs::FsPermissions for Permissions {
+  impl deno::deno_fs::FsPermissions for Permissions {
     fn check_open<'a>(
       &mut self,
       _resolved: bool,
@@ -156,13 +160,16 @@ mod supabase_startup_snapshot {
 
     fn check_read(
       &mut self,
-      _path: &Path,
+      _path: &str,
       _api_name: &str,
-    ) -> Result<(), AnyError> {
+    ) -> Result<PathBuf, PermissionCheckError> {
       unreachable!("snapshotting!")
     }
 
-    fn check_read_all(&mut self, _api_name: &str) -> Result<(), AnyError> {
+    fn check_read_all(
+      &mut self,
+      _api_name: &str,
+    ) -> Result<(), PermissionCheckError> {
       unreachable!("snapshotting!")
     }
 
@@ -171,27 +178,30 @@ mod supabase_startup_snapshot {
       _path: &Path,
       _display: &str,
       _api_name: &str,
-    ) -> Result<(), AnyError> {
+    ) -> Result<(), PermissionCheckError> {
       unreachable!("snapshotting!")
     }
 
     fn check_write(
       &mut self,
-      _path: &Path,
+      _path: &str,
       _api_name: &str,
-    ) -> Result<(), AnyError> {
+    ) -> Result<PathBuf, PermissionCheckError> {
       unreachable!("snapshotting!")
     }
 
     fn check_write_partial(
       &mut self,
-      _path: &Path,
+      _path: &str,
       _api_name: &str,
-    ) -> Result<(), AnyError> {
+    ) -> Result<PathBuf, PermissionCheckError> {
       unreachable!("snapshotting!")
     }
 
-    fn check_write_all(&mut self, _api_name: &str) -> Result<(), AnyError> {
+    fn check_write_all(
+      &mut self,
+      _api_name: &str,
+    ) -> Result<(), PermissionCheckError> {
       unreachable!("snapshotting!")
     }
 
@@ -200,7 +210,7 @@ mod supabase_startup_snapshot {
       _p: &Path,
       _display: &str,
       _api_name: &str,
-    ) -> Result<(), AnyError> {
+    ) -> Result<(), PermissionCheckError> {
       unreachable!("snapshotting!")
     }
 
@@ -216,16 +226,16 @@ mod supabase_startup_snapshot {
 
     fn check_read_path<'a>(
       &mut self,
-      path: &'a Path,
-      api_name: &str,
+      _path: &'a Path,
+      _api_name: &str,
     ) -> Result<Cow<'a, Path>, PermissionCheckError> {
       unreachable!("snapshotting!")
     }
 
     fn check_write_path<'a>(
       &mut self,
-      path: &'a Path,
-      api_name: &str,
+      _path: &'a Path,
+      _api_name: &str,
     ) -> Result<Cow<'a, Path>, PermissionCheckError> {
       unreachable!("snapshotting!")
     }
@@ -233,44 +243,44 @@ mod supabase_startup_snapshot {
 
   pub fn create_runtime_snapshot(snapshot_path: PathBuf) {
     let user_agent = String::from("supabase");
-    let fs = Arc::new(deno_fs::RealFs);
+    let fs = Arc::new(deno::deno_fs::RealFs);
     let extensions: Vec<Extension> = vec![
       deno_webidl::deno_webidl::init_ops_and_esm(),
       deno_console::deno_console::init_ops_and_esm(),
-      deno_url::deno_url::init_ops_and_esm(),
-      deno_web::deno_web::init_ops_and_esm::<Permissions>(
-        Arc::new(deno_web::BlobStore::default()),
+      deno::deno_url::deno_url::init_ops_and_esm(),
+      deno::deno_web::deno_web::init_ops_and_esm::<Permissions>(
+        Arc::new(deno::deno_web::BlobStore::default()),
         None,
       ),
       deno_webgpu::deno_webgpu::init_ops_and_esm(),
       deno_canvas::deno_canvas::init_ops_and_esm(),
-      deno_fetch::deno_fetch::init_ops_and_esm::<Permissions>(
-        deno_fetch::Options {
+      deno::deno_fetch::deno_fetch::init_ops_and_esm::<Permissions>(
+        deno::deno_fetch::Options {
           user_agent: user_agent.clone(),
           root_cert_store_provider: None,
           ..Default::default()
         },
       ),
-      deno_websocket::deno_websocket::init_ops_and_esm::<Permissions>(
+      deno::deno_websocket::deno_websocket::init_ops_and_esm::<Permissions>(
         user_agent, None, None,
       ),
       // TODO: support providing a custom seed for crypto
-      deno_crypto::deno_crypto::init_ops_and_esm(None),
+      deno::deno_crypto::deno_crypto::init_ops_and_esm(None),
       deno_broadcast_channel::deno_broadcast_channel::init_ops_and_esm(
         deno_broadcast_channel::InMemoryBroadcastChannel::default(),
       ),
-      deno_net::deno_net::init_ops_and_esm::<Permissions>(None, None),
-      deno_tls::deno_tls::init_ops_and_esm(),
-      deno_http::deno_http::init_ops_and_esm::<DefaultHttpPropertyExtractor>(
-        deno_http::Options::default(),
-      ),
-      deno_io::deno_io::init_ops_and_esm(Some(Default::default())),
-      deno_fs::deno_fs::init_ops_and_esm::<Permissions>(fs.clone()),
+      deno::deno_net::deno_net::init_ops_and_esm::<Permissions>(None, None),
+      deno::deno_tls::deno_tls::init_ops_and_esm(),
+      deno::deno_http::deno_http::init_ops_and_esm::<
+        DefaultHttpPropertyExtractor,
+      >(deno::deno_http::Options::default()),
+      deno::deno_io::deno_io::init_ops_and_esm(Some(Default::default())),
+      deno::deno_fs::deno_fs::init_ops_and_esm::<Permissions>(fs.clone()),
       ext_ai::ai::init_ops_and_esm(),
       ext_env::env::init_ops_and_esm(),
       ext_os::os::init_ops_and_esm(),
-      ext_user_workers::user_workers::init_ops_and_esm(),
-      ext_user_event_worker::user_event_worker::init_ops_and_esm(),
+      ext_workers::user_workers::init_ops_and_esm(),
+      ext_event_worker::user_event_worker::init_ops_and_esm(),
       ext_event_worker::js_interceptors::js_interceptors::init_ops_and_esm(),
       ext_core::core_main_js::init_ops_and_esm(),
       ext_core::net::core_net::init_ops_and_esm(),
@@ -281,7 +291,9 @@ mod supabase_startup_snapshot {
       // Full `Web Cache API` via `SqliteBackedCache` is disabled. Cache flow is
       // handled by `ext_ai: Cache Adapter`
       deno_cache::deno_cache::init_ops_and_esm::<SqliteBackedCache>(None),
-      ext_core::runtime::core_runtime::init_ops_and_esm(None),
+      ext_core::runtime::core_runtime::init_ops_and_esm::<PermissionsContainer>(
+        None,
+      ),
     ];
 
     let snapshot = create_snapshot(

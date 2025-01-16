@@ -63,7 +63,7 @@ mod v0 {
   use std::sync::Arc;
 
   use anyhow::Context;
-  use deno::deno_core::serde_json;
+  use deno_core::serde_json;
   use eszip::v2::EszipV2Modules;
   use eszip::EszipV2;
   use eszip_async_trait::AsyncEszipDataRead;

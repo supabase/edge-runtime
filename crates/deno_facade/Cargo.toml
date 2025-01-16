@@ -10,6 +10,7 @@ path = "lib.rs"
 
 [dependencies]
 deno.workspace = true
+deno_core.workspace = true
 
 eszip_async_trait.workspace = true
 fs.workspace = true

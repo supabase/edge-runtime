@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 use anyhow::Error;
-use deno::deno_core::url::Url;
+use deno_core::url::Url;
 use import_map::parse_from_json;
 use import_map::ImportMap;
 use urlencoding::decode;

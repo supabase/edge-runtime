@@ -6,6 +6,9 @@ use args::NpmCachingStrategy;
 use args::TypeCheckMode;
 use deno_config::deno_json::NodeModulesDirMode;
 use deno_config::workspace::Workspace;
+use deno_core::error::AnyError;
+use deno_core::ModuleSpecifier;
+use deno_npm::npm_rc::ResolvedNpmRc;
 
 pub mod args;
 pub mod auth_tokens;
@@ -27,9 +30,7 @@ pub mod versions;
 pub use deno_ast;
 pub use deno_cache_dir;
 pub use deno_config;
-pub use deno_core;
-use deno_core::error::AnyError;
-use deno_core::ModuleSpecifier;
+
 pub use deno_crypto;
 pub use deno_fetch;
 pub use deno_fs;
@@ -39,7 +40,6 @@ pub use deno_io;
 pub use deno_lockfile;
 pub use deno_net;
 pub use deno_npm;
-use deno_npm::npm_rc::ResolvedNpmRc;
 pub use deno_package_json;
 pub use deno_permissions;
 pub use deno_semver;

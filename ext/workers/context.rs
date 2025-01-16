@@ -1,9 +1,16 @@
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::atomic::AtomicUsize;
+use std::sync::Arc;
+
 use anyhow::anyhow;
 use anyhow::Error;
-use deno_config::JsxImportSourceConfig;
+use deno_config::deno_json::JsxImportSourceConfig;
+use deno_core::unsync::sync::AtomicFlag;
 use deno_core::FastString;
+use deno_facade::DecoratorType;
+use deno_facade::EszipPayloadKind;
 use enum_as_inner::EnumAsInner;
-use ext_core::util::sync::AtomicFlag;
 use ext_core::MetricSource;
 use ext_core::SharedMetricSource;
 use ext_event_worker::events::UncaughtExceptionEvent;
@@ -13,10 +20,6 @@ use fs::tmp_fs::TmpFsConfig;
 use hyper_v014::Body;
 use hyper_v014::Request;
 use hyper_v014::Response;
-use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::atomic::AtomicUsize;
-use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::unbounded_channel;
 use tokio::sync::oneshot;
@@ -25,9 +28,6 @@ use tokio::sync::Notify;
 use tokio::sync::OwnedSemaphorePermit;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
-
-use graph::DecoratorType;
-use graph::EszipPayloadKind;
 
 #[derive(Debug, Clone)]
 pub enum WorkerExitStatus {

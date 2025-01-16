@@ -10,14 +10,14 @@ use std::sync::Arc;
 use anyhow::bail;
 use anyhow::Context;
 use deno::deno_ast;
-use deno::deno_core::url::Url;
-use deno::deno_core::FastString;
-use deno::deno_core::JsBuffer;
-use deno::deno_core::ModuleSpecifier;
 use deno::deno_fs::FileSystem;
 use deno::deno_fs::RealFs;
 use deno::deno_npm::NpmSystemInfo;
 use deno::npm::InnerCliNpmResolverRef;
+use deno_core::url::Url;
+use deno_core::FastString;
+use deno_core::JsBuffer;
+use deno_core::ModuleSpecifier;
 use error::EszipError;
 use eszip::v2::EszipV2Module;
 use eszip::v2::EszipV2Modules;
@@ -50,10 +50,10 @@ use crate::extract_modules;
 use crate::graph::create_eszip_from_graph_raw;
 use crate::graph::create_graph;
 
-mod migrate;
 mod parse;
 
 pub mod error;
+pub mod migrate;
 
 #[derive(Debug)]
 pub enum EszipPayloadKind {

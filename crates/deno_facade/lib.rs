@@ -6,7 +6,6 @@ use std::path::PathBuf;
 use ::eszip::EszipV2;
 use deno_core::url::Url;
 use eszip::extract_eszip;
-use eszip::EszipPayloadKind;
 use eszip::ExtractEszipPayload;
 use serde::Deserialize;
 use serde::Serialize;
@@ -21,9 +20,11 @@ pub mod import_map;
 pub mod jsr;
 pub mod jsx_util;
 
-pub use deno::deno_core;
-
 pub use ::eszip::v2::Checksum;
+pub use eszip::migrate;
+pub use eszip::payload_to_eszip;
+pub use eszip::EszipPayloadKind;
+pub use eszip::LazyLoadableEszip;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

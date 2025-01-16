@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 deno.workspace = true
+deno_core.workspace = true
 
 deno_broadcast_channel.workspace = true
 deno_cache.workspace = true
@@ -90,6 +91,7 @@ tungstenite = { version = "0.21.0", default-features = false, features = ["hands
 
 [build-dependencies]
 deno.workspace = true
+deno_core.workspace = true
 
 deno_broadcast_channel.workspace = true
 deno_cache.workspace = true

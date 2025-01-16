@@ -677,8 +677,7 @@ where
     .await?;
 
     let RuntimeProviders {
-      node_resolver,
-      npm_resolver,
+      node_services,
       vfs,
       module_loader,
       module_code,
@@ -717,29 +716,26 @@ where
       Arc::new(DenoCompileFileSystem::from_rc(vfs))
     })?;
 
-    /* NOTE(kallebysantos): Cache via SqliteBackedCache is disabled.
-     *
-     * ```
-     * let cache_base_dir = dirs::cache_dir()
-     *     .context("could not resolve cache directory")?
-     *     .join("web_caches");
-     *
-     * tokio::fs::create_dir_all(cache_base_dir.as_path())
-     *     .await
-     *     .context("could not make cache directory")?;
-     *
-     * struct CacheStorageDir(TempDir);
-     *
-     * let cache_storage_dir = CacheStorageDir(
-     *     tempfile::tempdir_in(cache_base_dir).context("could not make cache directory")?,
-     * );
-     *
-     * let cache_backend = CreateCache(Arc::new({
-     *     let dir = cache_storage_dir.0.path().to_path_buf();
-     *     move || SqliteBackedCache::new(dir.clone())
-     * }));
-     * ```
-     */
+    // NOTE(kallebysantos): Cache via SqliteBackedCache is disabled.
+    //
+    // let cache_base_dir = dirs::cache_dir()
+    //     .context("could not resolve cache directory")?
+    //     .join("web_caches");
+    //
+    // tokio::fs::create_dir_all(cache_base_dir.as_path())
+    //     .await
+    //     .context("could not make cache directory")?;
+    //
+    // struct CacheStorageDir(TempDir);
+    //
+    // let cache_storage_dir = CacheStorageDir(
+    //     tempfile::tempdir_in(cache_base_dir).context("could not make cache directory")?,
+    // );
+    //
+    // let cache_backend = CreateCache(Arc::new({
+    //     let dir = cache_storage_dir.0.path().to_path_buf();
+    //     move || SqliteBackedCache::new(dir.clone())
+    // }));
 
     let mod_code = module_code;
     let extensions = vec![
@@ -792,8 +788,7 @@ where
       // NOTE(AndresP): Order is matters. Otherwise, it will lead to hard
       // errors such as SIGBUS depending on the platform.
       ext_node::deno_node::init_ops::<Permissions>(
-        Some(node_resolver),
-        Some(npm_resolver),
+        Some(node_services),
         file_system,
       ),
       deno_cache::deno_cache::init_ops::<SqliteBackedCache>(None),

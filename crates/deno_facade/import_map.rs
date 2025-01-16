@@ -1,11 +1,12 @@
 use anyhow::anyhow;
 use anyhow::Error;
-use deno_core::url::Url;
+use deno::deno_core::url::Url;
 use import_map::parse_from_json;
 use import_map::ImportMap;
+use urlencoding::decode;
+
 use std::fs;
 use std::path::Path;
-use urlencoding::decode;
 
 pub fn load_import_map(
   maybe_path: Option<String>,

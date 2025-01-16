@@ -1,24 +1,27 @@
-use crate::emitter::EmitterFactory;
-use crate::errors::EszipError;
-use crate::graph_util::create_eszip_from_graph_raw;
-use crate::graph_util::create_graph;
+use std::borrow::Cow;
+use std::collections::HashMap;
+use std::io::Cursor;
+use std::io::SeekFrom;
+use std::io::Write;
+use std::path::Path;
+use std::path::PathBuf;
+use std::sync::Arc;
+
 use anyhow::bail;
 use anyhow::Context;
-use deno_ast::MediaType;
-use deno_core::futures::io::AllowStdIo;
-use deno_core::futures::io::BufReader;
-use deno_core::url::Url;
-use deno_core::FastString;
-use deno_core::JsBuffer;
-use deno_core::ModuleSpecifier;
-use deno_fs::FileSystem;
-use deno_fs::RealFs;
-use deno_npm::NpmSystemInfo;
+use deno::deno_ast;
+use deno::deno_core::url::Url;
+use deno::deno_core::FastString;
+use deno::deno_core::JsBuffer;
+use deno::deno_core::ModuleSpecifier;
+use deno::deno_fs::FileSystem;
+use deno::deno_fs::RealFs;
+use deno::deno_npm::NpmSystemInfo;
+use deno::npm::InnerCliNpmResolverRef;
+use error::EszipError;
 use eszip::v2::EszipV2Module;
 use eszip::v2::EszipV2Modules;
 use eszip::v2::EszipV2SourceSlot;
-use eszip::v2::Options;
-use eszip::v2::Section;
 use eszip::EszipV2;
 use eszip::Module;
 use eszip::ModuleKind;
@@ -33,70 +36,24 @@ use eszip_async_trait::VFS_ESZIP_KEY;
 use fs::build_vfs;
 use fs::VfsOpts;
 use futures::future::OptionFuture;
+use futures::io::AllowStdIo;
+use futures::io::BufReader;
 use futures::AsyncReadExt;
 use futures::AsyncSeekExt;
 use glob::glob;
-use log::error;
-use npm::InnerCliNpmResolverRef;
 use scopeguard::ScopeGuard;
-use serde::Deserialize;
-use serde::Serialize;
-use std::borrow::Cow;
-use std::collections::HashMap;
-use std::fs::create_dir_all;
-use std::fs::File;
-use std::io::Cursor;
-use std::io::SeekFrom;
-use std::io::Write;
-use std::path::Path;
-use std::path::PathBuf;
-use std::sync::Arc;
+use tokio::fs::create_dir_all;
 use tokio::sync::Mutex;
 
-mod eszip_parse;
+use crate::emitter::EmitterFactory;
+use crate::extract_modules;
+use crate::graph::create_eszip_from_graph_raw;
+use crate::graph::create_graph;
 
-pub mod emitter;
-pub mod errors;
-pub mod eszip_migrate;
-pub mod graph_fs;
-pub mod graph_util;
-pub mod import_map;
-pub mod jsr;
-pub mod jsx_util;
-pub mod resolver;
+mod migrate;
+mod parse;
 
-pub use eszip::v2::Checksum;
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum DecoratorType {
-  /// Use TC39 Decorators Proposal - https://github.com/tc39/proposal-decorators
-  Tc39,
-  /// Use TypeScript experimental decorators.
-  Typescript,
-  /// Use TypeScript experimental decorators. It also emits metadata.
-  TypescriptWithMetadata,
-}
-
-impl Default for DecoratorType {
-  fn default() -> Self {
-    Self::Typescript
-  }
-}
-
-impl DecoratorType {
-  fn is_use_decorators_proposal(self) -> bool {
-    matches!(self, Self::Tc39)
-  }
-
-  fn is_use_ts_decorators(self) -> bool {
-    matches!(self, Self::Typescript | Self::TypescriptWithMetadata)
-  }
-
-  fn is_emit_metadata(self) -> bool {
-    matches!(self, Self::TypescriptWithMetadata)
-  }
-}
+pub mod error;
 
 #[derive(Debug)]
 pub enum EszipPayloadKind {
@@ -191,7 +148,10 @@ impl LazyLoadableEszip {
         match section.read_data_section_by_specifier(&specifier).await {
           Ok(_) => {}
           Err(err) => {
-            error!("failed to read module data from the data section: {}", err);
+            log::error!(
+              "failed to read module data from the data section: {}",
+              err
+            );
           }
         }
       }));
@@ -246,7 +206,7 @@ pub enum EszipDataSectionMetadata {
 pub struct EszipDataSection {
   inner: Arc<Mutex<Cursor<Vec<u8>>>>,
   modules: EszipV2Modules,
-  options: Options,
+  options: eszip::v2::Options,
   initial_offset: u64,
   sources_len: Arc<Mutex<Option<u64>>>,
   locs_by_specifier:
@@ -259,7 +219,7 @@ impl EszipDataSection {
     inner: Cursor<Vec<u8>>,
     initial_offset: u64,
     modules: EszipV2Modules,
-    options: Options,
+    options: eszip::v2::Options,
   ) -> Self {
     Self {
       inner: Arc::new(Mutex::new(inner)),
@@ -362,9 +322,12 @@ impl EszipDataSection {
         Self::wake_source_slot(modules, specifier, || EszipV2SourceSlot::Taken);
       });
 
-      let source_bytes =
-        Section::read_with_size(&mut io, self.options, loc.source_length)
-          .await?;
+      let source_bytes = eszip::v2::Section::read_with_size(
+        &mut io,
+        self.options,
+        loc.source_length,
+      )
+      .await?;
 
       if !source_bytes.is_checksum_valid() {
         return Err(ParseError::InvalidV2SourceHash(specifier.to_string()))
@@ -424,9 +387,12 @@ impl EszipDataSection {
         });
       });
 
-      let source_map_bytes =
-        Section::read_with_size(&mut io, self.options, loc.source_map_length)
-          .await?;
+      let source_map_bytes = eszip::v2::Section::read_with_size(
+        &mut io,
+        self.options,
+        loc.source_map_length,
+      )
+      .await?;
 
       if !source_map_bytes.is_checksum_valid() {
         return Err(ParseError::InvalidV2SourceHash(specifier.to_string()))
@@ -534,7 +500,8 @@ impl EszipDataSection {
       }
 
       let source_bytes =
-        Section::read_with_size(&mut io, this.options, length).await?;
+        eszip::v2::Section::read_with_size(&mut io, this.options, length)
+          .await?;
 
       if !source_bytes.is_checksum_valid() {
         return Err(ParseError::InvalidV2SourceHash(specifier));
@@ -566,7 +533,8 @@ impl EszipDataSection {
       }
 
       let source_map_bytes =
-        Section::read_with_size(&mut io, this.options, length).await?;
+        eszip::v2::Section::read_with_size(&mut io, this.options, length)
+          .await?;
 
       if !source_map_bytes.is_checksum_valid() {
         return Err(ParseError::InvalidV2SourceHash(specifier));
@@ -663,7 +631,7 @@ pub async fn payload_to_eszip(
       let mut io = AllowStdIo::new(Cursor::new(bytes));
       let mut bufreader = BufReader::new(&mut io);
 
-      let eszip = eszip_parse::parse_v2_header(&mut bufreader).await?;
+      let eszip = parse::parse_v2_header(&mut bufreader).await?;
 
       let initial_offset = bufreader.stream_position().await.unwrap();
       let data_section = EszipDataSection::new(
@@ -683,18 +651,40 @@ pub async fn generate_binary_eszip<P>(
   emitter_factory: Arc<EmitterFactory>,
   maybe_module_code: Option<FastString>,
   maybe_import_map_url: Option<String>,
-  maybe_checksum: Option<Checksum>,
+  maybe_checksum: Option<eszip::v2::Checksum>,
 ) -> Result<EszipV2, anyhow::Error>
 where
   P: AsRef<Path>,
 {
   let file = file.as_ref();
+  let cjs_tracker = emitter_factory.cjs_tracker()?.clone();
   let graph = create_graph(
     file.to_path_buf(),
     emitter_factory.clone(),
     &maybe_module_code,
   )
   .await?;
+
+  let specifier = ModuleSpecifier::parse(
+    &Url::from_file_path(file)
+      .map(|it| Cow::Owned(it.to_string()))
+      .ok()
+      .unwrap_or("http://localhost".into()),
+  )
+  .unwrap();
+
+  let m = graph
+    .get(&specifier)
+    .context("cannot get a module")?
+    .js()
+    .context("not a js module")?;
+
+  let media_type = m.media_type;
+  let is_cjs = cjs_tracker.is_cjs_with_known_is_script(
+    &specifier,
+    m.media_type,
+    m.is_script,
+  )?;
 
   let mut eszip =
     create_eszip_from_graph_raw(graph, Some(emitter_factory.clone())).await?;
@@ -705,20 +695,19 @@ where
   let source_code: Arc<str> = if let Some(code) = maybe_module_code {
     code.as_str().into()
   } else {
-    String::from_utf8(RealFs.read_file_sync(file, None)?)?.into()
+    String::from_utf8(RealFs.read_file_sync(file, None)?.to_vec())?.into()
   };
 
-  let emit_source = emitter_factory.emitter().unwrap().emit_parsed_source(
-    &ModuleSpecifier::parse(
-      &Url::from_file_path(file)
-        .map(|it| Cow::Owned(it.to_string()))
-        .ok()
-        .unwrap_or("http://localhost".into()),
+  let emit_source = emitter_factory
+    .emitter()
+    .unwrap()
+    .emit_parsed_source(
+      &specifier,
+      media_type,
+      deno_ast::ModuleKind::from_is_cjs(is_cjs),
+      &source_code,
     )
-    .unwrap(),
-    MediaType::from_path(file),
-    &source_code,
-  )?;
+    .await?;
 
   let bin_code: Arc<[u8]> = emit_source.as_bytes().into();
   let resolver = emitter_factory.npm_resolver().await.cloned()?;
@@ -863,7 +852,7 @@ where
         }
 
         Err(_) => {
-          error!("Error reading pattern {} for static files", pattern)
+          log::error!("Error reading pattern {} for static files", pattern)
         }
       };
     }
@@ -899,78 +888,20 @@ pub struct ExtractEszipPayload {
   pub folder: PathBuf,
 }
 
-fn ensure_unix_relative_path(path: &Path) -> &Path {
-  assert!(path.is_relative());
-  assert!(!path.to_string_lossy().starts_with('\\'));
-  path
-}
-
-fn create_module_path(
-  global_specifier: &str,
-  entry_path: &Path,
-  output_folder: &Path,
-) -> PathBuf {
-  let cleaned_specifier =
-    global_specifier.replace(entry_path.to_str().unwrap(), "");
-  let module_path = PathBuf::from(cleaned_specifier);
-
-  if let Some(parent) = module_path.parent() {
-    if parent.parent().is_some() {
-      let output_folder_and_mod_folder = output_folder.join(
-        parent
-          .strip_prefix("/")
-          .unwrap_or_else(|_| ensure_unix_relative_path(parent)),
-      );
-      if !output_folder_and_mod_folder.exists() {
-        create_dir_all(&output_folder_and_mod_folder).unwrap();
-      }
-    }
-  }
-
-  output_folder.join(
-    module_path
-      .strip_prefix("/")
-      .unwrap_or_else(|_| ensure_unix_relative_path(&module_path)),
-  )
-}
-
-async fn extract_modules(
-  eszip: &EszipV2,
-  specifiers: &[String],
-  lowest_path: &str,
-  output_folder: &Path,
-) {
-  let main_path = PathBuf::from(lowest_path);
-  let entry_path = main_path.parent().unwrap();
-  for global_specifier in specifiers {
-    let module_path =
-      create_module_path(global_specifier, entry_path, output_folder);
-    let module_content = eszip
-      .get_module(global_specifier)
-      .unwrap()
-      .take_source()
-      .await
-      .unwrap();
-
-    let mut file = File::create(&module_path).unwrap();
-    file.write_all(module_content.as_ref()).unwrap();
-  }
-}
-
 pub async fn extract_eszip(payload: ExtractEszipPayload) -> bool {
   let output_folder = payload.folder;
   let eszip = match payload_to_eszip(payload.data).await {
     Ok(v) => v,
     Err(err) => {
-      error!("{err:?}");
+      log::error!("{err:?}");
       return false;
     }
   };
 
-  let mut eszip = match eszip_migrate::try_migrate_if_needed(eszip).await {
+  let mut eszip = match migrate::try_migrate_if_needed(eszip).await {
     Ok(v) => v,
     Err(_old) => {
-      error!("eszip migration failed (give up extract job)");
+      log::error!("eszip migration failed (give up extract job)");
       return false;
     }
   };
@@ -978,68 +909,17 @@ pub async fn extract_eszip(payload: ExtractEszipPayload) -> bool {
   eszip.ensure_read_all().await.unwrap();
 
   if !output_folder.exists() {
-    create_dir_all(&output_folder).unwrap();
+    create_dir_all(&output_folder).await.unwrap();
   }
 
   let file_specifiers = extract_file_specifiers(&eszip);
   if let Some(lowest_path) =
-    ext_core::util::path::find_lowest_path(&file_specifiers)
+    deno::util::path::find_lowest_path(&file_specifiers)
   {
     extract_modules(&eszip, &file_specifiers, &lowest_path, &output_folder)
       .await;
     true
   } else {
     panic!("Path seems to be invalid");
-  }
-}
-
-pub async fn extract_from_file(
-  eszip_file: PathBuf,
-  output_path: PathBuf,
-) -> bool {
-  let eszip_content = std::fs::read(eszip_file).expect("File does not exist");
-
-  extract_eszip(ExtractEszipPayload {
-    data: EszipPayloadKind::VecKind(eszip_content),
-    folder: output_path,
-  })
-  .await
-}
-
-#[cfg(test)]
-mod test {
-  use crate::extract_eszip;
-  use crate::generate_binary_eszip;
-  use crate::EmitterFactory;
-  use crate::EszipPayloadKind;
-  use crate::ExtractEszipPayload;
-  use std::fs::remove_dir_all;
-  use std::path::PathBuf;
-  use std::sync::Arc;
-
-  #[tokio::test]
-  #[allow(clippy::arc_with_non_send_sync)]
-  async fn test_module_code_no_eszip() {
-    let eszip = generate_binary_eszip(
-      PathBuf::from("../base/test_cases/npm/index.ts"),
-      Arc::new(EmitterFactory::default()),
-      None,
-      None,
-      None,
-    )
-    .await;
-
-    let eszip = eszip.unwrap();
-
-    assert!(
-      extract_eszip(ExtractEszipPayload {
-        data: EszipPayloadKind::Eszip(eszip),
-        folder: PathBuf::from("../base/test_cases/extracted-npm/"),
-      })
-      .await
-    );
-
-    assert!(PathBuf::from("../base/test_cases/extracted-npm/hello.js").exists());
-    remove_dir_all(PathBuf::from("../base/test_cases/extracted-npm/")).unwrap();
   }
 }

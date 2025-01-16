@@ -9,13 +9,12 @@ name = "edge-runtime"
 path = "src/main.rs"
 
 [dependencies]
-deno_core.workspace = true
+deno_facade.workspace = true
 
 anyhow.workspace = true
 base.workspace = true
 clap.workspace = true
 glob.workspace = true
-graph.workspace = true
 log.workspace = true
 once_cell.workspace = true
 tokio.workspace = true

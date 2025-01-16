@@ -3,6 +3,7 @@
 use crate::args::config_to_deno_graph_workspace_member;
 use crate::args::jsr_url;
 use crate::args::CliLockfile;
+// use crate::args::GraphOptionsProvider;
 // use crate::args::CliOptions;
 pub use crate::args::NpmCachingStrategy;
 use crate::args::DENO_DISABLE_PEDANTIC_NODE_WARNINGS;
@@ -22,6 +23,7 @@ use crate::resolver::SloppyImportsCachedFs;
 // use crate::tools::check::TypeChecker;
 // use crate::util::file_watcher::WatcherCommunicator;
 use crate::util::fs::canonicalize_path;
+use crate::DenoOptions;
 
 use deno_config::deno_json::JsxImportSourceConfig;
 use deno_config::workspace::JsrPackageConfig;
@@ -221,7 +223,7 @@ pub struct CreateGraphOptions<'a> {
 }
 
 pub struct ModuleGraphCreator {
-  options: Arc<CliOptions>,
+  options: Arc<dyn DenoOptions>,
   npm_resolver: Arc<dyn CliNpmResolver>,
   module_graph_builder: Arc<ModuleGraphBuilder>,
   // type_checker: Arc<TypeChecker>,
@@ -229,7 +231,7 @@ pub struct ModuleGraphCreator {
 
 impl ModuleGraphCreator {
   pub fn new(
-    options: Arc<CliOptions>,
+    options: Arc<dyn DenoOptions>,
     npm_resolver: Arc<dyn CliNpmResolver>,
     module_graph_builder: Arc<ModuleGraphBuilder>,
     // type_checker: Arc<TypeChecker>,
@@ -294,18 +296,18 @@ impl ModuleGraphCreator {
         self.0.load(specifier, options)
       }
     }
-    fn graph_has_external_remote(graph: &ModuleGraph) -> bool {
-      // Earlier on, we marked external non-JSR modules as external.
-      // If the graph contains any of those, it would cause type checking
-      // to crash, so since publishing is going to fail anyway, skip type
-      // checking.
-      graph.modules().any(|module| match module {
-        deno_graph::Module::External(external_module) => {
-          matches!(external_module.specifier.scheme(), "http" | "https")
-        }
-        _ => false,
-      })
-    }
+    // fn graph_has_external_remote(graph: &ModuleGraph) -> bool {
+    //   // Earlier on, we marked external non-JSR modules as external.
+    //   // If the graph contains any of those, it would cause type checking
+    //   // to crash, so since publishing is going to fail anyway, skip type
+    //   // checking.
+    //   graph.modules().any(|module| match module {
+    //     deno_graph::Module::External(external_module) => {
+    //       matches!(external_module.specifier.scheme(), "http" | "https")
+    //     }
+    //     _ => false,
+    //   })
+    // }
 
     let mut roots = Vec::new();
     for package_config in package_configs {
@@ -409,7 +411,7 @@ pub struct BuildFastCheckGraphOptions<'a> {
 pub struct ModuleGraphBuilder {
   caches: Arc<cache::Caches>,
   cjs_tracker: Arc<CjsTracker>,
-  cli_options: Arc<CliOptions>,
+  options: Arc<dyn DenoOptions>,
   file_fetcher: Arc<FileFetcher>,
   fs: Arc<dyn FileSystem>,
   global_http_cache: Arc<GlobalHttpCache>,
@@ -427,7 +429,7 @@ impl ModuleGraphBuilder {
   pub fn new(
     caches: Arc<cache::Caches>,
     cjs_tracker: Arc<CjsTracker>,
-    cli_options: Arc<CliOptions>,
+    options: Arc<dyn DenoOptions>,
     file_fetcher: Arc<FileFetcher>,
     fs: Arc<dyn FileSystem>,
     global_http_cache: Arc<GlobalHttpCache>,
@@ -442,7 +444,7 @@ impl ModuleGraphBuilder {
     Self {
       caches,
       cjs_tracker,
-      cli_options,
+      options,
       file_fetcher,
       fs,
       global_http_cache,
@@ -537,7 +539,7 @@ impl ModuleGraphBuilder {
     }
 
     let maybe_imports = if options.graph_kind.include_types() {
-      self.cli_options.to_compiler_option_types()?
+      self.options.to_compiler_option_types()?
     } else {
       Vec::new()
     };
@@ -592,7 +594,7 @@ impl ModuleGraphBuilder {
     // ensure an "npm install" is done if the user has explicitly
     // opted into using a node_modules directory
     if self
-      .cli_options
+      .options
       .node_modules_dir()?
       .map(|m| m.uses_node_modules_dir())
       .unwrap_or(false)
@@ -693,9 +695,8 @@ impl ModuleGraphBuilder {
     let parser = self.parsed_source_cache.as_capturing_parser();
     let cli_resolver = &self.resolver;
     let graph_resolver = self.create_graph_resolver()?;
-    let graph_npm_resolver = cli_resolver.create_graph_npm_resolver(
-      self.cli_options.default_npm_caching_strategy(),
-    );
+    let graph_npm_resolver = cli_resolver
+      .create_graph_npm_resolver(self.options.default_npm_caching_strategy());
 
     graph.build_fast_check_type_graph(
       deno_graph::BuildFastCheckTypeGraphOptions {
@@ -727,7 +728,7 @@ impl ModuleGraphBuilder {
       self.in_npm_pkg_checker.clone(),
       self.module_info_cache.clone(),
       cache::FetchCacherOptions {
-        file_header_overrides: self.cli_options.resolve_file_header_overrides(),
+        file_header_overrides: self.options.resolve_file_header_overrides(),
         permissions,
         is_deno_publish: false,
       },
@@ -754,12 +755,12 @@ impl ModuleGraphBuilder {
       &self.fs,
       roots,
       GraphValidOptions {
-        kind: if self.cli_options.type_check_mode().is_true() {
+        kind: if self.options.type_check_mode().is_true() {
           GraphKind::All
         } else {
           GraphKind::CodeOnly
         },
-        check_js: self.cli_options.check_js(),
+        check_js: self.options.check_js(),
         exit_integrity_errors: true,
       },
     )
@@ -767,7 +768,7 @@ impl ModuleGraphBuilder {
 
   fn create_graph_resolver(&self) -> Result<CliGraphResolver, AnyError> {
     let jsx_import_source_config = self
-      .cli_options
+      .options
       .workspace()
       .to_maybe_jsx_import_source_config()?;
     Ok(CliGraphResolver {

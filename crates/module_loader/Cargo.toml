@@ -9,18 +9,12 @@ license.workspace = true
 path = "lib.rs"
 
 [dependencies]
-deno_ast.workspace = true
+deno.workspace = true
 deno_config.workspace = true
-deno_core.workspace = true
-deno_fs.workspace = true
-deno_npm.workspace = true
-deno_semver.workspace = true
-deno_tls.workspace = true
 
-# npm.workspace = true
+deno_facade.workspace = true
 eszip_async_trait.workspace = true
 fs.workspace = true
-graph.workspace = true
 
 ext_core.workspace = true
 ext_node.workspace = true

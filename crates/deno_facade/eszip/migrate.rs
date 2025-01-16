@@ -2,7 +2,7 @@ use log::error;
 use log::warn;
 
 use crate::errors::EszipError;
-use crate::LazyLoadableEszip;
+use crate::eszip::LazyLoadableEszip;
 
 pub async fn try_migrate_if_needed(
   mut eszip: LazyLoadableEszip,
@@ -63,7 +63,7 @@ mod v0 {
   use std::sync::Arc;
 
   use anyhow::Context;
-  use deno_core::serde_json;
+  use deno::deno_core::serde_json;
   use eszip::v2::EszipV2Modules;
   use eszip::EszipV2;
   use eszip_async_trait::AsyncEszipDataRead;
@@ -74,8 +74,8 @@ mod v0 {
   use serde::Deserialize;
   use serde::Serialize;
 
-  use crate::eszip_migrate::v1;
-  use crate::LazyLoadableEszip;
+  use crate::eszip::migrate::v1;
+  use crate::eszip::LazyLoadableEszip;
 
   #[derive(Serialize, Deserialize, Debug)]
   pub struct Directory {
@@ -285,9 +285,8 @@ mod v1_1 {
   use eszip_async_trait::VFS_ESZIP_KEY;
   use futures::future::OptionFuture;
 
-  use crate::LazyLoadableEszip;
-
   use super::v1;
+  use crate::eszip::LazyLoadableEszip;
 
   pub async fn try_migrate_v1_v1_1(
     v1_eszip: &mut LazyLoadableEszip,
@@ -360,16 +359,17 @@ mod v1_1 {
 
 #[cfg(test)]
 mod test {
+  use std::path::PathBuf;
+
   use eszip_async_trait::AsyncEszipDataRead;
   use eszip_async_trait::VFS_ESZIP_KEY;
-  use std::path::PathBuf;
   use tokio::fs;
 
-  use crate::eszip_migrate::try_migrate_if_needed;
-  use crate::extract_eszip;
-  use crate::payload_to_eszip;
-  use crate::EszipPayloadKind;
-  use crate::ExtractEszipPayload;
+  use crate::eszip::extract_eszip;
+  use crate::eszip::migrate::try_migrate_if_needed;
+  use crate::eszip::payload_to_eszip;
+  use crate::eszip::EszipPayloadKind;
+  use crate::eszip::ExtractEszipPayload;
 
   const MIGRATE_TEST_DIR: &str = "../base/test_cases/eszip-migration";
 

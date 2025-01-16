@@ -1,5 +1,6 @@
 use crate::Url;
-use deno_core::ModuleSpecifier;
+
+use deno::deno_core::ModuleSpecifier;
 use eszip::deno_graph;
 use once_cell::sync::Lazy;
 

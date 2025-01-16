@@ -6,9 +6,9 @@ members = [
   "crates/base_mem_check",
   "crates/base_rt",
   "crates/cpu_timer",
+  "crates/deno_facade",
   "crates/eszip_async_trait",
   "crates/fs",
-  "crates/graph",
   "crates/http_utils",
   "crates/module_loader",
   "deno",
@@ -70,9 +70,9 @@ base_mem_check = { version = "0.1.0", path = "./crates/base_mem_check" }
 base_rt = { version = "0.1.0", path = "./crates/base_rt" }
 cli = { version = "0.1.0", path = "./cli" }
 cpu_timer = { version = "0.1.0", path = "./crates/cpu_timer" }
+deno_facade = { version = "0.1.0", path = "./crates/deno_facade" }
 eszip_async_trait = { version = "0.1.0", path = "./crates/eszip_async_trait" }
 fs = { version = "0.1.0", path = "./crates/fs" }
-graph = { version = "0.1.0", path = "./crates/graph" }
 http_utils = { version = "0.1.0", path = "./crates/http_utils" }
 module_loader = { version = "0.1.0", path = "./crates/module_loader" }
 

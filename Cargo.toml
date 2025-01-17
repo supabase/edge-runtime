@@ -13,13 +13,12 @@ members = [
   "crates/module_loader",
   "deno",
   "ext/ai",
-  "ext/core",
   "ext/env",
   "ext/event_worker",
   "ext/node",
   "ext/os",
+  "ext/runtime",
   "ext/workers",
-  # "upstream/npm",
 ]
 
 [workspace.package]
@@ -44,6 +43,7 @@ deno_package_json = { version = "0.2.1", default-features = false }
 deno_path_util = "=0.2.1"
 deno_permissions = "0.42.0"
 deno_semver = "=0.6.1"
+deno_telemetry = "0.4.0"
 
 # upstream exts
 deno_broadcast_channel = "0.176.0"
@@ -78,11 +78,11 @@ module_loader = { version = "0.1.0", path = "./crates/module_loader" }
 
 # local exts
 ext_ai = { version = "0.1.0", path = "./ext/ai" }
-ext_core = { version = "0.1.0", path = "./ext/core" }
 ext_env = { version = "0.1.0", path = "./ext/env" }
 ext_event_worker = { version = "0.1.0", path = "./ext/event_worker" }
 ext_node = { version = "0.1.0", path = "./ext/node" }
 ext_os = { version = "0.1.0", path = "./ext/os" }
+ext_runtime = { version = "0.1.0", path = "./ext/runtime" }
 ext_workers = { version = "0.1.0", path = "./ext/workers" }
 
 # local deps
@@ -152,6 +152,7 @@ pin-project = "1.0.11" # don't pin because they yank crates from cargo
 rand = "=0.8.5"
 regex = "^1.7.0"
 reqwest = { version = "0.12.5", default-features = false, features = ["rustls-tls", "stream", "gzip", "brotli", "socks", "json", "http2"] } # pinned because of https://github.com/seanmonstar/reqwest/pull/1955
+reqwest_v011 = { package = "reqwest", version = "0.11", features = ["stream", "json", "multipart"] }
 ring = "^0.17.0"
 rustls = { version = "0.23.11", default-features = false, features = ["logging", "std", "tls12", "ring"] }
 rustls-pemfile = "2"

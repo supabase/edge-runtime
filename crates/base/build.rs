@@ -245,7 +245,8 @@ mod supabase_startup_snapshot {
     let user_agent = String::from("supabase");
     let fs = Arc::new(deno::deno_fs::RealFs);
     let extensions: Vec<Extension> = vec![
-      deno_webidl::deno_webidl::init_ops_and_esm(),
+      deno::deno_telemetry::deno_telemetry::init_ops_and_esm(),
+      deno::deno_webidl::deno_webidl::init_ops_and_esm(),
       deno_console::deno_console::init_ops_and_esm(),
       deno::deno_url::deno_url::init_ops_and_esm(),
       deno::deno_web::deno_web::init_ops_and_esm::<Permissions>(
@@ -282,18 +283,16 @@ mod supabase_startup_snapshot {
       ext_workers::user_workers::init_ops_and_esm(),
       ext_event_worker::user_event_worker::init_ops_and_esm(),
       ext_event_worker::js_interceptors::js_interceptors::init_ops_and_esm(),
-      ext_core::core_main_js::init_ops_and_esm(),
-      ext_core::net::core_net::init_ops_and_esm(),
-      ext_core::http::core_http::init_ops_and_esm(),
-      ext_core::http_start::core_http_start::init_ops_and_esm(),
+      ext_runtime::runtime_bootstrap::init_ops::<PermissionsContainer>(None),
+      ext_runtime::runtime_net::init_ops_and_esm(),
+      ext_runtime::runtime_http::init_ops_and_esm(),
+      ext_runtime::runtime_http_start::init_ops_and_esm(),
       ext_node::deno_node::init_ops_and_esm::<Permissions>(None, fs),
       // NOTE(kallebysantos):
       // Full `Web Cache API` via `SqliteBackedCache` is disabled. Cache flow is
       // handled by `ext_ai: Cache Adapter`
       deno_cache::deno_cache::init_ops_and_esm::<SqliteBackedCache>(None),
-      ext_core::runtime::core_runtime::init_ops_and_esm::<PermissionsContainer>(
-        None,
-      ),
+      ext_runtime::runtime::init_ops_and_esm(),
     ];
 
     let snapshot = create_snapshot(

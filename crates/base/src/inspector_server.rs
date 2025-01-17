@@ -1,4 +1,4 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 // Below code bits are cherry-picked from
 // `https://github.com/denoland/deno/blob/v1.37.2/runtime/inspector_server.rs`.
@@ -22,6 +22,8 @@ use deno_core::serde_json::Value;
 use deno_core::unsync::spawn;
 use deno_core::url::Url;
 use deno_core::InspectorMsg;
+use deno_core::InspectorSessionKind;
+use deno_core::InspectorSessionOptions;
 use deno_core::InspectorSessionProxy;
 use deno_core::JsRuntime;
 use enum_as_inner::EnumAsInner;
@@ -248,6 +250,9 @@ fn handle_ws_request(
     let inspector_session_proxy = InspectorSessionProxy {
       tx: outbound_tx,
       rx: inbound_rx,
+      options: InspectorSessionOptions {
+        kind: InspectorSessionKind::Blocking,
+      },
     };
 
     eprintln!("Debugger session started.");
@@ -331,7 +336,7 @@ async fn server(
   let json_version_response = json!({
       "Browser": name,
       "Protocol-Version": "1.3",
-      "V8-Version": deno_core::v8_version(),
+      "V8-Version": deno_core::v8::V8::get_version(),
   });
 
   let service_fn = hyper::service::service_fn({

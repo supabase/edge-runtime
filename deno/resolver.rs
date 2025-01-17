@@ -45,6 +45,8 @@ pub type CliDenoResolver = deno_resolver::DenoResolver<
   DenoFsNodeResolverEnv,
   SloppyImportsCachedFs,
 >;
+pub type CliNpmReqResolver =
+  deno_resolver::npm::NpmReqResolver<CliDenoResolverFs, DenoFsNodeResolverEnv>;
 
 pub struct ModuleCodeStringSource {
   pub code: ModuleSourceCode,

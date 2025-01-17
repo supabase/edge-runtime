@@ -1,5 +1,8 @@
 extern crate core;
 
+mod inspector_server;
+mod timeout;
+
 pub mod commands;
 pub mod deno_runtime;
 pub mod macros;
@@ -8,11 +11,8 @@ pub mod snapshot;
 pub mod utils;
 pub mod worker;
 
-mod inspector_server;
-mod timeout;
-
-pub use ext_core::cache::CacheSetting;
-pub use graph::DecoratorType;
+pub use deno::args::CacheSetting;
+pub use deno_facade::DecoratorType;
 pub use inspector_server::InspectorOption;
 
 #[cfg(any(test, feature = "tracing"))]

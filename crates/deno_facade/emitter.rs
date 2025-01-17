@@ -100,8 +100,6 @@ pub struct LockfileOpts {
 }
 
 pub struct EmitterFactory {
-  // cjs_resolutions: Deferred<Arc<CjsResolutionStore>>,
-  // cli_node_resolver: Deferred<Arc<CliNodeResolver>>,
   cache_strategy: Option<CacheSetting>,
   cjs_tracker: Deferred<Arc<CjsTracker>>,
   deno_dir: DenoDir,

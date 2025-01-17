@@ -1,4 +1,4 @@
-import EventStreamParser from "ext:ai/js/util/event_stream_parser.mjs";
+import EventStreamParser from "ext:ai/util/event_stream_parser.mjs";
 /**
  * A Web stream which handles Server-Sent Events from a binary ReadableStream like you get from the fetch API.
  * Implements the TransformStream interface, and can be used with the Streams API as such.

@@ -43,9 +43,11 @@ pub use deno_npm;
 pub use deno_package_json;
 pub use deno_permissions;
 pub use deno_semver;
+pub use deno_telemetry;
 pub use deno_tls;
 pub use deno_url;
 pub use deno_web;
+pub use deno_webidl;
 pub use deno_websocket;
 pub use deno_webstorage;
 

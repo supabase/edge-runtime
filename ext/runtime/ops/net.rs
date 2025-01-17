@@ -1,3 +1,10 @@
+use std::borrow::Cow;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
+
 use base_rt::DenoRuntimeDropToken;
 use deno_core::error::bad_resource;
 use deno_core::error::AnyError;
@@ -9,17 +16,31 @@ use deno_core::OpState;
 use deno_core::Resource;
 use deno_core::ResourceId;
 use deno_net::ops::IpAddr;
-use std::borrow::Cow;
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::rc::Rc;
-use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::Ordering;
 use tokio::io;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::span;
 use tracing::Level;
+
+deno_core::extension!(
+  runtime_net,
+  middleware = |op| match op.name {
+    "op_net_listen_tcp" => op.with_implementation_from(&op_net_listen()),
+    "op_net_accept_tcp" => op.with_implementation_from(&op_net_accept()),
+
+    // disable listening on TLS, UDP and Unix sockets
+    "op_net_listen_tls" => op.with_implementation_from(&op_net_unsupported()),
+    "op_net_listen_udp" => op.with_implementation_from(&op_net_unsupported()),
+    "op_node_unstable_net_listen_udp" =>
+      op.with_implementation_from(&op_net_unsupported()),
+    "op_net_listen_unix" => op.with_implementation_from(&op_net_unsupported()),
+    "op_net_listen_unixpacket" =>
+      op.with_implementation_from(&op_net_unsupported()),
+    "op_node_unstable_net_listen_unixpacket" =>
+      op.with_implementation_from(&op_net_unsupported()),
+    _ => op,
+  }
+);
 
 pub struct TokioDuplexResource {
   id: usize,
@@ -211,23 +232,3 @@ pub async fn op_net_accept(
 pub fn op_net_unsupported(_state: &mut OpState) -> Result<(), AnyError> {
   Err(deno_core::error::not_supported())
 }
-
-deno_core::extension!(
-  core_net,
-  middleware = |op| match op.name {
-    "op_net_listen_tcp" => op.with_implementation_from(&op_net_listen()),
-    "op_net_accept_tcp" => op.with_implementation_from(&op_net_accept()),
-
-    // disable listening on TLS, UDP and Unix sockets
-    "op_net_listen_tls" => op.with_implementation_from(&op_net_unsupported()),
-    "op_net_listen_udp" => op.with_implementation_from(&op_net_unsupported()),
-    "op_node_unstable_net_listen_udp" =>
-      op.with_implementation_from(&op_net_unsupported()),
-    "op_net_listen_unix" => op.with_implementation_from(&op_net_unsupported()),
-    "op_net_listen_unixpacket" =>
-      op.with_implementation_from(&op_net_unsupported()),
-    "op_node_unstable_net_listen_unixpacket" =>
-      op.with_implementation_from(&op_net_unsupported()),
-    _ => op,
-  }
-);

@@ -1,9 +1,9 @@
 import { core, primordials } from "ext:core/mod.js";
 
-import { MAIN_WORKER_API, USER_WORKER_API } from "ext:ai/js/ai.js";
+import { MAIN_WORKER_API, USER_WORKER_API } from "ext:ai/ai.js";
 import { SUPABASE_USER_WORKERS } from "ext:user_workers/user_workers.js";
-import { applySupabaseTag } from "ext:core_main_js/js/http.js";
-import { waitUntil } from "ext:core_main_js/js/async_hook.js";
+import { applySupabaseTag } from "ext:runtime/http.js";
+import { waitUntil } from "ext:runtime/async_hook.js";
 
 const ops = core.ops;
 const { ObjectDefineProperty } = primordials;

@@ -1,17 +1,23 @@
-use crate::inspector_server::Inspector;
-use crate::server::ServerFlags;
-use crate::worker::WorkerSurfaceBuilder;
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::convert::Infallible;
+use std::future::pending;
+use std::str::FromStr;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Context;
 use anyhow::Error;
-use deno_config::JsxImportSourceConfig;
+use deno::util::sync::AtomicFlag;
+use deno_config::deno_json::JsxImportSourceConfig;
 use either::Either::Left;
 use enum_as_inner::EnumAsInner;
-use ext_core::util::sync::AtomicFlag;
-use ext_core::SharedMetricSource;
 use ext_event_worker::events::WorkerEventWithMetadata;
+use ext_runtime::SharedMetricSource;
 use ext_workers::context::CreateUserWorkerResult;
 use ext_workers::context::SendRequestResult;
 use ext_workers::context::Timing;
@@ -24,15 +30,6 @@ use ext_workers::errors::WorkerError;
 use http_v02::Request;
 use hyper_v014::Body;
 use log::error;
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::convert::Infallible;
-use std::future::pending;
-use std::str::FromStr;
-use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::Ordering;
-use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::oneshot::Sender;
@@ -45,6 +42,10 @@ use uuid::Uuid;
 
 use super::termination_token::TerminationToken;
 use super::utils::send_user_worker_request;
+
+use crate::inspector_server::Inspector;
+use crate::server::ServerFlags;
+use crate::worker::WorkerSurfaceBuilder;
 
 #[derive(Debug, Clone, Copy, EnumAsInner)]
 pub enum SupervisorPolicy {
@@ -770,7 +771,7 @@ pub async fn create_user_worker_pool(
                       jsx.clone()
                     }
                   },
-                  ..worker_options,
+                  ..worker_options
                 }, tx, token.map(TerminationToken::child_token));
               }
 

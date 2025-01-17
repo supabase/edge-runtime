@@ -18,8 +18,6 @@ use flate2::read::GzDecoder;
 use tar::Archive;
 use tar::EntryType;
 
-use ext_core::util::path::get_atomic_dir_path;
-
 #[derive(Debug, Copy, Clone)]
 pub enum TarballExtractionMode {
   /// Overwrites the destination directory without deleting any files.

@@ -7,13 +7,15 @@ use base_mem_check::MemCheckState;
 use cpu_timer::CPUAlarmVal;
 use cpu_timer::CPUTimer;
 use deno_core::v8;
+use deno_core::InspectorSessionKind;
+use deno_core::InspectorSessionOptions;
 use deno_core::InspectorSessionProxy;
 use deno_core::LocalInspectorSession;
 use enum_as_inner::EnumAsInner;
-use ext_core::PromiseMetrics;
 use ext_event_worker::events::ShutdownEvent;
 use ext_event_worker::events::WorkerEvents;
 use ext_event_worker::events::WorkerMemoryUsed;
+use ext_runtime::PromiseMetrics;
 use ext_workers::context::Timing;
 use ext_workers::context::UserWorkerMsgs;
 use ext_workers::context::UserWorkerRuntimeOpts;
@@ -26,13 +28,13 @@ use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
+use super::pool::SupervisorPolicy;
+use super::termination_token::TerminationToken;
+
 use crate::deno_runtime::DenoRuntime;
 use crate::deno_runtime::RuntimeState;
 use crate::server::ServerFlags;
 use crate::utils::units::percentage_value;
-
-use super::pool::SupervisorPolicy;
-use super::termination_token::TerminationToken;
 
 pub mod strategy_per_request;
 pub mod strategy_per_worker;
@@ -323,6 +325,9 @@ pub fn create_supervisor(
                   .unbounded_send(InspectorSessionProxy {
                     tx: outbound_tx,
                     rx: inbound_rx,
+                    options: InspectorSessionOptions {
+                      kind: InspectorSessionKind::Blocking,
+                    },
                   })
                   .is_err()
                 {

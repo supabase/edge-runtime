@@ -1,14 +1,17 @@
-use crate::inspector_server::Inspector;
-use crate::snapshot;
-use crate::utils::json;
-use crate::utils::path::find_up;
-use crate::utils::units::bytes_to_display;
-use crate::utils::units::mib_to_bytes;
-use crate::utils::units::percentage_value;
-use crate::worker::supervisor::CPUUsage;
-use crate::worker::supervisor::CPUUsageMetrics;
-use crate::worker::DuplexStreamEntry;
-use crate::worker::Worker;
+use std::borrow::Cow;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::ffi::c_void;
+use std::future::Future;
+use std::marker::PhantomData;
+use std::mem::ManuallyDrop;
+use std::rc::Rc;
+use std::str::FromStr;
+use std::sync::Arc;
+use std::sync::RwLock;
+use std::task::Poll;
+use std::thread::ThreadId;
+use std::time::Duration;
 
 use anyhow::anyhow;
 use anyhow::bail;
@@ -24,11 +27,17 @@ use base_rt::DropToken;
 use cooked_waker::IntoWaker;
 use cooked_waker::WakeRef;
 use ctor::ctor;
+use deno::args::CacheSetting;
+use deno::deno_http::DefaultHttpPropertyExtractor;
+use deno::deno_tls::deno_native_certs::load_native_certs;
+use deno::deno_tls::rustls::RootCertStore;
+use deno::deno_tls::RootCertStoreProvider;
+use deno::PermissionsContainer;
 use deno_cache::SqliteBackedCache;
 use deno_core::error::AnyError;
 use deno_core::error::JsError;
 use deno_core::serde_json;
-use deno_core::unsync::AtomicFlag;
+use deno_core::unsync::sync::AtomicFlag;
 use deno_core::url::Url;
 use deno_core::v8::GCCallbackFlags;
 use deno_core::v8::GCType;
@@ -43,19 +52,19 @@ use deno_core::OpState;
 use deno_core::PollEventLoopOptions;
 use deno_core::ResolutionKind;
 use deno_core::RuntimeOptions;
-use deno_http::DefaultHttpPropertyExtractor;
-use deno_tls::deno_native_certs::load_native_certs;
-use deno_tls::rustls::RootCertStore;
-use deno_tls::RootCertStoreProvider;
-use ext_ai::ai;
-use ext_core::cache::CacheSetting;
-use ext_core::cert::ValueRootCertStoreProvider;
-use ext_core::external_memory::CustomAllocator;
-use ext_core::permissions::Permissions;
-use ext_core::MemCheckWaker;
-use ext_core::PromiseMetrics;
 use ext_event_worker::events::EventMetadata;
 use ext_event_worker::events::WorkerEventWithMetadata;
+// use ext_runtime::cache::CacheSetting;
+use ext_runtime::cert::ValueRootCertStoreProvider;
+use ext_runtime::external_memory::CustomAllocator;
+// use ext_runtime::permissions::Permissions;
+use deno_facade::generate_binary_eszip;
+use deno_facade::import_map::load_import_map;
+use deno_facade::include_glob_patterns_in_eszip;
+use deno_facade::EmitterFactory;
+use deno_facade::EszipPayloadKind;
+use ext_runtime::MemCheckWaker;
+use ext_runtime::PromiseMetrics;
 use ext_workers::context::UserWorkerMsgs;
 use ext_workers::context::WorkerContextInitOpts;
 use ext_workers::context::WorkerRuntimeOpts;
@@ -67,11 +76,6 @@ use fs::tmp_fs::TmpFs;
 use futures_util::future::poll_fn;
 use futures_util::task::AtomicWaker;
 use futures_util::FutureExt;
-use graph::emitter::EmitterFactory;
-use graph::generate_binary_eszip;
-use graph::import_map::load_import_map;
-use graph::include_glob_patterns_in_eszip;
-use graph::EszipPayloadKind;
 use log::error;
 use module_loader::standalone::create_module_loader_for_standalone_from_eszip_kind;
 use module_loader::RuntimeProviders;
@@ -79,21 +83,6 @@ use once_cell::sync::Lazy;
 use once_cell::sync::OnceCell;
 use scopeguard::ScopeGuard;
 use serde::Serialize;
-use std::borrow::Cow;
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::ffi::c_void;
-use std::fmt;
-use std::future::Future;
-use std::marker::PhantomData;
-use std::mem::ManuallyDrop;
-use std::rc::Rc;
-use std::str::FromStr;
-use std::sync::Arc;
-use std::sync::RwLock;
-use std::task::Poll;
-use std::thread::ThreadId;
-use std::time::Duration;
 use strum::IntoStaticStr;
 use tokio::sync::mpsc;
 use tokio::sync::OwnedSemaphorePermit;
@@ -106,6 +95,18 @@ use tracing::debug_span;
 use tracing::instrument;
 use tracing::trace;
 use tracing::Instrument;
+
+use crate::inspector_server::Inspector;
+use crate::snapshot;
+use crate::utils::json;
+use crate::utils::path::find_up;
+use crate::utils::units::bytes_to_display;
+use crate::utils::units::mib_to_bytes;
+use crate::utils::units::percentage_value;
+use crate::worker::supervisor::CPUUsage;
+use crate::worker::supervisor::CPUUsageMetrics;
+use crate::worker::DuplexStreamEntry;
+use crate::worker::Worker;
 
 const DEFAULT_ALLOC_CHECK_INT_MSEC: u64 = 1000;
 
@@ -153,24 +154,7 @@ fn init_v8_platform() {
   // NOTE(denoland/deno/20495): Due to the new PKU (Memory Protection Keys)
   // feature introduced in V8 11.6, We need to initialize the V8 platform on
   // the main thread that spawns V8 isolates.
-  JsRuntime::init_platform(None);
-}
-pub struct DenoRuntimeError(Error);
-
-impl PartialEq for DenoRuntimeError {
-  fn eq(&self, other: &Self) -> bool {
-    self.0.to_string() == other.0.to_string()
-  }
-}
-
-impl fmt::Debug for DenoRuntimeError {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    write!(f, "[Js Error] {}", self.0)
-  }
-}
-
-fn get_error_class_name(e: &AnyError) -> &'static str {
-  ext_core::errors_rt::get_error_class_name(e).unwrap_or("Error")
+  JsRuntime::init_platform(None, false);
 }
 
 #[derive(Default)]
@@ -625,7 +609,7 @@ where
     for store in ca_stores.iter() {
       match store.as_str() {
         "mozilla" => {
-          root_cert_store = deno_tls::create_default_root_cert_store();
+          root_cert_store = deno::deno_tls::create_default_root_cert_store();
         }
         "system" => {
           let roots =
@@ -654,10 +638,16 @@ where
     let mut stdio = Some(Default::default());
 
     if is_user_worker {
-      stdio = Some(deno_io::Stdio {
-        stdin: deno_io::StdioPipe::file(std::fs::File::create("/dev/null")?),
-        stdout: deno_io::StdioPipe::file(std::fs::File::create("/dev/null")?),
-        stderr: deno_io::StdioPipe::file(std::fs::File::create("/dev/null")?),
+      stdio = Some(deno::deno_io::Stdio {
+        stdin: deno::deno_io::StdioPipe::file(std::fs::File::create(
+          "/dev/null",
+        )?),
+        stdout: deno::deno_io::StdioPipe::file(std::fs::File::create(
+          "/dev/null",
+        )?),
+        stderr: deno::deno_io::StdioPipe::file(std::fs::File::create(
+          "/dev/null",
+        )?),
       });
     }
 
@@ -687,8 +677,8 @@ where
     } = rt_provider;
 
     let mut maybe_s3_fs = None;
-    let build_file_system_fn = |base_fs: Arc<dyn deno_fs::FileSystem>| -> Result<
-      Arc<dyn deno_fs::FileSystem>,
+    let build_file_system_fn = |base_fs: Arc<dyn deno::deno_fs::FileSystem>| -> Result<
+      Arc<dyn deno::deno_fs::FileSystem>,
       AnyError,
     > {
       let tmp_fs = TmpFs::try_from(maybe_tmp_fs_config.unwrap_or_default())?;
@@ -743,56 +733,62 @@ where
       //   net_access_disabled,
       //   allow_net,
       // ),
-      deno_webidl::deno_webidl::init_ops(),
+      deno::deno_webidl::deno_webidl::init_ops(),
       deno_console::deno_console::init_ops(),
-      deno_url::deno_url::init_ops(),
-      deno_web::deno_web::init_ops::<Permissions>(
-        Arc::new(deno_web::BlobStore::default()),
+      deno::deno_url::deno_url::init_ops(),
+      deno::deno_web::deno_web::init_ops::<PermissionsContainer>(
+        Arc::new(deno::deno_web::BlobStore::default()),
         None,
       ),
       deno_webgpu::deno_webgpu::init_ops(),
       deno_canvas::deno_canvas::init_ops(),
-      deno_fetch::deno_fetch::init_ops::<Permissions>(deno_fetch::Options {
-        user_agent: SUPABASE_UA.clone(),
-        root_cert_store_provider: Some(root_cert_store_provider.clone()),
-        ..Default::default()
-      }),
-      deno_websocket::deno_websocket::init_ops::<Permissions>(
+      deno::deno_fetch::deno_fetch::init_ops::<PermissionsContainer>(
+        deno::deno_fetch::Options {
+          user_agent: SUPABASE_UA.clone(),
+          root_cert_store_provider: Some(root_cert_store_provider.clone()),
+          ..Default::default()
+        },
+      ),
+      deno::deno_websocket::deno_websocket::init_ops::<PermissionsContainer>(
         SUPABASE_UA.clone(),
         Some(root_cert_store_provider.clone()),
         None,
       ),
       // TODO: support providing a custom seed for crypto
-      deno_crypto::deno_crypto::init_ops(None),
+      deno::deno_crypto::deno_crypto::init_ops(None),
       deno_broadcast_channel::deno_broadcast_channel::init_ops(
         deno_broadcast_channel::InMemoryBroadcastChannel::default(),
       ),
-      deno_net::deno_net::init_ops::<Permissions>(
+      deno::deno_net::deno_net::init_ops::<PermissionsContainer>(
         Some(root_cert_store_provider),
         None,
       ),
-      deno_tls::deno_tls::init_ops(),
-      deno_http::deno_http::init_ops::<DefaultHttpPropertyExtractor>(),
-      deno_io::deno_io::init_ops(stdio),
-      deno_fs::deno_fs::init_ops::<Permissions>(file_system.clone()),
+      deno::deno_tls::deno_tls::init_ops(),
+      deno::deno_http::deno_http::init_ops::<DefaultHttpPropertyExtractor>(),
+      deno::deno_io::deno_io::init_ops(stdio),
+      deno::deno_fs::deno_fs::init_ops::<PermissionsContainer>(
+        file_system.clone(),
+      ),
       ext_env::env::init_ops(),
       ext_ai::ai::init_ops(),
       ext_os::os::init_ops(),
       ext_workers::user_workers::init_ops(),
       ext_event_worker::user_event_worker::init_ops(),
       ext_event_worker::js_interceptors::js_interceptors::init_ops(),
-      ext_core::core_main_js::init_ops(),
-      ext_core::net::core_net::init_ops(),
-      ext_core::http::core_http::init_ops(),
-      ext_core::http_start::core_http_start::init_ops(),
+      ext_runtime::runtime_bootstrap::init_ops::<PermissionsContainer>(Some(
+        main_module_url.clone(),
+      )),
+      ext_runtime::runtime_net::init_ops(),
+      ext_runtime::runtime_http::init_ops(),
+      ext_runtime::runtime_http_start::init_ops(),
       // NOTE(AndresP): Order is matters. Otherwise, it will lead to hard
       // errors such as SIGBUS depending on the platform.
-      ext_node::deno_node::init_ops::<Permissions>(
+      ext_node::deno_node::init_ops::<PermissionsContainer>(
         Some(node_services),
         file_system,
       ),
       deno_cache::deno_cache::init_ops::<SqliteBackedCache>(None),
-      ext_core::runtime::core_runtime::init_ops(Some(main_module_url.clone())),
+      ext_runtime::runtime::init_ops_and_esm(),
     ];
 
     let mut create_params = None;
@@ -839,7 +835,7 @@ where
       is_main: true,
       inspector: has_inspector,
       create_params,
-      get_error_class_fn: Some(&get_error_class_name),
+      get_error_class_fn: Some(&deno::errors::get_error_class_name),
       shared_array_buffer_store: None,
       compiled_wasm_module_store: None,
       startup_snapshot: snapshot::snapshot(),
@@ -1351,8 +1347,8 @@ where
       let wait_for_inspector = if has_inspector {
         let inspector = js_runtime.inspector();
         let inspector_ref = inspector.borrow();
-        inspector_ref.has_active_sessions()
-          || inspector_ref.has_blocking_sessions()
+        let sessions_state = inspector_ref.sessions_state();
+        sessions_state.has_active || sessions_state.has_blocking
       } else {
         false
       };
@@ -1944,7 +1940,7 @@ mod test {
   use crate::worker::DuplexStreamEntry;
   use crate::worker::WorkerBuilder;
   use anyhow::Context;
-  use deno_config::JsxImportSourceConfig;
+  use deno_config::deno_json::JsxImportSourceConfig;
   use deno_core::error::AnyError;
   use deno_core::serde_json;
   use deno_core::serde_v8;
@@ -1953,6 +1949,9 @@ mod test {
   use deno_core::FastString;
   use deno_core::ModuleCodeString;
   use deno_core::PollEventLoopOptions;
+  use deno_facade::generate_binary_eszip;
+  use deno_facade::EmitterFactory;
+  use deno_facade::EszipPayloadKind;
   use ext_workers::context::MainWorkerRuntimeOpts;
   use ext_workers::context::UserWorkerMsgs;
   use ext_workers::context::UserWorkerRuntimeOpts;
@@ -1960,9 +1959,6 @@ mod test {
   use ext_workers::context::WorkerRuntimeOpts;
   use fs::s3_fs::S3FsConfig;
   use fs::tmp_fs::TmpFsConfig;
-  use graph::emitter::EmitterFactory;
-  use graph::generate_binary_eszip;
-  use graph::EszipPayloadKind;
   use serde::de::DeserializeOwned;
   use serde::Serialize;
   use serial_test::serial;

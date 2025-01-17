@@ -10,7 +10,6 @@ use deno_core::error::custom_error;
 use deno_core::error::AnyError;
 use deno_core::op2;
 use deno_core::ByteString;
-use deno_core::OpDecl;
 use deno_core::OpState;
 use deno_core::RcRef;
 use deno_core::Resource;
@@ -39,13 +38,18 @@ use crate::upgrade::UpgradeStream;
 use crate::upgrade::WebSocketUpgrade;
 
 deno_core::extension!(
-  core_http,
+  runtime_http,
   ops = [
     op_http_upgrade_websocket2,
     op_http_upgrade_raw2,
     op_http_upgrade_raw2_fence
   ],
-  middleware = http_middleware,
+  middleware = |op| match op.name {
+    "op_http_upgrade_websocket" => {
+      op.with_implementation_from(&op_http_upgrade_websocket2())
+    }
+    _ => op,
+  },
 );
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -410,14 +414,5 @@ struct HttpUpgradeRawResponseFenceResource(
 impl Resource for HttpUpgradeRawResponseFenceResource {
   fn name(&self) -> Cow<str> {
     "httpUpgradeRawResponseFenceResource".into()
-  }
-}
-
-fn http_middleware(decl: OpDecl) -> OpDecl {
-  match decl.name {
-    "op_http_upgrade_websocket" => {
-      decl.with_implementation_from(&op_http_upgrade_websocket2())
-    }
-    _ => decl,
   }
 }

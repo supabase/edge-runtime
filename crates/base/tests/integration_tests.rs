@@ -46,7 +46,7 @@ use base::worker::TerminationToken;
 use base::DecoratorType;
 use deno_core::serde_json::json;
 use deno_core::serde_json::{self};
-use ext_core::SharedMetricSource;
+use ext_runtime::SharedMetricSource;
 use ext_workers::context::MainWorkerRuntimeOpts;
 use ext_workers::context::WorkerContextInitOpts;
 use ext_workers::context::WorkerRequestMsg;

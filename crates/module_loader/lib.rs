@@ -22,3 +22,9 @@ pub struct RuntimeProviders {
   pub npm_snapshot: Option<ValidSerializedNpmResolutionSnapshot>,
   pub vfs_path: PathBuf,
 }
+
+impl RuntimeProviders {
+  fn node_services_dummy() -> NodeExtInitServices {
+    todo!()
+  }
+}

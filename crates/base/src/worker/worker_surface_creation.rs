@@ -3,13 +3,15 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Context;
-use deno_config::JsxImportSourceConfig;
+use deno_config::deno_json::JsxImportSourceConfig;
+use deno_facade::DecoratorType;
+use deno_facade::EszipPayloadKind;
 use either::Either;
-use ext_core::MetricSource;
-use ext_core::SharedMetricSource;
 use ext_event_worker::events::BootEvent;
 use ext_event_worker::events::WorkerEventWithMetadata;
 use ext_event_worker::events::WorkerEvents;
+use ext_runtime::MetricSource;
+use ext_runtime::SharedMetricSource;
 use ext_workers::context::EventWorkerRuntimeOpts;
 use ext_workers::context::MainWorkerRuntimeOpts;
 use ext_workers::context::UserWorkerMsgs;
@@ -17,8 +19,6 @@ use ext_workers::context::WorkerContextInitOpts;
 use ext_workers::context::WorkerExit;
 use ext_workers::context::WorkerRequestMsg;
 use ext_workers::context::WorkerRuntimeOpts;
-use graph::DecoratorType;
-use graph::EszipPayloadKind;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
@@ -39,7 +39,7 @@ mod request {
   use std::sync::Arc;
   use std::time::Duration;
 
-  use deno_core::unsync::AtomicFlag;
+  use deno_core::unsync::sync::AtomicFlag;
   use ext_workers::context::WorkerKind;
   use ext_workers::context::WorkerRequestMsg;
   use http_utils::io::Upgraded2;

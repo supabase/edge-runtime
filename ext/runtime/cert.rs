@@ -1,5 +1,10 @@
 // Move to deno_cli/args.rs
 
+use std::io::BufReader;
+use std::io::Cursor;
+use std::io::Read;
+use std::path::PathBuf;
+
 use anyhow::Context;
 use deno_core::error::AnyError;
 use deno_tls::deno_native_certs::load_native_certs;
@@ -7,10 +12,6 @@ use deno_tls::rustls::RootCertStore;
 use deno_tls::rustls_pemfile;
 use deno_tls::webpki_roots;
 use deno_tls::RootCertStoreProvider;
-use std::io::BufReader;
-use std::io::Cursor;
-use std::io::Read;
-use std::path::PathBuf;
 use thiserror::Error;
 
 pub struct ValueRootCertStoreProvider {

@@ -18,12 +18,12 @@ use deno_npm::npm_rc::ResolvedNpmRc;
 use deno_npm::registry::NpmPackageInfo;
 use deno_npm::NpmPackageCacheFolderId;
 use deno_semver::package::PackageNv;
-use ext_core::cache::CACHE_PERM;
-use ext_core::util::fs::atomic_write_file_with_retries;
+use ext_runtime::cache::CACHE_PERM;
+use ext_runtime::util::fs::atomic_write_file_with_retries;
 
 use crate::cache_dir::NpmCacheDir;
-use ext_core::cache::CacheSetting;
-use ext_core::util::fs::hard_link_dir_recursive;
+use ext_runtime::cache::CacheSetting;
+use ext_runtime::util::fs::hard_link_dir_recursive;
 
 mod registry_info;
 mod tarball;

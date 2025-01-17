@@ -263,7 +263,7 @@ macro_rules! integration_test {
 pub mod __private {
   use std::future::Future;
 
-  use ext_core::SharedMetricSource;
+  use ext_runtime::SharedMetricSource;
   use reqwest_v011::Error;
   use reqwest_v011::RequestBuilder;
   use reqwest_v011::Response;

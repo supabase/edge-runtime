@@ -9,7 +9,7 @@ use crate::worker::pool::WorkerPoolPolicy;
 use crate::worker::TerminationToken;
 use crate::InspectorOption;
 use anyhow::Error;
-use graph::DecoratorType;
+use deno_facade::DecoratorType;
 use tokio::sync::mpsc::Sender;
 
 #[allow(clippy::too_many_arguments)]

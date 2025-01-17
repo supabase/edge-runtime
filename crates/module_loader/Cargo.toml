@@ -17,8 +17,8 @@ deno_facade.workspace = true
 eszip_async_trait.workspace = true
 fs.workspace = true
 
-ext_core.workspace = true
 ext_node.workspace = true
+ext_runtime.workspace = true
 
 anyhow.workspace = true
 base64.workspace = true

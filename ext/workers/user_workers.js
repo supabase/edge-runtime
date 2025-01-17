@@ -3,7 +3,7 @@ import {
   readableStreamForRid,
   writableStreamForRid,
 } from "ext:deno_web/06_streams.js";
-import { getSupabaseTag } from "ext:core_main_js/js/http.js";
+import { getSupabaseTag } from "ext:runtime/http.js";
 
 const ops = core.ops;
 

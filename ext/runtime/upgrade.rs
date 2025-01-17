@@ -16,7 +16,6 @@ use deno_core::CancelHandle;
 use deno_core::CancelTryFuture;
 use deno_core::RcRef;
 use deno_core::Resource;
-
 use httparse::Status;
 use hyper::header::HeaderName;
 use hyper::header::HeaderValue;

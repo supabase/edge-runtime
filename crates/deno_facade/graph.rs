@@ -1,20 +1,22 @@
+#![allow(unused_variables)]
+
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use deno::deno_graph::ModuleGraph;
-use deno::file_fetcher::File;
-use deno::graph_util::ModuleGraphBuilder;
+// use deno::file_fetcher::File;
+// use deno::graph_util::ModuleGraphBuilder;
 use deno_core::error::AnyError;
 use deno_core::FastString;
-use deno_core::ModuleSpecifier;
+// use deno_core::ModuleSpecifier;
 use eszip::EszipV2;
 
 use crate::emitter::EmitterFactory;
 
 #[allow(clippy::arc_with_non_send_sync)]
 pub async fn create_eszip_from_graph_raw(
-  graph: ModuleGraph,
-  emitter_factory: Option<Arc<EmitterFactory>>,
+  _graph: ModuleGraph,
+  _emitter_factory: Option<Arc<EmitterFactory>>,
 ) -> Result<EszipV2, AnyError> {
   // let emitter =
   //   emitter_factory.unwrap_or_else(|| Arc::new(EmitterFactory::new()));

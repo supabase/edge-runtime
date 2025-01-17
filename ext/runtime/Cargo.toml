@@ -1,5 +1,5 @@
 [package]
-name = "ext_workers"
+name = "ext_runtime"
 version = "0.1.0"
 authors.workspace = true
 edition.workspace = true
@@ -9,21 +9,25 @@ license.workspace = true
 path = "lib.rs"
 
 [dependencies]
-deno.workspace = true
-deno_config.workspace = true
 deno_core.workspace = true
 
-deno_facade.workspace = true
-fs.workspace = true
-http_utils.workspace = true
+deno_fetch.workspace = true
+deno_fs.workspace = true
+deno_http.workspace = true
+deno_net.workspace = true
+deno_tls.workspace = true
+deno_websocket.workspace = true
 
-ext_event_worker.workspace = true
-ext_runtime.workspace = true
+base_mem_check.workspace = true
+base_rt.workspace = true
 
 anyhow.workspace = true
 bytes.workspace = true
 enum-as-inner.workspace = true
-futures-util.workspace = true
+futures.workspace = true
+http.workspace = true
+httparse.workspace = true
+hyper.workspace = true
 hyper_v014.workspace = true
 log.workspace = true
 once_cell.workspace = true
@@ -32,4 +36,6 @@ serde.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
-uuid.workspace = true
+tracing.workspace = true
+
+memmem = "0.1"

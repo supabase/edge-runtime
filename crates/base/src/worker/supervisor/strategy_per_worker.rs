@@ -7,9 +7,9 @@ use std::time::Duration;
 #[cfg(debug_assertions)]
 use std::thread::ThreadId;
 
-use deno_core::unsync::AtomicFlag;
-use ext_core::PromiseMetrics;
+use deno_core::unsync::sync::AtomicFlag;
 use ext_event_worker::events::ShutdownReason;
+use ext_runtime::PromiseMetrics;
 use ext_workers::context::Timing;
 use ext_workers::context::TimingStatus;
 use ext_workers::context::UserWorkerMsgs;

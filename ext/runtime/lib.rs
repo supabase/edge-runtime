@@ -26,10 +26,12 @@ mod upgrade;
 pub mod cert;
 pub mod conn_sync;
 pub mod external_memory;
-pub mod http;
-pub mod http_start;
-pub mod net;
-pub mod runtime;
+pub mod ops;
+
+pub use ops::bootstrap::runtime_bootstrap;
+pub use ops::http::runtime_http;
+pub use ops::http_start::runtime_http_start;
+pub use ops::net::runtime_net;
 
 pub struct MemCheckWaker(Arc<AtomicWaker>);
 
@@ -434,7 +436,7 @@ pub fn op_bootstrap_unstable_args(_state: &mut OpState) -> Vec<String> {
 }
 
 deno_core::extension!(
-  core_main_js,
+  runtime,
   ops = [
     // op_is_terminal,
     op_stdin_set_raw,
@@ -450,19 +452,21 @@ deno_core::extension!(
     op_tap_promise_metrics,
     op_cancel_drop_token,
   ],
-  esm_entry_point = "ext:core_main_js/js/bootstrap.js",
+  esm_entry_point = "ext:runtime/bootstrap.js",
   esm = [
-    "js/00_serve.js",
-    "js/01_http.js",
-    "js/async_hook.js",
-    "js/bootstrap.js",
-    "js/denoOverrides.js",
-    "js/errors.js",
-    "js/fieldUtils.js",
-    "js/http.js",
-    "js/namespaces.js",
-    "js/navigator.js",
-    "js/permissions.js",
-    "js/promises.js",
+    dir "js",
+    "00_serve.js",
+    "01_http.js",
+    "40_process.js",
+    "async_hook.js",
+    "bootstrap.js",
+    "denoOverrides.js",
+    "errors.js",
+    "fieldUtils.js",
+    "http.js",
+    "namespaces.js",
+    "navigator.js",
+    "permissions.js",
+    "promises.js",
   ]
 );

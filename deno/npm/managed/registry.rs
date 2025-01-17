@@ -15,8 +15,8 @@ use deno_npm::registry::NpmPackageInfo;
 use deno_npm::registry::NpmRegistryApi;
 use deno_npm::registry::NpmRegistryPackageInfoLoadError;
 
-use ext_core::cache::CacheSetting;
-use ext_core::util::sync::AtomicFlag;
+use ext_runtime::cache::CacheSetting;
+use ext_runtime::util::sync::AtomicFlag;
 
 use super::cache::NpmCache;
 use super::cache::RegistryInfoDownloader;

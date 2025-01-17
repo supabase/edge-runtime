@@ -32,7 +32,7 @@ import * as eventSource from "ext:deno_fetch/27_eventsource.js";
 import * as WebGPU from "ext:deno_webgpu/00_init.js";
 import * as WebGPUSurface from "ext:deno_webgpu/02_surface.js";
 
-import "ext:ai/js/onnxruntime/cache_adapter.js";
+import "ext:ai/onnxruntime/cache_adapter.js";
 
 import { SUPABASE_ENV } from "ext:env/env.js";
 
@@ -40,12 +40,13 @@ import { SupabaseEventListener } from "ext:user_event_worker/event_worker.js";
 import {
   installEdgeRuntimeNamespace,
   installSupabaseNamespace,
-} from "ext:core_main_js/js/namespaces.js";
-import { promiseRejectMacrotaskCallback } from "ext:core_main_js/js/promises.js";
-import { installPromiseHook } from "ext:core_main_js/js/async_hook.js";
-import { registerErrors } from "ext:core_main_js/js/errors.js";
-import { denoOverrides, fsVars } from "ext:core_main_js/js/denoOverrides.js";
-import { registerDeclarativeServer } from "ext:core_main_js/js/00_serve.js";
+} from "ext:runtime/namespaces.js";
+
+import { promiseRejectMacrotaskCallback } from "ext:runtime/promises.js";
+import { installPromiseHook } from "ext:runtime/async_hook.js";
+import { registerErrors } from "ext:runtime/errors.js";
+import { denoOverrides, fsVars } from "ext:runtime/denoOverrides.js";
+import { registerDeclarativeServer } from "ext:runtime/00_serve.js";
 
 import {
   formatException,
@@ -53,7 +54,7 @@ import {
   nonEnumerable,
   readOnly,
   writable,
-} from "ext:core_main_js/js/fieldUtils.js";
+} from "ext:runtime/fieldUtils.js";
 
 import {
   Navigator,
@@ -61,7 +62,7 @@ import {
   setLanguage,
   setNumCpus,
   setUserAgent,
-} from "ext:core_main_js/js/navigator.js";
+} from "ext:runtime/navigator.js";
 
 let globalThis_;
 

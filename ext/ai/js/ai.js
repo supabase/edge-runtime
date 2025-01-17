@@ -1,5 +1,5 @@
-import "ext:ai/js/onnxruntime/onnx.js";
-import EventSourceStream from "ext:ai/js/util/event_source_stream.mjs";
+import "ext:ai/onnxruntime/onnx.js";
+import EventSourceStream from "ext:ai/util/event_source_stream.mjs";
 
 const core = globalThis.Deno.core;
 

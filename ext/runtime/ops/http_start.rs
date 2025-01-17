@@ -10,9 +10,12 @@ use deno_core::ResourceId;
 use deno_http::http_create_conn_resource;
 use tokio_util::sync::CancellationToken;
 
+use super::http::DuplexStream2;
+use super::net::TokioDuplexResource;
+
 use crate::conn_sync::ConnWatcher;
-use crate::http::DuplexStream2;
-use crate::net::TokioDuplexResource;
+
+deno_core::extension!(runtime_http_start, ops = [op_http_start]);
 
 #[op2]
 #[serde]
@@ -50,5 +53,3 @@ fn op_http_start(
 
   Err(bad_resource_id())
 }
-
-deno_core::extension!(core_http_start, ops = [op_http_start]);

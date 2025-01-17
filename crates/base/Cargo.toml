@@ -15,7 +15,6 @@ deno_canvas.workspace = true
 deno_config.workspace = true
 deno_console.workspace = true
 deno_webgpu.workspace = true
-deno_webidl.workspace = true
 
 base_mem_check.workspace = true
 base_rt.workspace = true
@@ -26,14 +25,13 @@ http_utils.workspace = true
 module_loader.workspace = true
 
 ext_ai.workspace = true
-ext_core.workspace = true
 ext_env.workspace = true
 ext_event_worker.workspace = true
 ext_node.workspace = true
 ext_os.workspace = true
+ext_runtime.workspace = true
 ext_workers.workspace = true
 
-# reqwest_v011.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
 bytes.workspace = true
@@ -58,6 +56,7 @@ notify.workspace = true
 num-traits.workspace = true
 once_cell.workspace = true
 pin-project.workspace = true
+reqwest_v011.workspace = true
 rustls-pemfile.workspace = true
 scopeguard.workspace = true
 serde = { workspace = true, features = ["derive"] }
@@ -98,15 +97,14 @@ deno_cache.workspace = true
 deno_canvas.workspace = true
 deno_console.workspace = true
 deno_webgpu.workspace = true
-deno_webidl.workspace = true
 
 ext_ai.workspace = true
-ext_core.workspace = true
 ext_env.workspace = true
 ext_event_worker.workspace = true
 ext_node.workspace = true
 ext_os.workspace = true
 ext_workers.workspace = true
+ext_runtime.workspace = true
 
 deno_facade.workspace = true
 

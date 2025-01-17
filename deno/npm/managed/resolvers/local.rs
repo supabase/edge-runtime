@@ -46,12 +46,12 @@ use crate::util::fs::clone_dir_recursive;
 use crate::util::fs::symlink_dir;
 use crate::util::fs::LaxSingleProcessFsFlag;
 
-// use ext_core::cache::CACHE_PERM;
-// use ext_core::util::fs::atomic_write_file_with_retries;
-// use ext_core::util::fs::canonicalize_path_maybe_not_exists_with_fs;
-// use ext_core::util::fs::clone_dir_recursive;
-// use ext_core::util::fs::symlink_dir;
-// use ext_core::util::fs::LaxSingleProcessFsFlag;
+// use ext_runtime::cache::CACHE_PERM;
+// use ext_runtime::util::fs::atomic_write_file_with_retries;
+// use ext_runtime::util::fs::canonicalize_path_maybe_not_exists_with_fs;
+// use ext_runtime::util::fs::clone_dir_recursive;
+// use ext_runtime::util::fs::symlink_dir;
+// use ext_runtime::util::fs::LaxSingleProcessFsFlag;
 use ext_node::NodePermissions;
 
 use super::super::resolution::NpmResolution;

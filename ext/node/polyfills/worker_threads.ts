@@ -2,6 +2,7 @@
 // Copyright Joyent and Node contributors. All rights reserved. MIT license.
 
 import { core, internals, primordials } from "ext:core/mod.js";
+import { EventTarget } from "ext:deno_web/02_event.js";
 import { unrefPollForMessages } from "ext:deno_web/13_message_port.js";
 import { notImplemented } from "ext:deno_node/_utils.ts";
 import { EventEmitter } from "node:events";

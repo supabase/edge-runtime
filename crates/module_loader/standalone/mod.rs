@@ -1,7 +1,9 @@
-use crate::metadata::Metadata;
-use crate::standalone::standalone_module_loader::EmbeddedModuleLoader;
-use crate::standalone::standalone_module_loader::SharedModuleLoaderState;
-use crate::RuntimeProviders;
+use std::collections::HashMap;
+use std::path::Path;
+use std::path::PathBuf;
+use std::rc::Rc;
+use std::sync::Arc;
+
 use anyhow::bail;
 use anyhow::Context;
 use deno::args::CacheSetting;
@@ -10,12 +12,12 @@ use deno::cache::Caches;
 use deno::cache::DenoCacheEnvFsAdapter;
 use deno::cache::DenoDirProvider;
 use deno::cache::NodeAnalysisCache;
-use deno::deno_fs::RealFs;
+use deno::deno_cache_dir::npm::NpmCacheDir;
 use deno::deno_npm;
 use deno::deno_npm::npm_rc::RegistryConfigWithUrl;
 use deno::deno_npm::npm_rc::ResolvedNpmRc;
-use deno::deno_resolver::cjs;
 use deno::deno_resolver::cjs::IsCjsResolutionMode;
+use deno::deno_resolver::npm::NpmReqResolverOptions;
 use deno::deno_tls::rustls::RootCertStore;
 use deno::deno_tls::RootCertStoreProvider;
 use deno::http_util::HttpClientProvider;
@@ -23,10 +25,14 @@ use deno::node::CliCjsCodeAnalyzer;
 use deno::node_resolver::analyze::NodeCodeTranslator;
 use deno::node_resolver::PackageJsonResolver;
 use deno::npm::create_in_npm_pkg_checker;
+use deno::npm::create_managed_npm_resolver;
 use deno::npm::CliManagedInNpmPkgCheckerCreateOptions;
 use deno::npm::CliManagedNpmResolverCreateOptions;
+use deno::npm::CliNpmResolverManagedSnapshotOption;
 use deno::npm::CreateInNpmPkgCheckerOptions;
 use deno::resolver::CjsTracker;
+use deno::resolver::CliDenoResolverFs;
+use deno::resolver::CliNpmReqResolver;
 use deno::resolver::NpmModuleLoader;
 use deno_config::workspace::PackageJsonDepResolution;
 use deno_config::workspace::WorkspaceResolver;
@@ -34,47 +40,30 @@ use deno_core::error::AnyError;
 use deno_core::url::Url;
 use deno_core::FastString;
 use deno_core::ModuleSpecifier;
+use deno_facade::migrate;
+use deno_facade::payload_to_eszip;
+use deno_facade::EszipPayloadKind;
+use deno_facade::LazyLoadableEszip;
 use eszip_async_trait::AsyncEszipDataRead;
 use eszip_async_trait::NPM_RC_SCOPES_KEY;
 use eszip_async_trait::SOURCE_CODE_ESZIP_KEY;
 use eszip_async_trait::VFS_ESZIP_KEY;
-// use ext_core::cache::caches::Caches;
-// use ext_core::cache::deno_dir::DenoDirProvider;
-// use ext_core::cache::node::NodeAnalysisCache;
-// use ext_core::cache::CacheSetting;
-use ext_core::cert::get_root_cert_store;
-use ext_core::cert::CaData;
-// use ext_core::node::CliCjsCodeAnalyzer;
-// use ext_core::util::http_util::HttpClientProvider;
-use deno::deno_cache_dir::npm::NpmCacheDir;
-// use deno::deno_package_json::PackageJsonInstallDepsProvider;
-use deno::npm::create_managed_npm_resolver;
-// use deno::npm::CliNpmResolverManagedCreateOptions;
-use deno::npm::CliNpmResolverManagedSnapshotOption;
-use deno_facade::migrate;
-use deno_facade::payload_to_eszip;
 use ext_node::DenoFsNodeResolverEnv;
-use ext_node::NodeExtInitServices;
-// use ext_node::analyze::NodeCodeTranslator;
 use ext_node::NodeResolver;
+use ext_runtime::cert::get_root_cert_store;
+use ext_runtime::cert::CaData;
 use fs::deno_compile_fs::DenoCompileFileSystem;
 use fs::extract_static_files_from_eszip;
 use fs::load_npm_vfs;
 use futures_util::future::OptionFuture;
-// use graph::resolver::CjsResolutionStore;
-// use graph::resolver::CliNodeResolver;
-// use graph::resolver::NpmModuleLoader;
-use deno_facade::EszipPayloadKind;
-use deno_facade::LazyLoadableEszip;
 use import_map::parse_from_json;
 use import_map::ImportMap;
 use standalone_module_loader::WorkspaceEszip;
 
-use std::collections::HashMap;
-use std::path::Path;
-use std::path::PathBuf;
-use std::rc::Rc;
-use std::sync::Arc;
+use crate::metadata::Metadata;
+use crate::standalone::standalone_module_loader::EmbeddedModuleLoader;
+use crate::standalone::standalone_module_loader::SharedModuleLoaderState;
+use crate::RuntimeProviders;
 
 pub mod standalone_module_loader;
 
@@ -207,7 +196,6 @@ where
     npmrc.get_all_known_registries_urls(),
   ));
 
-  let npm_global_cache_dir = npm_cache_dir.get_cache_location();
   let entry_module_source = OptionFuture::<_>::from(
     eszip
       .ensure_module(SOURCE_CODE_ESZIP_KEY)
@@ -239,7 +227,7 @@ where
       maybe_lockfile: None,
       fs: fs.clone(),
       http_client_provider,
-      npm_cache_dir,
+      npm_cache_dir: npm_cache_dir.clone(),
       cache_setting: CacheSetting::Use,
       maybe_node_modules_path: None,
       npm_system_info: Default::default(),
@@ -266,6 +254,15 @@ where
 
   let cache_db = Caches::new(deno_dir_provider.clone());
   let node_analysis_cache = NodeAnalysisCache::new(cache_db.node_analysis_db());
+  let npm_req_resolver =
+    Arc::new(CliNpmReqResolver::new(NpmReqResolverOptions {
+      byonm_resolver: (npm_resolver.clone()).into_maybe_byonm(),
+      fs: CliDenoResolverFs(fs.clone()),
+      in_npm_pkg_checker: in_npm_pkg_checker.clone(),
+      node_resolver: node_resolver.clone(),
+      npm_req_resolver: npm_resolver.clone().into_npm_req_resolver(),
+    }));
+
   let cjs_esm_code_analyzer = CliCjsCodeAnalyzer::new(
     node_analysis_cache,
     cjs_tracker.clone(),
@@ -300,12 +297,13 @@ where
         fs.clone(),
         node_code_translator,
       )),
+      npm_req_resolver,
       node_resolver: node_resolver.clone(),
     }),
   };
 
   Ok(RuntimeProviders {
-    node_services: todo!(),
+    node_services: RuntimeProviders::node_services_dummy(),
     module_loader: Rc::new(EmbeddedModuleLoader {
       shared: module_loader_factory.shared.clone(),
       include_source_map,

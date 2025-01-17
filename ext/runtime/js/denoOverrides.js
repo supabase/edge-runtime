@@ -1,16 +1,12 @@
 import * as net from "ext:deno_net/01_net.js";
 import * as tls from "ext:deno_net/02_tls.js";
 import * as timers from "ext:deno_web/02_timers.js";
-import * as permissions from "ext:core_main_js/js/permissions.js";
-import { errors } from "ext:core_main_js/js/errors.js";
-import {
-  serve,
-  serveHttp,
-  upgradeWebSocket,
-} from "ext:core_main_js/js/http.js";
 import * as fs from "ext:deno_fs/30_fs.js";
 import { osCalls } from "ext:os/os.js";
 import * as io from "ext:deno_io/12_io.js";
+import * as permissions from "ext:runtime/permissions.js";
+import { errors } from "ext:runtime/errors.js";
+import { serve, serveHttp, upgradeWebSocket } from "ext:runtime/http.js";
 
 const osCallsVars = {
   gid: osCalls.gid,

@@ -36,7 +36,7 @@ use deno_core::WriteOutcome;
 use deno_facade::DecoratorType;
 use deno_facade::EszipPayloadKind;
 use errors::WorkerError;
-use ext_core::conn_sync::ConnWatcher;
+use ext_runtime::conn_sync::ConnWatcher;
 use fs::s3_fs::S3FsConfig;
 use fs::tmp_fs::TmpFsConfig;
 use http_utils::utils::get_upgrade_type;

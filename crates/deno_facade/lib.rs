@@ -11,9 +11,9 @@ use serde::Deserialize;
 use serde::Serialize;
 use tokio::fs::create_dir_all;
 
+mod emitter;
 mod eszip;
 
-pub mod emitter;
 pub mod errors;
 pub mod graph;
 pub mod import_map;
@@ -21,6 +21,10 @@ pub mod jsr;
 pub mod jsx_util;
 
 pub use ::eszip::v2::Checksum;
+pub use emitter::EmitterFactory;
+pub use emitter::LockfileOpts;
+pub use eszip::generate_binary_eszip;
+pub use eszip::include_glob_patterns_in_eszip;
 pub use eszip::migrate;
 pub use eszip::payload_to_eszip;
 pub use eszip::EszipPayloadKind;

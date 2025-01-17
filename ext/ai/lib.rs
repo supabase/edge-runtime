@@ -47,13 +47,14 @@ deno_core::extension!(
     op_ai_ort_init_session,
     op_ai_ort_run_session,
   ],
-  esm_entry_point = "ext:ai/js/ai.js",
+  esm_entry_point = "ext:ai/ai.js",
   esm = [
-    "js/ai.js",
-    "js/util/event_stream_parser.mjs",
-    "js/util/event_source_stream.mjs",
-    "js/onnxruntime/onnx.js",
-    "js/onnxruntime/cache_adapter.js"
+    dir "js",
+    "ai.js",
+    "util/event_stream_parser.mjs",
+    "util/event_source_stream.mjs",
+    "onnxruntime/onnx.js",
+    "onnxruntime/cache_adapter.js"
   ]
 );
 

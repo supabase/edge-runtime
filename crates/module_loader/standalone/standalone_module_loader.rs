@@ -1,29 +1,35 @@
-// Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 use base64::Engine;
-use deno_ast::MediaType;
-use deno_config::package_json::PackageJsonDepValue;
+use deno::deno_ast::MediaType;
+use deno::deno_package_json::PackageJsonDepValue;
+use deno::deno_semver::npm::NpmPackageReqReference;
+use deno::node_resolver::NodeResolutionKind;
+use deno::node_resolver::ResolutionMode;
+use deno::resolver::CjsTracker;
+use deno::resolver::CliNpmReqResolver;
 use deno_config::workspace::MappedResolution;
 use deno_config::workspace::WorkspaceResolver;
 use deno_core::error::generic_error;
 use deno_core::error::type_error;
 use deno_core::error::AnyError;
 use deno_core::futures::FutureExt;
+use deno_core::url::Url;
 use deno_core::ModuleLoader;
 use deno_core::ModuleSourceCode;
 use deno_core::ModuleSpecifier;
 use deno_core::ModuleType;
 use deno_core::RequestedModuleType;
 use deno_core::ResolutionKind;
-use deno_semver::npm::NpmPackageReqReference;
 use eszip::deno_graph;
 use eszip::EszipRelativeFileBaseUrl;
 use eszip::ModuleKind;
 use eszip_async_trait::AsyncEszipDataRead;
-use ext_node::NodeResolutionMode;
-use graph::resolver::CliNodeResolver;
-use graph::resolver::NpmModuleLoader;
-use graph::LazyLoadableEszip;
+// use ext_node::NodeResolutionMode;
+// use graph::resolver::CliNodeResolver;
+use deno::resolver::NpmModuleLoader;
+use deno_facade::LazyLoadableEszip;
+use ext_node::NodeResolver;
 use std::sync::Arc;
 use tracing::instrument;
 
@@ -36,7 +42,7 @@ pub struct WorkspaceEszipModule {
 
 pub struct WorkspaceEszip {
   pub eszip: LazyLoadableEszip,
-  pub root_dir_url: ModuleSpecifier,
+  pub root_dir_url: Arc<Url>,
 }
 
 impl WorkspaceEszip {
@@ -69,8 +75,10 @@ impl WorkspaceEszip {
 pub struct SharedModuleLoaderState {
   pub(crate) eszip: WorkspaceEszip,
   pub(crate) workspace_resolver: WorkspaceResolver,
+  pub(crate) cjs_tracker: Arc<CjsTracker>,
   pub(crate) npm_module_loader: Arc<NpmModuleLoader>,
-  pub(crate) node_resolver: Arc<CliNodeResolver>,
+  pub(crate) npm_req_resolver: Arc<CliNpmReqResolver>,
+  pub(crate) node_resolver: Arc<NodeResolver>,
 }
 
 #[derive(Clone)]
@@ -102,22 +110,54 @@ impl ModuleLoader for EmbeddedModuleLoader {
         type_error(format!("Referrer uses invalid specifier: {}", err))
       })?
     };
+    let referrer_kind = if self
+      .shared
+      .cjs_tracker
+      .is_maybe_cjs(&referrer, MediaType::from_specifier(&referrer))?
+    {
+      ResolutionMode::Require
+    } else {
+      ResolutionMode::Import
+    };
 
-    if let Some(result) = self.shared.node_resolver.resolve_if_in_npm_package(
-      specifier,
-      &referrer,
-      NodeResolutionMode::Execution,
-    ) {
-      return match result? {
-        Some(res) => Ok(res.into_url()),
-        None => Err(generic_error("not found")),
-      };
+    if self.shared.node_resolver.in_npm_package(&referrer) {
+      return Ok(
+        self
+          .shared
+          .node_resolver
+          .resolve(
+            specifier,
+            &referrer,
+            referrer_kind,
+            NodeResolutionKind::Execution,
+          )?
+          .into_url(),
+      );
     }
 
     let mapped_resolution =
       self.shared.workspace_resolver.resolve(specifier, &referrer);
 
     match mapped_resolution {
+      Ok(MappedResolution::WorkspaceJsrPackage { specifier, .. }) => {
+        Ok(specifier)
+      }
+      Ok(MappedResolution::WorkspaceNpmPackage {
+        target_pkg_json: pkg_json,
+        sub_path,
+        ..
+      }) => Ok(
+        self
+          .shared
+          .node_resolver
+          .resolve_package_subpath_from_deno_module(
+            pkg_json.dir_path(),
+            sub_path.as_deref(),
+            Some(&referrer),
+            referrer_kind,
+            NodeResolutionKind::Execution,
+          )?,
+      ),
       Ok(MappedResolution::PackageJson {
         dep_result,
         sub_path,
@@ -126,14 +166,15 @@ impl ModuleLoader for EmbeddedModuleLoader {
       }) => match dep_result.as_ref().map_err(|e| AnyError::from(e.clone()))? {
         PackageJsonDepValue::Req(req) => self
           .shared
-          .node_resolver
+          .npm_req_resolver
           .resolve_req_with_sub_path(
             req,
             sub_path.as_deref(),
             &referrer,
-            NodeResolutionMode::Execution,
+            referrer_kind,
+            NodeResolutionKind::Execution,
           )
-          .map(|res| res.into_url()),
+          .map_err(AnyError::from),
 
         PackageJsonDepValue::Workspace(version_req) => {
           let pkg_folder = self
@@ -143,35 +184,31 @@ impl ModuleLoader for EmbeddedModuleLoader {
               alias,
               version_req,
             )?;
-
           Ok(
             self
               .shared
               .node_resolver
-              .resolve_package_sub_path_from_deno_module(
+              .resolve_package_subpath_from_deno_module(
                 pkg_folder,
                 sub_path.as_deref(),
                 Some(&referrer),
-                NodeResolutionMode::Execution,
-              )?
-              .into_url(),
+                referrer_kind,
+                NodeResolutionKind::Execution,
+              )?,
           )
         }
       },
-      Ok(MappedResolution::Normal(specifier))
-      | Ok(MappedResolution::ImportMap(specifier)) => {
+      Ok(MappedResolution::Normal { specifier, .. })
+      | Ok(MappedResolution::ImportMap { specifier, .. }) => {
         if let Ok(reference) =
           NpmPackageReqReference::from_specifier(&specifier)
         {
-          return self
-            .shared
-            .node_resolver
-            .resolve_req_reference(
-              &reference,
-              &referrer,
-              NodeResolutionMode::Execution,
-            )
-            .map(|res| res.into_url());
+          return Ok(self.shared.npm_req_resolver.resolve_req_reference(
+            &reference,
+            &referrer,
+            referrer_kind,
+            NodeResolutionKind::Execution,
+          )?);
         }
 
         if specifier.scheme() == "jsr" {
@@ -180,22 +217,24 @@ impl ModuleLoader for EmbeddedModuleLoader {
           }
         }
 
-        self
-          .shared
-          .node_resolver
-          .handle_if_in_node_modules(specifier)
+        Ok(
+          self
+            .shared
+            .node_resolver
+            .handle_if_in_node_modules(&specifier)
+            .unwrap_or(specifier),
+        )
       }
       Err(err)
         if err.is_unmapped_bare_specifier() && referrer.scheme() == "file" =>
       {
-        // todo(dsherret): return a better error from node resolution so that
-        // we can more easily tell whether to surface it or not
-        let node_result = self.shared.node_resolver.resolve(
+        let maybe_res = self.shared.npm_req_resolver.resolve_if_for_npm_pkg(
           specifier,
           &referrer,
-          NodeResolutionMode::Execution,
+          referrer_kind,
+          NodeResolutionKind::Execution,
         );
-        if let Ok(Some(res)) = node_result {
+        if let Ok(Some(res)) = maybe_res {
           return Ok(res.into_url());
         }
         Err(err.into())

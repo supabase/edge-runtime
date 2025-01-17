@@ -1,9 +1,27 @@
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+
 use anyhow::Context;
 use deno_core::error::AnyError;
 use deno_core::op2;
 use deno_core::ModuleSpecifier;
 use deno_core::OpState;
 use deno_fs::FsPermissions;
+
+deno_core::extension!(runtime_bootstrap,
+  parameters = [P: FsPermissions],
+  ops = [
+    op_main_module<P>,
+    op_bootstrap_color_depth,
+  ],
+  options = {
+    main_module: Option<ModuleSpecifier>
+  },
+  state = |state, options| {
+    if let Some(module_init) = options.main_module {
+      state.put::<ModuleSpecifier>(module_init);
+    }
+  },
+);
 
 #[op2]
 #[string]
@@ -28,17 +46,7 @@ where
   Ok(main)
 }
 
-deno_core::extension!(core_runtime,
-  parameters = [P: FsPermissions],
-  ops = [
-    op_main_module<P>
-  ],
-  options = {
-      main_module: Option<ModuleSpecifier>
-  },
-  state = |state, options| {
-      if let Some(module_init) = options.main_module {
-          state.put::<ModuleSpecifier>(module_init);
-      }
-  },
-);
+#[op2(fast)]
+pub fn op_bootstrap_color_depth(_state: &mut OpState) -> i32 {
+  1
+}

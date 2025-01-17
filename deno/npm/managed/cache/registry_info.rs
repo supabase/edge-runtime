@@ -18,9 +18,9 @@ use deno_npm::registry::NpmPackageInfo;
 
 use crate::common::maybe_auth_header_for_npm_registry;
 
-use ext_core::cache::CacheSetting;
-use ext_core::util::http_util::HttpClientProvider;
-use ext_core::util::sync::MultiRuntimeAsyncValueCreator;
+use ext_runtime::cache::CacheSetting;
+use ext_runtime::util::http_util::HttpClientProvider;
+use ext_runtime::util::sync::MultiRuntimeAsyncValueCreator;
 
 use super::NpmCache;
 

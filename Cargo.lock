@@ -1456,6 +1456,8 @@ dependencies = [
  "anyhow",
  "base",
  "clap",
+ "deno",
+ "deno_core",
  "deno_facade",
  "env_logger",
  "glob",

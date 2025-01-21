@@ -19,6 +19,7 @@ pub mod graph;
 pub mod import_map;
 pub mod jsr;
 pub mod jsx_util;
+pub mod permissions;
 
 pub use ::eszip::v2::Checksum;
 pub use emitter::EmitterFactory;

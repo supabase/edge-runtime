@@ -19,8 +19,7 @@ pub(super) fn resolve_deno_runtime_env() {
       })
     };
 
-  deno_runtime::MAYBE_DENO_VERSION
-    .get_or_init(|| deno_manifest::version().to_string());
+  deno_runtime::MAYBE_DENO_VERSION.get_or_init(|| deno::version().to_string());
 
   resolve_boolish_env(
     "DENO_NO_DEPRECATION_WARNINGS",

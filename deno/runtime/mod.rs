@@ -1,5 +1,5 @@
 pub mod errors;
-pub mod permissions;
+pub mod ops;
 pub mod shared;
 
 pub fn exit(code: i32) -> ! {

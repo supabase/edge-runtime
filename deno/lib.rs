@@ -41,6 +41,7 @@ pub use deno_lockfile;
 pub use deno_net;
 pub use deno_npm;
 pub use deno_package_json;
+pub use deno_path_util;
 pub use deno_permissions;
 pub use deno_semver;
 pub use deno_telemetry;

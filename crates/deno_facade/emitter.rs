@@ -11,8 +11,8 @@ use deno::cache::DenoCacheEnvFsAdapter;
 use deno::cache::DenoDir;
 use deno::cache::DenoDirProvider;
 use deno::cache::EmitCache;
-use deno::cache::FetchCacher;
-use deno::cache::FetchCacherOptions;
+// use deno::cache::FetchCacher;
+// use deno::cache::FetchCacherOptions;
 use deno::cache::GlobalHttpCache;
 use deno::cache::ModuleInfoCache;
 use deno::cache::ParsedSourceCache;
@@ -26,6 +26,8 @@ use deno::deno_config::workspace::WorkspaceResolver;
 use deno::deno_lockfile::Lockfile;
 use deno::deno_npm::npm_rc::ResolvedNpmRc;
 use deno::deno_npm::resolution::ValidSerializedNpmResolutionSnapshot;
+use deno::deno_permissions::Permissions;
+use deno::deno_permissions::PermissionsOptions;
 use deno::deno_resolver::cjs::IsCjsResolutionMode;
 use deno::emit::Emitter;
 use deno::file_fetcher::FileFetcher;
@@ -45,7 +47,7 @@ use deno::DenoOptions;
 use deno::PermissionsContainer;
 use deno_core::futures::FutureExt;
 use deno_core::parking_lot::Mutex;
-use eszip::deno_graph::source::Loader;
+// use eszip::deno_graph::source::Loader;
 use ext_node::DenoFsNodeResolverEnv;
 use ext_node::NodeResolver;
 use ext_node::PackageJsonResolver;
@@ -54,6 +56,7 @@ use import_map::ImportMap;
 use crate::jsx_util::get_jsx_emit_opts;
 use crate::jsx_util::get_rt_from_jsx;
 
+use crate::permissions::RuntimePermissionDescriptorParser;
 use crate::DecoratorType;
 
 struct Deferred<T>(once_cell::unsync::OnceCell<T>);
@@ -100,72 +103,75 @@ pub struct LockfileOpts {
 }
 
 pub struct EmitterFactory {
-  cache_strategy: Option<CacheSetting>,
   cjs_tracker: Deferred<Arc<CjsTracker>>,
-  deno_dir: DenoDir,
-  file_fetcher_allow_remote: bool,
+  deno_options: Deferred<Arc<dyn DenoOptions>>,
   file_fetcher: Deferred<Arc<FileFetcher>>,
   global_http_cache: Deferred<Arc<GlobalHttpCache>>,
-  deno_options: Deferred<Arc<dyn DenoOptions>>,
   http_client_provider: Deferred<Arc<HttpClientProvider>>,
   in_npm_pkg_checker: Deferred<Arc<dyn InNpmPackageChecker>>,
-  jsx_import_source_config: Option<JsxImportSourceConfig>,
   lockfile: Deferred<Option<Arc<CliLockfile>>>,
-  maybe_decorator: Option<DecoratorType>,
-  maybe_lockfile: Option<LockfileOpts>,
-  maybe_npmrc_env_vars: Option<HashMap<String, String>>,
-  maybe_npmrc_path: Option<PathBuf>,
   module_info_cache: Deferred<Arc<ModuleInfoCache>>,
   node_resolver: Deferred<Arc<NodeResolver>>,
   npm_cache_dir: Deferred<Arc<NpmCacheDir>>,
   npm_resolver: Deferred<Arc<dyn CliNpmResolver>>,
-  permissions: PermissionsContainer,
+  permission_desc_parser: Deferred<Arc<RuntimePermissionDescriptorParser>>,
   pkg_json_resolver: Deferred<Arc<PackageJsonResolver>>,
-  pub maybe_import_map: Option<ImportMap>,
-  pub npm_snapshot: Option<ValidSerializedNpmResolutionSnapshot>,
   resolved_npm_rc: Deferred<Arc<ResolvedNpmRc>>,
+  root_permissions_container: Deferred<PermissionsContainer>,
   workspace_resolver: Deferred<Arc<WorkspaceResolver>>,
+
+  cache_strategy: Option<CacheSetting>,
+  decorator: Option<DecoratorType>,
+  deno_dir: DenoDir,
+  file_fetcher_allow_remote: bool,
+  import_map: Option<ImportMap>,
+  jsx_import_source_config: Option<JsxImportSourceConfig>,
+  lockfile_options: Option<LockfileOpts>,
+  npm_snapshot: Option<ValidSerializedNpmResolutionSnapshot>,
+  npmrc_env_vars: Option<HashMap<String, String>>,
+  npmrc_path: Option<PathBuf>,
+  permissions_options: Option<PermissionsOptions>,
 }
 
 impl Default for EmitterFactory {
   fn default() -> Self {
-    // Self::new()
-    unreachable!()
+    Self::new()
   }
 }
 
 impl EmitterFactory {
-  pub fn new(permissions: PermissionsContainer) -> Self {
+  pub fn new() -> Self {
     let deno_dir = DenoDir::new(None).unwrap();
 
     Self {
-      // cjs_resolutions: Default::default(),
-      // cli_node_resolver: Default::default(),
-      cache_strategy: None,
       cjs_tracker: Default::default(),
-      deno_dir,
-      file_fetcher_allow_remote: true,
       file_fetcher: Default::default(),
       global_http_cache: Default::default(),
       http_client_provider: Default::default(),
       in_npm_pkg_checker: Default::default(),
-      jsx_import_source_config: None,
       lockfile: Default::default(),
-      maybe_decorator: None,
-      maybe_import_map: None,
-      maybe_lockfile: None,
-      maybe_npmrc_env_vars: None,
-      maybe_npmrc_path: None,
       module_info_cache: Default::default(),
       node_resolver: Default::default(),
       npm_cache_dir: Default::default(),
       npm_resolver: Default::default(),
-      npm_snapshot: None,
-      permissions,
+      permission_desc_parser: Default::default(),
       pkg_json_resolver: Default::default(),
       resolved_npm_rc: Default::default(),
       workspace_resolver: Default::default(),
+      root_permissions_container: Default::default(),
       deno_options: Default::default(),
+
+      cache_strategy: None,
+      deno_dir,
+      file_fetcher_allow_remote: true,
+      jsx_import_source_config: None,
+      decorator: None,
+      import_map: None,
+      lockfile_options: None,
+      npmrc_env_vars: None,
+      npmrc_path: None,
+      npm_snapshot: None,
+      permissions_options: None,
     }
   }
 
@@ -177,8 +183,12 @@ impl EmitterFactory {
     self.file_fetcher_allow_remote = allow_remote;
   }
 
+  pub fn import_map(&self) -> &Option<ImportMap> {
+    &self.import_map
+  }
+
   pub fn set_import_map(&mut self, import_map: Option<ImportMap>) {
-    self.maybe_import_map = import_map;
+    self.import_map = import_map;
   }
 
   pub fn set_jsx_import_source(&mut self, config: JsxImportSourceConfig) {
@@ -189,15 +199,15 @@ impl EmitterFactory {
   where
     P: AsRef<Path>,
   {
-    self.maybe_npmrc_path = Some(path.as_ref().to_path_buf());
+    self.npmrc_path = Some(path.as_ref().to_path_buf());
   }
 
   pub fn set_npmrc_env_vars(&mut self, vars: HashMap<String, String>) {
-    self.maybe_npmrc_env_vars = Some(vars);
+    self.npmrc_env_vars = Some(vars);
   }
 
   pub fn set_decorator_type(&mut self, decorator_type: Option<DecoratorType>) {
-    self.maybe_decorator = decorator_type;
+    self.decorator = decorator_type;
   }
 
   pub fn deno_dir_provider(&self) -> Arc<DenoDirProvider> {
@@ -256,17 +266,17 @@ impl EmitterFactory {
 
     TranspileOptions {
       use_decorators_proposal: self
-        .maybe_decorator
+        .decorator
         .map(DecoratorType::is_use_decorators_proposal)
         .unwrap_or_default(),
 
       use_ts_decorators: self
-        .maybe_decorator
+        .decorator
         .map(DecoratorType::is_use_ts_decorators)
         .unwrap_or_default(),
 
       emit_metadata: self
-        .maybe_decorator
+        .decorator
         .map(DecoratorType::is_emit_metadata)
         .unwrap_or_default(),
 
@@ -316,10 +326,10 @@ impl EmitterFactory {
 
   pub fn get_lock_file_deferred(&self) -> &Option<Arc<CliLockfile>> {
     self.lockfile.get_or_init(|| {
-      if let Some(lockfile_data) = self.maybe_lockfile.clone() {
+      if let Some(options) = self.lockfile_options.clone() {
         Some(Arc::new(Mutex::new(Lockfile::new_empty(
-          lockfile_data.path.clone(),
-          lockfile_data.overwrite,
+          options.path.clone(),
+          options.overwrite,
         ))))
       } else {
         let default_lockfile_path = std::env::current_dir()
@@ -424,8 +434,8 @@ impl EmitterFactory {
     self
       .resolved_npm_rc
       .get_or_try_init_async(async {
-        if let Some(path) = self.maybe_npmrc_path.clone() {
-          create_npmrc(path, self.maybe_npmrc_env_vars.as_ref()).await
+        if let Some(path) = self.npmrc_path.clone() {
+          create_npmrc(path, self.npmrc_env_vars.as_ref()).await
         } else {
           Ok(create_default_npmrc())
         }
@@ -466,6 +476,31 @@ impl EmitterFactory {
 
   pub fn deno_options(&self) -> &Arc<dyn DenoOptions> {
     todo!()
+  }
+
+  pub fn permission_desc_parser(
+    &self,
+  ) -> Result<&Arc<RuntimePermissionDescriptorParser>, anyhow::Error> {
+    self.permission_desc_parser.get_or_try_init(|| {
+      let fs = self.real_fs();
+      Ok(Arc::new(RuntimePermissionDescriptorParser::new(fs)))
+    })
+  }
+
+  pub fn root_permissions_container(
+    &self,
+  ) -> Result<&PermissionsContainer, anyhow::Error> {
+    self.root_permissions_container.get_or_try_init(|| {
+      let desc_parser = self.permission_desc_parser()?.clone();
+      let options = if let Some(options) = self.permissions_options.as_ref() {
+        options
+      } else {
+        &PermissionsOptions::default()
+      };
+      let permissions =
+        Permissions::from_options(desc_parser.as_ref(), options)?;
+      Ok(PermissionsContainer::new(desc_parser, permissions))
+    })
   }
 
   // pub async fn cli_node_resolver(
@@ -539,20 +574,20 @@ impl EmitterFactory {
     })
   }
 
-  pub async fn file_fetcher_loader(
-    &self,
-  ) -> Result<Box<dyn Loader>, anyhow::Error> {
-    Ok(Box::new(FetchCacher::new(
-      self.file_fetcher()?.clone(),
-      self.real_fs(),
-      self.global_http_cache().clone(),
-      self.in_npm_pkg_checker()?.clone(),
-      self.module_info_cache()?.clone(),
-      FetchCacherOptions {
-        file_header_overrides: HashMap::new(),
-        permissions: self.permissions.clone(),
-        is_deno_publish: false,
-      },
-    )))
-  }
+  // pub async fn file_fetcher_loader(
+  //   &self,
+  // ) -> Result<Box<dyn Loader>, anyhow::Error> {
+  //   Ok(Box::new(FetchCacher::new(
+  //     self.file_fetcher()?.clone(),
+  //     self.real_fs(),
+  //     self.global_http_cache().clone(),
+  //     self.in_npm_pkg_checker()?.clone(),
+  //     self.module_info_cache()?.clone(),
+  //     FetchCacherOptions {
+  //       file_header_overrides: HashMap::new(),
+  //       permissions: self.permissions.clone(),
+  //       is_deno_publish: false,
+  //     },
+  //   )))
+  // }
 }

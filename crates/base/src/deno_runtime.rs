@@ -6,7 +6,7 @@ use std::future::Future;
 use std::marker::PhantomData;
 use std::mem::ManuallyDrop;
 use std::rc::Rc;
-use std::str::FromStr;
+// use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::RwLock;
 use std::task::Poll;
@@ -28,6 +28,7 @@ use cooked_waker::IntoWaker;
 use cooked_waker::WakeRef;
 use ctor::ctor;
 use deno::args::CacheSetting;
+use deno::deno_http;
 use deno::deno_http::DefaultHttpPropertyExtractor;
 use deno::deno_tls::deno_native_certs::load_native_certs;
 use deno::deno_tls::rustls::RootCertStore;
@@ -39,11 +40,11 @@ use deno_core::error::JsError;
 use deno_core::serde_json;
 use deno_core::unsync::sync::AtomicFlag;
 use deno_core::url::Url;
+use deno_core::v8;
 use deno_core::v8::GCCallbackFlags;
 use deno_core::v8::GCType;
 use deno_core::v8::HeapStatistics;
 use deno_core::v8::Isolate;
-use deno_core::v8::{self};
 use deno_core::JsRuntime;
 use deno_core::ModuleId;
 use deno_core::ModuleLoader;
@@ -506,7 +507,7 @@ where
     }
 
     let mut net_access_disabled = false;
-    let mut allow_net = None;
+    // let mut allow_net = None;
     let mut allow_remote_modules = true;
 
     if is_user_worker {
@@ -515,15 +516,15 @@ where
       net_access_disabled = user_conf.net_access_disabled;
       allow_remote_modules = user_conf.allow_remote_modules;
 
-      allow_net = match &user_conf.allow_net {
-        Some(allow_net) => Some(
-          allow_net
-            .iter()
-            .map(|s| FromStr::from_str(s.as_str()))
-            .collect::<Result<Vec<_>, _>>()?,
-        ),
-        None => None,
-      };
+      // allow_net = match &user_conf.allow_net {
+      //   Some(allow_net) => Some(
+      //     allow_net
+      //       .iter()
+      //       .map(|s| FromStr::from_str(s.as_str()))
+      //       .collect::<Result<Vec<_>, _>>()?,
+      //   ),
+      //   None => None,
+      // };
     }
 
     let mut maybe_import_map = None;
@@ -560,7 +561,7 @@ where
       }
 
       emitter_factory.set_import_map(load_import_map(import_map_path.clone())?);
-      maybe_import_map.clone_from(&emitter_factory.maybe_import_map);
+      maybe_import_map.clone_from(emitter_factory.import_map());
 
       let arc_emitter_factory = Arc::new(emitter_factory);
       let main_module_url_file_path =
@@ -764,7 +765,9 @@ where
         None,
       ),
       deno::deno_tls::deno_tls::init_ops(),
-      deno::deno_http::deno_http::init_ops::<DefaultHttpPropertyExtractor>(),
+      deno::deno_http::deno_http::init_ops::<DefaultHttpPropertyExtractor>(
+        deno_http::Options::default(),
+      ),
       deno::deno_io::deno_io::init_ops(stdio),
       deno::deno_fs::deno_fs::init_ops::<PermissionsContainer>(
         file_system.clone(),
@@ -788,6 +791,7 @@ where
         file_system,
       ),
       deno_cache::deno_cache::init_ops::<SqliteBackedCache>(None),
+      deno::runtime::ops::permissions::deno_permissions::init_ops_and_esm(),
       ext_runtime::runtime::init_ops_and_esm(),
     ];
 

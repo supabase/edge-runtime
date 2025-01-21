@@ -1,23 +1,11 @@
 #![allow(clippy::arc_with_non_send_sync)]
 #![allow(clippy::async_yields_async)]
 
-use deno_config::JsxImportSourceConfig;
-use ext_event_worker::events::LogLevel;
-use ext_event_worker::events::WorkerEvents;
-use graph::emitter::EmitterFactory;
-use graph::generate_binary_eszip;
-use graph::EszipPayloadKind;
-use http_v02::HeaderValue;
-use http_v02::{self as http};
-use hyper_v014 as hyper;
-use reqwest_v011 as reqwest;
-use url::Url;
-
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::io;
 use std::io::BufRead;
 use std::io::Cursor;
-use std::io::{self};
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
@@ -44,8 +32,14 @@ use base::utils::test_utils::{self};
 use base::worker;
 use base::worker::TerminationToken;
 use base::DecoratorType;
+use deno_config::deno_json::JsxImportSourceConfig;
 use deno_core::serde_json::json;
 use deno_core::serde_json::{self};
+use deno_facade::generate_binary_eszip;
+use deno_facade::EmitterFactory;
+use deno_facade::EszipPayloadKind;
+use ext_event_worker::events::LogLevel;
+use ext_event_worker::events::WorkerEvents;
 use ext_runtime::SharedMetricSource;
 use ext_workers::context::MainWorkerRuntimeOpts;
 use ext_workers::context::WorkerContextInitOpts;
@@ -61,8 +55,11 @@ use http::Request;
 use http::Response as HttpResponse;
 use http::StatusCode;
 use http_utils::utils::get_upgrade_type;
+use http_v02::HeaderValue;
+use http_v02::{self as http};
 use hyper::body::to_bytes;
 use hyper::Body;
+use hyper_v014 as hyper;
 use reqwest::header;
 use reqwest::multipart::Form;
 use reqwest::multipart::Part;
@@ -70,6 +67,7 @@ use reqwest::Certificate;
 use reqwest::Client;
 use reqwest::RequestBuilder;
 use reqwest::Response;
+use reqwest_v011 as reqwest;
 use serde::Deserialize;
 use serial_test::serial;
 use tokio::fs;
@@ -90,6 +88,7 @@ use tokio_rustls::TlsConnector;
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use tokio_util::sync::CancellationToken;
 use tungstenite::Message;
+use url::Url;
 use urlencoding::encode;
 
 const MB: usize = 1024 * 1024;

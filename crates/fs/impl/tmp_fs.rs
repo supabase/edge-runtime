@@ -260,7 +260,7 @@ impl deno_fs::FileSystem for TmpFs {
   }
 
   #[instrument(
-        level = "trace", 
+        level = "trace",
         skip(self, options, access_check),
         fields(?options, has_access_check = access_check.is_some()),
         err(Debug)
@@ -286,7 +286,7 @@ impl deno_fs::FileSystem for TmpFs {
   }
 
   #[instrument(
-        level = "trace", 
+        level = "trace",
         skip(self, options, access_check),
         fields(?options, has_access_check = access_check.is_some()),
         err(Debug)
@@ -1036,7 +1036,7 @@ mod test {
   async fn non_normalized_path_3() {
     let fs = get_tmp_fs();
 
-    fs.mkdir_async(PathBuf::from("meowmeow/a/b/../c"), true, 0o777)
+    fs.mkdir_async(PathBuf::from("meowmeow/a/b/../c"), true, Some(0o777))
       .await
       .unwrap();
 
@@ -1048,7 +1048,7 @@ mod test {
     let fs = get_tmp_fs();
 
     assert_eq!(
-      fs.mkdir_async(PathBuf::from("meowmeow/a/b"), true, 0o100)
+      fs.mkdir_async(PathBuf::from("meowmeow/a/b"), true, Some(0o100))
         .await
         .unwrap_err()
         .kind(),

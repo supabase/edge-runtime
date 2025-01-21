@@ -1,14 +1,14 @@
-mod env;
-mod flags;
-
-#[cfg(not(feature = "tracing"))]
-mod logger;
+use std::fs::File;
+use std::io::Write;
+use std::net::SocketAddr;
+use std::path::PathBuf;
+use std::process::ExitCode;
+use std::sync::Arc;
 
 use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Error;
 use base::commands::start_server;
-
 use base::server::ServerFlags;
 use base::server::Tls;
 use base::server::WorkerEntrypoints;
@@ -21,21 +21,21 @@ use base::DecoratorType;
 use base::InspectorOption;
 use clap::ArgMatches;
 use deno_core::url::Url;
+use deno_facade::extract_from_file;
+use deno_facade::generate_binary_eszip;
+use deno_facade::import_map::load_import_map;
+use deno_facade::include_glob_patterns_in_eszip;
+use deno_facade::EmitterFactory;
 use env::resolve_deno_runtime_env;
 use flags::get_cli;
 use flags::EszipV2ChecksumKind;
-use graph::emitter::EmitterFactory;
-use graph::extract_from_file;
-use graph::generate_binary_eszip;
-use graph::import_map::load_import_map;
-use graph::include_glob_patterns_in_eszip;
 use log::warn;
-use std::fs::File;
-use std::io::Write;
-use std::net::SocketAddr;
-use std::path::PathBuf;
-use std::process::ExitCode;
-use std::sync::Arc;
+
+mod env;
+mod flags;
+
+#[cfg(not(feature = "tracing"))]
+mod logger;
 
 fn main() -> Result<ExitCode, anyhow::Error> {
   resolve_deno_runtime_env();

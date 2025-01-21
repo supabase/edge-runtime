@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use anyhow::Error;
+use deno::deno_permissions::PermissionsOptions;
 use deno_config::deno_json::JsxImportSourceConfig;
 use deno_core::unsync::sync::AtomicFlag;
 use deno_core::FastString;
@@ -72,7 +73,8 @@ pub struct UserWorkerRuntimeOpts {
   pub memory_limit_mb: u64,
   pub low_memory_multiplier: u64,
 
-  pub worker_timeout_ms: u64, // wall clock limit
+  /// Wall clock limit
+  pub worker_timeout_ms: u64,
 
   pub cpu_time_soft_limit_ms: u64,
   pub cpu_time_hard_limit_ms: u64,
@@ -86,6 +88,7 @@ pub struct UserWorkerRuntimeOpts {
   pub allow_net: Option<Vec<String>>,
   pub allow_remote_modules: bool,
   pub custom_module_root: Option<String>,
+  pub permissions: Option<PermissionsOptions>,
 
   pub context: Option<crate::JsonMap>,
 }
@@ -93,6 +96,13 @@ pub struct UserWorkerRuntimeOpts {
 impl Default for UserWorkerRuntimeOpts {
   fn default() -> UserWorkerRuntimeOpts {
     UserWorkerRuntimeOpts {
+      service_path: None,
+      key: None,
+
+      pool_msg_tx: None,
+      events_msg_tx: None,
+      cancel: None,
+
       memory_limit_mb: env!("SUPABASE_RESOURCE_LIMIT_MEM_MB").parse().unwrap(),
       low_memory_multiplier: env!("SUPABASE_RESOURCE_LIMIT_LOW_MEM_MULTIPLIER")
         .parse()
@@ -101,26 +111,24 @@ impl Default for UserWorkerRuntimeOpts {
       worker_timeout_ms: env!("SUPABASE_RESOURCE_LIMIT_TIMEOUT_MS")
         .parse()
         .unwrap(),
+
       cpu_time_soft_limit_ms: env!("SUPABASE_RESOURCE_LIMIT_CPU_SOFT_MS")
         .parse()
         .unwrap(),
       cpu_time_hard_limit_ms: env!("SUPABASE_RESOURCE_LIMIT_CPU_HARD_MS")
         .parse()
         .unwrap(),
+
       beforeunload_wall_clock_pct: None,
       beforeunload_cpu_pct: None,
       beforeunload_memory_pct: None,
 
       force_create: false,
-      key: None,
-      pool_msg_tx: None,
-      events_msg_tx: None,
-      cancel: None,
       net_access_disabled: false,
       allow_net: None,
       allow_remote_modules: true,
       custom_module_root: None,
-      service_path: None,
+      permissions: None,
 
       context: None,
     }

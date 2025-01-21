@@ -9,7 +9,7 @@
 //!   Diagnostics are compile-time type errors, whereas JsErrors are runtime
 //!   exceptions.
 
-use crate::runtime::permissions::PermissionError;
+use crate::runtime::ops::permissions::PermissionError;
 // use crate::ops::fs_events::FsEventsError;
 // use crate::ops::http::HttpStartError;
 // use crate::ops::os::OsError;

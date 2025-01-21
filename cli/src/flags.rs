@@ -11,7 +11,7 @@ use clap::ArgAction;
 use clap::ArgGroup;
 use clap::Command;
 use clap::ValueEnum;
-use graph::Checksum;
+use deno_facade::Checksum;
 
 #[derive(ValueEnum, Default, Clone, Copy)]
 #[repr(u8)]
@@ -34,7 +34,7 @@ pub(super) fn get_cli() -> Command {
     .version(format!(
       "{}\ndeno {} ({}, {})",
       crate_version!(),
-      deno_manifest::version(),
+      deno::version(),
       env!("PROFILE"),
       env!("TARGET")
     ))

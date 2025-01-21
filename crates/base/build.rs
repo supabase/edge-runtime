@@ -292,6 +292,7 @@ mod supabase_startup_snapshot {
       // Full `Web Cache API` via `SqliteBackedCache` is disabled. Cache flow is
       // handled by `ext_ai: Cache Adapter`
       deno_cache::deno_cache::init_ops_and_esm::<SqliteBackedCache>(None),
+      deno::runtime::ops::permissions::deno_permissions::init_ops(),
       ext_runtime::runtime::init_ops_and_esm(),
     ];
 

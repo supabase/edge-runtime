@@ -9,6 +9,9 @@ name = "edge-runtime"
 path = "src/main.rs"
 
 [dependencies]
+deno.workspace = true
+deno_core.workspace = true
+
 deno_facade.workspace = true
 
 anyhow.workspace = true

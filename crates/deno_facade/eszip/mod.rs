@@ -761,20 +761,13 @@ where
   eszip.add_opaque_data(String::from(SOURCE_CODE_ESZIP_KEY), bin_code);
 
   // add import map
-  if emitter_factory.maybe_import_map.is_some() {
+  if let Some(import_map) = emitter_factory.import_map() {
     eszip.add_import_map(
       ModuleKind::Json,
       maybe_import_map_url.unwrap(),
-      Arc::from(
-        emitter_factory
-          .maybe_import_map
-          .as_ref()
-          .unwrap()
-          .to_json()
-          .as_bytes(),
-      ),
+      Arc::from(import_map.to_json().as_bytes()),
     );
-  };
+  }
 
   let resolved_npm_rc = emitter_factory.resolved_npm_rc().await?;
   let modified_scopes = resolved_npm_rc

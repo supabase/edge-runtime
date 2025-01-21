@@ -31,7 +31,8 @@
         "ms-vscode.hexeditor",
         "vadimcn.vscode-lldb",
         "denoland.vscode-deno",
-        "dprint.dprint"
+        "dprint.dprint",
+        "editorconfig.editorconfig"
       ]
     }
   }

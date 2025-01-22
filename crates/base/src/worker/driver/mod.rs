@@ -13,7 +13,7 @@ use tokio::sync::oneshot;
 use tokio::task::JoinError;
 use tokio_util::task::LocalPoolHandle;
 
-use crate::deno_runtime::DenoRuntime;
+use crate::runtime::DenoRuntime;
 use crate::worker::DuplexStreamEntry;
 use crate::worker::WorkerCx;
 

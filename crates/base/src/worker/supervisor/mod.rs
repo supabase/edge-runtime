@@ -31,8 +31,8 @@ use uuid::Uuid;
 use super::pool::SupervisorPolicy;
 use super::termination_token::TerminationToken;
 
-use crate::deno_runtime::DenoRuntime;
-use crate::deno_runtime::RuntimeState;
+use crate::runtime::DenoRuntime;
+use crate::runtime::RuntimeState;
 use crate::server::ServerFlags;
 use crate::utils::units::percentage_value;
 

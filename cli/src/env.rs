@@ -1,4 +1,4 @@
-use base::deno_runtime;
+use base::runtime;
 use clap::builder::BoolishValueParser;
 use clap::builder::TypedValueParser;
 use once_cell::sync::OnceCell;
@@ -19,20 +19,20 @@ pub(super) fn resolve_deno_runtime_env() {
       })
     };
 
-  deno_runtime::MAYBE_DENO_VERSION.get_or_init(|| deno::version().to_string());
+  runtime::MAYBE_DENO_VERSION.get_or_init(|| deno::version().to_string());
 
   resolve_boolish_env(
     "DENO_NO_DEPRECATION_WARNINGS",
-    &deno_runtime::SHOULD_DISABLE_DEPRECATED_API_WARNING,
+    &runtime::SHOULD_DISABLE_DEPRECATED_API_WARNING,
   );
 
   resolve_boolish_env(
     "DENO_VERBOSE_WARNINGS",
-    &deno_runtime::SHOULD_USE_VERBOSE_DEPRECATED_API_WARNING,
+    &runtime::SHOULD_USE_VERBOSE_DEPRECATED_API_WARNING,
   );
 
   resolve_boolish_env(
     "EDGE_RUNTIME_INCLUDE_MALLOCED_MEMORY_ON_MEMCHECK",
-    &deno_runtime::SHOULD_INCLUDE_MALLOCED_MEMORY_ON_MEMCHECK,
+    &runtime::SHOULD_INCLUDE_MALLOCED_MEMORY_ON_MEMCHECK,
   );
 }

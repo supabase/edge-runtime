@@ -2558,12 +2558,12 @@ async fn test_should_be_able_to_bundle_against_various_exts() {
     let path = path.to_string();
     let mut emitter_factory = EmitterFactory::new();
 
-    emitter_factory.set_jsx_import_source(JsxImportSourceConfig {
+    emitter_factory.set_jsx_import_source(Some(JsxImportSourceConfig {
       default_specifier: Some("https://esm.sh/preact".to_string()),
       default_types_specifier: None,
       module: "jsx-runtime".to_string(),
       base_url: Url::from_file_path(std::env::current_dir().unwrap()).unwrap(),
-    });
+    }));
 
     async {
       generate_binary_eszip(
@@ -2774,7 +2774,7 @@ async fn test_private_npm_package_import() {
       let mut emitter_factory = EmitterFactory::new();
 
       emitter_factory
-        .set_npmrc_path("./test_cases/private-npm-package-import/.npmrc");
+        .set_npmrc_path(Some("./test_cases/private-npm-package-import/.npmrc"));
 
       generate_binary_eszip(
         PathBuf::from("./test_cases/private-npm-package-import/index.js"),

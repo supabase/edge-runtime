@@ -1,8 +1,8 @@
 use std::future::Future;
 use std::sync::Arc;
 
-use crate::deno_runtime::DenoRuntime;
-use crate::deno_runtime::RunOptionsBuilder;
+use crate::runtime::DenoRuntime;
+use crate::runtime::RunOptionsBuilder;
 use crate::worker::supervisor::create_supervisor;
 use crate::worker::supervisor::CPUUsageMetrics;
 use crate::worker::DuplexStreamEntry;

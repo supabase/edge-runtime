@@ -2,9 +2,9 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::deno_runtime::DenoRuntime;
-use crate::deno_runtime::RunOptionsBuilder;
-use crate::deno_runtime::WillTerminateReason;
+use crate::runtime::DenoRuntime;
+use crate::runtime::RunOptionsBuilder;
+use crate::runtime::WillTerminateReason;
 use crate::worker::supervisor::v8_handle_beforeunload;
 use crate::worker::supervisor::{self};
 use crate::worker::DuplexStreamEntry;

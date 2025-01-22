@@ -16,6 +16,7 @@ use deno::deno_cache_dir::npm::NpmCacheDir;
 use deno::deno_npm;
 use deno::deno_npm::npm_rc::RegistryConfigWithUrl;
 use deno::deno_npm::npm_rc::ResolvedNpmRc;
+use deno::deno_permissions::PermissionsOptions;
 use deno::deno_resolver::cjs::IsCjsResolutionMode;
 use deno::deno_resolver::npm::NpmReqResolverOptions;
 use deno::deno_tls::rustls::RootCertStore;
@@ -89,6 +90,7 @@ impl RootCertStoreProvider for StandaloneRootCertStoreProvider {
 pub async fn create_module_loader_for_eszip<P>(
   mut eszip: LazyLoadableEszip,
   base_dir_path: P,
+  permissions: PermissionsOptions,
   metadata: Metadata,
   maybe_import_map: Option<ImportMap>,
   include_source_map: bool,
@@ -303,22 +305,24 @@ where
   };
 
   Ok(RuntimeProviders {
-    node_services: RuntimeProviders::node_services_dummy(),
+    module_code: entry_module_source,
     module_loader: Rc::new(EmbeddedModuleLoader {
       shared: module_loader_factory.shared.clone(),
       include_source_map,
     }),
-    vfs,
-    module_code: entry_module_source,
-    static_files,
+    node_services: RuntimeProviders::node_services_dummy(),
     npm_snapshot: snapshot,
+    permissions: todo!(),
+    static_files,
     vfs_path: npm_cache_dir.root_dir().to_path_buf(),
+    vfs,
   })
 }
 
 pub async fn create_module_loader_for_standalone_from_eszip_kind<P>(
   eszip_payload_kind: EszipPayloadKind,
   base_dir_path: P,
+  permissions: PermissionsOptions,
   maybe_import_map: Option<ImportMap>,
   maybe_import_map_path: Option<String>,
   include_source_map: bool,
@@ -360,6 +364,7 @@ where
   create_module_loader_for_eszip(
     eszip,
     base_dir_path,
+    permissions,
     Metadata {
       ca_stores: None,
       ca_data: None,

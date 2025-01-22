@@ -1,5 +1,5 @@
-use crate::deno_runtime::DenoRuntime;
 use crate::inspector_server::Inspector;
+use crate::runtime::DenoRuntime;
 use crate::server::ServerFlags;
 use crate::worker::utils::get_event_metadata;
 use crate::worker::utils::send_event_if_event_worker_available;

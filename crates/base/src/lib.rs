@@ -4,8 +4,8 @@ mod inspector_server;
 mod timeout;
 
 pub mod commands;
-pub mod deno_runtime;
 pub mod macros;
+pub mod runtime;
 pub mod server;
 pub mod snapshot;
 pub mod utils;

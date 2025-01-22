@@ -324,13 +324,14 @@ fn main() -> Result<ExitCode, anyhow::Error> {
           .cloned()
           .unwrap()
         {
-          emitter_factory.set_cache_strategy(CacheSetting::ReloadAll);
+          emitter_factory.set_cache_strategy(Some(CacheSetting::ReloadAll));
         }
 
         if let Some(npmrc_path) = find_up(".npmrc", entrypoint_dir_path) {
           if npmrc_path.exists() && npmrc_path.is_file() {
-            emitter_factory.set_npmrc_path(npmrc_path);
-            emitter_factory.set_npmrc_env_vars(std::env::vars().collect());
+            emitter_factory.set_npmrc_path(Some(npmrc_path));
+            emitter_factory
+              .set_npmrc_env_vars(Some(std::env::vars().collect()));
           }
         }
 

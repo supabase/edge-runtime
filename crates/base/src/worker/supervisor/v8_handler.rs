@@ -14,8 +14,8 @@ use tokio_util::sync::CancellationToken;
 use tracing::debug;
 use tracing::instrument;
 
-use crate::deno_runtime::MaybeDenoRuntime;
-use crate::deno_runtime::WillTerminateReason;
+use crate::runtime::MaybeDenoRuntime;
+use crate::runtime::WillTerminateReason;
 
 use super::IsolateMemoryStats;
 

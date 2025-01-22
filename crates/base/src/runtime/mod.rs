@@ -6,7 +6,6 @@ use std::future::Future;
 use std::marker::PhantomData;
 use std::mem::ManuallyDrop;
 use std::rc::Rc;
-// use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::RwLock;
 use std::task::Poll;
@@ -28,11 +27,22 @@ use cooked_waker::IntoWaker;
 use cooked_waker::WakeRef;
 use ctor::ctor;
 use deno::args::CacheSetting;
+use deno::deno_crypto;
+use deno::deno_fetch;
+use deno::deno_fs;
 use deno::deno_http;
 use deno::deno_http::DefaultHttpPropertyExtractor;
+use deno::deno_io;
+use deno::deno_net;
+use deno::deno_permissions::PermissionsOptions;
+use deno::deno_tls;
 use deno::deno_tls::deno_native_certs::load_native_certs;
 use deno::deno_tls::rustls::RootCertStore;
 use deno::deno_tls::RootCertStoreProvider;
+use deno::deno_url;
+use deno::deno_web;
+use deno::deno_webidl;
+use deno::deno_websocket;
 use deno::PermissionsContainer;
 use deno_cache::SqliteBackedCache;
 use deno_core::error::AnyError;
@@ -53,17 +63,15 @@ use deno_core::OpState;
 use deno_core::PollEventLoopOptions;
 use deno_core::ResolutionKind;
 use deno_core::RuntimeOptions;
-use ext_event_worker::events::EventMetadata;
-use ext_event_worker::events::WorkerEventWithMetadata;
-// use ext_runtime::cache::CacheSetting;
-use ext_runtime::cert::ValueRootCertStoreProvider;
-use ext_runtime::external_memory::CustomAllocator;
-// use ext_runtime::permissions::Permissions;
 use deno_facade::generate_binary_eszip;
 use deno_facade::import_map::load_import_map;
 use deno_facade::include_glob_patterns_in_eszip;
 use deno_facade::EmitterFactory;
 use deno_facade::EszipPayloadKind;
+use ext_event_worker::events::EventMetadata;
+use ext_event_worker::events::WorkerEventWithMetadata;
+use ext_runtime::cert::ValueRootCertStoreProvider;
+use ext_runtime::external_memory::CustomAllocator;
 use ext_runtime::MemCheckWaker;
 use ext_runtime::PromiseMetrics;
 use ext_workers::context::UserWorkerMsgs;
@@ -108,6 +116,8 @@ use crate::worker::supervisor::CPUUsage;
 use crate::worker::supervisor::CPUUsageMetrics;
 use crate::worker::DuplexStreamEntry;
 use crate::worker::Worker;
+
+mod ops;
 
 const DEFAULT_ALLOC_CHECK_INT_MSEC: u64 = 1000;
 
@@ -226,29 +236,29 @@ pub trait GetRuntimeContext {
     version: Option<&str>,
   ) -> impl Serialize {
     serde_json::json!({
-        "target": env!("TARGET"),
-        "kind": conf.to_worker_kind().to_string(),
-        "debug": cfg!(debug_assertions),
-        "inspector": use_inspector,
-        "version": {
-            "runtime": version.unwrap_or("0.1.0"),
-            "deno": MAYBE_DENO_VERSION
-                .get()
-                .map(|it| &**it)
-                .unwrap_or("UNKNOWN"),
-        },
-        "flags": {
-          "SHOULD_DISABLE_DEPRECATED_API_WARNING":
-            SHOULD_DISABLE_DEPRECATED_API_WARNING
-              .get()
-              .copied()
-              .unwrap_or_default(),
-          "SHOULD_USE_VERBOSE_DEPRECATED_API_WARNING":
-            SHOULD_USE_VERBOSE_DEPRECATED_API_WARNING
-              .get()
-              .copied()
-              .unwrap_or_default()
-        }
+      "target": env!("TARGET"),
+      "kind": conf.to_worker_kind().to_string(),
+      "debug": cfg!(debug_assertions),
+      "inspector": use_inspector,
+      "version": {
+        "runtime": version.unwrap_or("0.1.0"),
+        "deno": MAYBE_DENO_VERSION
+          .get()
+          .map(|it| &**it)
+          .unwrap_or("UNKNOWN"),
+      },
+      "flags": {
+        "SHOULD_DISABLE_DEPRECATED_API_WARNING":
+          SHOULD_DISABLE_DEPRECATED_API_WARNING
+            .get()
+            .copied()
+            .unwrap_or_default(),
+        "SHOULD_USE_VERBOSE_DEPRECATED_API_WARNING":
+          SHOULD_USE_VERBOSE_DEPRECATED_API_WARNING
+            .get()
+            .copied()
+            .unwrap_or_default()
+      }
     })
   }
 
@@ -393,8 +403,6 @@ pub struct DenoRuntime<RuntimeContext = DefaultRuntimeContext> {
   pub drop_token: CancellationToken,
   pub(crate) termination_request_token: CancellationToken,
 
-  // TODO: does this need to be pub?
-  pub env_vars: HashMap<String, String>,
   pub conf: WorkerRuntimeOpts,
   pub s3_fs: Option<S3Fs>,
 
@@ -454,8 +462,8 @@ where
       mut conf,
       service_path,
       no_module_cache,
-      import_map_path,
       env_vars,
+      import_map_path,
       maybe_eszip,
       maybe_entrypoint,
       maybe_decorator,
@@ -476,6 +484,7 @@ where
 
     let base_dir_path =
       std::env::current_dir().map(|p| p.join(&service_path))?;
+
     let Ok(mut main_module_url) = Url::from_directory_path(&base_dir_path)
     else {
       bail!(
@@ -506,26 +515,26 @@ where
       main_module_url = Url::parse(&maybe_entrypoint.unwrap())?;
     }
 
-    let mut net_access_disabled = false;
-    // let mut allow_net = None;
-    let mut allow_remote_modules = true;
+    // let mut net_access_disabled = false;
+    // // let mut allow_net = None;
+    // let mut allow_remote_modules = true;
 
-    if is_user_worker {
-      let user_conf = maybe_user_conf.unwrap();
+    // if is_user_worker {
+    //   let user_conf = maybe_user_conf.unwrap();
 
-      net_access_disabled = user_conf.net_access_disabled;
-      allow_remote_modules = user_conf.allow_remote_modules;
+    //   net_access_disabled = user_conf.net_access_disabled;
+    //   allow_remote_modules = user_conf.allow_remote_modules;
 
-      // allow_net = match &user_conf.allow_net {
-      //   Some(allow_net) => Some(
-      //     allow_net
-      //       .iter()
-      //       .map(|s| FromStr::from_str(s.as_str()))
-      //       .collect::<Result<Vec<_>, _>>()?,
-      //   ),
-      //   None => None,
-      // };
-    }
+    //   // allow_net = match &user_conf.allow_net {
+    //   //   Some(allow_net) => Some(
+    //   //     allow_net
+    //   //       .iter()
+    //   //       .map(|s| FromStr::from_str(s.as_str()))
+    //   //       .collect::<Result<Vec<_>, _>>()?,
+    //   //   ),
+    //   //   None => None,
+    //   // };
+    // }
 
     let mut maybe_import_map = None;
     let only_module_code = maybe_module_code.is_some()
@@ -545,19 +554,23 @@ where
 
       if let Some(npmrc_path) = find_up(".npmrc", &base_dir_path) {
         if npmrc_path.exists() && npmrc_path.is_file() {
-          emitter_factory.set_npmrc_path(npmrc_path);
-          emitter_factory.set_npmrc_env_vars(env_vars.clone());
+          emitter_factory.set_npmrc_path(Some(npmrc_path));
+          emitter_factory.set_npmrc_env_vars(Some(env_vars.clone()));
         }
       }
 
-      emitter_factory.set_file_fetcher_allow_remote(allow_remote_modules);
-      emitter_factory.set_cache_strategy(cache_strategy);
+      emitter_factory.set_file_fetcher_allow_remote(
+        maybe_user_conf
+          .map(|it| it.allow_remote_modules)
+          .unwrap_or(true),
+      );
+      emitter_factory.set_cache_strategy(Some(cache_strategy));
       emitter_factory.set_decorator_type(maybe_decorator);
 
       if let Some(jsx_import_source_config) =
         maybe_jsx_import_source_config.clone()
       {
-        emitter_factory.set_jsx_import_source(jsx_import_source_config);
+        emitter_factory.set_jsx_import_source(Some(jsx_import_source_config));
       }
 
       emitter_factory.set_import_map(load_import_map(import_map_path.clone())?);
@@ -610,7 +623,7 @@ where
     for store in ca_stores.iter() {
       match store.as_str() {
         "mozilla" => {
-          root_cert_store = deno::deno_tls::create_default_root_cert_store();
+          root_cert_store = deno_tls::create_default_root_cert_store();
         }
         "system" => {
           let roots =
@@ -636,21 +649,19 @@ where
     let root_cert_store_provider: Arc<dyn RootCertStoreProvider> =
       Arc::new(ValueRootCertStoreProvider::new(root_cert_store.clone()));
 
-    let mut stdio = Some(Default::default());
+    let stdio = if is_user_worker {
+      let stdio_pipe = deno_io::StdioPipe::file(
+        tokio::fs::File::create("/dev/null").await?.into_std().await,
+      );
 
-    if is_user_worker {
-      stdio = Some(deno::deno_io::Stdio {
-        stdin: deno::deno_io::StdioPipe::file(std::fs::File::create(
-          "/dev/null",
-        )?),
-        stdout: deno::deno_io::StdioPipe::file(std::fs::File::create(
-          "/dev/null",
-        )?),
-        stderr: deno::deno_io::StdioPipe::file(std::fs::File::create(
-          "/dev/null",
-        )?),
-      });
-    }
+      deno_io::Stdio {
+        stdin: stdio_pipe.clone(),
+        stdout: stdio_pipe.clone(),
+        stderr: stdio_pipe,
+      }
+    } else {
+      Default::default()
+    };
 
     let has_inspector = worker.inspector.is_some();
     let need_source_map = user_context
@@ -661,6 +672,12 @@ where
     let rt_provider = create_module_loader_for_standalone_from_eszip_kind(
       eszip,
       base_dir_path.clone(),
+      maybe_user_conf
+        .and_then(|it| it.permissions.clone())
+        .unwrap_or_else(|| PermissionsOptions {
+          allow_all: true,
+          ..Default::default()
+        }),
       maybe_import_map,
       import_map_path,
       has_inspector || need_source_map,
@@ -668,18 +685,18 @@ where
     .await?;
 
     let RuntimeProviders {
-      node_services,
-      vfs,
-      module_loader,
       module_code,
-      static_files,
+      module_loader,
+      node_services,
       npm_snapshot,
+      permissions,
+      static_files,
       vfs_path,
+      vfs,
     } = rt_provider;
 
-    let mut maybe_s3_fs = None;
-    let build_file_system_fn = |base_fs: Arc<dyn deno::deno_fs::FileSystem>| -> Result<
-      Arc<dyn deno::deno_fs::FileSystem>,
+    let build_file_system_fn = |base_fs: Arc<dyn deno_fs::FileSystem>| -> Result<
+      (Arc<dyn deno_fs::FileSystem>, Option<S3Fs>),
       AnyError,
     > {
       let tmp_fs = TmpFs::try_from(maybe_tmp_fs_config.unwrap_or_default())?;
@@ -687,15 +704,14 @@ where
 
       Ok(
         if let Some(s3_fs) = maybe_s3_fs_config.map(S3Fs::new).transpose()? {
-          maybe_s3_fs = Some(s3_fs.clone());
-          Arc::new(fs.add_fs("/s3", s3_fs))
+          (Arc::new(fs.add_fs("/s3", s3_fs.clone())), Some(s3_fs))
         } else {
-          Arc::new(fs)
+          (Arc::new(fs), None)
         },
       )
     };
 
-    let file_system = build_file_system_fn(if is_user_worker {
+    let (fs, maybe_s3_fs) = build_file_system_fn(if is_user_worker {
       Arc::new(StaticFs::new(
         static_files,
         base_dir_path,
@@ -730,48 +746,42 @@ where
 
     let mod_code = module_code;
     let extensions = vec![
-      // ext_core::permissions::core_permissions::init_ops(
-      //   net_access_disabled,
-      //   allow_net,
-      // ),
-      deno::deno_webidl::deno_webidl::init_ops(),
+      deno_webidl::deno_webidl::init_ops(),
       deno_console::deno_console::init_ops(),
-      deno::deno_url::deno_url::init_ops(),
-      deno::deno_web::deno_web::init_ops::<PermissionsContainer>(
-        Arc::new(deno::deno_web::BlobStore::default()),
+      deno_url::deno_url::init_ops(),
+      deno_web::deno_web::init_ops::<PermissionsContainer>(
+        Arc::new(deno_web::BlobStore::default()),
         None,
       ),
       deno_webgpu::deno_webgpu::init_ops(),
       deno_canvas::deno_canvas::init_ops(),
-      deno::deno_fetch::deno_fetch::init_ops::<PermissionsContainer>(
-        deno::deno_fetch::Options {
+      deno_fetch::deno_fetch::init_ops::<PermissionsContainer>(
+        deno_fetch::Options {
           user_agent: SUPABASE_UA.clone(),
           root_cert_store_provider: Some(root_cert_store_provider.clone()),
           ..Default::default()
         },
       ),
-      deno::deno_websocket::deno_websocket::init_ops::<PermissionsContainer>(
+      deno_websocket::deno_websocket::init_ops::<PermissionsContainer>(
         SUPABASE_UA.clone(),
         Some(root_cert_store_provider.clone()),
         None,
       ),
       // TODO: support providing a custom seed for crypto
-      deno::deno_crypto::deno_crypto::init_ops(None),
+      deno_crypto::deno_crypto::init_ops(None),
       deno_broadcast_channel::deno_broadcast_channel::init_ops(
         deno_broadcast_channel::InMemoryBroadcastChannel::default(),
       ),
-      deno::deno_net::deno_net::init_ops::<PermissionsContainer>(
+      deno_net::deno_net::init_ops::<PermissionsContainer>(
         Some(root_cert_store_provider),
         None,
       ),
-      deno::deno_tls::deno_tls::init_ops(),
-      deno::deno_http::deno_http::init_ops::<DefaultHttpPropertyExtractor>(
+      deno_tls::deno_tls::init_ops(),
+      deno_http::deno_http::init_ops::<DefaultHttpPropertyExtractor>(
         deno_http::Options::default(),
       ),
-      deno::deno_io::deno_io::init_ops(stdio),
-      deno::deno_fs::deno_fs::init_ops::<PermissionsContainer>(
-        file_system.clone(),
-      ),
+      deno_io::deno_io::init_ops(Some(stdio)),
+      deno_fs::deno_fs::init_ops::<PermissionsContainer>(fs.clone()),
       ext_env::env::init_ops(),
       ext_ai::ai::init_ops(),
       ext_os::os::init_ops(),
@@ -788,10 +798,11 @@ where
       // errors such as SIGBUS depending on the platform.
       ext_node::deno_node::init_ops::<PermissionsContainer>(
         Some(node_services),
-        file_system,
+        fs,
       ),
       deno_cache::deno_cache::init_ops::<SqliteBackedCache>(None),
       deno::runtime::ops::permissions::deno_permissions::init_ops_and_esm(),
+      ops::permissions::base_runtime_permissions::init_ops_and_esm(permissions),
       ext_runtime::runtime::init_ops_and_esm(),
     ];
 
@@ -1078,7 +1089,6 @@ where
       drop_token,
       termination_request_token,
 
-      env_vars,
       conf,
       s3_fs: maybe_s3_fs,
 
@@ -1940,9 +1950,15 @@ extern "C" fn mem_check_gc_prologue_callback_fn(
 
 #[cfg(test)]
 mod test {
-  use crate::deno_runtime::DenoRuntime;
-  use crate::worker::DuplexStreamEntry;
-  use crate::worker::WorkerBuilder;
+  use std::collections::HashMap;
+  use std::fs::File;
+  use std::io::Write;
+  use std::marker::PhantomData;
+  use std::path::Path;
+  use std::path::PathBuf;
+  use std::sync::Arc;
+  use std::time::Duration;
+
   use anyhow::Context;
   use deno_config::deno_json::JsxImportSourceConfig;
   use deno_core::error::AnyError;
@@ -1966,17 +1982,13 @@ mod test {
   use serde::de::DeserializeOwned;
   use serde::Serialize;
   use serial_test::serial;
-  use std::collections::HashMap;
-  use std::fs::File;
-  use std::io::Write;
-  use std::marker::PhantomData;
-  use std::path::Path;
-  use std::path::PathBuf;
-  use std::sync::Arc;
-  use std::time::Duration;
   use tokio::sync::mpsc;
   use tokio::time::timeout;
   use url::Url;
+
+  use crate::runtime::DenoRuntime;
+  use crate::worker::DuplexStreamEntry;
+  use crate::worker::WorkerBuilder;
 
   use super::GetRuntimeContext;
   use super::RunOptionsBuilder;
@@ -2164,7 +2176,7 @@ mod test {
   impl GetRuntimeContext for WithSyncFileAPI {
     fn get_extra_context() -> impl Serialize {
       serde_json::json!({
-          "useReadSyncFileAPI": true,
+        "useReadSyncFileAPI": true,
       })
     }
   }
@@ -2278,8 +2290,8 @@ mod test {
         "<anon>",
         ModuleCodeString::from(
           r#"
-                        globalThis.isTenEven;
-                    "#
+            globalThis.isTenEven;
+          "#
           .to_string(),
         ),
       )
@@ -2349,8 +2361,8 @@ mod test {
         "<anon>",
         ModuleCodeString::from(
           r#"
-                        globalThis.isTenEven;
-                    "#
+            globalThis.isTenEven;
+          "#
           .to_string(),
         ),
       )
@@ -2440,17 +2452,17 @@ mod test {
       .await;
 
     let global_value_deno_read_file_script = main_rt
-            .js_runtime
-            .execute_script(
-                "<anon>",
-                ModuleCodeString::from(
-                    r#"
-                        Deno.readTextFileSync("./test_cases/readFile/hello_world.json");
-                    "#
-                    .to_string(),
-                ),
-            )
-            .unwrap();
+      .js_runtime
+      .execute_script(
+        "<anon>",
+        ModuleCodeString::from(
+          r#"
+              Deno.readTextFileSync("./test_cases/readFile/hello_world.json");
+            "#
+          .to_string(),
+        ),
+      )
+      .unwrap();
 
     let fs_read_result = main_rt
       .to_value_mut::<serde_json::Value>(&global_value_deno_read_file_script);
@@ -2575,23 +2587,23 @@ mod test {
             .execute_script(
                 "<anon>",
                 ModuleCodeString::from(
-                    r#"
-                        // Should not be able to set
-                        const data = {
-                            gid: Deno.gid(),
-                            uid: Deno.uid(),
-                            hostname: Deno.hostname(),
-                            loadavg: Deno.loadavg(),
-                            osUptime: Deno.osUptime(),
-                            osRelease: Deno.osRelease(),
-                            systemMemoryInfo: Deno.systemMemoryInfo(),
-                            consoleSize: Deno.consoleSize(),
-                            version: [Deno.version.deno, Deno.version.v8, Deno.version.typescript],
-                            networkInterfaces: Deno.networkInterfaces()
-                        };
-                        data;
-                    "#
-                    .to_string(),
+                  r#"
+                    // Should not be able to set
+                    const data = {
+                      gid: Deno.gid(),
+                      uid: Deno.uid(),
+                      hostname: Deno.hostname(),
+                      loadavg: Deno.loadavg(),
+                      osUptime: Deno.osUptime(),
+                      osRelease: Deno.osRelease(),
+                      systemMemoryInfo: Deno.systemMemoryInfo(),
+                      consoleSize: Deno.consoleSize(),
+                      version: [Deno.version.deno, Deno.version.v8, Deno.version.typescript],
+                      networkInterfaces: Deno.networkInterfaces()
+                    };
+                    data;
+                  "#
+                  .to_string(),
                 ),
             )
             .unwrap();
@@ -2670,9 +2682,9 @@ mod test {
       "<anon>",
       ModuleCodeString::from(
         r#"
-                    let cmd = new Deno.Command("", {});
-                    cmd.outputSync();
-                "#
+          let cmd = new Deno.Command("", {});
+          cmd.outputSync();
+        "#
         .to_string(),
       ),
     );
@@ -2695,18 +2707,15 @@ mod test {
       .build()
       .await;
 
-    assert!(!main_rt.env_vars.is_empty());
-    assert!(user_rt.env_vars.is_empty());
-
     let err = main_rt
       .js_runtime
       .execute_script(
         "<anon>",
         ModuleCodeString::from(
           r#"
-                        // Should not be able to set
-                        Deno.env.set("Supa_Test", "Supa_Value");
-                    "#
+            // Should not be able to set
+            Deno.env.set("Supa_Test", "Supa_Value");
+          "#
           .to_string(),
         ),
       )
@@ -2722,9 +2731,9 @@ mod test {
         "<anon>",
         ModuleCodeString::from(
           r#"
-                        // Should not be able to set
-                        Deno.env.get("Supa_Test");
-                    "#
+            // Should not be able to set
+            Deno.env.get("Supa_Test");
+          "#
           .to_string(),
         ),
       )
@@ -2741,9 +2750,9 @@ mod test {
         "<anon>",
         ModuleCodeString::from(
           r#"
-                        // Should not be able to set
-                        Deno.env.get("Supa_Test");
-                    "#
+            // Should not be able to set
+            Deno.env.get("Supa_Test");
+          "#
           .to_string(),
         ),
       )
@@ -2974,8 +2983,8 @@ mod test {
     impl GetRuntimeContext for Ctx {
       fn get_extra_context() -> impl Serialize {
         serde_json::json!({
-            "useReadSyncFileAPI": true,
-            "shouldBootstrapMockFnThrowError": true,
+          "useReadSyncFileAPI": true,
+          "shouldBootstrapMockFnThrowError": true,
         })
       }
     }

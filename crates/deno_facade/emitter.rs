@@ -25,7 +25,6 @@ use deno::deno_config::deno_json::JsxImportSourceConfig;
 use deno::deno_config::workspace::WorkspaceResolver;
 use deno::deno_lockfile::Lockfile;
 use deno::deno_npm::npm_rc::ResolvedNpmRc;
-use deno::deno_npm::resolution::ValidSerializedNpmResolutionSnapshot;
 use deno::deno_permissions::Permissions;
 use deno::deno_permissions::PermissionsOptions;
 use deno::deno_resolver::cjs::IsCjsResolutionMode;
@@ -127,7 +126,6 @@ pub struct EmitterFactory {
   import_map: Option<ImportMap>,
   jsx_import_source_config: Option<JsxImportSourceConfig>,
   lockfile_options: Option<LockfileOpts>,
-  npm_snapshot: Option<ValidSerializedNpmResolutionSnapshot>,
   npmrc_env_vars: Option<HashMap<String, String>>,
   npmrc_path: Option<PathBuf>,
   permissions_options: Option<PermissionsOptions>,
@@ -170,44 +168,74 @@ impl EmitterFactory {
       lockfile_options: None,
       npmrc_env_vars: None,
       npmrc_path: None,
-      npm_snapshot: None,
       permissions_options: None,
     }
   }
 
-  pub fn set_cache_strategy(&mut self, strategy: CacheSetting) {
-    self.cache_strategy = Some(strategy);
+  pub fn set_cache_strategy(
+    &mut self,
+    value: Option<CacheSetting>,
+  ) -> &mut Self {
+    self.cache_strategy = value;
+    self
   }
 
-  pub fn set_file_fetcher_allow_remote(&mut self, allow_remote: bool) {
-    self.file_fetcher_allow_remote = allow_remote;
+  pub fn set_file_fetcher_allow_remote(&mut self, value: bool) -> &mut Self {
+    self.file_fetcher_allow_remote = value;
+    self
   }
 
   pub fn import_map(&self) -> &Option<ImportMap> {
     &self.import_map
   }
 
-  pub fn set_import_map(&mut self, import_map: Option<ImportMap>) {
-    self.import_map = import_map;
+  pub fn set_import_map(&mut self, value: Option<ImportMap>) -> &mut Self {
+    self.import_map = value;
+    self
   }
 
-  pub fn set_jsx_import_source(&mut self, config: JsxImportSourceConfig) {
-    self.jsx_import_source_config = Some(config);
+  pub fn set_jsx_import_source(
+    &mut self,
+    value: Option<JsxImportSourceConfig>,
+  ) -> &mut Self {
+    self.jsx_import_source_config = value;
+    self
   }
 
-  pub fn set_npmrc_path<P>(&mut self, path: P)
+  pub fn set_npmrc_path<P>(&mut self, value: Option<P>) -> &mut Self
   where
     P: AsRef<Path>,
   {
-    self.npmrc_path = Some(path.as_ref().to_path_buf());
+    self.npmrc_path = value.map(|it| it.as_ref().to_path_buf());
+    self
   }
 
-  pub fn set_npmrc_env_vars(&mut self, vars: HashMap<String, String>) {
-    self.npmrc_env_vars = Some(vars);
+  pub fn set_npmrc_env_vars(
+    &mut self,
+    value: Option<HashMap<String, String>>,
+  ) -> &mut Self {
+    self.npmrc_env_vars = value;
+    self
   }
 
-  pub fn set_decorator_type(&mut self, decorator_type: Option<DecoratorType>) {
-    self.decorator = decorator_type;
+  pub fn set_decorator_type(
+    &mut self,
+    value: Option<DecoratorType>,
+  ) -> &mut Self {
+    self.decorator = value;
+    self
+  }
+
+  pub fn permissions_options(&self) -> &Option<PermissionsOptions> {
+    &self.permissions_options
+  }
+
+  pub fn set_permissions_options(
+    &mut self,
+    value: Option<PermissionsOptions>,
+  ) -> &mut Self {
+    self.permissions_options = value;
+    self
   }
 
   pub fn deno_dir_provider(&self) -> Arc<DenoDirProvider> {

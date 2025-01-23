@@ -3,10 +3,12 @@ use std::{ffi::c_void, fmt::Debug, mem::size_of, rc::Rc};
 use anyhow::anyhow;
 use deno_core::{error::AnyError, v8, JsBuffer, ToJsBuffer};
 use ort::{
-    AllocationDevice, AllocatorType, DynValue, DynValueTypeMarker, IntoTensorElementType,
-    MemoryInfo, MemoryType, SessionInputValue, TensorElementType, TensorRefMut, ValueRefMut,
-    ValueType,
+    memory::{AllocationDevice, AllocatorType, MemoryInfo, MemoryType},
+    session::SessionInputValue,
+    tensor::{PrimitiveTensorElementType, TensorElementType},
+    value::{DynValue, DynValueTypeMarker, TensorRefMut, ValueRefMut, ValueType},
 };
+
 use serde::{Deserialize, Serialize};
 
 // We zero-copy an ORT Tensor to a JS ArrayBuffer like:
@@ -105,7 +107,7 @@ pub struct JsTensor {
 }
 
 impl JsTensor {
-    pub fn extract_ort_tensor_ref<'a, T: IntoTensorElementType + Debug>(
+    pub fn extract_ort_tensor_ref<'a, T: PrimitiveTensorElementType + Debug>(
         mut self,
     ) -> anyhow::Result<ValueRefMut<'a, DynValueTypeMarker>> {
         let expected_length = self.dims.iter().product::<i64>() as usize;
@@ -178,9 +180,15 @@ pub struct ToJsTensor {
 
 impl ToJsTensor {
     pub fn from_ort_tensor(mut value: DynValue) -> anyhow::Result<Self> {
-        let ort_type = value.dtype().map_err(AnyError::from)?;
+        // TODO: Handle it properly
+        let ort_type = value.dtype().to_owned(); //.map_err(AnyError::from)?;
 
-        let ValueType::Tensor { ty, dimensions } = ort_type else {
+        let ValueType::Tensor {
+            ty,
+            dimensions,
+            dimension_symbols,
+        } = ort_type
+        else {
             return Err(anyhow!(
                 "JS only support 'ort::Value' of 'Tensor' type, got '{ort_type:?}'."
             ));

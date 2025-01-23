@@ -11,7 +11,7 @@ use deno_core::OpState;
 use deno_core::{op2, JsRuntime, V8CrossThreadTaskSpawner};
 use futures::TryFutureExt;
 use ndarray::{Array1, Array2, ArrayView3, Axis, Ix3};
-use ndarray_linalg::norm::{normalize, NormalizeAxis};
+// use ndarray_linalg::norm::{normalize, NormalizeAxis};
 use ort::inputs;
 use reqwest::Url;
 use session::load_session_from_url;
@@ -142,7 +142,7 @@ async fn init_gte(state: Rc<RefCell<OpState>>) -> Result<(), Error> {
     let run_inference = Arc::new(
         move |prompt: String,
               do_mean_pooling: bool,
-              do_normalize: bool|
+              _do_normalize: bool|
               -> Result<Vec<f32>, Error> {
             let encoded_prompt = tokenizer.encode(prompt, true).map_err(anyhow::Error::msg)?;
             let input_ids = encoded_prompt
@@ -189,12 +189,14 @@ async fn init_gte(state: Rc<RefCell<OpState>>) -> Result<(), Error> {
                 embeddings.into_owned().remove_axis(Axis(0))
             };
 
+            /*
             let result = if do_normalize {
                 let (normalized, _) = normalize(result, NormalizeAxis::Row);
                 normalized
             } else {
                 result
             };
+            */
 
             Ok(result.view().to_slice().unwrap().to_vec())
         },

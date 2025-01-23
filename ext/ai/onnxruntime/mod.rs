@@ -12,7 +12,7 @@ use base_rt::BlockingScopeCPUUsageMetricExt;
 use deno_core::{error::AnyError, op2, JsBuffer, JsRuntime, OpState, V8CrossThreadTaskSpawner};
 
 use model::{Model, ModelInfo};
-use ort::Session;
+use ort::session::Session;
 use reqwest::Url;
 use tensor::{JsTensor, ToJsTensor};
 use tokio::sync::oneshot;
@@ -87,7 +87,7 @@ pub async fn op_sb_ai_ort_run_session(
         JsRuntime::op_state_from(state)
             .borrow_mut()
             .spawn_cpu_accumul_blocking_scope(move || {
-                let mut outputs = match model_session.run(input_values) {
+                let outputs = match model_session.run(input_values) {
                     Ok(v) => v,
                     Err(err) => {
                         let _ = tx.send(Err(anyhow::Error::from(err)));
@@ -95,12 +95,26 @@ pub async fn op_sb_ai_ort_run_session(
                     }
                 };
 
-                let mut output_values = HashMap::new();
+                let outputs = outputs
+                    .into_iter()
+                    .map(|(key, value)| {
+                        ToJsTensor::from_ort_tensor(value).map(|value| (key.to_string(), value))
+                    })
+                    .collect::<Result<HashMap<_, _>>>();
 
+                let outputs = match outputs {
+                    Ok(v) => v,
+                    Err(err) => {
+                        let _ = tx.send(Err(err));
+                        return;
+                    }
+                };
+
+                /*
                 // We need to `pop` over outputs to get 'value' ownership, since keys are attached
                 // to 'model_session' lifetime it can't be iterated with `into_iter()`
                 for _ in 0..outputs.len() {
-                    let (key, value) = match outputs.pop_first() {
+                    let (key, value) = match outputs..pop_first() {
                         Some(v) => v,
                         None => {
                             let _ = tx.send(Err(anyhow!(
@@ -111,18 +125,16 @@ pub async fn op_sb_ai_ort_run_session(
                         }
                     };
 
-                    let value = match ToJsTensor::from_ort_tensor(value) {
+                    let value = match  {
                         Ok(v) => v,
-                        Err(err) => {
-                            let _ = tx.send(Err(err));
-                            return;
-                        }
+
                     };
 
                     output_values.insert(key.to_string(), value);
                 }
+                */
 
-                let _ = tx.send(Ok(output_values));
+                let _ = tx.send(Ok(outputs));
             });
     });
 

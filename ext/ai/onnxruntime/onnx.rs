@@ -4,6 +4,7 @@ use std::sync::{
 };
 
 use ctor::ctor;
+use deno_core::error::StdAnyError;
 use scopeguard::guard;
 use tracing::{error, instrument};
 
@@ -35,15 +36,16 @@ fn init_onnx_env() {
     match result {
         Err(err) => {
             // the most common reason that reaches to this arm is a library loading failure.
-            let _ = guard1.insert(Arc::new(ort::Error::CustomError(Box::from(match err
-                .downcast_ref::<&'static str>()
-            {
+            let err = match err.downcast_ref::<&'static str>() {
                 Some(s) => s,
                 None => match err.downcast_ref::<String>() {
                     Some(s) => &s[..],
                     None => "unknown error",
                 },
-            }))));
+            };
+            let _ = guard1.insert(Arc::new(ort::Error::wrap(StdAnyError::from(
+                anyhow::Error::msg(err.to_owned()),
+            ))));
         }
 
         Ok(Err(err)) => {

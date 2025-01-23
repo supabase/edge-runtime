@@ -20,11 +20,11 @@ use ndarray::Array2;
 use ndarray::ArrayView3;
 use ndarray::Axis;
 use ndarray::Ix3;
-// use ndarray_linalg::norm::{normalize, NormalizeAxis};
 use ort::inputs;
 use reqwest::Url;
 use session::load_session_from_url;
 use std::cell::RefCell;
+use std::num::FpCategory;
 use std::rc::Rc;
 use std::sync::Arc;
 use tokenizers::Tokenizer;
@@ -76,6 +76,17 @@ fn mean_pool(
   let sum_attention_mask = attention_mask.mapv(|x| x as f32).sum_axis(Axis(1));
 
   sum_hidden_states / sum_attention_mask
+}
+
+fn normalize(mut tensor: Array2<f32>) -> Array2<f32> {
+  let l2 = tensor.mapv(|value| value * value).sum().sqrt();
+
+  // avoid zero division
+  if l2.classify() != FpCategory::Zero {
+    tensor.mapv_inplace(|value| value / l2);
+  }
+
+  tensor
 }
 
 async fn init_gte(state: Rc<RefCell<OpState>>) -> Result<(), Error> {
@@ -165,7 +176,7 @@ async fn init_gte(state: Rc<RefCell<OpState>>) -> Result<(), Error> {
   let run_inference = Arc::new(
     move |prompt: String,
           do_mean_pooling: bool,
-          _do_normalize: bool|
+          do_normalize: bool|
           -> Result<Vec<f32>, Error> {
       let encoded_prompt =
         tokenizer.encode(prompt, true).map_err(anyhow::Error::msg)?;
@@ -217,14 +228,11 @@ async fn init_gte(state: Rc<RefCell<OpState>>) -> Result<(), Error> {
         embeddings.into_owned().remove_axis(Axis(0))
       };
 
-      /*
       let result = if do_normalize {
-          let (normalized, _) = normalize(result, NormalizeAxis::Row);
-          normalized
+        normalize(result)
       } else {
-          result
+        result
       };
-      */
 
       Ok(result.view().to_slice().unwrap().to_vec())
     },

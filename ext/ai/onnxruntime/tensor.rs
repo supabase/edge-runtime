@@ -180,21 +180,14 @@ pub struct ToJsTensor {
 
 impl ToJsTensor {
     pub fn from_ort_tensor(mut value: DynValue) -> anyhow::Result<Self> {
-        // TODO: Handle it properly
-        let ort_type = value.dtype().to_owned(); //.map_err(AnyError::from)?;
-
-        let ValueType::Tensor {
-            ty,
-            dimensions,
-            dimension_symbols,
-        } = ort_type
-        else {
+        let Some(tensor_type) = value.dtype().tensor_type() else {
             return Err(anyhow!(
-                "JS only support 'ort::Value' of 'Tensor' type, got '{ort_type:?}'."
+                "JS only support 'ort::Value' of 'Tensor' type, got '{value:?}'."
             ));
         };
+        let tensor_shape = value.shape()?;
 
-        let buffer_slice = match ty {
+        let buffer_slice = match tensor_type {
             TensorElementType::Float32 => v8_slice_from!(tensor::<f32>(value)),
             TensorElementType::Float64 => v8_slice_from!(tensor::<f64>(value)),
             TensorElementType::Int8 => v8_slice_from!(tensor::<u8>(value)),
@@ -212,9 +205,9 @@ impl ToJsTensor {
         };
 
         Ok(Self {
-            data_type: ty,
+            data_type: tensor_type,
             data: ToJsBuffer::from(buffer_slice.to_boxed_slice()),
-            dims: dimensions,
+            dims: tensor_shape,
         })
     }
 }

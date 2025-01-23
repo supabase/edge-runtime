@@ -19,7 +19,6 @@ use ort::value::DynValue;
 use ort::value::DynValueTypeMarker;
 use ort::value::TensorRefMut;
 use ort::value::ValueRefMut;
-use ort::value::ValueType;
 
 use serde::Deserialize;
 use serde::Serialize;

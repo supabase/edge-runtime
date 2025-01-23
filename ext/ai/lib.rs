@@ -20,8 +20,7 @@ use ndarray::Array2;
 use ndarray::ArrayView3;
 use ndarray::Axis;
 use ndarray::Ix3;
-use ndarray_linalg::norm::normalize;
-use ndarray_linalg::norm::NormalizeAxis;
+// use ndarray_linalg::norm::{normalize, NormalizeAxis};
 use ort::inputs;
 use reqwest::Url;
 use session::load_session_from_url;
@@ -166,7 +165,7 @@ async fn init_gte(state: Rc<RefCell<OpState>>) -> Result<(), Error> {
   let run_inference = Arc::new(
     move |prompt: String,
           do_mean_pooling: bool,
-          do_normalize: bool|
+          _do_normalize: bool|
           -> Result<Vec<f32>, Error> {
       let encoded_prompt =
         tokenizer.encode(prompt, true).map_err(anyhow::Error::msg)?;
@@ -218,12 +217,14 @@ async fn init_gte(state: Rc<RefCell<OpState>>) -> Result<(), Error> {
         embeddings.into_owned().remove_axis(Axis(0))
       };
 
+      /*
       let result = if do_normalize {
-        let (normalized, _) = normalize(result, NormalizeAxis::Row);
-        normalized
+          let (normalized, _) = normalize(result, NormalizeAxis::Row);
+          normalized
       } else {
-        result
+          result
       };
+      */
 
       Ok(result.view().to_slice().unwrap().to_vec())
     },

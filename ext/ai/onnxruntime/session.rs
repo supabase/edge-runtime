@@ -15,13 +15,13 @@ use xxhash_rust::xxh3::Xxh3;
 use anyhow::anyhow;
 use anyhow::Context;
 use anyhow::Error;
-use ort::CPUExecutionProvider;
-use ort::CUDAExecutionProvider;
-use ort::ExecutionProvider;
-use ort::ExecutionProviderDispatch;
-use ort::GraphOptimizationLevel;
-use ort::Session;
-use ort::SessionBuilder;
+use ort::execution_providers::CPUExecutionProvider;
+use ort::execution_providers::CUDAExecutionProvider;
+use ort::execution_providers::ExecutionProvider;
+use ort::execution_providers::ExecutionProviderDispatch;
+use ort::session::builder::GraphOptimizationLevel;
+use ort::session::builder::SessionBuilder;
+use ort::session::Session;
 
 use crate::onnx::ensure_onnx_env_init;
 

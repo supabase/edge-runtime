@@ -8,18 +8,19 @@ use deno_core::error::AnyError;
 use deno_core::v8;
 use deno_core::JsBuffer;
 use deno_core::ToJsBuffer;
-use ort::AllocationDevice;
-use ort::AllocatorType;
-use ort::DynValue;
-use ort::DynValueTypeMarker;
-use ort::IntoTensorElementType;
-use ort::MemoryInfo;
-use ort::MemoryType;
-use ort::SessionInputValue;
-use ort::TensorElementType;
-use ort::TensorRefMut;
-use ort::ValueRefMut;
-use ort::ValueType;
+use ort::memory::AllocationDevice;
+use ort::memory::AllocatorType;
+use ort::memory::MemoryInfo;
+use ort::memory::MemoryType;
+use ort::session::SessionInputValue;
+use ort::tensor::PrimitiveTensorElementType;
+use ort::tensor::TensorElementType;
+use ort::value::DynValue;
+use ort::value::DynValueTypeMarker;
+use ort::value::TensorRefMut;
+use ort::value::ValueRefMut;
+use ort::value::ValueType;
+
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -128,7 +129,7 @@ pub struct JsTensor {
 }
 
 impl JsTensor {
-  pub fn extract_ort_tensor_ref<'a, T: IntoTensorElementType + Debug>(
+  pub fn extract_ort_tensor_ref<'a, T: PrimitiveTensorElementType + Debug>(
     mut self,
   ) -> anyhow::Result<ValueRefMut<'a, DynValueTypeMarker>> {
     let expected_length = self.dims.iter().product::<i64>() as usize;
@@ -136,8 +137,8 @@ impl JsTensor {
 
     if current_length != expected_length {
       return Err(anyhow!(
-            "invalid tensor length! got '{current_length}' expect '{expected_length}'"
-        ));
+                "invalid tensor length! got '{current_length}' expect '{expected_length}'"
+            ));
     };
 
     // Same impl. as the Tensor::from_array()
@@ -205,9 +206,15 @@ pub struct ToJsTensor {
 
 impl ToJsTensor {
   pub fn from_ort_tensor(mut value: DynValue) -> anyhow::Result<Self> {
-    let ort_type = value.dtype().map_err(AnyError::from)?;
+    // TODO: Handle it properly
+    let ort_type = value.dtype().to_owned(); //.map_err(AnyError::from)?;
 
-    let ValueType::Tensor { ty, dimensions } = ort_type else {
+    let ValueType::Tensor {
+      ty,
+      dimensions,
+      dimension_symbols,
+    } = ort_type
+    else {
       return Err(anyhow!(
         "JS only support 'ort::Value' of 'Tensor' type, got '{ort_type:?}'."
       ));
@@ -257,11 +264,11 @@ mod tests {
 
       // Bad Tensor Scenario:
       let tensor_script = r#"({
-        type: 'float32',
-        data: new Float32Array([]),
-        dims: [1, 1],
-        size: 300
-      })"#;
+                type: 'float32',
+                data: new Float32Array([]),
+                dims: [1, 1],
+                size: 300
+            })"#;
 
       let js_tensor = {
         let code = v8::String::new(scope, tensor_script).unwrap();
@@ -280,11 +287,11 @@ mod tests {
 
       // Good Tensor Scenario:
       let tensor_script = r#"({
-        type: 'float32',
-        data: new Float32Array([0.1, 0.2]),
-        dims: [1, 2],
-        size: 2
-      })"#;
+                type: 'float32',
+                data: new Float32Array([0.1, 0.2]),
+                dims: [1, 2],
+                size: 2
+            })"#;
 
       let js_tensor = {
         let code = v8::String::new(scope, tensor_script).unwrap();

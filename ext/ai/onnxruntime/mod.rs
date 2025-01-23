@@ -110,30 +110,6 @@ pub async fn op_sb_ai_ort_run_session(
                     }
                 };
 
-                /*
-                // We need to `pop` over outputs to get 'value' ownership, since keys are attached
-                // to 'model_session' lifetime it can't be iterated with `into_iter()`
-                for _ in 0..outputs.len() {
-                    let (key, value) = match outputs..pop_first() {
-                        Some(v) => v,
-                        None => {
-                            let _ = tx.send(Err(anyhow!(
-                                "could not retrieve output value from model session"
-                            )));
-
-                            return;
-                        }
-                    };
-
-                    let value = match  {
-                        Ok(v) => v,
-
-                    };
-
-                    output_values.insert(key.to_string(), value);
-                }
-                */
-
                 let _ = tx.send(Ok(outputs));
             });
     });

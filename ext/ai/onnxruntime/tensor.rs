@@ -6,7 +6,7 @@ use ort::{
     memory::{AllocationDevice, AllocatorType, MemoryInfo, MemoryType},
     session::SessionInputValue,
     tensor::{PrimitiveTensorElementType, TensorElementType},
-    value::{DynValue, DynValueTypeMarker, TensorRefMut, ValueRefMut, ValueType},
+    value::{DynValue, DynValueTypeMarker, TensorRefMut, ValueRefMut},
 };
 
 use serde::{Deserialize, Serialize};

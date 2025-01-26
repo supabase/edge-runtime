@@ -1,0 +1,161 @@
+declare namespace Supabase {
+  /**
+   * Provides AI related APIs
+   */
+  export interface Ai {
+    /** Provides an user friendly interface for the low level *onnx backend API*.
+     * A `RawSession` can execute any *onnx* model, but we only recommend it for `tabular` or *self-made* models, where you need mode control of model execution and pre/pos-processing.
+     * Consider a high-level implementation like `@huggingface/transformers.js` for generic tasks like `nlp`, `computer-vision` or `audio`.
+     *
+     * **Example:**
+     * ```typescript
+     * const session = await RawSession.fromHuggingFace('Supabase/gte-small');
+     * // const session = await RawSession.fromUrl("https://example.com/model.onnx");
+     *
+     * // Prepare the input tensors
+     * const inputs = {
+     *   input1: new Tensor("float32", [1.0, 2.0, 3.0], [3]),
+     *   input2: new Tensor("float32", [4.0, 5.0, 6.0], [3]),
+     * };
+     *
+     * // Run the model
+     * const outputs = await session.run(inputs);
+     *
+     * console.log(outputs.output1); // Output tensor
+     * ```
+     */
+    readonly RawSession: typeof RawSession;
+
+    /** A low level representation of model input/output.
+     * Supabase's `Tensor` is totally compatible with `@huggingface/transformers.js`'s `Tensor`. It means that you can use its high-level API to apply some common operations like `sum()`, `min()`, `max()`, `normalize()` etc...
+     *
+     * **Example: Generating embeddings from scratch**
+     * ```typescript
+     * import { Tensor as HFTensor } from "@huggingface/transformers.js";
+     * const { Tensor, RawSession } = Supabase.ai;
+     *
+     * const session = await RawSession.fromHuggingFace('Supabase/gte-small');
+     *
+     * // Example only, in real 'feature-extraction' tensors are given from the tokenizer step.
+     * const inputs = {
+     *    input_ids: new Tensor('float32', [...], [n, 2]),
+     *    attention_mask: new Tensor('float32', [...], [n, 2]),
+     *    token_types_ids: new Tensor('float32', [...], [n, 2])
+     * };
+     *
+     * const { last_hidden_state } = await session.run(inputs);
+     *
+     * // Using `transformers.js` APIs
+     * const hfTensor = HFTensor.mean_pooling(last_hidden_state, inputs.attention_mask).normalize();
+     *
+     * return hfTensor.tolist();
+     *
+     * ```
+     */
+    readonly Tensor: typeof Tensor;
+  }
+
+  /**
+   * Provides AI related APIs
+   */
+  export const ai: Ai;
+
+  export type TensorDataTypeMap = {
+    float32: Float32Array | number[];
+    float64: Float64Array | number[];
+    string: string[];
+    int8: Int8Array | number[];
+    uint8: Uint8Array | number[];
+    int16: Int16Array | number[];
+    uint16: Uint16Array | number[];
+    int32: Int32Array | number[];
+    uint32: Uint32Array | number[];
+    int64: BigInt64Array | number[];
+    uint64: BigUint64Array | number[];
+    bool: Uint8Array | number[];
+  };
+
+  export type TensorMap = { [key: string]: Tensor<keyof TensorDataTypeMap> };
+
+  export class Tensor<T extends keyof TensorDataTypeMap> {
+    /**  Type of the tensor. */
+    type: T;
+
+    /** The data stored in the tensor. */
+    data: TensorDataTypeMap[T];
+
+    /**  Dimensions of the tensor. */
+    dims: number[];
+
+    /** The total number of elements in the tensor. */
+    size: number;
+
+    constructor(type: T, data: TensorDataTypeMap[T], dims: number[]);
+  }
+
+  export class RawSession {
+    /**  The underline session's ID.
+     * Session's ID are unique for each loaded model, it means that even if a session is constructed twice its will share the same ID.
+     */
+    id: string;
+
+    /** A list of all input keys the model expects. */
+    inputs: string[];
+
+    /** A list of all output keys the model will result. */
+    outputs: string[];
+
+    /** Loads a ONNX model session from source URL.
+     * Sessions are loaded once, then will keep warm cross worker's requests
+     */
+    static fromUrl(source: string | URL): Promise<RawSession>;
+
+    /** Loads a ONNX model session from **HuggingFace** repository.
+     * Sessions are loaded once, then will keep warm cross worker's requests
+     */
+    static fromHuggingFace(repoId: string, opts?: {
+      /**
+       * @default 'https://huggingface.co'
+       */
+      hostname?: string | URL;
+      path?: {
+        /**
+         * @default '{REPO_ID}/resolve/{REVISION}/onnx/{MODEL_FILE}?donwload=true'
+         */
+        template?: string;
+        /**
+         * @default 'main'
+         */
+        revision?: string;
+        /**
+         * @default 'model_quantized.onnx'
+         */
+        modelFile?: string;
+      };
+    }): Promise<RawSession>;
+
+    /** Run the current session with the given inputs.
+     * Use `inputs` and `outputs` properties to know the required inputs and expected results for the model session.
+     *
+     * @param inputs The input tensors required by the model.
+     * @returns The output tensors generated by the model.
+     *
+     * @example
+     * ```typescript
+     * const session = await RawSession.fromUrl("https://example.com/model.onnx");
+     *
+     * // Prepare the input tensors
+     * const inputs = {
+     *   input1: new Tensor("float32", [1.0, 2.0, 3.0], [3]),
+     *   input2: new Tensor("float32", [4.0, 5.0, 6.0], [3]),
+     * };
+     *
+     * // Run the model
+     * const outputs = await session.run(inputs);
+     *
+     * console.log(outputs.output1); // Output tensor
+     * ```
+     */
+    run(inputs: TensorMap): Promise<TensorMap>;
+  }
+}

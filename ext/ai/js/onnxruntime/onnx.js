@@ -31,7 +31,7 @@ class TensorProxy {
   }
 }
 
-class Tensor {
+export class Tensor {
   /** @type {DataType} Type of the tensor. */
   type;
 
@@ -67,7 +67,7 @@ class Tensor {
   }
 }
 
-class InferenceSession {
+export class InferenceSession {
   sessionId;
   inputNames;
   outputNames;

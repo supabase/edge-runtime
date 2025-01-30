@@ -47,6 +47,7 @@ deno_core::extension!(
     op_ai_try_cleanup_unused_session,
     op_ai_ort_init_session,
     op_ai_ort_run_session,
+    op_ai_ort_encode_tensor_audio,
   ],
   esm_entry_point = "ext:ai/ai.js",
   esm = [

@@ -91,6 +91,8 @@ declare namespace Supabase {
     size: number;
 
     constructor(type: T, data: TensorDataTypeMap[T], dims: number[]);
+
+    tryEncodeAudio(sampleRate: number): Promise<ArrayBuffer>;
   }
 
   export class RawSession {

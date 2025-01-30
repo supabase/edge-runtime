@@ -59,13 +59,28 @@ class UserInferenceSession {
   }
 
   async run(inputs) {
-    return await this.inner.run(inputs);
+    const outputs = await core.ops.op_sb_ai_ort_run_session(this.id, inputs);
+
+    // Parse to Tensor
+    for (const key in outputs) {
+      if (Object.hasOwn(outputs, key)) {
+        const { type, data, dims } = outputs[key];
+
+        outputs[key] = new UserTensor(type, data.buffer, dims);
+      }
+    }
+
+    return outputs;
   }
 }
 
 class UserTensor extends Tensor {
   constructor(type, data, dim) {
     super(type, data, dim);
+  }
+
+  async tryEncodeAudio(sampleRate) {
+    return await core.ops.op_sb_ai_ort_encode_tensor_audio(this.data, sampleRate);
   }
 }
 

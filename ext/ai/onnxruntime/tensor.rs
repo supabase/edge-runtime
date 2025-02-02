@@ -108,6 +108,15 @@ impl JsTensor {
     pub fn extract_ort_tensor_ref<'a, T: IntoTensorElementType + Debug>(
         mut self,
     ) -> anyhow::Result<ValueRefMut<'a, DynValueTypeMarker>> {
+        let expected_length = self.dims.iter().product::<i64>() as usize;
+        let current_length = self.data.len() / size_of::<T>();
+
+        if current_length != expected_length {
+            return Err(anyhow!(
+                "invalid tensor length! got '{current_length}' expect '{expected_length}'"
+            ));
+        };
+
         // Same impl. as the Tensor::from_array()
         // https://github.com/pykeio/ort/blob/abd527b6a1df8f566c729a9c4398bdfd185d652f/src/value/impl_tensor/create.rs#L170
         let memory_info = MemoryInfo::new(
@@ -118,6 +127,7 @@ impl JsTensor {
         )?;
 
         // Zero-Copying Data to an ORT Tensor based on JS type
+        // SAFETY: we did check tensor size above
         let tensor = unsafe {
             TensorRefMut::<T>::from_raw(
                 memory_info,
@@ -198,5 +208,66 @@ impl ToJsTensor {
             data: ToJsBuffer::from(buffer_slice.to_boxed_slice()),
             dims: dimensions,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ort_tensor_extract_ref() {
+        // region: v8-init
+        // ref: https://github.com/denoland/deno_core/blob/490079f6b5c9233f476b0a529eace1f5b2c4ed07/serde_v8/tests/magic.rs#L23
+        let platform = v8::new_unprotected_default_platform(0, false).make_shared();
+        v8::V8::initialize_platform(platform);
+        v8::V8::initialize();
+
+        let isolate = &mut v8::Isolate::new(v8::CreateParams::default());
+        let handle_scope = &mut v8::HandleScope::new(isolate);
+        let context = v8::Context::new(handle_scope);
+        let scope = &mut v8::ContextScope::new(handle_scope, context);
+        // endregion: v8-init
+
+        // Bad Tensor Scenario:
+        let tensor_script = r#"({
+            type: 'float32',
+            data: new Float32Array([]),
+            dims: [1, 1],
+            size: 300
+        })"#;
+
+        let js_tensor = {
+            let code = v8::String::new(scope, tensor_script).unwrap();
+            let script = v8::Script::compile(scope, code, None).unwrap();
+            script.run(scope).unwrap()
+        };
+
+        let tensor: JsTensor = deno_core::serde_v8::from_v8(scope, js_tensor).unwrap();
+
+        let tensor_ref_result = tensor.extract_ort_tensor_ref::<f32>();
+        assert!(
+            tensor_ref_result.is_err(),
+            "Since `data.len()` doesn't reflect `dims` it must return Error"
+        );
+
+        // Good Tensor Scenario:
+        let tensor_script = r#"({
+            type: 'float32',
+            data: new Float32Array([0.1, 0.2]),
+            dims: [1, 2],
+            size: 2
+        })"#;
+
+        let js_tensor = {
+            let code = v8::String::new(scope, tensor_script).unwrap();
+            let script = v8::Script::compile(scope, code, None).unwrap();
+            script.run(scope).unwrap()
+        };
+
+        let tensor: JsTensor = deno_core::serde_v8::from_v8(scope, js_tensor).unwrap();
+
+        let tensor_ref_result = tensor.extract_ort_tensor_ref::<f32>();
+        assert!(tensor_ref_result.is_ok(),);
     }
 }

@@ -20,7 +20,8 @@ members = [
   "ext/env",
   "ext/core",
   "ext/os",
-  "ext/ai"
+  "ext/ai",
+  "ext/ai/utilities"
 ]
 
 [workspace.dependencies]
@@ -75,6 +76,7 @@ sb_env = { version = "0.1.0", path = "./ext/env"}
 sb_core = { version = "0.1.0", path = "./ext/core" }
 sb_os = { version = "0.1.0", path = "./ext/os" }
 sb_ai = { version = "0.1.0", path = "./ext/ai" }
+sb_ai_v8_utilities = { version = "0.1.0", path = "./ext/ai/utilities" }
 
 # crypto
 hkdf = "0.12.3"

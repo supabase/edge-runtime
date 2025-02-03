@@ -4,6 +4,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use anyhow::Context;
 use deno::args::CacheSetting;
 use deno::args::CliLockfile;
 use deno::cache::Caches;
@@ -28,8 +29,13 @@ use deno::deno_npm::npm_rc::ResolvedNpmRc;
 use deno::deno_permissions::Permissions;
 use deno::deno_permissions::PermissionsOptions;
 use deno::deno_resolver::cjs::IsCjsResolutionMode;
+use deno::deno_resolver::npm::NpmReqResolverOptions;
+use deno::deno_resolver::DenoResolverOptions;
+use deno::deno_resolver::NodeAndNpmReqResolver;
 use deno::emit::Emitter;
 use deno::file_fetcher::FileFetcher;
+use deno::graph_util::ModuleGraphBuilder;
+use deno::graph_util::ModuleGraphCreator;
 use deno::http_util::HttpClientProvider;
 use deno::node_resolver::InNpmPackageChecker;
 use deno::npm::create_in_npm_pkg_checker;
@@ -42,8 +48,14 @@ use deno::npm::CreateInNpmPkgCheckerOptions;
 use deno::npmrc::create_default_npmrc;
 use deno::npmrc::create_npmrc;
 use deno::resolver::CjsTracker;
+use deno::resolver::CliDenoResolver;
+use deno::resolver::CliDenoResolverFs;
+use deno::resolver::CliNpmReqResolver;
+use deno::resolver::CliResolver;
+use deno::resolver::CliResolverOptions;
 use deno::DenoOptions;
 use deno::PermissionsContainer;
+use deno_core::error::AnyError;
 use deno_core::futures::FutureExt;
 use deno_core::parking_lot::Mutex;
 // use eszip::deno_graph::source::Loader;
@@ -103,25 +115,30 @@ pub struct LockfileOpts {
 
 pub struct EmitterFactory {
   cjs_tracker: Deferred<Arc<CjsTracker>>,
-  deno_options: Deferred<Arc<dyn DenoOptions>>,
+  deno_resolver: Deferred<Arc<CliDenoResolver>>,
   file_fetcher: Deferred<Arc<FileFetcher>>,
   global_http_cache: Deferred<Arc<GlobalHttpCache>>,
   http_client_provider: Deferred<Arc<HttpClientProvider>>,
   in_npm_pkg_checker: Deferred<Arc<dyn InNpmPackageChecker>>,
   lockfile: Deferred<Option<Arc<CliLockfile>>>,
+  module_graph_builder: Deferred<Arc<ModuleGraphBuilder>>,
+  module_graph_creator: Deferred<Arc<ModuleGraphCreator>>,
   module_info_cache: Deferred<Arc<ModuleInfoCache>>,
   node_resolver: Deferred<Arc<NodeResolver>>,
   npm_cache_dir: Deferred<Arc<NpmCacheDir>>,
+  npm_req_resolver: Deferred<Arc<CliNpmReqResolver>>,
   npm_resolver: Deferred<Arc<dyn CliNpmResolver>>,
   permission_desc_parser: Deferred<Arc<RuntimePermissionDescriptorParser>>,
   pkg_json_resolver: Deferred<Arc<PackageJsonResolver>>,
   resolved_npm_rc: Deferred<Arc<ResolvedNpmRc>>,
+  resolver: Deferred<Arc<CliResolver>>,
   root_permissions_container: Deferred<PermissionsContainer>,
   workspace_resolver: Deferred<Arc<WorkspaceResolver>>,
 
   cache_strategy: Option<CacheSetting>,
   decorator: Option<DecoratorType>,
   deno_dir: DenoDir,
+  deno_options: Option<Arc<dyn DenoOptions>>,
   file_fetcher_allow_remote: bool,
   import_map: Option<ImportMap>,
   jsx_import_source_config: Option<JsxImportSourceConfig>,
@@ -143,24 +160,29 @@ impl EmitterFactory {
 
     Self {
       cjs_tracker: Default::default(),
+      deno_resolver: Default::default(),
       file_fetcher: Default::default(),
       global_http_cache: Default::default(),
       http_client_provider: Default::default(),
       in_npm_pkg_checker: Default::default(),
       lockfile: Default::default(),
+      module_graph_builder: Default::default(),
+      module_graph_creator: Default::default(),
       module_info_cache: Default::default(),
       node_resolver: Default::default(),
       npm_cache_dir: Default::default(),
+      npm_req_resolver: Default::default(),
       npm_resolver: Default::default(),
       permission_desc_parser: Default::default(),
       pkg_json_resolver: Default::default(),
       resolved_npm_rc: Default::default(),
-      workspace_resolver: Default::default(),
+      resolver: Default::default(),
       root_permissions_container: Default::default(),
-      deno_options: Default::default(),
+      workspace_resolver: Default::default(),
 
       cache_strategy: None,
       deno_dir,
+      deno_options: None,
       file_fetcher_allow_remote: true,
       jsx_import_source_config: None,
       decorator: None,
@@ -170,6 +192,21 @@ impl EmitterFactory {
       npmrc_path: None,
       permissions_options: None,
     }
+  }
+
+  pub fn deno_options(&self) -> Result<&Arc<dyn DenoOptions>, AnyError> {
+    self
+      .deno_options
+      .as_ref()
+      .context("options must be specified")
+  }
+
+  pub fn set_deno_options<T>(&mut self, value: T) -> &mut Self
+  where
+    T: DenoOptions + 'static,
+  {
+    self.deno_options = Some(Arc::new(value));
+    self
   }
 
   pub fn set_cache_strategy(
@@ -377,7 +414,7 @@ impl EmitterFactory {
 
   pub fn cjs_tracker(&self) -> Result<&Arc<CjsTracker>, anyhow::Error> {
     self.cjs_tracker.get_or_try_init(|| {
-      let options = self.deno_options();
+      let options = self.deno_options()?;
       Ok(Arc::new(CjsTracker::new(
         self.in_npm_pkg_checker()?.clone(),
         self.pkg_json_resolver().clone(),
@@ -400,7 +437,7 @@ impl EmitterFactory {
     &self,
   ) -> Result<&Arc<dyn InNpmPackageChecker>, anyhow::Error> {
     self.in_npm_pkg_checker.get_or_try_init(|| {
-      let options = self.deno_options();
+      let options = self.deno_options()?;
       let options = if options.use_byonm() {
         CreateInNpmPkgCheckerOptions::Byonm
       } else {
@@ -443,11 +480,65 @@ impl EmitterFactory {
       .await
   }
 
+  pub async fn npm_req_resolver(
+    &self,
+  ) -> Result<&Arc<CliNpmReqResolver>, AnyError> {
+    self
+      .npm_req_resolver
+      .get_or_try_init_async(async {
+        let npm_resolver = self.npm_resolver().await?;
+        Ok(Arc::new(CliNpmReqResolver::new(NpmReqResolverOptions {
+          byonm_resolver: (npm_resolver.clone()).into_maybe_byonm(),
+          fs: CliDenoResolverFs(self.real_fs()),
+          in_npm_pkg_checker: self.in_npm_pkg_checker()?.clone(),
+          node_resolver: self.node_resolver().await?.clone(),
+          npm_req_resolver: npm_resolver.clone().into_npm_req_resolver(),
+        })))
+      })
+      .await
+  }
+
+  pub async fn deno_resolver(&self) -> Result<&Arc<CliDenoResolver>, AnyError> {
+    self
+      .deno_resolver
+      .get_or_try_init_async(async {
+        let options = self.deno_options()?;
+        Ok(Arc::new(CliDenoResolver::new(DenoResolverOptions {
+          in_npm_pkg_checker: self.in_npm_pkg_checker()?.clone(),
+          node_and_req_resolver: Some(NodeAndNpmReqResolver {
+            node_resolver: self.node_resolver().await?.clone(),
+            npm_req_resolver: self.npm_req_resolver().await?.clone(),
+          }),
+          sloppy_imports_resolver: None,
+          workspace_resolver: self.workspace_resolver()?.clone(),
+          is_byonm: options.use_byonm(),
+          maybe_vendor_dir: options.vendor_dir_path(),
+        })))
+      })
+      .await
+  }
+
+  pub async fn resolver(&self) -> Result<&Arc<CliResolver>, AnyError> {
+    self
+      .resolver
+      .get_or_try_init_async(
+        async {
+          Ok(Arc::new(CliResolver::new(CliResolverOptions {
+            npm_resolver: Some(self.npm_resolver().await?.clone()),
+            bare_node_builtins_enabled: false,
+            deno_resolver: self.deno_resolver().await?.clone(),
+          })))
+        }
+        .boxed_local(),
+      )
+      .await
+  }
+
   pub fn npm_cache_dir(&self) -> Result<&Arc<NpmCacheDir>, anyhow::Error> {
     self.npm_cache_dir.get_or_try_init(|| {
       let fs = self.real_fs();
       let global_path = self.deno_dir.npm_folder_path();
-      let options = self.deno_options();
+      let options = self.deno_options()?;
       Ok(Arc::new(NpmCacheDir::new(
         &DenoCacheEnvFsAdapter(fs.as_ref()),
         global_path,
@@ -502,10 +593,6 @@ impl EmitterFactory {
     })
   }
 
-  pub fn deno_options(&self) -> &Arc<dyn DenoOptions> {
-    todo!()
-  }
-
   pub fn permission_desc_parser(
     &self,
   ) -> Result<&Arc<RuntimePermissionDescriptorParser>, anyhow::Error> {
@@ -531,22 +618,6 @@ impl EmitterFactory {
     })
   }
 
-  // pub async fn cli_node_resolver(
-  //   &self,
-  // ) -> Result<&Arc<CliNodeResolver>, anyhow::Error> {
-  //   self
-  //     .cli_node_resolver
-  //     .get_or_try_init_async(async {
-  //       Ok(Arc::new(CliNodeResolver::new(
-  //         self.cjs_resolutions().clone(),
-  //         self.real_fs(),
-  //         self.node_resolver().await?.clone(),
-  //         self.npm_resolver().await?.clone(),
-  //       )))
-  //     })
-  //     .await
-  // }
-
   pub fn workspace_resolver(
     &self,
   ) -> Result<&Arc<WorkspaceResolver>, anyhow::Error> {
@@ -561,28 +632,6 @@ impl EmitterFactory {
       todo!()
     })
   }
-
-  // pub async fn cli_graph_resolver(&self) -> &Arc<CliGraphResolver> {
-  //   self
-  //     .resolver
-  //     .get_or_try_init_async(async {
-  //       Ok(Arc::new(CliGraphResolver::new(CliGraphResolverOptions {
-  //         node_resolver: Some(self.cli_node_resolver().await?.clone()),
-  //         npm_resolver: if self.file_fetcher_allow_remote {
-  //           Some(self.npm_resolver().await?.clone())
-  //         } else {
-  //           None
-  //         },
-
-  //         workspace_resolver: self.workspace_resolver()?.clone(),
-  //         bare_node_builtins_enabled: false,
-  //         maybe_jsx_import_source_config: self.jsx_import_source_config.clone(),
-  //         maybe_vendor_dir: None,
-  //       })))
-  //     })
-  //     .await
-  //     .unwrap()
-  // }
 
   pub fn file_fetcher(&self) -> Result<&Arc<FileFetcher>, anyhow::Error> {
     self.file_fetcher.get_or_try_init(|| {
@@ -602,20 +651,45 @@ impl EmitterFactory {
     })
   }
 
-  // pub async fn file_fetcher_loader(
-  //   &self,
-  // ) -> Result<Box<dyn Loader>, anyhow::Error> {
-  //   Ok(Box::new(FetchCacher::new(
-  //     self.file_fetcher()?.clone(),
-  //     self.real_fs(),
-  //     self.global_http_cache().clone(),
-  //     self.in_npm_pkg_checker()?.clone(),
-  //     self.module_info_cache()?.clone(),
-  //     FetchCacherOptions {
-  //       file_header_overrides: HashMap::new(),
-  //       permissions: self.permissions.clone(),
-  //       is_deno_publish: false,
-  //     },
-  //   )))
-  // }
+  pub async fn module_graph_builder(
+    &self,
+  ) -> Result<&Arc<ModuleGraphBuilder>, AnyError> {
+    self
+      .module_graph_builder
+      .get_or_try_init_async(async {
+        let options = self.deno_options()?;
+        Ok(Arc::new(ModuleGraphBuilder::new(
+          self.caches()?.clone(),
+          self.cjs_tracker()?.clone(),
+          options.clone(),
+          self.file_fetcher()?.clone(),
+          self.real_fs().clone(),
+          self.global_http_cache().clone(),
+          self.in_npm_pkg_checker()?.clone(),
+          self.get_lock_file_deferred().clone(),
+          self.module_info_cache()?.clone(),
+          self.npm_resolver().await?.clone(),
+          self.parsed_source_cache()?.clone(),
+          self.resolver().await?.clone(),
+          self.root_permissions_container()?.clone(),
+        )))
+      })
+      .await
+  }
+
+  pub async fn module_graph_creator(
+    &self,
+  ) -> Result<&Arc<ModuleGraphCreator>, AnyError> {
+    self
+      .module_graph_creator
+      .get_or_try_init_async(async {
+        let options = self.deno_options()?;
+        Ok(Arc::new(ModuleGraphCreator::new(
+          options.clone(),
+          self.npm_resolver().await?.clone(),
+          self.module_graph_builder().await?.clone(),
+        )))
+      })
+      .await
+  }
 }

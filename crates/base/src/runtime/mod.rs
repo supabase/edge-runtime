@@ -511,6 +511,13 @@ where
       .and_then(|it| it.context.clone())
       .unwrap_or_default();
 
+    let permissions_options = maybe_user_conf
+      .and_then(|it| it.permissions.clone())
+      .unwrap_or_else(|| PermissionsOptions {
+        allow_all: true,
+        ..Default::default()
+      });
+
     if is_some_entry_point {
       main_module_url = Url::parse(&maybe_entrypoint.unwrap())?;
     }
@@ -551,6 +558,9 @@ where
       } else {
         CacheSetting::Use
       };
+
+      emitter_factory
+        .set_permissions_options(Some(permissions_options.clone()));
 
       if let Some(npmrc_path) = find_up(".npmrc", &base_dir_path) {
         if npmrc_path.exists() && npmrc_path.is_file() {
@@ -672,12 +682,7 @@ where
     let rt_provider = create_module_loader_for_standalone_from_eszip_kind(
       eszip,
       base_dir_path.clone(),
-      maybe_user_conf
-        .and_then(|it| it.permissions.clone())
-        .unwrap_or_else(|| PermissionsOptions {
-          allow_all: true,
-          ..Default::default()
-        }),
+      permissions_options,
       maybe_import_map,
       import_map_path,
       has_inspector || need_source_map,

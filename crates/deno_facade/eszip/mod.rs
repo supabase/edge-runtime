@@ -665,6 +665,7 @@ where
   )
   .await?;
 
+  let graph = Arc::into_inner(graph).context("can't unwrap the graph")?;
   let specifier = ModuleSpecifier::parse(
     &Url::from_file_path(file)
       .map(|it| Cow::Owned(it.to_string()))

@@ -94,6 +94,10 @@ pub trait DenoOptions: 'static {
     todo!()
   }
 
+  fn vendor_dir_path(&self) -> Option<&PathBuf> {
+    self.workspace().vendor_dir_path()
+  }
+
   fn is_node_main(&self) -> bool {
     todo!()
   }

@@ -13,9 +13,12 @@ use deno::cache::DenoCacheEnvFsAdapter;
 use deno::cache::DenoDirProvider;
 use deno::cache::NodeAnalysisCache;
 use deno::deno_cache_dir::npm::NpmCacheDir;
+use deno::deno_fs::RealFs;
 use deno::deno_npm;
 use deno::deno_npm::npm_rc::RegistryConfigWithUrl;
 use deno::deno_npm::npm_rc::ResolvedNpmRc;
+use deno::deno_permissions::PermissionDescriptorParser;
+use deno::deno_permissions::Permissions;
 use deno::deno_permissions::PermissionsOptions;
 use deno::deno_resolver::cjs::IsCjsResolutionMode;
 use deno::deno_resolver::npm::NpmReqResolverOptions;
@@ -35,6 +38,7 @@ use deno::resolver::CjsTracker;
 use deno::resolver::CliDenoResolverFs;
 use deno::resolver::CliNpmReqResolver;
 use deno::resolver::NpmModuleLoader;
+use deno::PermissionsContainer;
 use deno_config::workspace::PackageJsonDepResolution;
 use deno_config::workspace::WorkspaceResolver;
 use deno_core::error::AnyError;
@@ -43,6 +47,7 @@ use deno_core::FastString;
 use deno_core::ModuleSpecifier;
 use deno_facade::migrate;
 use deno_facade::payload_to_eszip;
+use deno_facade::permissions::RuntimePermissionDescriptorParser;
 use deno_facade::EszipPayloadKind;
 use deno_facade::LazyLoadableEszip;
 use eszip_async_trait::AsyncEszipDataRead;
@@ -90,7 +95,7 @@ impl RootCertStoreProvider for StandaloneRootCertStoreProvider {
 pub async fn create_module_loader_for_eszip<P>(
   mut eszip: LazyLoadableEszip,
   base_dir_path: P,
-  permissions: PermissionsOptions,
+  permissions_options: PermissionsOptions,
   metadata: Metadata,
   maybe_import_map: Option<ImportMap>,
   include_source_map: bool,
@@ -101,6 +106,15 @@ where
   let current_exe_path = std::env::current_exe().unwrap();
   let current_exe_name =
     current_exe_path.file_name().unwrap().to_string_lossy();
+
+  let permission_desc_parser =
+    Arc::new(RuntimePermissionDescriptorParser::new(Arc::new(RealFs)))
+      as Arc<dyn PermissionDescriptorParser>;
+  let permissions =
+    Permissions::from_options(&*permission_desc_parser, &permissions_options)?;
+  let permissions_container =
+    PermissionsContainer::new(permission_desc_parser.clone(), permissions);
+
   let deno_dir_provider = Arc::new(DenoDirProvider::new(None));
   let root_cert_store_provider = Arc::new(StandaloneRootCertStoreProvider {
     ca_stores: metadata.ca_stores,
@@ -312,7 +326,7 @@ where
     }),
     node_services: RuntimeProviders::node_services_dummy(),
     npm_snapshot: snapshot,
-    permissions: todo!(),
+    permissions: permissions_container,
     static_files,
     vfs_path: npm_cache_dir.root_dir().to_path_buf(),
     vfs,
@@ -322,7 +336,7 @@ where
 pub async fn create_module_loader_for_standalone_from_eszip_kind<P>(
   eszip_payload_kind: EszipPayloadKind,
   base_dir_path: P,
-  permissions: PermissionsOptions,
+  permissions_options: PermissionsOptions,
   maybe_import_map: Option<ImportMap>,
   maybe_import_map_path: Option<String>,
   include_source_map: bool,
@@ -364,7 +378,7 @@ where
   create_module_loader_for_eszip(
     eszip,
     base_dir_path,
-    permissions,
+    permissions_options,
     Metadata {
       ca_stores: None,
       ca_data: None,

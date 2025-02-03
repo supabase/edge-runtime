@@ -1459,10 +1459,10 @@ dependencies = [
  "deno_core",
  "deno_facade",
  "env_logger",
+ "ext_event_worker",
  "glob",
  "log",
  "once_cell",
- "ext_event_worker",
  "tokio",
  "tracing-subscriber",
 ]
@@ -3134,6 +3134,7 @@ dependencies = [
  "convert_case",
  "ctor",
  "deno_core",
+ "ext_ai_v8_utilities",
  "faster-hex",
  "futures",
  "futures-util",
@@ -3154,6 +3155,13 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "xxhash-rust",
+]
+
+[[package]]
+name = "ext_ai_v8_utilities"
+version = "0.1.0"
+dependencies = [
+ "deno_core",
 ]
 
 [[package]]

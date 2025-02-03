@@ -12,6 +12,7 @@ path = "lib.rs"
 deno_core.workspace = true
 
 base_rt.workspace = true
+ext_ai_v8_utilities.workspace = true
 
 anyhow.workspace = true
 clap = { workspace = true, features = ["derive"] }

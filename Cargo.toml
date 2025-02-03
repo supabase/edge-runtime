@@ -12,6 +12,7 @@ members = [
   "crates/http_utils",
   "deno",
   "ext/ai",
+  "ext/ai/utilities",
   "ext/env",
   "ext/event_worker",
   "ext/node",
@@ -76,6 +77,7 @@ http_utils = { version = "0.1.0", path = "./crates/http_utils" }
 
 # local exts
 ext_ai = { version = "0.1.0", path = "./ext/ai" }
+ext_ai_v8_utilities = { version = "0.1.0", path = "./ext/ai/utilities" }
 ext_env = { version = "0.1.0", path = "./ext/env" }
 ext_event_worker = { version = "0.1.0", path = "./ext/event_worker" }
 ext_node = { version = "0.1.0", path = "./ext/node" }

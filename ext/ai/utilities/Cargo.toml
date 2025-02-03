@@ -1,0 +1,13 @@
+[package]
+name = "sb_ai_v8_utilities"
+version = "0.1.0"
+authors = ["Supabase <team@supabase.com>"]
+edition = "2021"
+license = "MIT"
+publish = false
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+deno_core.workspace = true

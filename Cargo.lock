@@ -6042,6 +6042,7 @@ dependencies = [
  "ort-sys",
  "rand",
  "reqwest 0.12.4",
+ "sb_ai_v8_utilities",
  "scopeguard",
  "serde",
  "tokenizers",
@@ -6050,6 +6051,13 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "xxhash-rust",
+]
+
+[[package]]
+name = "sb_ai_v8_utilities"
+version = "0.1.0"
+dependencies = [
+ "deno_core",
 ]
 
 [[package]]

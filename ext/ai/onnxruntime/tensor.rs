@@ -213,61 +213,61 @@ impl ToJsTensor {
 
 #[cfg(test)]
 mod tests {
+    use sb_ai_v8_utilities::v8_do;
+
     use super::*;
 
     #[test]
     fn test_ort_tensor_extract_ref() {
-        // region: v8-init
-        // ref: https://github.com/denoland/deno_core/blob/490079f6b5c9233f476b0a529eace1f5b2c4ed07/serde_v8/tests/magic.rs#L23
-        let platform = v8::new_unprotected_default_platform(0, false).make_shared();
-        v8::V8::initialize_platform(platform);
-        v8::V8::initialize();
+        v8_do(|| {
+            // region: v8-init
+            // ref: https://github.com/denoland/deno_core/blob/490079f6b5c9233f476b0a529eace1f5b2c4ed07/serde_v8/tests/magic.rs#L23
+            let isolate = &mut v8::Isolate::new(v8::CreateParams::default());
+            let handle_scope = &mut v8::HandleScope::new(isolate);
+            let context = v8::Context::new(handle_scope);
+            let scope = &mut v8::ContextScope::new(handle_scope, context);
+            // endregion: v8-init
 
-        let isolate = &mut v8::Isolate::new(v8::CreateParams::default());
-        let handle_scope = &mut v8::HandleScope::new(isolate);
-        let context = v8::Context::new(handle_scope);
-        let scope = &mut v8::ContextScope::new(handle_scope, context);
-        // endregion: v8-init
+            // Bad Tensor Scenario:
+            let tensor_script = r#"({
+                type: 'float32',
+                data: new Float32Array([]),
+                dims: [1, 1],
+                size: 300
+            })"#;
 
-        // Bad Tensor Scenario:
-        let tensor_script = r#"({
-            type: 'float32',
-            data: new Float32Array([]),
-            dims: [1, 1],
-            size: 300
-        })"#;
+            let js_tensor = {
+                let code = v8::String::new(scope, tensor_script).unwrap();
+                let script = v8::Script::compile(scope, code, None).unwrap();
+                script.run(scope).unwrap()
+            };
 
-        let js_tensor = {
-            let code = v8::String::new(scope, tensor_script).unwrap();
-            let script = v8::Script::compile(scope, code, None).unwrap();
-            script.run(scope).unwrap()
-        };
+            let tensor: JsTensor = deno_core::serde_v8::from_v8(scope, js_tensor).unwrap();
 
-        let tensor: JsTensor = deno_core::serde_v8::from_v8(scope, js_tensor).unwrap();
+            let tensor_ref_result = tensor.extract_ort_tensor_ref::<f32>();
+            assert!(
+                tensor_ref_result.is_err(),
+                "Since `data.len()` doesn't reflect `dims` it must return Error"
+            );
 
-        let tensor_ref_result = tensor.extract_ort_tensor_ref::<f32>();
-        assert!(
-            tensor_ref_result.is_err(),
-            "Since `data.len()` doesn't reflect `dims` it must return Error"
-        );
+            // Good Tensor Scenario:
+            let tensor_script = r#"({
+                type: 'float32',
+                data: new Float32Array([0.1, 0.2]),
+                dims: [1, 2],
+                size: 2
+            })"#;
 
-        // Good Tensor Scenario:
-        let tensor_script = r#"({
-            type: 'float32',
-            data: new Float32Array([0.1, 0.2]),
-            dims: [1, 2],
-            size: 2
-        })"#;
+            let js_tensor = {
+                let code = v8::String::new(scope, tensor_script).unwrap();
+                let script = v8::Script::compile(scope, code, None).unwrap();
+                script.run(scope).unwrap()
+            };
 
-        let js_tensor = {
-            let code = v8::String::new(scope, tensor_script).unwrap();
-            let script = v8::Script::compile(scope, code, None).unwrap();
-            script.run(scope).unwrap()
-        };
+            let tensor: JsTensor = deno_core::serde_v8::from_v8(scope, js_tensor).unwrap();
 
-        let tensor: JsTensor = deno_core::serde_v8::from_v8(scope, js_tensor).unwrap();
-
-        let tensor_ref_result = tensor.extract_ort_tensor_ref::<f32>();
-        assert!(tensor_ref_result.is_ok(),);
+            let tensor_ref_result = tensor.extract_ort_tensor_ref::<f32>();
+            assert!(tensor_ref_result.is_ok());
+        });
     }
 }

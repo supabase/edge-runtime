@@ -5,7 +5,10 @@ use std::sync::Arc;
 use args::NpmCachingStrategy;
 use args::TypeCheckMode;
 use deno_config::deno_json::NodeModulesDirMode;
+use deno_config::workspace::CreateResolverOptions;
+use deno_config::workspace::PackageJsonDepResolution;
 use deno_config::workspace::Workspace;
+use deno_config::workspace::WorkspaceResolver;
 use deno_core::error::AnyError;
 use deno_core::ModuleSpecifier;
 use deno_npm::npm_rc::ResolvedNpmRc;
@@ -53,6 +56,7 @@ pub use deno_websocket;
 pub use deno_webstorage;
 
 pub use deno_resolver;
+use file_fetcher::FileFetcher;
 pub use node_resolver;
 
 pub use deno_permissions::PermissionsContainer;
@@ -112,5 +116,19 @@ pub trait DenoOptions: 'static {
 
   fn use_byonm(&self) -> bool {
     false
+  }
+
+  fn create_workspace_resolver(
+    &self,
+    _file_fetcher: &FileFetcher,
+    pkg_json_dep_resolution: PackageJsonDepResolution,
+  ) -> Result<WorkspaceResolver, AnyError> {
+    Ok(self.workspace().create_resolver(
+      CreateResolverOptions {
+        pkg_json_dep_resolution,
+        specified_import_map: None,
+      },
+      |path| Ok(std::fs::read_to_string(path)?),
+    )?)
   }
 }

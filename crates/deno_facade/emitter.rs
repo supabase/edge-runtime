@@ -23,6 +23,7 @@ use deno::deno_ast::TranspileOptions;
 use deno::deno_cache_dir::npm::NpmCacheDir;
 use deno::deno_cache_dir::HttpCache;
 use deno::deno_config::deno_json::JsxImportSourceConfig;
+use deno::deno_config::workspace::PackageJsonDepResolution;
 use deno::deno_config::workspace::WorkspaceResolver;
 use deno::deno_lockfile::Lockfile;
 use deno::deno_npm::npm_rc::ResolvedNpmRc;
@@ -622,14 +623,29 @@ impl EmitterFactory {
     &self,
   ) -> Result<&Arc<WorkspaceResolver>, anyhow::Error> {
     self.workspace_resolver.get_or_try_init(|| {
-      // Ok(Arc::new(WorkspaceResolver::new_raw(
-      //   self.maybe_import_map.clone(),
-      //   vec![],
-      //   vec![],
-      //   vec![],
-      //   PackageJsonDepResolution::Disabled,
-      // )))
-      todo!()
+      let options = self.deno_options()?;
+      let resolver = options.create_workspace_resolver(
+        self.file_fetcher()?,
+        if options.use_byonm() {
+          PackageJsonDepResolution::Disabled
+        } else {
+          // todo(dsherret): this should be false for nodeModulesDir: true
+          PackageJsonDepResolution::Enabled
+        },
+      )?;
+
+      if !resolver.diagnostics().is_empty() {
+        log::warn!(
+          "Import map diagnostics:\n{}",
+          resolver
+            .diagnostics()
+            .iter()
+            .map(|d| format!(" - {d}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+        )
+      }
+      Ok(Arc::new(resolver))
     })
   }
 

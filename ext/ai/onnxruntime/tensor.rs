@@ -113,7 +113,8 @@ enum JsTensorData {
         alias = "int32",
         alias = "uint32",
         alias = "int64",
-        alias = "uint64"
+        alias = "uint64",
+        alias = "bool"
     )]
     TypedArrayBuffer(JsBuffer),
 }

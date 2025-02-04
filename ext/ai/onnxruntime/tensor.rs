@@ -258,7 +258,7 @@ mod tests {
             // Bad Tensor Scenario:
             let tensor_script = r#"({
                 type: 'float32',
-                data: new Float32Array([]),
+                data: { ty: 'float32', c: new Float32Array([]) },
                 dims: [1, 1],
                 size: 300
             })"#;
@@ -280,7 +280,7 @@ mod tests {
             // Good Tensor Scenario:
             let tensor_script = r#"({
                 type: 'float32',
-                data: new Float32Array([0.1, 0.2]),
+                data: { ty: 'float32', c: new Float32Array([0.1, 0.2]) },
                 dims: [1, 2],
                 size: 2
             })"#;

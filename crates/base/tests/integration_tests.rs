@@ -2876,6 +2876,30 @@ async fn test_supabase_ai_gte() {
     assert_eq!(resp.status().as_u16(), StatusCode::OK);
 }
 
+// -- sb_ai: ORT base api
+#[tokio::test]
+#[serial]
+async fn test_ort_string_tensor() {
+    let base_path = "./test_cases/ai-ort-rust-backend";
+    let main_path = format!("{}/main", base_path);
+
+    let tb = TestBedBuilder::new(main_path)
+        .with_per_worker_policy(None)
+        .build()
+        .await;
+
+    let resp = tb
+        .request(|b| {
+            b.uri("/string-tensor")
+                .body(Body::empty())
+                .context("can't make request")
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status().as_u16(), StatusCode::OK);
+}
+
 // -- sb_ai: ORT @huggingface/transformers
 async fn test_ort_transformers_js(script_path: &str) {
     fn visit_json(value: &mut serde_json::Value) {

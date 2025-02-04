@@ -19,7 +19,7 @@ class TensorProxy {
     get(target, property) {
         switch (property) {
             case 'data':
-                return target.data.c;
+                return target.data?.c ?? target.data;
 
             default:
                 return target[property];
@@ -90,11 +90,10 @@ class InferenceSession {
         for (const key in inputs) {
             if (Object.hasOwn(inputs, key)) {
                 const tensorLike = inputs[key];
-                const { type, data, dims } = tensorLike;
+                // NOTE:(kallebysantos) we first apply the proxy because data could be either TypedArray or {ty: DataType, c: TypedArray}
+                const { type, data, dims } = TensorProxy.fromTensor(tensorLike);
 
-                sessionInputs[key] = tensorLike instanceof Tensor
-                    ? tensorLike
-                    : new Tensor(type, data, dims);
+                sessionInputs[key] = new Tensor(type, data, dims);
             }
         }
 

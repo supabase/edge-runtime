@@ -19,12 +19,6 @@ impl std::ops::Deref for EnvVars {
   }
 }
 
-impl std::ops::DerefMut for EnvVars {
-  fn deref_mut(&mut self) -> &mut Self::Target {
-    todo!()
-  }
-}
-
 deno_core::extension!(
   env,
   ops = [op_set_env, op_env, op_get_env, op_delete_env],

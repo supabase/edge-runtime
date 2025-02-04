@@ -22,7 +22,6 @@ cpu_timer.workspace = true
 deno_facade.workspace = true
 fs.workspace = true
 http_utils.workspace = true
-module_loader.workspace = true
 
 ext_ai.workspace = true
 ext_env.workspace = true

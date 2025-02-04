@@ -10,7 +10,6 @@ members = [
   "crates/eszip_async_trait",
   "crates/fs",
   "crates/http_utils",
-  "crates/module_loader",
   "deno",
   "ext/ai",
   "ext/env",
@@ -74,7 +73,6 @@ deno_facade = { version = "0.1.0", path = "./crates/deno_facade" }
 eszip_async_trait = { version = "0.1.0", path = "./crates/eszip_async_trait" }
 fs = { version = "0.1.0", path = "./crates/fs" }
 http_utils = { version = "0.1.0", path = "./crates/http_utils" }
-module_loader = { version = "0.1.0", path = "./crates/module_loader" }
 
 # local exts
 ext_ai = { version = "0.1.0", path = "./ext/ai" }

@@ -10,6 +10,7 @@ path = "lib.rs"
 
 [dependencies]
 deno.workspace = true
+deno_config.workspace = true
 deno_core.workspace = true
 
 eszip_async_trait.workspace = true
@@ -20,17 +21,21 @@ ext_runtime.workspace = true
 
 anyhow.workspace = true
 async-trait.workspace = true
+base64.workspace = true
 eszip = { workspace = true, features = ["xxhash3"] }
 futures.workspace = true
+futures-util.workspace = true
 glob.workspace = true
 import_map.workspace = true
 log.workspace = true
+monch.workspace = true
 once_cell.workspace = true
 rkyv = { workspace = true, features = ["validation"] }
 scopeguard.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+tracing.workspace = true
 urlencoding.workspace = true
 
 dashmap = "5.5.3"

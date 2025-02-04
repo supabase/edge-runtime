@@ -4,6 +4,7 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use ::eszip::EszipV2;
+use deno::DenoOptions;
 use deno_core::url::Url;
 use eszip::extract_eszip;
 use eszip::ExtractEszipPayload;
@@ -19,6 +20,7 @@ pub mod graph;
 pub mod import_map;
 pub mod jsr;
 pub mod jsx_util;
+pub mod module_loader;
 pub mod permissions;
 
 pub use ::eszip::v2::Checksum;
@@ -131,6 +133,24 @@ pub async fn extract_from_file(
     folder: output_path,
   })
   .await
+}
+
+pub struct DenoFacadeOptions {}
+
+impl DenoOptions for DenoFacadeOptions {
+  fn npmrc(&self) -> &std::sync::Arc<deno::deno_npm::npm_rc::ResolvedNpmRc> {
+    todo!()
+  }
+
+  fn workspace(
+    &self,
+  ) -> &std::sync::Arc<deno::deno_config::workspace::Workspace> {
+    todo!()
+  }
+
+  fn node_modules_dir_path(&self) -> Option<&PathBuf> {
+    todo!()
+  }
 }
 
 #[cfg(test)]

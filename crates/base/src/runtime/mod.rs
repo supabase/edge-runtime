@@ -66,6 +66,8 @@ use deno_core::RuntimeOptions;
 use deno_facade::generate_binary_eszip;
 use deno_facade::import_map::load_import_map;
 use deno_facade::include_glob_patterns_in_eszip;
+use deno_facade::module_loader::standalone::create_module_loader_for_standalone_from_eszip_kind;
+use deno_facade::module_loader::RuntimeProviders;
 use deno_facade::EmitterFactory;
 use deno_facade::EszipPayloadKind;
 use ext_event_worker::events::EventMetadata;
@@ -86,8 +88,6 @@ use futures_util::future::poll_fn;
 use futures_util::task::AtomicWaker;
 use futures_util::FutureExt;
 use log::error;
-use module_loader::standalone::create_module_loader_for_standalone_from_eszip_kind;
-use module_loader::RuntimeProviders;
 use once_cell::sync::Lazy;
 use once_cell::sync::OnceCell;
 use scopeguard::ScopeGuard;
@@ -727,27 +727,6 @@ where
     } else {
       Arc::new(DenoCompileFileSystem::from_rc(vfs))
     })?;
-
-    // NOTE(kallebysantos): Cache via SqliteBackedCache is disabled.
-    //
-    // let cache_base_dir = dirs::cache_dir()
-    //     .context("could not resolve cache directory")?
-    //     .join("web_caches");
-    //
-    // tokio::fs::create_dir_all(cache_base_dir.as_path())
-    //     .await
-    //     .context("could not make cache directory")?;
-    //
-    // struct CacheStorageDir(TempDir);
-    //
-    // let cache_storage_dir = CacheStorageDir(
-    //     tempfile::tempdir_in(cache_base_dir).context("could not make cache directory")?,
-    // );
-    //
-    // let cache_backend = CreateCache(Arc::new({
-    //     let dir = cache_storage_dir.0.path().to_path_buf();
-    //     move || SqliteBackedCache::new(dir.clone())
-    // }));
 
     let mod_code = module_code;
     let extensions = vec![

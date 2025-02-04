@@ -900,7 +900,6 @@ dependencies = [
  "import_map",
  "libc",
  "log",
- "module_loader",
  "monch",
  "notify",
  "num-traits",
@@ -2138,8 +2137,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "base64 0.21.7",
  "dashmap",
  "deno",
+ "deno_config",
  "deno_core",
  "enum-as-inner",
  "eszip",
@@ -2148,10 +2149,12 @@ dependencies = [
  "ext_runtime",
  "fs",
  "futures",
+ "futures-util",
  "glob",
  "hashlink 0.8.4",
  "import_map",
  "log",
+ "monch",
  "once_cell",
  "pathdiff",
  "rkyv",
@@ -2160,6 +2163,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.8",
  "tokio",
+ "tracing",
  "urlencoding",
 ]
 
@@ -5163,32 +5167,6 @@ dependencies = [
  "log",
  "wasi",
  "windows-sys 0.48.0",
-]
-
-[[package]]
-name = "module_loader"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64 0.21.7",
- "deno",
- "deno_config",
- "deno_core",
- "deno_facade",
- "eszip",
- "eszip_async_trait",
- "ext_node",
- "ext_runtime",
- "fs",
- "futures-util",
- "import_map",
- "log",
- "monch",
- "once_cell",
- "rkyv",
- "serde",
- "tokio",
- "tracing",
 ]
 
 [[package]]

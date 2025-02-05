@@ -1,6 +1,3 @@
-// TODO: Remove the line below after updating the rust toolchain to v1.81.
-#![allow(clippy::blocks_in_conditions)]
-
 use std::borrow::Cow;
 use std::io::SeekFrom;
 use std::io::{self};

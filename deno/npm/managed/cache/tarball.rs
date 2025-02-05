@@ -18,11 +18,6 @@ use deno_semver::package::PackageNv;
 use reqwest::StatusCode;
 use reqwest::Url;
 
-// use ext_runtime::cache::CacheSetting;
-// use ext_runtime::util::http_util::DownloadError;
-// use ext_runtime::util::http_util::HttpClientProvider;
-// use ext_runtime::util::sync::MultiRuntimeAsyncValueCreator;
-
 use super::tarball_extract::verify_and_extract_tarball;
 use super::tarball_extract::TarballExtractionMode;
 use super::NpmCache;

@@ -33,7 +33,6 @@ pub mod http_util;
 pub mod node;
 pub mod npm;
 pub mod npmrc;
-pub mod permissions;
 pub mod resolver;
 pub mod runtime;
 pub mod util;

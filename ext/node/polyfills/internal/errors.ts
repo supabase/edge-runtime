@@ -905,6 +905,12 @@ export class ERR_CRYPTO_INVALID_KEY_OBJECT_TYPE extends NodeTypeError {
   }
 }
 
+export class ERR_CRYPTO_INVALID_JWK extends NodeError {
+  constructor() {
+    super("ERR_CRYPTO_INVALID_JWK", "Invalid JWK");
+  }
+}
+
 export class ERR_CRYPTO_INVALID_STATE extends NodeError {
   constructor(x: string) {
     super("ERR_CRYPTO_INVALID_STATE", `Invalid state for operation ${x}`);

@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
@@ -38,12 +39,14 @@ use deno::npm::create_in_npm_pkg_checker;
 use deno::npm::create_managed_npm_resolver;
 use deno::npm::CliManagedInNpmPkgCheckerCreateOptions;
 use deno::npm::CliManagedNpmResolverCreateOptions;
+use deno::npm::CliNpmResolver;
 use deno::npm::CliNpmResolverManagedSnapshotOption;
 use deno::npm::CreateInNpmPkgCheckerOptions;
 use deno::resolver::CjsTracker;
 use deno::resolver::CliDenoResolverFs;
 use deno::resolver::CliNpmReqResolver;
 use deno::resolver::NpmModuleLoader;
+use deno::util::text_encoding::from_utf8_lossy_cow;
 use deno::PermissionsContainer;
 use deno_config::workspace::MappedResolution;
 use deno_config::workspace::PackageJsonDepResolution;
@@ -68,12 +71,15 @@ use eszip_async_trait::NPM_RC_SCOPES_KEY;
 use eszip_async_trait::SOURCE_CODE_ESZIP_KEY;
 use eszip_async_trait::VFS_ESZIP_KEY;
 use ext_node::DenoFsNodeResolverEnv;
+use ext_node::NodeExtInitServices;
+use ext_node::NodeRequireLoader;
 use ext_node::NodeResolver;
 use ext_runtime::cert::get_root_cert_store;
 use ext_runtime::cert::CaData;
 use fs::deno_compile_fs::DenoCompileFileSystem;
 use fs::extract_static_files_from_eszip;
 use fs::load_npm_vfs;
+use fs::virtual_fs::FileBackedVfs;
 use futures_util::future::OptionFuture;
 use import_map::parse_from_json;
 use import_map::ImportMap;
@@ -132,7 +138,9 @@ pub struct SharedModuleLoaderState {
   pub(crate) cjs_tracker: Arc<CjsTracker>,
   pub(crate) npm_module_loader: Arc<NpmModuleLoader>,
   pub(crate) npm_req_resolver: Arc<CliNpmReqResolver>,
+  pub(crate) npm_resolver: Arc<dyn CliNpmResolver>,
   pub(crate) node_resolver: Arc<NodeResolver>,
+  pub(crate) vfs: Arc<FileBackedVfs>,
 }
 
 #[derive(Clone)]
@@ -426,6 +434,41 @@ impl ModuleLoader for EmbeddedModuleLoader {
   }
 }
 
+impl NodeRequireLoader for EmbeddedModuleLoader {
+  fn ensure_read_permission<'a>(
+    &self,
+    permissions: &mut dyn ext_node::NodePermissions,
+    path: &'a Path,
+  ) -> Result<Cow<'a, Path>, AnyError> {
+    if self.shared.vfs.open_file(path).is_ok() {
+      // allow reading if the file is in the virtual fs
+      return Ok(Cow::Borrowed(path));
+    }
+
+    self
+      .shared
+      .npm_resolver
+      .ensure_read_permission(permissions, path)
+  }
+
+  fn load_text_file_lossy(
+    &self,
+    path: &Path,
+  ) -> Result<Cow<'static, str>, AnyError> {
+    let file_entry = self.shared.vfs.open_file(path)?;
+    let file_bytes = file_entry.read_all_sync()?;
+    Ok(from_utf8_lossy_cow(file_bytes))
+  }
+
+  fn is_maybe_cjs(
+    &self,
+    specifier: &Url,
+  ) -> Result<bool, deno::node_resolver::errors::ClosestPkgJsonError> {
+    let media_type = MediaType::from_specifier(specifier);
+    self.shared.cjs_tracker.is_maybe_cjs(specifier, media_type)
+  }
+}
+
 pub struct StandaloneModuleLoaderFactory {
   shared: Arc<SharedModuleLoaderState>,
 }
@@ -667,19 +710,26 @@ where
         node_code_translator,
       )),
       npm_req_resolver,
+      npm_resolver: npm_resolver.clone(),
       node_resolver: node_resolver.clone(),
+      vfs: vfs.clone(),
     }),
   };
 
-  let module_loader = EmbeddedModuleLoader {
+  let module_loader = Rc::new(EmbeddedModuleLoader {
     shared: module_loader_factory.shared.clone(),
     include_source_map,
-  };
+  });
 
   Ok(RuntimeProviders {
     module_code: entry_module_source,
-    module_loader: Rc::new(module_loader),
-    node_services: RuntimeProviders::node_services_dummy(),
+    module_loader: module_loader.clone(),
+    node_services: NodeExtInitServices {
+      node_require_loader: module_loader.clone(),
+      node_resolver,
+      npm_resolver: npm_resolver.into_npm_pkg_folder_resolver(),
+      pkg_json_resolver,
+    },
     npm_snapshot: snapshot,
     permissions: permissions_container,
     static_files,

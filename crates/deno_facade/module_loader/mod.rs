@@ -24,9 +24,3 @@ pub struct RuntimeProviders {
   pub vfs_path: PathBuf,
   pub vfs: Arc<FileBackedVfs>,
 }
-
-impl RuntimeProviders {
-  fn node_services_dummy() -> NodeExtInitServices {
-    todo!()
-  }
-}

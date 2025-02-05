@@ -1,10 +1,8 @@
 use std::future::Future;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Context;
 use deno::args::CacheSetting;
-use deno::args::CliLockfile;
 use deno::cache::Caches;
 use deno::cache::DenoCacheEnvFsAdapter;
 use deno::cache::DenoDir;
@@ -21,7 +19,6 @@ use deno::deno_cache_dir::HttpCache;
 use deno::deno_config::deno_json::JsxImportSourceConfig;
 use deno::deno_config::workspace::PackageJsonDepResolution;
 use deno::deno_config::workspace::WorkspaceResolver;
-use deno::deno_lockfile::Lockfile;
 use deno::deno_npm::npm_rc::ResolvedNpmRc;
 use deno::deno_permissions::Permissions;
 use deno::deno_permissions::PermissionsOptions;
@@ -52,7 +49,6 @@ use deno::DenoOptions;
 use deno::PermissionsContainer;
 use deno_core::error::AnyError;
 use deno_core::futures::FutureExt;
-use deno_core::parking_lot::Mutex;
 use ext_node::DenoFsNodeResolverEnv;
 use ext_node::NodeResolver;
 use ext_node::PackageJsonResolver;
@@ -101,12 +97,6 @@ impl<T> Deferred<T> {
   }
 }
 
-#[derive(Clone)]
-pub struct LockfileOpts {
-  path: PathBuf,
-  overwrite: bool,
-}
-
 pub struct EmitterFactory {
   cjs_tracker: Deferred<Arc<CjsTracker>>,
   deno_resolver: Deferred<Arc<CliDenoResolver>>,
@@ -114,7 +104,6 @@ pub struct EmitterFactory {
   global_http_cache: Deferred<Arc<GlobalHttpCache>>,
   http_client_provider: Deferred<Arc<HttpClientProvider>>,
   in_npm_pkg_checker: Deferred<Arc<dyn InNpmPackageChecker>>,
-  lockfile: Deferred<Option<Arc<CliLockfile>>>,
   module_graph_builder: Deferred<Arc<ModuleGraphBuilder>>,
   module_graph_creator: Deferred<Arc<ModuleGraphCreator>>,
   module_info_cache: Deferred<Arc<ModuleInfoCache>>,
@@ -132,11 +121,10 @@ pub struct EmitterFactory {
   cache_strategy: Option<CacheSetting>,
   decorator: Option<DecoratorType>,
   deno_dir: DenoDir,
-  deno_options: Option<Arc<dyn DenoOptions>>,
+  deno_options: Option<Arc<DenoOptions>>,
   file_fetcher_allow_remote: bool,
   import_map: Option<ImportMap>,
   jsx_import_source_config: Option<JsxImportSourceConfig>,
-  lockfile_options: Option<LockfileOpts>,
   permissions_options: Option<PermissionsOptions>,
 }
 
@@ -157,7 +145,6 @@ impl EmitterFactory {
       global_http_cache: Default::default(),
       http_client_provider: Default::default(),
       in_npm_pkg_checker: Default::default(),
-      lockfile: Default::default(),
       module_graph_builder: Default::default(),
       module_graph_creator: Default::default(),
       module_info_cache: Default::default(),
@@ -179,22 +166,18 @@ impl EmitterFactory {
       jsx_import_source_config: None,
       decorator: None,
       import_map: None,
-      lockfile_options: None,
       permissions_options: None,
     }
   }
 
-  pub fn deno_options(&self) -> Result<&Arc<dyn DenoOptions>, AnyError> {
+  pub fn deno_options(&self) -> Result<&Arc<DenoOptions>, AnyError> {
     self
       .deno_options
       .as_ref()
       .context("options must be specified")
   }
 
-  pub fn set_deno_options<T>(&mut self, value: T) -> &mut Self
-  where
-    T: DenoOptions + 'static,
-  {
+  pub fn set_deno_options(&mut self, value: DenoOptions) -> &mut Self {
     self.deno_options = Some(Arc::new(value));
     self
   }
@@ -363,29 +346,6 @@ impl EmitterFactory {
     Arc::new(deno::deno_fs::RealFs)
   }
 
-  pub fn get_lock_file_deferred(&self) -> &Option<Arc<CliLockfile>> {
-    self.lockfile.get_or_init(|| {
-      if let Some(options) = self.lockfile_options.clone() {
-        Some(Arc::new(Mutex::new(Lockfile::new_empty(
-          options.path.clone(),
-          options.overwrite,
-        ))))
-      } else {
-        let default_lockfile_path = std::env::current_dir()
-          .map(|p| p.join(".supabase.lock"))
-          .unwrap();
-        Some(Arc::new(Mutex::new(Lockfile::new_empty(
-          default_lockfile_path,
-          true,
-        ))))
-      }
-    })
-  }
-
-  pub fn get_lock_file(&self) -> Option<Arc<CliLockfile>> {
-    self.get_lock_file_deferred().as_ref().cloned()
-  }
-
   pub fn cjs_tracker(&self) -> Result<&Arc<CjsTracker>, anyhow::Error> {
     self.cjs_tracker.get_or_try_init(|| {
       let options = self.deno_options()?;
@@ -402,10 +362,6 @@ impl EmitterFactory {
       )))
     })
   }
-
-  // pub fn cjs_resolutions(&self) -> &Arc<CjsResolutionStore> {
-  //   self.cjs_resolutions.get_or_init(Default::default)
-  // }
 
   pub fn in_npm_pkg_checker(
     &self,
@@ -434,9 +390,10 @@ impl EmitterFactory {
     self
       .npm_resolver
       .get_or_try_init_async(async {
+        let options = self.deno_options()?;
         create_managed_npm_resolver(CliManagedNpmResolverCreateOptions {
           snapshot: CliNpmResolverManagedSnapshotOption::Specified(None),
-          maybe_lockfile: self.get_lock_file(),
+          maybe_lockfile: options.maybe_lockfile().cloned(),
           fs: self.real_fs(),
           http_client_provider: self.http_client_provider().clone(),
           npm_cache_dir: self.npm_cache_dir()?.clone(),
@@ -637,7 +594,7 @@ impl EmitterFactory {
     self
       .module_graph_builder
       .get_or_try_init_async(async {
-        let options = self.deno_options()?;
+        let options = self.deno_options()?.clone();
         Ok(Arc::new(ModuleGraphBuilder::new(
           self.caches()?.clone(),
           self.cjs_tracker()?.clone(),
@@ -646,7 +603,7 @@ impl EmitterFactory {
           self.real_fs().clone(),
           self.global_http_cache().clone(),
           self.in_npm_pkg_checker()?.clone(),
-          self.get_lock_file_deferred().clone(),
+          options.maybe_lockfile().cloned(),
           self.module_info_cache()?.clone(),
           self.npm_resolver().await?.clone(),
           self.parsed_source_cache()?.clone(),

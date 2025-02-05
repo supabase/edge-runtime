@@ -2,12 +2,21 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use anyhow::Context;
+use args::discover_npmrc_from_workspace;
+use args::resolve_node_modules_folder;
+use args::CliLockfile;
 use args::NpmCachingStrategy;
 use args::TypeCheckMode;
+use cache::DenoDirProvider;
 use deno_config::deno_json::NodeModulesDirMode;
 use deno_config::workspace::CreateResolverOptions;
 use deno_config::workspace::PackageJsonDepResolution;
-use deno_config::workspace::Workspace;
+use deno_config::workspace::VendorEnablement;
+use deno_config::workspace::WorkspaceDirectory;
+use deno_config::workspace::WorkspaceDirectoryEmptyOptions;
+use deno_config::workspace::WorkspaceDiscoverOptions;
+use deno_config::workspace::WorkspaceDiscoverStart;
 use deno_config::workspace::WorkspaceResolver;
 use deno_core::error::AnyError;
 use deno_core::ModuleSpecifier;
@@ -45,6 +54,7 @@ pub use deno_net;
 pub use deno_npm;
 pub use deno_package_json;
 pub use deno_path_util;
+use deno_path_util::normalize_path;
 pub use deno_permissions;
 pub use deno_semver;
 pub use deno_telemetry;
@@ -56,6 +66,7 @@ pub use deno_websocket;
 pub use deno_webstorage;
 
 pub use deno_resolver;
+use dotenvy::from_filename;
 use file_fetcher::FileFetcher;
 pub use node_resolver;
 
@@ -65,31 +76,63 @@ pub fn version() -> &'static str {
   env!("CARGO_PKG_VERSION")
 }
 
-pub trait DenoOptions: 'static {
-  fn npmrc(&self) -> &Arc<ResolvedNpmRc>;
-  fn workspace(&self) -> &Arc<Workspace>;
-  fn node_modules_dir_path(&self) -> Option<&PathBuf>;
+pub struct DenoOptions {
+  maybe_node_modules_folder: Option<PathBuf>,
+  npmrc: Arc<ResolvedNpmRc>,
+  maybe_lockfile: Option<Arc<CliLockfile>>,
+  pub start_dir: Arc<WorkspaceDirectory>,
+  pub deno_dir_provider: Arc<DenoDirProvider>,
+  builder: DenoOptionsBuilder,
+}
 
-  fn unstable_detect_cjs(&self) -> bool;
-  fn use_byonm(&self) -> bool;
-  fn is_node_main(&self) -> bool;
-  fn type_check_mode(&self) -> TypeCheckMode;
+impl DenoOptions {
+  pub fn npmrc(&self) -> &Arc<ResolvedNpmRc> {
+    &self.npmrc
+  }
 
-  fn check_js(&self) -> bool {
+  pub fn workspace(&self) -> &Arc<deno_config::workspace::Workspace> {
+    &self.start_dir.workspace
+  }
+
+  pub fn node_modules_dir_path(&self) -> Option<&PathBuf> {
+    self.maybe_node_modules_folder.as_ref()
+  }
+
+  pub fn unstable_detect_cjs(&self) -> bool {
+    self.builder.unstable_detect_cjs.unwrap_or_default()
+  }
+
+  pub fn use_byonm(&self) -> bool {
+    self.builder.use_byonm.unwrap_or_default()
+  }
+
+  pub fn is_node_main(&self) -> bool {
+    false
+  }
+
+  pub fn type_check_mode(&self) -> TypeCheckMode {
+    self.builder.type_check_mode.unwrap_or(TypeCheckMode::None)
+  }
+
+  pub fn check_js(&self) -> bool {
     self.workspace().check_js()
   }
 
-  fn default_npm_caching_strategy(&self) -> NpmCachingStrategy {
+  pub fn default_npm_caching_strategy(&self) -> NpmCachingStrategy {
     NpmCachingStrategy::Eager
   }
 
-  fn resolve_file_header_overrides(
+  pub fn resolve_file_header_overrides(
     &self,
   ) -> HashMap<ModuleSpecifier, HashMap<String, String>> {
     HashMap::new()
   }
 
-  fn to_compiler_option_types(
+  pub fn maybe_lockfile(&self) -> Option<&Arc<CliLockfile>> {
+    self.maybe_lockfile.as_ref()
+  }
+
+  pub fn to_compiler_option_types(
     &self,
   ) -> Result<Vec<deno_graph::ReferrerImports>, AnyError> {
     self
@@ -106,19 +149,21 @@ pub trait DenoOptions: 'static {
       })
   }
 
-  fn node_modules_dir(&self) -> Result<Option<NodeModulesDirMode>, AnyError> {
+  pub fn node_modules_dir(
+    &self,
+  ) -> Result<Option<NodeModulesDirMode>, AnyError> {
     self.workspace().node_modules_dir().map_err(Into::into)
   }
 
-  fn vendor_dir_path(&self) -> Option<&PathBuf> {
+  pub fn vendor_dir_path(&self) -> Option<&PathBuf> {
     self.workspace().vendor_dir_path()
   }
 
-  fn detect_cjs(&self) -> bool {
+  pub fn detect_cjs(&self) -> bool {
     self.workspace().package_jsons().next().is_some() || self.is_node_main()
   }
 
-  fn create_workspace_resolver(
+  pub fn create_workspace_resolver(
     &self,
     _file_fetcher: &FileFetcher,
     pkg_json_dep_resolution: PackageJsonDepResolution,
@@ -130,5 +175,231 @@ pub trait DenoOptions: 'static {
       },
       |path| Ok(std::fs::read_to_string(path)?),
     )?)
+  }
+}
+
+impl DenoOptions {
+  fn from_builder(builder: DenoOptionsBuilder) -> Result<Self, AnyError> {
+    let config = builder.config.clone().unwrap_or_default();
+    let no_npm = builder.no_npm.unwrap_or_default();
+    let initial_cwd =
+      std::env::current_dir().with_context(|| "failed getting cwd")?;
+    let entrypoint = if builder.entrypoint.is_dir() {
+      builder.entrypoint.clone()
+    } else {
+      builder
+        .entrypoint
+        .parent()
+        .with_context(|| "failed getting parent directory of entrypoint")?
+        .to_path_buf()
+    };
+    let maybe_vendor_override = builder.vendor.map(|it| match it {
+      true => VendorEnablement::Enable { cwd: &initial_cwd },
+      false => VendorEnablement::Disable,
+    });
+    let config_parse_options =
+      deno_config::deno_json::ConfigParseOptions::default();
+    let discover_pkg_json = config != ConfigMode::Disabled && !no_npm;
+    if !discover_pkg_json {
+      log::debug!("package.json auto-discovery is disabled");
+    }
+    let workspace_discover_options = WorkspaceDiscoverOptions {
+      fs: Default::default(),
+      deno_json_cache: None,
+      pkg_json_cache: Some(&node_resolver::PackageJsonThreadLocalCache),
+      workspace_cache: None,
+      config_parse_options,
+      additional_config_file_names: &[],
+      discover_pkg_json,
+      maybe_vendor_override,
+    };
+    let resolve_empty_options = || WorkspaceDirectoryEmptyOptions {
+      root_dir: Arc::new(
+        ModuleSpecifier::from_directory_path(&initial_cwd).unwrap(),
+      ),
+      use_vendor_dir: maybe_vendor_override
+        .unwrap_or(VendorEnablement::Disable),
+    };
+
+    let start_dir = match &config {
+      ConfigMode::Discover => WorkspaceDirectory::discover(
+        WorkspaceDiscoverStart::Paths(&[entrypoint.clone()]),
+        &workspace_discover_options,
+      )?,
+      ConfigMode::Path(path) => {
+        let config_path = normalize_path(initial_cwd.join(path));
+        WorkspaceDirectory::discover(
+          WorkspaceDiscoverStart::ConfigFile(&config_path),
+          &workspace_discover_options,
+        )?
+      }
+      ConfigMode::Disabled => {
+        WorkspaceDirectory::empty(resolve_empty_options())
+      }
+    };
+
+    for dignostic in start_dir.workspace.diagnostics() {
+      log::warn!("{} {}", "Warning", dignostic);
+    }
+
+    let (npmrc, _) = discover_npmrc_from_workspace(&start_dir.workspace)?;
+
+    let maybe_lockfile = CliLockfile::discover(&builder, &start_dir.workspace)?;
+
+    log::debug!("Finished config loading.");
+
+    let maybe_lockfile = maybe_lockfile
+      .filter(|_| !builder.force_global_cache.unwrap_or_default());
+    let deno_dir_provider = Arc::new(DenoDirProvider::new(None));
+    let maybe_node_modules_folder = resolve_node_modules_folder(
+      &initial_cwd,
+      &builder,
+      &start_dir.workspace,
+      &deno_dir_provider,
+    )
+    .with_context(|| "resolving node_modules folder")?;
+
+    load_env_variables_from_env_file(builder.env_file.as_ref());
+
+    Ok(Self {
+      maybe_node_modules_folder,
+      npmrc,
+      maybe_lockfile: maybe_lockfile.map(Arc::new),
+      start_dir: Arc::new(start_dir),
+      deno_dir_provider,
+      builder,
+    })
+  }
+}
+
+fn load_env_variables_from_env_file(filename: Option<&Vec<String>>) {
+  let Some(env_file_names) = filename else {
+    return;
+  };
+
+  for env_file_name in env_file_names.iter().rev() {
+    match from_filename(env_file_name) {
+      Ok(_) => (),
+      Err(error) => {
+        match error {
+          dotenvy::Error::LineParse(line, index) => log::info!("{} Parsing failed within the specified environment file: {} at index: {} of the value: {}", "Warning", env_file_name, index, line),
+          dotenvy::Error::Io(_) => log::info!("{} The `--env-file` flag was used, but the environment file specified '{}' was not found.", "Warning", env_file_name),
+          dotenvy::Error::EnvVar(_) => log::info!("{} One or more of the environment variables isn't present or not unicode within the specified environment file: {}", "Warning",env_file_name),
+          _ => log::info!("{} Unknown failure occurred with the specified environment file: {}", "Warning", env_file_name),
+        }
+      }
+    }
+  }
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub enum ConfigMode {
+  Discover,
+  Path(PathBuf),
+  #[default]
+  Disabled,
+}
+
+pub struct DenoOptionsBuilder {
+  entrypoint: PathBuf,
+  config: Option<ConfigMode>,
+  type_check_mode: Option<TypeCheckMode>,
+  unstable_detect_cjs: Option<bool>,
+  use_byonm: Option<bool>,
+  vendor: Option<bool>,
+  no_npm: Option<bool>,
+  no_lock: Option<bool>,
+  lock: Option<PathBuf>,
+  node_modules_dir: Option<NodeModulesDirMode>,
+  env_file: Option<Vec<String>>,
+  frozen_lockfile: Option<bool>,
+  force_global_cache: Option<bool>,
+}
+
+impl DenoOptionsBuilder {
+  pub fn new(entrypoint: PathBuf) -> Self {
+    Self {
+      entrypoint,
+      config: None,
+      type_check_mode: None,
+      unstable_detect_cjs: None,
+      use_byonm: None,
+      vendor: None,
+      no_npm: None,
+      no_lock: None,
+      lock: None,
+      node_modules_dir: None,
+      env_file: None,
+      frozen_lockfile: None,
+      force_global_cache: None,
+    }
+  }
+
+  pub fn config(mut self, value: ConfigMode) -> Self {
+    self.config = Some(value);
+    self
+  }
+
+  pub fn type_check_mode(mut self, value: TypeCheckMode) -> Self {
+    self.type_check_mode = Some(value);
+    self
+  }
+
+  pub fn unstable_detect_cjs(mut self, value: bool) -> Self {
+    self.unstable_detect_cjs = Some(value);
+    self
+  }
+
+  pub fn use_byonm(mut self, value: bool) -> Self {
+    self.unstable_detect_cjs = Some(value);
+    self
+  }
+
+  pub fn vendor(mut self, value: bool) -> Self {
+    self.vendor = Some(value);
+    self
+  }
+
+  pub fn no_npm(mut self, value: bool) -> Self {
+    self.no_npm = Some(value);
+    self
+  }
+
+  pub fn no_lock(mut self, value: bool) -> Self {
+    self.no_lock = Some(value);
+    self
+  }
+
+  pub fn lock(mut self, value: PathBuf) -> Self {
+    self.lock = Some(value);
+    self
+  }
+
+  pub fn node_modules_dir(mut self, value: NodeModulesDirMode) -> Self {
+    self.node_modules_dir = Some(value);
+    self
+  }
+
+  pub fn env_file(mut self, value: Vec<String>) -> Self {
+    self.env_file = Some(value);
+    self
+  }
+
+  pub fn frozen_lockfile(mut self, value: bool) -> Self {
+    self.frozen_lockfile = Some(value);
+    self
+  }
+
+  pub fn force_global_cache(mut self, value: bool) -> Self {
+    self.force_global_cache = Some(value);
+    self
+  }
+
+  fn lockfile_skip_write(&self) -> bool {
+    self.frozen_lockfile.is_none()
+  }
+
+  pub fn build(self) -> Result<DenoOptions, AnyError> {
+    DenoOptions::from_builder(self)
   }
 }

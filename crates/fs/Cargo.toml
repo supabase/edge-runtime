@@ -59,12 +59,12 @@ base.workspace = true
 ext_event_worker.workspace = true
 
 ctor.workspace = true
+dotenvy.workspace = true
 rand.workspace = true
 serial_test.workspace = true
 
 aws-smithy-runtime = { version = "1.7", features = ["test-util"] }
 aws-smithy-runtime-api = { version = "1.7", features = ["test-util"] }
-dotenvy = "0.15"
 
 [features]
 unsafe-proxy = [

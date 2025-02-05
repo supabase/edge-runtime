@@ -2773,8 +2773,8 @@ async fn test_private_npm_package_import() {
     let buf = {
       let mut emitter_factory = EmitterFactory::new();
 
-      emitter_factory
-        .set_npmrc_path(Some("./test_cases/private-npm-package-import/.npmrc"));
+      // emitter_factory
+      //   .set_npmrc_path(Some("./test_cases/private-npm-package-import/.npmrc"));
 
       generate_binary_eszip(
         PathBuf::from("./test_cases/private-npm-package-import/index.js"),

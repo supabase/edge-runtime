@@ -9,11 +9,9 @@ use deno_ast::ModuleSpecifier;
 use deno_cache_dir::npm::NpmCacheDir;
 use deno_core::anyhow::Context;
 use deno_core::error::AnyError;
-use deno_core::parking_lot::Mutex;
 use deno_core::unsync::sync::AtomicFlag;
 use deno_core::url::Url;
 use deno_fs::FileSystem;
-use deno_lockfile::Lockfile;
 use deno_npm::npm_rc::ResolvedNpmRc;
 use deno_npm::registry::NpmPackageInfo;
 use deno_npm::registry::NpmRegistryApi;
@@ -97,7 +95,7 @@ pub async fn create_managed_npm_resolver(
 fn create_inner(
   env: Arc<CliNpmCacheEnv>,
   fs: Arc<dyn deno_fs::FileSystem>,
-  maybe_lockfile: Option<Arc<Mutex<Lockfile>>>,
+  maybe_lockfile: Option<Arc<CliLockfile>>,
   registry_info_provider: Arc<CliNpmRegistryInfoProvider>,
   npm_cache: Arc<CliNpmCache>,
   npm_rc: Arc<ResolvedNpmRc>,

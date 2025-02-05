@@ -5,8 +5,6 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use deno_core::error::AnyError;
-use deno_core::parking_lot::Mutex;
-use deno_lockfile::Lockfile;
 use deno_lockfile::NpmPackageDependencyLockfileInfo;
 use deno_lockfile::NpmPackageLockfileInfo;
 use deno_npm::registry::NpmRegistryApi;
@@ -66,7 +64,7 @@ impl NpmResolution {
   pub fn from_serialized(
     api: Arc<CliNpmRegistryInfoProvider>,
     initial_snapshot: Option<ValidSerializedNpmResolutionSnapshot>,
-    maybe_lockfile: Option<Arc<Mutex<Lockfile>>>,
+    maybe_lockfile: Option<Arc<CliLockfile>>,
   ) -> Self {
     let snapshot =
       NpmResolutionSnapshot::new(initial_snapshot.unwrap_or_default());
@@ -76,7 +74,7 @@ impl NpmResolution {
   pub fn new(
     api: Arc<CliNpmRegistryInfoProvider>,
     initial_snapshot: NpmResolutionSnapshot,
-    maybe_lockfile: Option<Arc<Mutex<Lockfile>>>,
+    maybe_lockfile: Option<Arc<CliLockfile>>,
   ) -> Self {
     Self {
       api,
@@ -266,7 +264,7 @@ impl NpmResolution {
 async fn add_package_reqs_to_snapshot(
   registry_info_provider: &Arc<CliNpmRegistryInfoProvider>,
   package_reqs: &[PackageReq],
-  maybe_lockfile: Option<Arc<Mutex<Lockfile>>>,
+  maybe_lockfile: Option<Arc<CliLockfile>>,
   get_new_snapshot: impl Fn() -> NpmResolutionSnapshot,
 ) -> deno_npm::resolution::AddPkgReqsResult {
   let snapshot = get_new_snapshot();

@@ -223,7 +223,7 @@ pub struct CreateGraphOptions<'a> {
 }
 
 pub struct ModuleGraphCreator {
-  options: Arc<dyn DenoOptions>,
+  options: Arc<DenoOptions>,
   npm_resolver: Arc<dyn CliNpmResolver>,
   module_graph_builder: Arc<ModuleGraphBuilder>,
   // type_checker: Arc<TypeChecker>,
@@ -231,7 +231,7 @@ pub struct ModuleGraphCreator {
 
 impl ModuleGraphCreator {
   pub fn new(
-    options: Arc<dyn DenoOptions>,
+    options: Arc<DenoOptions>,
     npm_resolver: Arc<dyn CliNpmResolver>,
     module_graph_builder: Arc<ModuleGraphBuilder>,
     // type_checker: Arc<TypeChecker>,
@@ -411,7 +411,7 @@ pub struct BuildFastCheckGraphOptions<'a> {
 pub struct ModuleGraphBuilder {
   caches: Arc<cache::Caches>,
   cjs_tracker: Arc<CjsTracker>,
-  options: Arc<dyn DenoOptions>,
+  options: Arc<DenoOptions>,
   file_fetcher: Arc<FileFetcher>,
   fs: Arc<dyn FileSystem>,
   global_http_cache: Arc<GlobalHttpCache>,
@@ -429,7 +429,7 @@ impl ModuleGraphBuilder {
   pub fn new(
     caches: Arc<cache::Caches>,
     cjs_tracker: Arc<CjsTracker>,
-    options: Arc<dyn DenoOptions>,
+    options: Arc<DenoOptions>,
     file_fetcher: Arc<FileFetcher>,
     fs: Arc<dyn FileSystem>,
     global_http_cache: Arc<GlobalHttpCache>,

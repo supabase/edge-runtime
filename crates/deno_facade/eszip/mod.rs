@@ -770,7 +770,7 @@ where
     );
   }
 
-  let resolved_npm_rc = emitter_factory.resolved_npm_rc().await?;
+  let resolved_npm_rc = emitter_factory.resolved_npm_rc()?;
   let modified_scopes = resolved_npm_rc
     .scopes
     .iter()

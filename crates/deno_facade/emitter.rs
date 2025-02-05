@@ -1,6 +1,4 @@
-use std::collections::HashMap;
 use std::future::Future;
-use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -12,8 +10,6 @@ use deno::cache::DenoCacheEnvFsAdapter;
 use deno::cache::DenoDir;
 use deno::cache::DenoDirProvider;
 use deno::cache::EmitCache;
-// use deno::cache::FetchCacher;
-// use deno::cache::FetchCacherOptions;
 use deno::cache::GlobalHttpCache;
 use deno::cache::ModuleInfoCache;
 use deno::cache::ParsedSourceCache;
@@ -46,8 +42,6 @@ use deno::npm::CliManagedNpmResolverCreateOptions;
 use deno::npm::CliNpmResolver;
 use deno::npm::CliNpmResolverManagedSnapshotOption;
 use deno::npm::CreateInNpmPkgCheckerOptions;
-use deno::npmrc::create_default_npmrc;
-use deno::npmrc::create_npmrc;
 use deno::resolver::CjsTracker;
 use deno::resolver::CliDenoResolver;
 use deno::resolver::CliDenoResolverFs;
@@ -59,7 +53,6 @@ use deno::PermissionsContainer;
 use deno_core::error::AnyError;
 use deno_core::futures::FutureExt;
 use deno_core::parking_lot::Mutex;
-// use eszip::deno_graph::source::Loader;
 use ext_node::DenoFsNodeResolverEnv;
 use ext_node::NodeResolver;
 use ext_node::PackageJsonResolver;
@@ -144,8 +137,6 @@ pub struct EmitterFactory {
   import_map: Option<ImportMap>,
   jsx_import_source_config: Option<JsxImportSourceConfig>,
   lockfile_options: Option<LockfileOpts>,
-  npmrc_env_vars: Option<HashMap<String, String>>,
-  npmrc_path: Option<PathBuf>,
   permissions_options: Option<PermissionsOptions>,
 }
 
@@ -189,8 +180,6 @@ impl EmitterFactory {
       decorator: None,
       import_map: None,
       lockfile_options: None,
-      npmrc_env_vars: None,
-      npmrc_path: None,
       permissions_options: None,
     }
   }
@@ -237,22 +226,6 @@ impl EmitterFactory {
     value: Option<JsxImportSourceConfig>,
   ) -> &mut Self {
     self.jsx_import_source_config = value;
-    self
-  }
-
-  pub fn set_npmrc_path<P>(&mut self, value: Option<P>) -> &mut Self
-  where
-    P: AsRef<Path>,
-  {
-    self.npmrc_path = value.map(|it| it.as_ref().to_path_buf());
-    self
-  }
-
-  pub fn set_npmrc_env_vars(
-    &mut self,
-    value: Option<HashMap<String, String>>,
-  ) -> &mut Self {
-    self.npmrc_env_vars = value;
     self
   }
 
@@ -474,7 +447,7 @@ impl EmitterFactory {
           maybe_node_modules_path: None,
           npm_system_info: Default::default(),
           npm_install_deps_provider: Default::default(),
-          npmrc: self.resolved_npm_rc().await?.clone(),
+          npmrc: self.resolved_npm_rc()?.clone(),
         })
         .await
       })
@@ -548,19 +521,10 @@ impl EmitterFactory {
     })
   }
 
-  pub async fn resolved_npm_rc(
-    &self,
-  ) -> Result<&Arc<ResolvedNpmRc>, anyhow::Error> {
+  pub fn resolved_npm_rc(&self) -> Result<&Arc<ResolvedNpmRc>, anyhow::Error> {
     self
       .resolved_npm_rc
-      .get_or_try_init_async(async {
-        if let Some(path) = self.npmrc_path.clone() {
-          create_npmrc(path, self.npmrc_env_vars.as_ref()).await
-        } else {
-          Ok(create_default_npmrc())
-        }
-      })
-      .await
+      .get_or_try_init(|| Ok(self.deno_options()?.npmrc().clone()))
   }
 
   pub async fn node_resolver(

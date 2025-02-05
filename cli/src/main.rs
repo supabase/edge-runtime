@@ -329,9 +329,10 @@ fn main() -> Result<ExitCode, anyhow::Error> {
 
         if let Some(npmrc_path) = find_up(".npmrc", entrypoint_dir_path) {
           if npmrc_path.exists() && npmrc_path.is_file() {
-            emitter_factory.set_npmrc_path(Some(npmrc_path));
-            emitter_factory
-              .set_npmrc_env_vars(Some(std::env::vars().collect()));
+            todo!()
+            // emitter_factory.set_npmrc_path(Some(npmrc_path));
+            // emitter_factory
+            //   .set_npmrc_env_vars(Some(std::env::vars().collect()));
           }
         }
 

@@ -2,8 +2,11 @@ use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use ::eszip::EszipV2;
+use deno::deno_config;
+use deno::deno_npm;
 use deno::DenoOptions;
 use deno_core::url::Url;
 use eszip::extract_eszip;
@@ -135,21 +138,39 @@ pub async fn extract_from_file(
   .await
 }
 
-pub struct DenoFacadeOptions {}
+pub struct DenoFacadeOptions {
+  pub npmrc: Arc<deno_npm::npm_rc::ResolvedNpmRc>,
+  pub workspace: Arc<deno_config::workspace::Workspace>,
+  pub node_module_dir: Option<PathBuf>,
+}
 
 impl DenoOptions for DenoFacadeOptions {
-  fn npmrc(&self) -> &std::sync::Arc<deno::deno_npm::npm_rc::ResolvedNpmRc> {
-    todo!()
+  fn npmrc(&self) -> &Arc<deno_npm::npm_rc::ResolvedNpmRc> {
+    &self.npmrc
   }
 
-  fn workspace(
-    &self,
-  ) -> &std::sync::Arc<deno::deno_config::workspace::Workspace> {
-    todo!()
+  fn workspace(&self) -> &Arc<deno_config::workspace::Workspace> {
+    &self.workspace
   }
 
   fn node_modules_dir_path(&self) -> Option<&PathBuf> {
-    todo!()
+    self.node_module_dir.as_ref()
+  }
+
+  fn unstable_detect_cjs(&self) -> bool {
+    false
+  }
+
+  fn use_byonm(&self) -> bool {
+    false
+  }
+
+  fn is_node_main(&self) -> bool {
+    false
+  }
+
+  fn type_check_mode(&self) -> deno::args::TypeCheckMode {
+    deno::args::TypeCheckMode::None
   }
 }
 

@@ -70,16 +70,17 @@ pub trait DenoOptions: 'static {
   fn workspace(&self) -> &Arc<Workspace>;
   fn node_modules_dir_path(&self) -> Option<&PathBuf>;
 
+  fn unstable_detect_cjs(&self) -> bool;
+  fn use_byonm(&self) -> bool;
+  fn is_node_main(&self) -> bool;
+  fn type_check_mode(&self) -> TypeCheckMode;
+
   fn check_js(&self) -> bool {
     self.workspace().check_js()
   }
 
   fn default_npm_caching_strategy(&self) -> NpmCachingStrategy {
     NpmCachingStrategy::Eager
-  }
-
-  fn type_check_mode(&self) -> TypeCheckMode {
-    TypeCheckMode::None
   }
 
   fn resolve_file_header_overrides(
@@ -91,31 +92,30 @@ pub trait DenoOptions: 'static {
   fn to_compiler_option_types(
     &self,
   ) -> Result<Vec<deno_graph::ReferrerImports>, AnyError> {
-    todo!()
+    self
+      .workspace()
+      .to_compiler_option_types()
+      .map(|maybe_imports| {
+        maybe_imports
+          .into_iter()
+          .map(|(referrer, imports)| deno_graph::ReferrerImports {
+            referrer,
+            imports,
+          })
+          .collect()
+      })
   }
 
   fn node_modules_dir(&self) -> Result<Option<NodeModulesDirMode>, AnyError> {
-    todo!()
+    self.workspace().node_modules_dir().map_err(Into::into)
   }
 
   fn vendor_dir_path(&self) -> Option<&PathBuf> {
     self.workspace().vendor_dir_path()
   }
 
-  fn is_node_main(&self) -> bool {
-    todo!()
-  }
-
   fn detect_cjs(&self) -> bool {
     self.workspace().package_jsons().next().is_some() || self.is_node_main()
-  }
-
-  fn unstable_detect_cjs(&self) -> bool {
-    todo!()
-  }
-
-  fn use_byonm(&self) -> bool {
-    false
   }
 
   fn create_workspace_resolver(

@@ -1,5 +1,3 @@
-#![allow(unused_variables)]
-
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -34,31 +32,48 @@ pub async fn create_eszip_from_graph_raw(
     npm_packages: None,
   })
 }
+pub enum CreateGraphArgs<'a> {
+  File(PathBuf),
+  Code { path: PathBuf, code: &'a FastString },
+}
+
+impl CreateGraphArgs<'_> {
+  pub fn path(&self) -> &PathBuf {
+    match self {
+      Self::File(path) => path,
+      Self::Code { path, .. } => path,
+    }
+  }
+}
 
 pub async fn create_graph(
-  file: PathBuf,
+  args: &CreateGraphArgs<'_>,
   emitter_factory: Arc<EmitterFactory>,
-  maybe_code: &Option<FastString>,
 ) -> Result<Arc<ModuleGraph>, AnyError> {
-  let module_specifier = if let Some(code) = maybe_code {
-    let specifier = ModuleSpecifier::parse("file:///src/index.ts").unwrap();
-
-    emitter_factory.file_fetcher()?.insert_memory_files(File {
-      specifier: specifier.clone(),
-      maybe_headers: None,
-      source: code.as_bytes().into(),
-    });
-
-    specifier
-  } else {
-    let binding =
-      std::fs::canonicalize(&file).context("failed to read path")?;
-    let specifier =
-      binding.to_str().context("failed to convert path to str")?;
-    let format_specifier = format!("file:///{}", specifier);
+  fn convert_path(path: &PathBuf) -> Result<ModuleSpecifier, AnyError> {
+    let specifier = path.to_str().context("failed to convert path to str")?;
+    let format_specifier = format!("file://{}", specifier);
 
     ModuleSpecifier::parse(&format_specifier)
-      .context("failed to parse specifier")?
+      .context("failed to parse specifier")
+  }
+
+  let module_specifier = match args {
+    CreateGraphArgs::File(file) => convert_path(
+      &std::fs::canonicalize(file).context("failed to read path")?,
+    )?,
+
+    CreateGraphArgs::Code { code, path } => {
+      let specifier = convert_path(path)?;
+
+      emitter_factory.file_fetcher()?.insert_memory_files(File {
+        specifier: specifier.clone(),
+        maybe_headers: None,
+        source: code.as_bytes().into(),
+      });
+
+      specifier
+    }
   };
 
   let builder = emitter_factory.module_graph_creator().await?.clone();

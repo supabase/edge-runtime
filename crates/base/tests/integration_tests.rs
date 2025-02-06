@@ -32,6 +32,7 @@ use base::utils::test_utils::{self};
 use base::worker;
 use base::worker::TerminationToken;
 use base::DecoratorType;
+use deno::DenoOptionsBuilder;
 use deno_config::deno_json::JsxImportSourceConfig;
 use deno_core::serde_json::json;
 use deno_core::serde_json::{self};
@@ -2565,17 +2566,18 @@ async fn test_should_be_able_to_bundle_against_various_exts() {
       base_url: Url::from_file_path(std::env::current_dir().unwrap()).unwrap(),
     }));
 
+    emitter_factory.set_deno_options(
+      DenoOptionsBuilder::new()
+        .entrypoint(PathBuf::from(path))
+        .build()
+        .unwrap(),
+    );
+
     async {
-      generate_binary_eszip(
-        PathBuf::from(path),
-        Arc::new(emitter_factory),
-        None,
-        None,
-        None,
-      )
-      .await
-      .unwrap()
-      .into_bytes()
+      generate_binary_eszip(Arc::new(emitter_factory), None, None, None)
+        .await
+        .unwrap()
+        .into_bytes()
     }
   };
 
@@ -2773,19 +2775,19 @@ async fn test_private_npm_package_import() {
     let buf = {
       let mut emitter_factory = EmitterFactory::new();
 
-      // emitter_factory
-      //   .set_npmrc_path(Some("./test_cases/private-npm-package-import/.npmrc"));
+      emitter_factory.set_deno_options(
+        DenoOptionsBuilder::new()
+          .entrypoint(PathBuf::from(
+            "./test_cases/private-npm-package-import/index.js",
+          ))
+          .build()
+          .unwrap(),
+      );
 
-      generate_binary_eszip(
-        PathBuf::from("./test_cases/private-npm-package-import/index.js"),
-        Arc::new(emitter_factory),
-        None,
-        None,
-        None,
-      )
-      .await
-      .unwrap()
-      .into_bytes()
+      generate_binary_eszip(Arc::new(emitter_factory), None, None, None)
+        .await
+        .unwrap()
+        .into_bytes()
     };
 
     let resp = client

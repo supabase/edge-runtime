@@ -43,6 +43,7 @@ use deno::deno_url;
 use deno::deno_web;
 use deno::deno_webidl;
 use deno::deno_websocket;
+use deno::DenoOptionsBuilder;
 use deno::PermissionsContainer;
 use deno_cache::SqliteBackedCache;
 use deno_core::error::AnyError;
@@ -108,7 +109,6 @@ use tracing::Instrument;
 use crate::inspector_server::Inspector;
 use crate::snapshot;
 use crate::utils::json;
-use crate::utils::path::find_up;
 use crate::utils::units::bytes_to_display;
 use crate::utils::units::mib_to_bytes;
 use crate::utils::units::percentage_value;
@@ -562,14 +562,6 @@ where
       emitter_factory
         .set_permissions_options(Some(permissions_options.clone()));
 
-      if let Some(npmrc_path) = find_up(".npmrc", &base_dir_path) {
-        if npmrc_path.exists() && npmrc_path.is_file() {
-          todo!()
-          // emitter_factory.set_npmrc_path(Some(npmrc_path));
-          // emitter_factory.set_npmrc_env_vars(Some(env_vars.clone()));
-        }
-      }
-
       emitter_factory.set_file_fetcher_allow_remote(
         maybe_user_conf
           .map(|it| it.allow_remote_modules)
@@ -587,18 +579,23 @@ where
       emitter_factory.set_import_map(load_import_map(import_map_path.clone())?);
       maybe_import_map.clone_from(emitter_factory.import_map());
 
-      let arc_emitter_factory = Arc::new(emitter_factory);
       let main_module_url_file_path =
         main_module_url.clone().to_file_path().unwrap();
+
       let maybe_code = if only_module_code {
         maybe_module_code
       } else {
         None
       };
 
+      emitter_factory.set_deno_options(
+        DenoOptionsBuilder::new()
+          .entrypoint(main_module_url_file_path)
+          .build()?,
+      );
+
       let mut eszip = generate_binary_eszip(
-        main_module_url_file_path,
-        arc_emitter_factory,
+        Arc::new(emitter_factory),
         maybe_code,
         import_map_path.clone(),
         // here we don't want to add extra cost, so we won't use a checksum
@@ -1945,6 +1942,7 @@ mod test {
   use std::time::Duration;
 
   use anyhow::Context;
+  use deno::DenoOptionsBuilder;
   use deno_config::deno_json::JsxImportSourceConfig;
   use deno_core::error::AnyError;
   use deno_core::serde_json;
@@ -2214,18 +2212,23 @@ mod test {
     let (worker_pool_tx, _) = mpsc::unbounded_channel::<UserWorkerMsgs>();
     let mut file = File::create("./test_cases/eszip-source-test.ts").unwrap();
     file.write_all(b"import isEven from \"npm:is-even\"; globalThis.isTenEven = isEven(9);")
-            .unwrap();
+      .unwrap();
+
     let path_buf = PathBuf::from("./test_cases/eszip-source-test.ts");
-    let emitter_factory = Arc::new(EmitterFactory::new());
-    let bin_eszip = generate_binary_eszip(
-      path_buf,
-      emitter_factory.clone(),
-      None,
-      None,
-      None,
-    )
-    .await
-    .unwrap();
+    let mut emitter_factory = EmitterFactory::new();
+
+    emitter_factory.set_deno_options(
+      DenoOptionsBuilder::new()
+        .entrypoint(path_buf)
+        .build()
+        .unwrap(),
+    );
+
+    let bin_eszip =
+      generate_binary_eszip(Arc::new(emitter_factory), None, None, None)
+        .await
+        .unwrap();
+
     std::fs::remove_file("./test_cases/eszip-source-test.ts").unwrap();
 
     let eszip_code = bin_eszip.into_bytes();
@@ -2294,9 +2297,14 @@ mod test {
     let (worker_pool_tx, _) = mpsc::unbounded_channel::<UserWorkerMsgs>();
     let file = PathBuf::from("./test_cases/eszip-silly-test/index.ts");
     let service_path = PathBuf::from("./test_cases/eszip-silly-test");
-    let emitter_factory = Arc::new(EmitterFactory::new());
+    let mut emitter_factory = EmitterFactory::new();
+
+    emitter_factory.set_deno_options(
+      DenoOptionsBuilder::new().entrypoint(file).build().unwrap(),
+    );
+
     let binary_eszip =
-      generate_binary_eszip(file, emitter_factory.clone(), None, None, None)
+      generate_binary_eszip(Arc::new(emitter_factory), None, None, None)
         .await
         .unwrap();
 

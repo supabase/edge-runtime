@@ -139,6 +139,8 @@ mod test {
   use std::path::PathBuf;
   use std::sync::Arc;
 
+  use deno::DenoOptionsBuilder;
+
   use crate::emitter::EmitterFactory;
   use crate::eszip::extract_eszip;
   use crate::eszip::generate_binary_eszip;
@@ -148,16 +150,19 @@ mod test {
   #[tokio::test]
   #[allow(clippy::arc_with_non_send_sync)]
   async fn test_module_code_no_eszip() {
-    let eszip = generate_binary_eszip(
-      PathBuf::from("../base/test_cases/npm/index.ts"),
-      Arc::new(EmitterFactory::default()),
-      None,
-      None,
-      None,
-    )
-    .await;
+    let mut emitter_factory = EmitterFactory::new();
 
-    let eszip = eszip.unwrap();
+    emitter_factory.set_deno_options(
+      DenoOptionsBuilder::new()
+        .entrypoint(PathBuf::from("../base/test_cases/npm/index.ts"))
+        .build()
+        .unwrap(),
+    );
+
+    let eszip =
+      generate_binary_eszip(Arc::new(emitter_factory), None, None, None)
+        .await
+        .unwrap();
 
     assert!(
       extract_eszip(ExtractEszipPayload {

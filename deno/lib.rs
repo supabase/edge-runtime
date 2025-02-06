@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -21,6 +22,7 @@ use deno_config::workspace::WorkspaceResolver;
 use deno_core::error::AnyError;
 use deno_core::ModuleSpecifier;
 use deno_npm::npm_rc::ResolvedNpmRc;
+use deno_path_util::normalize_path;
 
 pub mod args;
 pub mod auth_tokens;
@@ -53,7 +55,6 @@ pub use deno_net;
 pub use deno_npm;
 pub use deno_package_json;
 pub use deno_path_util;
-use deno_path_util::normalize_path;
 pub use deno_permissions;
 pub use deno_semver;
 pub use deno_telemetry;
@@ -95,6 +96,10 @@ impl DenoOptions {
 
   pub fn node_modules_dir_path(&self) -> Option<&PathBuf> {
     self.maybe_node_modules_folder.as_ref()
+  }
+
+  pub fn entrypoint(&self) -> Option<&PathBuf> {
+    self.builder.entrypoint.as_ref()
   }
 
   pub fn unstable_detect_cjs(&self) -> bool {
@@ -183,15 +188,20 @@ impl DenoOptions {
     let no_npm = builder.no_npm.unwrap_or_default();
     let initial_cwd =
       std::env::current_dir().with_context(|| "failed getting cwd")?;
-    let entrypoint = if builder.entrypoint.is_dir() {
-      builder.entrypoint.clone()
-    } else {
-      builder
-        .entrypoint
-        .parent()
-        .with_context(|| "failed getting parent directory of entrypoint")?
-        .to_path_buf()
-    };
+    let entrypoint = builder
+      .entrypoint
+      .clone()
+      .map(|it| {
+        if it.is_dir() {
+          Ok(it)
+        } else {
+          it.parent()
+            .with_context(|| "failed getting parent directory of entrypoint")
+            .map(Path::to_path_buf)
+        }
+      })
+      .transpose()?;
+
     let maybe_vendor_override = builder.vendor.map(|it| match it {
       true => VendorEnablement::Enable { cwd: &initial_cwd },
       false => VendorEnablement::Disable,
@@ -220,21 +230,26 @@ impl DenoOptions {
         .unwrap_or(VendorEnablement::Disable),
     };
 
-    let start_dir = match &config {
-      ConfigMode::Discover => WorkspaceDirectory::discover(
-        WorkspaceDiscoverStart::Paths(&[entrypoint.clone()]),
-        &workspace_discover_options,
-      )?,
-      ConfigMode::Path(path) => {
-        let config_path = normalize_path(initial_cwd.join(path));
-        WorkspaceDirectory::discover(
-          WorkspaceDiscoverStart::ConfigFile(&config_path),
+    let has_entrypoint = entrypoint.is_some();
+    let start_dir = if let Some(entrypoint) = entrypoint {
+      match &config {
+        ConfigMode::Discover => WorkspaceDirectory::discover(
+          WorkspaceDiscoverStart::Paths(&[entrypoint]),
           &workspace_discover_options,
-        )?
+        )?,
+        ConfigMode::Path(path) => {
+          let config_path = normalize_path(initial_cwd.join(path));
+          WorkspaceDirectory::discover(
+            WorkspaceDiscoverStart::ConfigFile(&config_path),
+            &workspace_discover_options,
+          )?
+        }
+        ConfigMode::Disabled => {
+          WorkspaceDirectory::empty(resolve_empty_options())
+        }
       }
-      ConfigMode::Disabled => {
-        WorkspaceDirectory::empty(resolve_empty_options())
-      }
+    } else {
+      WorkspaceDirectory::empty(resolve_empty_options())
     };
 
     for dignostic in start_dir.workspace.diagnostics() {
@@ -243,7 +258,10 @@ impl DenoOptions {
 
     let (npmrc, _) = discover_npmrc_from_workspace(&start_dir.workspace)?;
 
-    let maybe_lockfile = CliLockfile::discover(&builder, &start_dir.workspace)?;
+    let maybe_lockfile = has_entrypoint
+      .then(|| CliLockfile::discover(&builder, &start_dir.workspace))
+      .transpose()?
+      .flatten();
 
     log::debug!("Finished config loading.");
 
@@ -300,7 +318,7 @@ pub enum ConfigMode {
 }
 
 pub struct DenoOptionsBuilder {
-  entrypoint: PathBuf,
+  entrypoint: Option<PathBuf>,
   config: Option<ConfigMode>,
   type_check_mode: Option<TypeCheckMode>,
   unstable_detect_cjs: Option<bool>,
@@ -316,9 +334,9 @@ pub struct DenoOptionsBuilder {
 }
 
 impl DenoOptionsBuilder {
-  pub fn new(entrypoint: PathBuf) -> Self {
+  pub fn new() -> Self {
     Self {
-      entrypoint,
+      entrypoint: None,
       config: None,
       type_check_mode: None,
       unstable_detect_cjs: None,
@@ -334,8 +352,23 @@ impl DenoOptionsBuilder {
     }
   }
 
+  pub fn entrypoint(mut self, value: PathBuf) -> Self {
+    self.entrypoint = Some(value);
+    self
+  }
+
+  pub fn set_entrypoint(&mut self, value: Option<PathBuf>) -> &mut Self {
+    self.entrypoint = value;
+    self
+  }
+
   pub fn config(mut self, value: ConfigMode) -> Self {
     self.config = Some(value);
+    self
+  }
+
+  pub fn set_config(&mut self, value: Option<ConfigMode>) -> &mut Self {
+    self.config = value;
     self
   }
 
@@ -344,8 +377,21 @@ impl DenoOptionsBuilder {
     self
   }
 
+  pub fn set_type_check_mode(
+    &mut self,
+    value: Option<TypeCheckMode>,
+  ) -> &mut Self {
+    self.type_check_mode = value;
+    self
+  }
+
   pub fn unstable_detect_cjs(mut self, value: bool) -> Self {
     self.unstable_detect_cjs = Some(value);
+    self
+  }
+
+  pub fn set_unstable_detect_cjs(&mut self, value: Option<bool>) -> &mut Self {
+    self.unstable_detect_cjs = value;
     self
   }
 
@@ -354,8 +400,18 @@ impl DenoOptionsBuilder {
     self
   }
 
+  pub fn set_use_byonm(&mut self, value: Option<bool>) -> &mut Self {
+    self.use_byonm = value;
+    self
+  }
+
   pub fn vendor(mut self, value: bool) -> Self {
     self.vendor = Some(value);
+    self
+  }
+
+  pub fn set_vendor(&mut self, value: Option<bool>) -> &mut Self {
+    self.vendor = value;
     self
   }
 
@@ -364,8 +420,18 @@ impl DenoOptionsBuilder {
     self
   }
 
+  pub fn set_no_npm(&mut self, value: Option<bool>) -> &mut Self {
+    self.no_npm = value;
+    self
+  }
+
   pub fn no_lock(mut self, value: bool) -> Self {
     self.no_lock = Some(value);
+    self
+  }
+
+  pub fn set_no_lock(&mut self, value: Option<bool>) -> &mut Self {
+    self.no_lock = value;
     self
   }
 
@@ -374,8 +440,21 @@ impl DenoOptionsBuilder {
     self
   }
 
+  pub fn set_lock(&mut self, value: Option<PathBuf>) -> &mut Self {
+    self.lock = value;
+    self
+  }
+
   pub fn node_modules_dir(mut self, value: NodeModulesDirMode) -> Self {
     self.node_modules_dir = Some(value);
+    self
+  }
+
+  pub fn set_node_modules_dir(
+    &mut self,
+    value: Option<NodeModulesDirMode>,
+  ) -> &mut Self {
+    self.node_modules_dir = value;
     self
   }
 
@@ -384,13 +463,28 @@ impl DenoOptionsBuilder {
     self
   }
 
+  pub fn set_env_file(&mut self, value: Option<Vec<String>>) -> &mut Self {
+    self.env_file = value;
+    self
+  }
+
   pub fn frozen_lockfile(mut self, value: bool) -> Self {
     self.frozen_lockfile = Some(value);
     self
   }
 
+  pub fn set_frozen_lockfile(&mut self, value: Option<bool>) -> &mut Self {
+    self.frozen_lockfile = value;
+    self
+  }
+
   pub fn force_global_cache(mut self, value: bool) -> Self {
     self.force_global_cache = Some(value);
+    self
+  }
+
+  pub fn set_force_global_cache(&mut self, value: Option<bool>) -> &mut Self {
+    self.frozen_lockfile = value;
     self
   }
 

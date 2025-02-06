@@ -20,6 +20,7 @@ use base::CacheSetting;
 use base::DecoratorType;
 use base::InspectorOption;
 use clap::ArgMatches;
+use deno::DenoOptionsBuilder;
 use deno_core::url::Url;
 use deno_facade::extract_from_file;
 use deno_facade::generate_binary_eszip;
@@ -343,9 +344,13 @@ fn main() -> Result<ExitCode, anyhow::Error> {
 
         emitter_factory.set_decorator_type(maybe_decorator);
         emitter_factory.set_import_map(maybe_import_map.clone());
+        emitter_factory.set_deno_options(
+          DenoOptionsBuilder::new()
+            .entrypoint(entrypoint_script_path.clone())
+            .build()?,
+        );
 
         let mut eszip = generate_binary_eszip(
-          &entrypoint_script_path,
           Arc::new(emitter_factory),
           None,
           maybe_import_map_url,

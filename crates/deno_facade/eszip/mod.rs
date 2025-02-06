@@ -49,6 +49,7 @@ use crate::emitter::EmitterFactory;
 use crate::extract_modules;
 use crate::graph::create_eszip_from_graph_raw;
 use crate::graph::create_graph;
+use crate::graph::CreateGraphArgs;
 
 mod parse;
 
@@ -646,28 +647,33 @@ pub async fn payload_to_eszip(
   }
 }
 
-pub async fn generate_binary_eszip<P>(
-  file: P,
+pub async fn generate_binary_eszip(
   emitter_factory: Arc<EmitterFactory>,
   maybe_module_code: Option<FastString>,
   maybe_import_map_url: Option<String>,
   maybe_checksum: Option<eszip::v2::Checksum>,
-) -> Result<EszipV2, anyhow::Error>
-where
-  P: AsRef<Path>,
-{
-  let file = file.as_ref();
-  let cjs_tracker = emitter_factory.cjs_tracker()?.clone();
-  let graph = create_graph(
-    file.to_path_buf(),
-    emitter_factory.clone(),
-    &maybe_module_code,
-  )
-  .await?;
+) -> Result<EszipV2, anyhow::Error> {
+  let args = if let Some(path) = emitter_factory.deno_options()?.entrypoint() {
+    CreateGraphArgs::File(path.clone())
+  } else {
+    let Some(module_code) = maybe_module_code.as_ref() else {
+      bail!("entrypoint or module code must be specified");
+    };
 
-  let graph = Arc::into_inner(graph).context("can't unwrap the graph")?;
+    CreateGraphArgs::Code {
+      path: PathBuf::from("/src/index.ts"),
+      code: &module_code,
+    }
+  };
+
+  let path = args.path().clone();
+  let cjs_tracker = emitter_factory.cjs_tracker()?.clone();
+  let graph =
+    Arc::into_inner(create_graph(&args, emitter_factory.clone()).await?)
+      .context("can't unwrap the graph")?;
+
   let specifier = ModuleSpecifier::parse(
-    &Url::from_file_path(file)
+    &Url::from_file_path(&path)
       .map(|it| Cow::Owned(it.to_string()))
       .ok()
       .unwrap_or("http://localhost".into()),
@@ -693,10 +699,12 @@ where
     eszip.set_checksum(checksum);
   }
 
-  let source_code: Arc<str> = if let Some(code) = maybe_module_code {
-    code.as_str().into()
-  } else {
-    String::from_utf8(RealFs.read_file_sync(file, None)?.to_vec())?.into()
+  let source_code = match args {
+    CreateGraphArgs::File(path) => {
+      String::from_utf8(RealFs.read_file_sync(&path, None)?.to_vec())?.into()
+    }
+
+    CreateGraphArgs::Code { code, .. } => code.as_str().into(),
   };
 
   let emit_source = emitter_factory

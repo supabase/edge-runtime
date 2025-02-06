@@ -1,11 +1,9 @@
-// Setup type definitions for built-in Supabase Runtime APIs
-import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { PreTrainedTokenizer } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.1';
 
 // import 'phonemize' code from Kokoro.js repo
 import { phonemize } from './phonemizer.js';
 
-const { Tensor, RawSession } = Supabase.ai;
+const { RawTensor, RawSession } = Supabase.ai;
 
 /* NOTE: Reference [original paper](https://arxiv.org/pdf/2306.07691#Model%20Training):
 > All datasets were resampled to 24 kHz to match LibriTTS, and the texts

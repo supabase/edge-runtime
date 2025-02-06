@@ -3,7 +3,6 @@
 use deno_config::package_json::PackageJson;
 use deno_config::package_json::PackageJsonLoadError;
 use deno_config::package_json::PackageJsonRc;
-use deno_fs::DenoConfigFsAdapter;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::ErrorKind;
@@ -36,12 +35,12 @@ impl deno_config::package_json::PackageJsonCache for PackageJsonThreadLocalCache
 /// Helper to load a package.json file using the thread local cache
 /// in deno_node.
 pub fn load_pkg_json(
-    fs: &dyn deno_fs::FileSystem,
+    _fs: &dyn deno_fs::FileSystem,
     path: &Path,
 ) -> Result<Option<PackageJsonRc>, PackageJsonLoadError> {
     let result = PackageJson::load_from_path(
         path,
-        &DenoConfigFsAdapter::new(fs),
+        &deno_config::fs::RealDenoConfigFs,
         Some(&PackageJsonThreadLocalCache),
     );
     match result {

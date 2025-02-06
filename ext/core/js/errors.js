@@ -58,7 +58,7 @@ function registerErrors() {
     core.registerErrorClass("InvalidWorkerCreation", InvalidWorkerCreation);
     core.registerErrorClass("WorkerRequestCancelled", WorkerRequestCancelled);
     core.registerErrorClass("NotFound", NotFound);
-    core.registerErrorClass("PermissionDenied", PermissionDenied);
+    // core.registerErrorClass("PermissionDenied", PermissionDenied); // FIXME: getting error while running tests: TypeError: Error class for "PermissionDenied" already registered
     core.registerErrorClass("ConnectionRefused", ConnectionRefused);
     core.registerErrorClass("ConnectionReset", ConnectionReset);
     core.registerErrorClass("ConnectionAborted", ConnectionAborted);

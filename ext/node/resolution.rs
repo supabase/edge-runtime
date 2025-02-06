@@ -2,6 +2,8 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::ops::Deref;
+use std::ops::DerefMut;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -131,7 +133,7 @@ pub type NodeResolverRc = deno_fs::sync::MaybeArc<NodeResolver>;
 pub struct NodeResolver {
     fs: FileSystemRc,
     npm_resolver: NpmResolverRc,
-    in_npm_package_cache: deno_fs::sync::MaybeArcMutex<HashMap<String, bool>>,
+    in_npm_package_cache: MaybeArcMutex<HashMap<String, bool>>,
 }
 
 impl NodeResolver {
@@ -139,7 +141,7 @@ impl NodeResolver {
         Self {
             fs,
             npm_resolver,
-            in_npm_package_cache: deno_fs::sync::MaybeArcMutex::new(HashMap::new()),
+            in_npm_package_cache: MaybeArcMutex::new(HashMap::new()),
         }
     }
 
@@ -1650,6 +1652,38 @@ fn types_package_name(package_name: &str) -> String {
     // Scoped packages will get two underscores for each slash
     // https://github.com/DefinitelyTyped/DefinitelyTyped/tree/15f1ece08f7b498f4b9a2147c2a46e94416ca777#what-about-scoped-packages
     format!("@types/{}", package_name.replace('/', "__"))
+}
+
+// TODO: This is a copy of the MaybeArcMutex from deno_core, which was deleted in
+// https://github.com/denoland/deno/commit/3bf147fe287ac779b20d318daba56b336f356adf#diff-0e8982fefde7c9fe4658a2371d5f52e182d555821af43a1dc37c88bf5a7d5661.
+#[derive(Debug)]
+struct MaybeArcMutex<T>(std::sync::Arc<std::sync::Mutex<T>>);
+
+impl<T> MaybeArcMutex<T> {
+    fn new(val: T) -> Self {
+        Self(std::sync::Arc::new(std::sync::Mutex::new(val)))
+    }
+}
+
+impl<'lock, T> MaybeArcMutex<T> {
+    fn lock(&'lock self) -> MaybeArcMutexGuard<'lock, T> {
+        MaybeArcMutexGuard(self.0.lock().unwrap())
+    }
+}
+
+pub struct MaybeArcMutexGuard<'lock, T>(std::sync::MutexGuard<'lock, T>);
+
+impl<'lock, T> Deref for MaybeArcMutexGuard<'lock, T> {
+    type Target = std::sync::MutexGuard<'lock, T>;
+    fn deref(&self) -> &std::sync::MutexGuard<'lock, T> {
+        &self.0
+    }
+}
+
+impl<'lock, T> DerefMut for MaybeArcMutexGuard<'lock, T> {
+    fn deref_mut(&mut self) -> &mut std::sync::MutexGuard<'lock, T> {
+        &mut self.0
+    }
 }
 
 #[cfg(test)]

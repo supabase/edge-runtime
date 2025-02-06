@@ -2,6 +2,7 @@
 
 use crate::auth_tokens::AuthToken;
 use crate::util::versions_util::get_user_agent;
+use bytes::Bytes;
 use cache_control::Cachability;
 use cache_control::CacheControl;
 use chrono::DateTime;
@@ -11,15 +12,20 @@ use deno_core::error::AnyError;
 use deno_core::parking_lot::Mutex;
 use deno_core::url::Url;
 use deno_fetch::create_http_client;
-use deno_fetch::reqwest;
-use deno_fetch::reqwest::header::HeaderName;
-use deno_fetch::reqwest::header::HeaderValue;
-use deno_fetch::reqwest::header::ACCEPT;
-use deno_fetch::reqwest::header::AUTHORIZATION;
-use deno_fetch::reqwest::header::IF_NONE_MATCH;
-use deno_fetch::reqwest::header::LOCATION;
-use deno_fetch::reqwest::Response;
-use deno_fetch::reqwest::StatusCode;
+use deno_fetch::Client;
+use deno_fetch::ClientSendError;
+use http;
+use http::header::HeaderName;
+use http::header::HeaderValue;
+use http::header::ACCEPT;
+use http::header::AUTHORIZATION;
+use http::header::IF_NONE_MATCH;
+use http::header::LOCATION;
+use http::Response;
+use http::StatusCode;
+use http_body_util::combinators::BoxBody;
+use http_body_util::Empty;
+use http_body_util::BodyExt;
 use deno_fetch::CreateHttpClientOptions;
 use deno_tls::RootCertStoreProvider;
 use std::collections::HashMap;
@@ -56,9 +62,9 @@ fn resolve_url_from_location(base_url: &Url, location: &str) -> Url {
     }
 }
 
-pub fn resolve_redirect_from_response(
+pub fn resolve_redirect_from_response<BodyT>(
     request_url: &Url,
-    response: &Response,
+    response: &Response<BodyT>,
 ) -> Result<Url, DownloadError> {
     debug_assert!(response.status().is_redirection());
     if let Some(location) = response.headers().get(LOCATION) {
@@ -243,7 +249,7 @@ pub struct HttpClientProvider {
     // so we store these Clients keyed by thread id
     // https://github.com/seanmonstar/reqwest/issues/1148#issuecomment-910868788
     #[allow(clippy::disallowed_types)] // reqwest::Client allowed here
-    clients_by_thread_id: Mutex<HashMap<ThreadId, reqwest::Client>>,
+    clients_by_thread_id: Mutex<HashMap<ThreadId, Client>>,
 }
 
 impl std::fmt::Debug for HttpClientProvider {
@@ -304,21 +310,24 @@ pub struct BadResponseError {
 #[derive(Debug, Error)]
 pub enum DownloadError {
     #[error(transparent)]
-    Reqwest(#[from] reqwest::Error),
+    HttpError(#[from] http::Error),
     #[error(transparent)]
-    ToStr(#[from] reqwest::header::ToStrError),
+    ToStr(#[from] http::header::ToStrError),
     #[error("Redirection from '{}' did not provide location header", .request_url)]
     NoRedirectHeader { request_url: Url },
     #[error("Too many redirects.")]
     TooManyRedirects,
     #[error(transparent)]
     BadResponse(#[from] BadResponseError),
+    #[error(transparent)]
+    ClientSendError(#[from] ClientSendError),
+    #[error("Unknown error")]
+    UnknownError(),
 }
 
 #[derive(Debug)]
 pub struct HttpClient {
-    #[allow(clippy::disallowed_types)] // reqwest::Client allowed here
-    client: reqwest::Client,
+    client: Client,
     // don't allow sending this across threads because then
     // it might be shared accidentally across tokio runtimes
     // which will cause issues
@@ -329,22 +338,40 @@ pub struct HttpClient {
 impl HttpClient {
     // DO NOT make this public. You should always be creating one of these from
     // the HttpClientProvider
-    #[allow(clippy::disallowed_types)] // reqwest::Client allowed here
-    fn new(client: reqwest::Client) -> Self {
+    fn new(client: Client) -> Self {
         Self {
             client,
             _unsend_marker: deno_core::unsync::UnsendMarker::default(),
         }
     }
 
-    // todo(dsherret): don't expose `reqwest::RequestBuilder` because it
-    // is `Sync` and could accidentally be shared with multiple tokio runtimes
-    pub fn get(&self, url: impl reqwest::IntoUrl) -> reqwest::RequestBuilder {
-        self.client.get(url)
+    pub fn get(&self, url: &Url) -> http::request::Builder {
+        http::Request::builder()
+            .method("GET")
+            .uri(url.as_str())
     }
 
-    pub fn post(&self, url: impl reqwest::IntoUrl) -> reqwest::RequestBuilder {
-        self.client.post(url)
+    pub fn post(&self, url: &Url) -> http::request::Builder {
+        http::Request::builder()
+            .method("POST")
+            .uri(url.as_str())
+    }
+
+    fn map_any_error_to_download_error(err: AnyError) -> DownloadError {
+        if err.is::<http::Error>() {
+            if let Ok(http_error) = err.downcast::<http::Error>() {
+                return DownloadError::HttpError(http_error);
+            }
+        } else if err.is::<http::header::ToStrError>() {
+            if let Ok(to_str_error) = err.downcast::<http::header::ToStrError>() {
+                return DownloadError::ToStr(to_str_error);
+            }
+        } else if err.is::<ClientSendError>() {
+            if let Ok(client_send_error) = err.downcast::<ClientSendError>() {
+                return DownloadError::ClientSendError(client_send_error);
+            }
+        }
+        return DownloadError::UnknownError();
     }
 
     /// Asynchronously fetches the given HTTP URL one pass only.
@@ -353,31 +380,34 @@ impl HttpClient {
     /// If redirect occurs, does not follow and
     /// yields Redirect(url).
     pub async fn fetch_no_follow(&self, args: FetchOnceArgs) -> Result<FetchOnceResult, AnyError> {
-        let mut request = self.client.get(args.url.clone());
+        let mut request = http::Request::builder()
+            .method("GET")
+            .uri(args.url.as_str());
 
         if let Some(etag) = args.maybe_etag {
-            let if_none_match_val = HeaderValue::from_str(&etag)?;
-            request = request.header(IF_NONE_MATCH, if_none_match_val);
+            request = request.header(IF_NONE_MATCH, etag);
         }
         if let Some(auth_token) = args.maybe_auth_token {
-            let authorization_val = HeaderValue::from_str(&auth_token.to_string())?;
-            request = request.header(AUTHORIZATION, authorization_val);
+            request = request.header(AUTHORIZATION, auth_token.to_string());
         }
         if let Some(accept) = args.maybe_accept {
-            let accepts_val = HeaderValue::from_str(&accept)?;
-            request = request.header(ACCEPT, accepts_val);
+            request = request.header(ACCEPT, accept);
         }
-        let response = match request.send().await {
+
+        let request= request.body(BoxBody::new(Empty::new().map_err(|_infallible_error| generic_error("Infallible error"))))?;
+
+        let response = match self.client.clone().send(request).await {
             Ok(resp) => resp,
             Err(err) => {
-                if err.is_connect() || err.is_timeout() {
+                if err.is_connect_error() {
                     return Ok(FetchOnceResult::RequestError(err.to_string()));
                 }
                 return Err(err.into());
             }
         };
 
-        if response.status() == StatusCode::NOT_MODIFIED {
+        let status = response.status();
+        if status == StatusCode::NOT_MODIFIED {
             return Ok(FetchOnceResult::NotModified);
         }
 
@@ -388,7 +418,7 @@ impl HttpClient {
             log::warn!("{}", warning.to_str().unwrap());
         }
 
-        for key in response_headers.keys() {
+        for key in response_headers.keys()  {
             let key_str = key.to_string();
             let values = response_headers.get_all(key);
             let values_str = values
@@ -399,19 +429,17 @@ impl HttpClient {
             result_headers.insert(key_str, values_str);
         }
 
-        if response.status().is_redirection() {
+        if status.is_redirection() {
             let new_url = resolve_redirect_from_response(&args.url, &response)?;
             return Ok(FetchOnceResult::Redirect(new_url, result_headers));
         }
-
-        let status = response.status();
 
         if status.is_server_error() {
             return Ok(FetchOnceResult::ServerError(status));
         }
 
         if status.is_client_error() {
-            let err = if response.status() == StatusCode::NOT_FOUND {
+            let err = if status == StatusCode::NOT_FOUND {
                 custom_error(
                     "NotFound",
                     format!("Import '{}' failed, not found.", args.url),
@@ -420,7 +448,7 @@ impl HttpClient {
                 generic_error(format!(
                     "Import '{}' failed: {}",
                     args.url,
-                    response.status()
+                    status
                 ))
             };
             return Err(err);
@@ -431,12 +459,12 @@ impl HttpClient {
         Ok(FetchOnceResult::Code(body, result_headers))
     }
 
-    pub async fn download_text(&self, url: impl reqwest::IntoUrl) -> Result<String, AnyError> {
+    pub async fn download_text(&self, url: &Url) -> Result<String, AnyError> {
         let bytes = self.download(url).await?;
         Ok(String::from_utf8(bytes)?)
     }
 
-    pub async fn download(&self, url: impl reqwest::IntoUrl) -> Result<Vec<u8>, AnyError> {
+    pub async fn download(&self, url: &Url) -> Result<Vec<u8>, AnyError> {
         let maybe_bytes = self.download_inner(url, None).await?;
         match maybe_bytes {
             Some(bytes) => Ok(bytes),
@@ -446,7 +474,7 @@ impl HttpClient {
 
     pub async fn download_with_progress(
         &self,
-        url: impl reqwest::IntoUrl,
+        url: &Url,
         maybe_header: Option<(HeaderName, HeaderValue)>,
     ) -> Result<Option<Vec<u8>>, DownloadError> {
         self.download_inner(url, maybe_header).await
@@ -454,28 +482,32 @@ impl HttpClient {
 
     pub async fn get_redirected_url(
         &self,
-        url: impl reqwest::IntoUrl,
+        url: &Url,
         maybe_header: Option<(HeaderName, HeaderValue)>,
     ) -> Result<Url, AnyError> {
         let response = self.get_redirected_response(url, maybe_header).await?;
-        Ok(response.url().clone())
+        Ok(response.extensions().get::<Url>().ok_or(DownloadError::UnknownError())?.clone())
     }
 
     async fn download_inner(
         &self,
-        url: impl reqwest::IntoUrl,
+        url: &Url,
         maybe_header: Option<(HeaderName, HeaderValue)>,
     ) -> Result<Option<Vec<u8>>, DownloadError> {
         let response = self.get_redirected_response(url, maybe_header).await?;
 
-        if response.status() == 404 {
+        if response.status() == StatusCode::NOT_FOUND {
             return Ok(None);
         } else if !response.status().is_success() {
             let status = response.status();
-            let maybe_response_text = response.text().await.ok();
+            let body = get_response_body_with_progress(response)
+                .await
+                .map_err(Self::map_any_error_to_download_error)?;
+
             return Err(DownloadError::BadResponse(BadResponseError {
                 status_code: status,
-                response_text: maybe_response_text
+                response_text: String::from_utf8(body)
+                    .ok()
                     .map(|s| s.trim().to_string())
                     .filter(|s| !s.is_empty()),
             }));
@@ -484,53 +516,73 @@ impl HttpClient {
         get_response_body_with_progress(response)
             .await
             .map(Some)
-            .map_err(Into::into)
+            .map_err(Self::map_any_error_to_download_error)
     }
 
     async fn get_redirected_response(
         &self,
-        url: impl reqwest::IntoUrl,
+        url: &Url,
         mut maybe_header: Option<(HeaderName, HeaderValue)>,
-    ) -> Result<reqwest::Response, DownloadError> {
-        let mut url = url.into_url()?;
-        let mut builder = self.get(url.clone());
-        if let Some((header_name, header_value)) = maybe_header.as_ref() {
-            builder = builder.header(header_name, header_value);
+    ) -> Result<Response<BoxBody<Bytes, AnyError>>, DownloadError> {
+        let mut current_url = url.clone();
+        
+        let mut request = http::Request::builder()
+            .method("GET")
+            .uri(current_url.as_str());
+
+        if let Some((header_name, header_value)) = &maybe_header {
+            request = request.header(header_name, header_value);
         }
-        let mut response = builder.send().await?;
-        let status = response.status();
-        if status.is_redirection() {
-            for _ in 0..5 {
-                let new_url = resolve_redirect_from_response(&url, &response)?;
-                let mut builder = self.get(new_url.clone());
 
-                if new_url.origin() == url.origin() {
-                    if let Some((header_name, header_value)) = maybe_header.as_ref() {
-                        builder = builder.header(header_name, header_value);
-                    }
-                } else {
-                    maybe_header = None;
-                }
+        let mut request = request.body(BoxBody::new(Empty::new()
+            .map_err(|_infallible_error| generic_error("Infallible error"))))?;
 
-                let new_response = builder.send().await?;
-                let status = new_response.status();
-                if status.is_redirection() {
-                    response = new_response;
-                    url = new_url;
-                } else {
-                    return Ok(new_response);
-                }
+        let mut redirect_count = 0;
+        loop {
+            let response = self.client.clone().send(request)
+                .await
+                .map_err(|err| DownloadError::ClientSendError(err))?;
+            let status = response.status();
+
+            if !status.is_redirection() {
+                // Store the final URL in the response extensions
+                let mut response = response;
+                response.extensions_mut().insert(current_url);
+                return Ok(response);
             }
-            Err(DownloadError::TooManyRedirects)
-        } else {
-            Ok(response)
+
+            if redirect_count >= 5 {
+                return Err(DownloadError::TooManyRedirects);
+            }
+
+            let new_url = resolve_redirect_from_response(&current_url, &response)?;
+
+            let mut request_builder = http::Request::builder()
+                .method("GET")
+                .uri(new_url.as_str());
+
+            // Only include the header if we're redirecting to the same origin
+            if new_url.origin() == current_url.origin() {
+                if let Some((header_name, header_value)) = &maybe_header {
+                    request_builder = request_builder.header(header_name, header_value);
+                }
+            } else {
+                maybe_header = None;
+            }
+
+            request = request_builder.body(BoxBody::new(Empty::new()
+                .map_err(|_infallible_error| generic_error("Infallible error"))))?;
+            
+            current_url = new_url;
+            redirect_count += 1;
         }
     }
 }
 
 pub async fn get_response_body_with_progress(
-    response: reqwest::Response,
-) -> Result<Vec<u8>, reqwest::Error> {
-    let bytes = response.bytes().await?;
-    Ok(bytes.into())
+    response: Response<BoxBody<Bytes, AnyError>>,
+) -> Result<Vec<u8>, AnyError> {
+    let body = response.into_body();
+    let bytes = body.collect().await?.to_bytes();
+    Ok(bytes.to_vec())
 }

@@ -13,7 +13,7 @@ use std::{
 };
 
 use anyhow::Context;
-use deno_core::{unsync::AtomicFlag, BufMutView, BufView, ResourceHandleFd, WriteOutcome};
+use deno_core::{unsync::sync::AtomicFlag, BufMutView, BufView, ResourceHandleFd, WriteOutcome};
 use deno_fs::{AccessCheckCb, FsDirEntry, FsFileType, RealFs};
 use deno_io::fs::{File, FsError, FsResult, FsStat};
 use serde::{Deserialize, Serialize};

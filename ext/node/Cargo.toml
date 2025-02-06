@@ -18,6 +18,7 @@ deno_media_type.workspace = true
 deno_net.workspace = true
 deno_config = { workspace = true, default-features = false, features = ["package_json"] }
 deno_whoami = "0.1.0"
+deno_node.workspace = true
 
 aes.workspace = true
 async-trait.workspace = true
@@ -33,6 +34,9 @@ h2.workspace = true
 hkdf.workspace = true
 http_v02.workspace = true
 http.workspace = true
+http-body.workspace = true
+http-body-util.workspace = true
+hyper.workspace = true
 indexmap.workspace = true
 lazy-regex.workspace = true
 libc.workspace = true

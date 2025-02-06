@@ -45,7 +45,7 @@ rkyv = { workspace = true, features = ["validation"] }
 
 hashlink = "0.8"
 pathdiff = "0.2"
-dashmap = "5.5.3"
+dashmap = "6.1.0"
 
 [dev-dependencies]
 tempfile.workspace = true

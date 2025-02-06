@@ -167,7 +167,7 @@ impl TarballCache {
 
       let result = tarball_cache.http_client_provider
         .get_or_create()?
-        .download_with_progress(tarball_uri, maybe_auth_header)
+        .download_with_progress(&tarball_uri, maybe_auth_header)
         .await;
       let maybe_bytes = match result {
         Ok(maybe_bytes) => maybe_bytes,

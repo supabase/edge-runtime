@@ -26,7 +26,7 @@ use super::{
 mod request {
     use std::{future::pending, io::ErrorKind, sync::Arc, time::Duration};
 
-    use deno_core::unsync::AtomicFlag;
+    use deno_core::unsync::sync::AtomicFlag;
     use http_utils::{
         io::Upgraded2,
         utils::{emit_status_code, get_upgrade_type},

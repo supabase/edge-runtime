@@ -11,7 +11,7 @@ use deno_core::anyhow::Context;
 use deno_core::error::AnyError;
 use deno_core::parking_lot::Mutex;
 use deno_core::serde_json;
-use deno_core::unsync::AtomicFlag;
+use deno_core::unsync::sync::AtomicFlag;
 use deno_fs::FileSystem;
 use deno_npm::npm_rc::ResolvedNpmRc;
 use deno_npm::registry::NpmPackageInfo;

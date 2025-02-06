@@ -58,6 +58,7 @@ impl ByonmCliNpmResolver {
         loop {
             let pkg_json_path = current_folder.join("package.json");
             if let Ok(Some(pkg_json)) = load_pkg_json(self.fs.as_ref(), &pkg_json_path) {
+                let pkg_json = Arc::new((*pkg_json).clone());
                 if let Some(deps) = &pkg_json.dependencies {
                     if deps.contains_key(dep_name) {
                         return Some(pkg_json);
@@ -112,6 +113,7 @@ impl ByonmCliNpmResolver {
             while let Some(dir_path) = current_path.parent() {
                 let package_json_path = dir_path.join("package.json");
                 if let Some(pkg_json) = load_pkg_json(self.fs.as_ref(), &package_json_path)? {
+                    let pkg_json = Arc::new((*pkg_json).clone());
                     if let Some(alias) = resolve_alias_from_pkg_json(req, pkg_json.as_ref()) {
                         return Ok((pkg_json, alias));
                     }
@@ -124,6 +126,7 @@ impl ByonmCliNpmResolver {
         if let Some(root_node_modules_dir) = &self.root_node_modules_dir {
             let root_pkg_json_path = root_node_modules_dir.parent().unwrap().join("package.json");
             if let Some(pkg_json) = load_pkg_json(self.fs.as_ref(), &root_pkg_json_path)? {
+                let pkg_json = Arc::new((*pkg_json).clone());
                 if let Some(alias) = resolve_alias_from_pkg_json(req, pkg_json.as_ref()) {
                     return Ok((pkg_json, alias));
                 }

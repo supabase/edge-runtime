@@ -1,5 +1,6 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
+use deno_core::error::generic_error;
 use deno_core::error::type_error;
 use deno_core::error::AnyError;
 use deno_core::op2;
@@ -15,12 +16,14 @@ use deno_fetch::FetchRequestResource;
 use deno_fetch::FetchReturn;
 use deno_fetch::HttpClientResource;
 use deno_fetch::ResourceToBodyAdapter;
-use reqwest::header::HeaderMap;
-use reqwest::header::HeaderName;
-use reqwest::header::HeaderValue;
-use reqwest::header::CONTENT_LENGTH;
-use reqwest::Body;
-use reqwest::Method;
+use http::header::HeaderName;
+use http::header::HeaderValue;
+use http::header::CONTENT_LENGTH;
+use http::Method;
+use http::Request;
+use http_body_util::combinators::BoxBody;
+use http_body_util::Empty;
+use http_body_util::BodyExt;
 
 #[op2]
 #[serde]
@@ -50,34 +53,40 @@ where
         permissions.check_net_url(&url, "ClientRequest")?;
     }
 
-    let mut header_map = HeaderMap::new();
-    for (key, value) in headers {
-        let name = HeaderName::from_bytes(&key).map_err(|err| type_error(err.to_string()))?;
-        let v = HeaderValue::from_bytes(&value).map_err(|err| type_error(err.to_string()))?;
+    let mut request_builder = Request::builder()
+        .method(method.clone())
+        .uri(url.as_str());
 
-        header_map.append(name, v);
+    for (key, value) in headers {
+        let name = HeaderName::from_bytes(&key)
+            .map_err(|err| type_error(err.to_string()))?;
+        let v = HeaderValue::from_bytes(&value)
+            .map_err(|err| type_error(err.to_string()))?;
+
+        request_builder = request_builder.header(name, v);
     }
 
-    let mut request = client.request(method.clone(), url).headers(header_map);
-
-    if let Some(body) = body {
-        request = request.body(Body::wrap_stream(ResourceToBodyAdapter::new(
+    let request = if let Some(body) = body {
+        let body = BoxBody::new(ResourceToBodyAdapter::new(
             state.resource_table.take_any(body)?,
-        )));
+        ));
+        request_builder.body(body)?
     } else {
         // POST and PUT requests should always have a 0 length content-length,
         // if there is no body. https://fetch.spec.whatwg.org/#http-network-or-cache-fetch
         if matches!(method, Method::POST | Method::PUT) {
-            request = request.header(CONTENT_LENGTH, HeaderValue::from(0));
+            request_builder = request_builder.header(CONTENT_LENGTH, HeaderValue::from(0));
         }
+        let empty_body = BoxBody::new(Empty::new().map_err(|_infallible_error| generic_error("Infallible error")));
+        request_builder.body(empty_body)?
     };
 
     let cancel_handle = CancelHandle::new_rc();
     let cancel_handle_ = cancel_handle.clone();
 
     let fut = async move {
-        request
-            .send()
+        client
+            .send(request)
             .or_cancel(cancel_handle_)
             .await
             .map(|res| res.map_err(|err| type_error(err.to_string())))
@@ -85,7 +94,10 @@ where
 
     let request_rid = state
         .resource_table
-        .add(FetchRequestResource(Box::pin(fut)));
+        .add(FetchRequestResource {
+            future: Box::pin(fut),
+            url: url.clone(),
+        });
 
     let cancel_handle_rid = state.resource_table.add(FetchCancelHandle(cancel_handle));
 

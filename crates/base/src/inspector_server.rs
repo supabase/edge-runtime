@@ -318,7 +318,7 @@ async fn server(
     let json_version_response = json!({
         "Browser": name,
         "Protocol-Version": "1.3",
-        "V8-Version": deno_core::v8_version(),
+        "V8-Version": deno_core::v8::V8::get_version(),
     });
 
     let service_fn = hyper::service::service_fn({

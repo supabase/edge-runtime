@@ -13,7 +13,7 @@ use deno_config::{
     workspace::{MappedResolution, MappedResolutionError, WorkspaceResolver},
     JsxImportSourceConfig,
 };
-use deno_core::{error::AnyError, unsync::AtomicFlag, ModuleSourceCode, ModuleSpecifier};
+use deno_core::{error::AnyError, unsync::sync::AtomicFlag, ModuleSourceCode, ModuleSpecifier};
 use deno_graph::{
     source::{
         ResolutionMode, ResolveError, Resolver, UnknownBuiltInNodeModuleError,

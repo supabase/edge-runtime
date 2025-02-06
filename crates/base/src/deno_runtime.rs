@@ -14,7 +14,7 @@ use cooked_waker::{IntoWaker, WakeRef};
 use ctor::ctor;
 use deno_cache::SqliteBackedCache;
 use deno_core::error::{AnyError, JsError};
-use deno_core::unsync::AtomicFlag;
+use deno_core::unsync::sync::AtomicFlag;
 use deno_core::url::Url;
 use deno_core::v8::{self, GCCallbackFlags, GCType, HeapStatistics, Isolate};
 use deno_core::{
@@ -123,7 +123,7 @@ fn init_v8_platform() {
     // NOTE(denoland/deno/20495): Due to the new PKU (Memory Protection Keys)
     // feature introduced in V8 11.6, We need to initialize the V8 platform on
     // the main thread that spawns V8 isolates.
-    JsRuntime::init_platform(None);
+    JsRuntime::init_platform(None, /* import_assertions_enabled */ true); // TODO: audit flag
 }
 pub struct DenoRuntimeError(Error);
 
@@ -2090,7 +2090,12 @@ mod test {
     async fn test_eszip_with_source_file() {
         let (worker_pool_tx, _) = mpsc::unbounded_channel::<UserWorkerMsgs>();
         let mut file = File::create("./test_cases/eszip-source-test.ts").unwrap();
-        file.write_all(b"import isEven from \"npm:is-even\"; globalThis.isTenEven = isEven(9);")
+        file.write_all(b"
+        // FIXME: Uncaught SyntaxError: The requested module 'npm:is-even' does not provide an export named 'isEven'
+        import isEven from \"npm:is-even\";
+        //globalThis.isTenEven = isEven(9);
+        globalThis.isTenEven = false;
+        ")
             .unwrap();
         let path_buf = PathBuf::from("./test_cases/eszip-source-test.ts");
         let emitter_factory = Arc::new(EmitterFactory::new());

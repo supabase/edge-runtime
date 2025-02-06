@@ -191,7 +191,7 @@ impl RegistryInfoDownloader {
             let maybe_bytes = downloader
                 .http_client_provider
                 .get_or_create()?
-                .download_with_progress(package_url, maybe_auth_header)
+                .download_with_progress(&package_url, maybe_auth_header)
                 .await?;
             match maybe_bytes {
                 Some(bytes) => {

@@ -10,7 +10,7 @@ use std::{
 #[cfg(debug_assertions)]
 use std::thread::ThreadId;
 
-use deno_core::unsync::AtomicFlag;
+use deno_core::unsync::sync::AtomicFlag;
 use log::{error, info};
 use sb_core::PromiseMetrics;
 use sb_event_worker::events::ShutdownReason;

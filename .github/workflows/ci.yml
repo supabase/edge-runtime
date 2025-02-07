@@ -16,10 +16,9 @@ env:
   RUST_LOG: sb_event_worker=trace
 
 jobs:
-  runs-on: ubuntu-latest
-
   cargo-fmt:
     name: "cargo fmt"
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: rustup show
@@ -27,6 +26,7 @@ jobs:
 
   cargo-clippy:
     name: "cargo clippy"
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Install deps
@@ -39,6 +39,7 @@ jobs:
 
   cargo-test:
     name: "cargo test"
+    runs-on: ubuntu-latest
     steps:
       - name: Install deps
         run: |

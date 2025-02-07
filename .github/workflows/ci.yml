@@ -89,9 +89,12 @@ jobs:
 
       - run: ./scripts/test.sh --features base/tracing
 
+      - name: Install Tarpaulin
+        run: cargo install tarpaulin
+
       - name: Generate code coverage
         run: |
-          cargo +nightly tarpaulin --verbose --all-features --workspace --timeout 120 --out xml
+          cargo tarpaulin --verbose --all-features --workspace --timeout 120 --out xml
 
       - name: Upload to Coveralls
         uses: coverallsapp/github-action@v2

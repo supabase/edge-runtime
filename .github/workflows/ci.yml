@@ -16,9 +16,10 @@ env:
   RUST_LOG: sb_event_worker=trace
 
 jobs:
+  runs-on: ubuntu-latest
+
   cargo-fmt:
     name: "cargo fmt"
-    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: rustup show
@@ -26,17 +27,24 @@ jobs:
 
   cargo-clippy:
     name: "cargo clippy"
-    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get -y install libblas-dev liblapack-dev libopenblas-dev
       - run: rustup show
       - uses: Swatinem/rust-cache@v2
       - run: ./scripts/clippy.sh
 
   cargo-test:
     name: "cargo test"
-    runs-on: ubuntu-latest
     steps:
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get -y install libblas-dev liblapack-dev libopenblas-dev
+
       - name: Remove unwanted software
         run: |
           sudo rm -rf /usr/share/dotnet

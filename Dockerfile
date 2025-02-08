@@ -8,7 +8,8 @@ ARG GIT_V_TAG
 ARG PROFILE=release
 ARG FEATURES
 
-RUN apt-get update && apt-get install -y llvm-dev libclang-dev clang cmake binutils
+RUN apt-get update && apt-get install -y llvm-dev libclang-dev clang cmake binutils \
+    libblas-dev liblapack-dev libopenblas-dev
 
 WORKDIR /usr/src/edge-runtime
 
@@ -30,7 +31,10 @@ RUN objcopy --strip-debug \
 # Application runtime without ONNX
 FROM debian:bookworm-slim as edge-runtime-base
 
-RUN apt-get update && apt-get install -y libssl-dev && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y libssl-dev \
+    libblas-dev liblapack-dev libopenblas-dev \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN apt-get remove -y perl && apt-get autoremove -y
 
 COPY --from=builder /root/edge-runtime /usr/local/bin/edge-runtime

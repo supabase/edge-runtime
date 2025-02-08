@@ -3,7 +3,8 @@ FROM mcr.microsoft.com/devcontainers/rust:dev-1-bookworm
 ARG TARGETPLATFORM
 
 RUN apt-get update && apt-get install -y build-essential cmake libclang-dev lldb \
-    nodejs npm hyperfine
+    nodejs npm hyperfine \
+    libblas-dev liblapack-dev libopenblas-dev
 
 COPY .env /tmp/.env
 COPY .devcontainer/install.sh /tmp/install.sh

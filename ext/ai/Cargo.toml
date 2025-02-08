@@ -32,7 +32,9 @@ scopeguard.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 
-ndarray = "0.15"
+ndarray = { version = "0.15", features = [ 'blas' ] }
+blas-src = { version = "0.8", features = [ 'openblas'] }
+openblas-src = { version = "0.10", features = ['cblas', 'system'] }
 ndarray-linalg = "0.15"
 rand = "0.8"
 convert_case = "0.6"

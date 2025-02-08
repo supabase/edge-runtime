@@ -46,6 +46,9 @@ jobs:
           sudo apt-get update
           sudo apt-get -y install libblas-dev liblapack-dev libopenblas-dev
 
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
       - name: Remove unwanted software
         run: |
           sudo rm -rf /usr/share/dotnet
@@ -89,12 +92,13 @@ jobs:
 
       - run: ./scripts/test.sh --features base/tracing
 
-      - name: Install Tarpaulin
-        run: cargo install cargo-tarpaulin
-
       - name: Generate code coverage
+        id: coverage
         run: |
-          cargo tarpaulin --verbose --all-features --workspace --timeout 120 --out xml
-
-      - name: Upload to Coveralls
+          cargo llvm-cov test --workspace --no-fail-fast --lcov -j 1 --output-path lcov.info
+      - name: Coveralls upload
         uses: coverallsapp/github-action@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path-to-lcov: lcov.info
+          debug: true

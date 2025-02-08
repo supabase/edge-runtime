@@ -31,6 +31,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get -y install libblas-dev liblapack-dev libopenblas-dev
       - run: rustup show
       - uses: Swatinem/rust-cache@v2
       - run: ./scripts/clippy.sh
@@ -39,6 +43,14 @@ jobs:
     name: 'cargo test'
     runs-on: ubuntu-latest
     steps:
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get -y install libblas-dev liblapack-dev libopenblas-dev
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
       - name: Remove unwanted software
         run: |
           sudo rm -rf /usr/share/dotnet
@@ -80,4 +92,13 @@ jobs:
           ACCESS_KEY_ID: ${{ secrets.SUPABASE_S3_ACCESS_KEY }}
           SECRET_ACCESS_KEY: ${{ secrets.SUPABASE_S3_SECRET }}
 
-      - run: ./scripts/test.sh --features base/tracing
+      - name: Generate code coverage
+        id: coverage
+        run: |
+          cargo llvm-cov test --workspace --no-fail-fast --lcov -j 1 --output-path lcov.info
+      - name: Coveralls upload
+        uses: coverallsapp/github-action@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path-to-lcov: lcov.info
+          debug: true

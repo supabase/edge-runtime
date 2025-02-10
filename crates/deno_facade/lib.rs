@@ -154,7 +154,7 @@ mod test {
 
     emitter_factory.set_deno_options(
       DenoOptionsBuilder::new()
-        .entrypoint(PathBuf::from("../base/test_cases/npm/index.ts"))
+        .entrypoint(PathBuf::from("./test_cases/npm/index.ts"))
         .build()
         .unwrap(),
     );
@@ -167,12 +167,12 @@ mod test {
     assert!(
       extract_eszip(ExtractEszipPayload {
         data: EszipPayloadKind::Eszip(eszip),
-        folder: PathBuf::from("../base/test_cases/extracted-npm/"),
+        folder: PathBuf::from("../test_cases/npm/"),
       })
       .await
     );
 
-    assert!(PathBuf::from("../base/test_cases/extracted-npm/hello.js").exists());
-    remove_dir_all(PathBuf::from("../base/test_cases/extracted-npm/")).unwrap();
+    assert!(PathBuf::from("./test_cases/extracted-npm/hello.js").exists());
+    remove_dir_all(PathBuf::from("./test_cases/extracted-npm/")).unwrap();
   }
 }

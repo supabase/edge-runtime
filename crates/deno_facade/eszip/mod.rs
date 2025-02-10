@@ -13,6 +13,7 @@ use deno::deno_ast;
 use deno::deno_fs::FileSystem;
 use deno::deno_fs::RealFs;
 use deno::deno_npm::NpmSystemInfo;
+use deno::deno_path_util::normalize_path;
 use deno::npm::InnerCliNpmResolverRef;
 use deno_core::url::Url;
 use deno_core::FastString;
@@ -654,7 +655,13 @@ pub async fn generate_binary_eszip(
   maybe_checksum: Option<eszip::v2::Checksum>,
 ) -> Result<EszipV2, anyhow::Error> {
   let args = if let Some(path) = emitter_factory.deno_options()?.entrypoint() {
-    CreateGraphArgs::File(path.clone())
+    CreateGraphArgs::File(if !path.is_absolute() {
+      let initial_cwd =
+        std::env::current_dir().with_context(|| "failed getting cwd")?;
+      normalize_path(initial_cwd.join(path))
+    } else {
+      path.to_path_buf()
+    })
   } else {
     let Some(module_code) = maybe_module_code.as_ref() else {
       bail!("entrypoint or module code must be specified");

@@ -184,7 +184,10 @@ impl DenoOptions {
 
 impl DenoOptions {
   fn from_builder(builder: DenoOptionsBuilder) -> Result<Self, AnyError> {
-    let config = builder.config.clone().unwrap_or_default();
+    let config = builder
+      .config
+      .clone()
+      .unwrap_or_else(|| ConfigMode::Discover);
     let no_npm = builder.no_npm.unwrap_or_default();
     let initial_cwd =
       std::env::current_dir().with_context(|| "failed getting cwd")?;
@@ -233,10 +236,13 @@ impl DenoOptions {
     let has_entrypoint = entrypoint.is_some();
     let start_dir = if let Some(entrypoint) = entrypoint {
       match &config {
-        ConfigMode::Discover => WorkspaceDirectory::discover(
-          WorkspaceDiscoverStart::Paths(&[entrypoint]),
-          &workspace_discover_options,
-        )?,
+        ConfigMode::Discover => {
+          let config_path = normalize_path(initial_cwd.join(&entrypoint));
+          WorkspaceDirectory::discover(
+            WorkspaceDiscoverStart::Paths(&[config_path]),
+            &workspace_discover_options,
+          )?
+        }
         ConfigMode::Path(path) => {
           let config_path = normalize_path(initial_cwd.join(path));
           WorkspaceDirectory::discover(

@@ -35,6 +35,7 @@ use deno::deno_http::DefaultHttpPropertyExtractor;
 use deno::deno_io;
 use deno::deno_net;
 use deno::deno_permissions::PermissionsOptions;
+use deno::deno_telemetry;
 use deno::deno_tls;
 use deno::deno_tls::deno_native_certs::load_native_certs;
 use deno::deno_tls::rustls::RootCertStore;
@@ -515,6 +516,21 @@ where
       .and_then(|it| it.permissions.clone())
       .unwrap_or_else(|| PermissionsOptions {
         allow_all: true,
+        allow_env: Some(Default::default()),
+        deny_env: None,
+        allow_net: Some(Default::default()),
+        deny_net: None,
+        allow_ffi: Some(Default::default()),
+        deny_ffi: None,
+        allow_read: Some(Default::default()),
+        deny_read: None,
+        allow_run: Some(Default::default()),
+        deny_run: None,
+        allow_sys: Some(Default::default()),
+        deny_sys: None,
+        allow_write: Some(Default::default()),
+        deny_write: None,
+        allow_import: Some(Default::default()),
         ..Default::default()
       });
 
@@ -728,6 +744,7 @@ where
 
     let mod_code = module_code;
     let extensions = vec![
+      deno_telemetry::deno_telemetry::init_ops(),
       deno_webidl::deno_webidl::init_ops(),
       deno_console::deno_console::init_ops(),
       deno_url::deno_url::init_ops(),
@@ -764,8 +781,8 @@ where
       ),
       deno_io::deno_io::init_ops(Some(stdio)),
       deno_fs::deno_fs::init_ops::<PermissionsContainer>(fs.clone()),
-      ext_env::env::init_ops(),
       ext_ai::ai::init_ops(),
+      ext_env::env::init_ops(),
       ext_os::os::init_ops(),
       ext_workers::user_workers::init_ops(),
       ext_event_worker::user_event_worker::init_ops(),
@@ -783,9 +800,9 @@ where
         fs,
       ),
       deno_cache::deno_cache::init_ops::<SqliteBackedCache>(None),
-      deno::runtime::ops::permissions::deno_permissions::init_ops_and_esm(),
+      deno::runtime::ops::permissions::deno_permissions::init_ops(),
       ops::permissions::base_runtime_permissions::init_ops_and_esm(permissions),
-      ext_runtime::runtime::init_ops_and_esm(),
+      ext_runtime::runtime::init_ops(),
     ];
 
     let mut create_params = None;

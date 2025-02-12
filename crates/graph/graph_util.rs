@@ -2,7 +2,7 @@ use crate::emitter::EmitterFactory;
 use crate::graph_fs::DenoGraphFsAdapter;
 use crate::jsr::CliJsrUrlProvider;
 use crate::resolver::CliGraphResolver;
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use deno_core::error::{custom_error, AnyError};
 use deno_core::parking_lot::Mutex;
 use deno_core::{FastString, ModuleSpecifier};
@@ -413,10 +413,9 @@ pub async fn create_graph(
         specifier
     } else {
         let binding = std::fs::canonicalize(&file).context("failed to read path")?;
-        let specifier = binding.to_str().context("failed to convert path to str")?;
-        let format_specifier = format!("file:///{}", specifier);
 
-        ModuleSpecifier::parse(&format_specifier).context("failed to parse specifier")?
+        ModuleSpecifier::from_file_path(binding)
+            .map_err(|_| anyhow!("failed to parse specifier"))?
     };
 
     let builder = ModuleGraphBuilder::new(emitter_factory, false);

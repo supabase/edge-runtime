@@ -31,7 +31,6 @@ openSync
 readDirSync
 readLink
 readLinkSync
-realPathSync
 removeSync
 rename
 renameSync

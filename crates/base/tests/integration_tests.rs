@@ -2826,6 +2826,23 @@ async fn test_tmp_fs_usage() {
             TerminationToken::new()
         );
     }
+
+    {
+        integration_test!(
+            "./test_cases/main",
+            NON_SECURE_PORT,
+            "use-tmp-fs-3",
+            None,
+            None,
+            None,
+            None,
+            (|resp| async {
+                let resp = resp.unwrap();
+                assert_eq!(resp.status().as_u16(), 200);
+            }),
+            TerminationToken::new()
+        );
+    }
 }
 
 #[tokio::test]

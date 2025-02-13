@@ -227,6 +227,12 @@ pub struct TmpFs {
     quota: Arc<Quota>,
 }
 
+impl TmpFs {
+    pub fn actual_path(&self) -> &Path {
+        self.root.path()
+    }
+}
+
 #[async_trait::async_trait(?Send)]
 impl deno_fs::FileSystem for TmpFs {
     fn cwd(&self) -> FsResult<PathBuf> {

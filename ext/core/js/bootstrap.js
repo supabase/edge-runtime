@@ -641,6 +641,7 @@ globalThis.bootstrapSBEdge = (opts, ctx) => {
 			'open': true,
 			'stat': true,
 			'realPath': true,
+			'realPathSync': true,
 			'create': true,
 			'remove': true,
 			'writeFile': true,

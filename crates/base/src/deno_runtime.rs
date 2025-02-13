@@ -653,8 +653,10 @@ where
         let build_file_system_fn =
             |base_fs: Arc<dyn deno_fs::FileSystem>| -> Result<Arc<dyn deno_fs::FileSystem>, AnyError> {
                 let tmp_fs = TmpFs::try_from(maybe_tmp_fs_config.unwrap_or_default())?;
-                let fs = PrefixFs::new("/tmp", tmp_fs, Some(base_fs))
-                    .tmp_dir("/tmp");
+                let tmp_fs_actual_path = tmp_fs.actual_path().to_path_buf();
+                let fs = PrefixFs::new("/tmp", tmp_fs.clone(), Some(base_fs))
+                    .tmp_dir("/tmp")
+                    .add_fs(tmp_fs_actual_path, tmp_fs);
 
                 Ok(if let Some(s3_fs) = maybe_s3_fs_config.map(S3Fs::new).transpose()? {
                     maybe_s3_fs = Some(s3_fs.clone());

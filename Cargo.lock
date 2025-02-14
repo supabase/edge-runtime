@@ -2146,7 +2146,7 @@ dependencies = [
  "deno_core",
  "enum-as-inner",
  "eszip",
- "eszip_async_trait",
+ "eszip_trait",
  "ext_node",
  "ext_runtime",
  "fs",
@@ -2155,6 +2155,7 @@ dependencies = [
  "glob",
  "hashlink 0.8.4",
  "import_map",
+ "indexmap 2.2.3",
  "log",
  "monch",
  "once_cell",
@@ -2166,6 +2167,7 @@ dependencies = [
  "thiserror 2.0.8",
  "tokio",
  "tracing",
+ "url",
  "urlencoding",
 ]
 
@@ -3116,7 +3118,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "eszip_async_trait"
+name = "eszip_trait"
 version = "0.1.0"
 dependencies = [
  "eszip",
@@ -3587,7 +3589,7 @@ dependencies = [
  "either",
  "enum-as-inner",
  "eszip",
- "eszip_async_trait",
+ "eszip_trait",
  "ext_event_worker",
  "ext_node",
  "futures",

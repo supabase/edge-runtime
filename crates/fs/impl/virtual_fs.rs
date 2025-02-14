@@ -23,7 +23,7 @@ use deno_io;
 use deno_io::fs::FsError;
 use deno_io::fs::FsResult;
 use deno_io::fs::FsStat;
-use eszip_async_trait::AsyncEszipDataRead;
+use eszip_trait::AsyncEszipDataRead;
 use futures::future::OptionFuture;
 use rkyv::Archive;
 use rkyv::Deserialize;

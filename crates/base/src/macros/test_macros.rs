@@ -5,40 +5,38 @@ macro_rules! integration_test_listen_fut {
     $tls:expr,
     $main_file:expr,
     $policy:expr,
-    $import_map:expr,
     $flag:expr,
     $tx:expr,
     $token:expr
   ) => {{
-    use $crate::macros::test_macros::__private;
+    use std::str::FromStr;
 
     use __private::futures_util::FutureExt;
     use __private::Tls;
 
-    let tls: Option<Tls> = $tls.clone();
+    use $crate::macros::test_macros::__private;
 
-    __private::start_server(
-      "0.0.0.0",
-      $port,
-      tls,
-      String::from($main_file),
-      None,
-      None,
-      $policy,
-      $import_map,
-      $flag,
-      Some($tx.clone()),
-      $crate::server::WorkerEntrypoints {
-        main: None,
-        events: None,
-      },
-      $token.clone(),
-      vec![],
-      None,
-      Some("https://esm.sh/preact".to_string()),
-      Some("jsx-runtime".to_string()),
-    )
-    .boxed()
+    let main_service_path = String::from($main_file);
+    let tls: Option<base::server::Tls> = $tls.clone();
+    let addr = std::net::SocketAddr::from_str(&format!("0.0.0.0:{}", $port))
+      .expect("failed to parse the address to bind the server");
+
+    let mut builder = base::server::Builder::new(addr, &main_service_path);
+
+    if let Some(tls) = tls {
+      builder.tls(tls);
+    }
+    if let Some(policy) = $policy {
+      builder.user_worker_policy(policy);
+    }
+    if let Some(token) = $token.clone() {
+      builder.termination_token(token);
+    }
+
+    builder.event_callback($tx.clone());
+    *builder.flags_mut() = $flag;
+
+    async move { builder.build().await?.listen().await }.boxed()
   }};
 }
 
@@ -50,7 +48,6 @@ macro_rules! integration_test_with_server_flag {
     $port:expr,
     $url:expr,
     $policy:expr,
-    $import_map:expr,
     $req_builder:expr,
     $tls:expr, ($($function:tt)+) $(, $($token:tt)+)?
   ) => {
@@ -91,7 +88,6 @@ macro_rules! integration_test_with_server_flag {
       tls,
       $main_file,
       $policy,
-      $import_map,
       $flag,
       tx,
       token
@@ -112,8 +108,12 @@ macro_rules! integration_test_with_server_flag {
       }
 
       // we poll the listen future till get a response (1)
-      _ = &mut listen_fut => {
-        panic!("This one should not end first");
+      res = &mut listen_fut => {
+        if res.is_err() {
+          res.unwrap();
+        } else {
+          panic!("This one should not end first");
+        }
       }
     }
 
@@ -239,7 +239,6 @@ macro_rules! integration_test {
     $port:expr,
     $url:expr,
     $policy:expr,
-    $import_map:expr,
     $req_builder:expr,
     $tls:expr,
     ($($function:tt)+) $(, $($token:tt)+)?
@@ -250,7 +249,6 @@ macro_rules! integration_test {
       $port,
       $url,
       $policy,
-      $import_map,
       $req_builder,
       $tls,
       ($($function)+)
@@ -271,7 +269,6 @@ pub mod __private {
 
   use crate::server::ServerEvent;
 
-  pub use crate::commands::start_server;
   pub use crate::server::ServerFlags;
   pub use crate::server::ServerHealth;
   pub use crate::server::Tls;

@@ -3,8 +3,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Context;
-use deno_config::deno_json::JsxImportSourceConfig;
-use deno_facade::DecoratorType;
 use deno_facade::EszipPayloadKind;
 use either::Either;
 use ext_event_worker::events::BootEvent;
@@ -478,11 +476,10 @@ pub struct MainWorkerSurfaceBuilder {
 
   main_worker_path: PathBuf,
   no_module_cache: Option<bool>,
-  import_map_path: Option<String>,
+  // import_map_path: Option<String>,
   entrypoint: Option<String>,
-  decorator: Option<DecoratorType>,
-  jsx: Option<JsxImportSourceConfig>,
-
+  // decorator: Option<DecoratorType>,
+  // jsx: Option<JsxImportSourceConfig>,
   worker_pool_tx: Option<mpsc::UnboundedSender<UserWorkerMsgs>>,
   shared_metric_src: Option<SharedMetricSource>,
   event_worker_metric_src: Option<MetricSource>,
@@ -512,10 +509,7 @@ impl MainWorkerSurfaceBuilder {
 
       main_worker_path: main_worker_path.as_ref().to_path_buf(),
       no_module_cache: None,
-      import_map_path: None,
       entrypoint: None,
-      decorator: None,
-      jsx: None,
 
       worker_pool_tx: None,
       shared_metric_src: None,
@@ -528,28 +522,18 @@ impl MainWorkerSurfaceBuilder {
     self
   }
 
-  pub fn import_map_path(mut self, value: &str) -> Self {
-    self.import_map_path = Some(value.to_string());
-    self
-  }
-
   pub fn entrypoint(mut self, value: &str) -> Self {
     self.entrypoint = Some(value.to_string());
     self
   }
 
-  pub fn decorator(mut self, value: DecoratorType) -> Self {
-    self.decorator = Some(value);
-    self
-  }
-
-  pub fn jsx_import_source_config(
-    mut self,
-    value: JsxImportSourceConfig,
-  ) -> Self {
-    self.jsx = Some(value);
-    self
-  }
+  // pub fn jsx_import_source_config(
+  //   mut self,
+  //   value: JsxImportSourceConfig,
+  // ) -> Self {
+  //   self.jsx = Some(value);
+  //   self
+  // }
 
   pub fn worker_pool_sender(
     mut self,
@@ -574,28 +558,28 @@ impl MainWorkerSurfaceBuilder {
     self
   }
 
-  pub fn set_import_map_path(&mut self, value: Option<&str>) -> &mut Self {
-    self.import_map_path = value.map(str::to_string);
-    self
-  }
+  // pub fn set_import_map_path(&mut self, value: Option<&str>) -> &mut Self {
+  //   self.import_map_path = value.map(str::to_string);
+  //   self
+  // }
 
   pub fn set_entrypoint(&mut self, value: Option<&str>) -> &mut Self {
     self.entrypoint = value.map(str::to_string);
     self
   }
 
-  pub fn set_decorator(&mut self, value: Option<DecoratorType>) -> &mut Self {
-    self.decorator = value;
-    self
-  }
+  // pub fn set_decorator(&mut self, value: Option<DecoratorType>) -> &mut Self {
+  //   self.decorator = value;
+  //   self
+  // }
 
-  pub fn set_jsx_import_source_config(
-    &mut self,
-    value: Option<JsxImportSourceConfig>,
-  ) -> &mut Self {
-    self.jsx = value;
-    self
-  }
+  // pub fn set_jsx_import_source_config(
+  //   &mut self,
+  //   value: Option<JsxImportSourceConfig>,
+  // ) -> &mut Self {
+  //   self.jsx = value;
+  //   self
+  // }
 
   pub fn set_worker_pool_sender(
     &mut self,
@@ -626,10 +610,10 @@ impl MainWorkerSurfaceBuilder {
       mut inner,
       main_worker_path,
       no_module_cache,
-      import_map_path,
+      // import_map_path,
       entrypoint,
-      decorator,
-      jsx,
+      // decorator,
+      // jsx,
       worker_pool_tx,
       shared_metric_src,
       event_worker_metric_src,
@@ -650,13 +634,13 @@ impl MainWorkerSurfaceBuilder {
 
     inner.set_init_opts(Some(WorkerContextInitOpts {
       service_path,
-      import_map_path,
+      // import_map_path,
       no_module_cache: no_module_cache.unwrap_or(flags.no_module_cache),
 
       timing: None,
       maybe_eszip,
       maybe_entrypoint: entrypoint,
-      maybe_decorator: decorator,
+      // maybe_decorator: decorator,
       maybe_module_code: None,
       conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
         worker_pool_tx: worker_pool_tx
@@ -667,7 +651,6 @@ impl MainWorkerSurfaceBuilder {
       env_vars: std::env::vars().collect(),
       static_patterns: vec![],
 
-      maybe_jsx_import_source_config: jsx,
       maybe_s3_fs_config: None,
       maybe_tmp_fs_config: None,
     }));
@@ -713,9 +696,9 @@ pub struct EventWorkerSurfaceBuilder {
 
   event_worker_path: PathBuf,
   no_module_cache: Option<bool>,
-  import_map_path: Option<String>,
+  // import_map_path: Option<String>,
   entrypoint: Option<String>,
-  decorator: Option<DecoratorType>,
+  // decorator: Option<DecoratorType>,
 }
 
 impl std::ops::Deref for EventWorkerSurfaceBuilder {
@@ -742,9 +725,9 @@ impl EventWorkerSurfaceBuilder {
 
       event_worker_path: event_worker_path.as_ref().to_path_buf(),
       no_module_cache: None,
-      import_map_path: None,
+      // import_map_path: None,
       entrypoint: None,
-      decorator: None,
+      // decorator: None,
     }
   }
 
@@ -753,49 +736,49 @@ impl EventWorkerSurfaceBuilder {
     self
   }
 
-  pub fn import_map_path(mut self, value: &str) -> Self {
-    self.import_map_path = Some(value.to_string());
-    self
-  }
+  // pub fn import_map_path(mut self, value: &str) -> Self {
+  //   self.import_map_path = Some(value.to_string());
+  //   self
+  // }
 
   pub fn entrypoint(mut self, value: &str) -> Self {
     self.entrypoint = Some(value.to_string());
     self
   }
 
-  pub fn decorator(mut self, value: DecoratorType) -> Self {
-    self.decorator = Some(value);
-    self
-  }
+  // pub fn decorator(mut self, value: DecoratorType) -> Self {
+  //   self.decorator = Some(value);
+  //   self
+  // }
 
   pub fn set_no_module_cache(&mut self, value: Option<bool>) -> &mut Self {
     self.no_module_cache = value;
     self
   }
 
-  pub fn set_import_map_path(&mut self, value: Option<&str>) -> &mut Self {
-    self.import_map_path = value.map(str::to_string);
-    self
-  }
+  // pub fn set_import_map_path(&mut self, value: Option<&str>) -> &mut Self {
+  //   self.import_map_path = value.map(str::to_string);
+  //   self
+  // }
 
   pub fn set_entrypoint(&mut self, value: Option<&str>) -> &mut Self {
     self.entrypoint = value.map(str::to_string);
     self
   }
 
-  pub fn set_decorator(&mut self, value: Option<DecoratorType>) -> &mut Self {
-    self.decorator = value;
-    self
-  }
+  // pub fn set_decorator(&mut self, value: Option<DecoratorType>) -> &mut Self {
+  //   self.decorator = value;
+  //   self
+  // }
 
   pub async fn build(self) -> Result<EventWorkerSurface, anyhow::Error> {
     let Self {
       mut inner,
       event_worker_path,
       no_module_cache,
-      import_map_path,
+      // import_map_path,
       entrypoint,
-      decorator,
+      // decorator,
     } = self;
 
     let (event_msg_tx, event_msg_rx) =
@@ -819,12 +802,12 @@ impl EventWorkerSurfaceBuilder {
       service_path,
       no_module_cache: no_module_cache.unwrap_or(flags.no_module_cache),
 
-      import_map_path,
+      // import_map_path,
       env_vars: std::env::vars().collect(),
       timing: None,
       maybe_eszip,
       maybe_entrypoint: entrypoint,
-      maybe_decorator: decorator,
+      // maybe_decorator: decorator,
       maybe_module_code: None,
       conf: WorkerRuntimeOpts::EventsWorker(EventWorkerRuntimeOpts {
         events_msg_rx: Some(event_msg_rx),
@@ -832,7 +815,6 @@ impl EventWorkerSurfaceBuilder {
       }),
       static_patterns: vec![],
 
-      maybe_jsx_import_source_config: None,
       maybe_s3_fs_config: None,
       maybe_tmp_fs_config: None,
     }));

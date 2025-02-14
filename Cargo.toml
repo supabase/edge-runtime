@@ -7,7 +7,7 @@ members = [
   "crates/base_rt",
   "crates/cpu_timer",
   "crates/deno_facade",
-  "crates/eszip_async_trait",
+  "crates/eszip_trait",
   "crates/fs",
   "crates/http_utils",
   "deno",
@@ -70,7 +70,7 @@ base_rt = { version = "0.1.0", path = "./crates/base_rt" }
 cli = { version = "0.1.0", path = "./cli" }
 cpu_timer = { version = "0.1.0", path = "./crates/cpu_timer" }
 deno_facade = { version = "0.1.0", path = "./crates/deno_facade" }
-eszip_async_trait = { version = "0.1.0", path = "./crates/eszip_async_trait" }
+eszip_trait = { version = "0.1.0", path = "./crates/eszip_trait" }
 fs = { version = "0.1.0", path = "./crates/fs" }
 http_utils = { version = "0.1.0", path = "./crates/http_utils" }
 

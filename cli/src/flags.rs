@@ -109,7 +109,6 @@ fn get_start_command() -> Command {
         .default_value("false")
         .value_parser(FalseyValueParser::new()),
     )
-    .arg(arg!(--"import-map" <Path>).help("Path to import map file"))
     .arg(arg!(--"event-worker" <Path>).help("Path to event worker directory"))
     .arg(
       arg!(--"main-entrypoint" <Path>)
@@ -124,14 +123,6 @@ fn get_start_command() -> Command {
         .help("Policy to enforce in the worker pool")
         .default_value("per_worker")
         .value_parser(["per_worker", "per_request", "oneshot"]),
-    )
-    .arg(
-      arg!(--"decorator" <TYPE>)
-        .help(concat!(
-          "Type of decorator to use on the main worker and event worker. ",
-          "If not specified, the decorator feature is disabled."
-        ))
-        .value_parser(["tc39", "typescript", "typescript_with_metadata"]),
     )
     .arg(
       arg!(--"graceful-exit-timeout"[SECONDS])
@@ -254,15 +245,6 @@ fn get_start_command() -> Command {
         .help("Glob pattern for static files to be included")
         .action(ArgAction::Append),
     )
-    .arg(arg!(--"jsx-specifier" <Path> "A valid JSX specifier"))
-    .arg(
-      arg!(--"jsx-module" <Path> "A valid JSX module").value_parser([
-        "jsx-runtime",
-        "jsx-dev-runtime",
-        "precompile",
-        "react",
-      ]),
-    )
     .arg(
       arg!(--"tcp-nodelay"[BOOL])
         .help("Disables Nagle's algorithm")
@@ -318,15 +300,6 @@ fn get_bundle_command() -> Command {
       arg!(--"static" <Path>)
         .help("Glob pattern for static files to be included")
         .action(ArgAction::Append),
-    )
-    .arg(arg!(--"import-map" <Path>).help("Path to import map file"))
-    .arg(
-      arg!(--"decorator" <TYPE>)
-        .help(concat!(
-          "Type of decorator to use when bundling. If not specified, the ",
-          "decorator feature is disabled."
-        ))
-        .value_parser(["tc39", "typescript", "typescript_with_metadata"]),
     )
     .arg(
       arg!(--"checksum" <KIND>)

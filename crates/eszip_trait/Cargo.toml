@@ -1,5 +1,5 @@
 [package]
-name = "eszip_async_trait"
+name = "eszip_trait"
 version = "0.1.0"
 authors.workspace = true
 edition.workspace = true

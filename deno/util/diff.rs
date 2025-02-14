@@ -1,5 +1,7 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
+#![allow(clippy::write_literal)]
+
 use dissimilar::diff as difference;
 use dissimilar::Chunk;
 use std::fmt::Write as _;

@@ -34,7 +34,6 @@ use deno::deno_http;
 use deno::deno_http::DefaultHttpPropertyExtractor;
 use deno::deno_io;
 use deno::deno_net;
-use deno::deno_permissions::PermissionsOptions;
 use deno::deno_telemetry;
 use deno::deno_tls;
 use deno::deno_tls::deno_native_certs::load_native_certs;
@@ -66,7 +65,6 @@ use deno_core::PollEventLoopOptions;
 use deno_core::ResolutionKind;
 use deno_core::RuntimeOptions;
 use deno_facade::generate_binary_eszip;
-use deno_facade::import_map::load_import_map;
 use deno_facade::include_glob_patterns_in_eszip;
 use deno_facade::module_loader::standalone::create_module_loader_for_standalone_from_eszip_kind;
 use deno_facade::module_loader::RuntimeProviders;
@@ -92,6 +90,7 @@ use futures_util::FutureExt;
 use log::error;
 use once_cell::sync::Lazy;
 use once_cell::sync::OnceCell;
+use permissions::get_default_permisisons;
 use scopeguard::ScopeGuard;
 use serde::Serialize;
 use strum::IntoStaticStr;
@@ -119,6 +118,8 @@ use crate::worker::DuplexStreamEntry;
 use crate::worker::Worker;
 
 mod ops;
+
+pub mod permissions;
 
 const DEFAULT_ALLOC_CHECK_INT_MSEC: u64 = 1000;
 
@@ -464,13 +465,10 @@ where
       service_path,
       no_module_cache,
       env_vars,
-      import_map_path,
       maybe_eszip,
       maybe_entrypoint,
-      maybe_decorator,
       maybe_module_code,
       static_patterns,
-      maybe_jsx_import_source_config,
       maybe_s3_fs_config,
       maybe_tmp_fs_config,
       ..
@@ -514,52 +512,12 @@ where
 
     let permissions_options = maybe_user_conf
       .and_then(|it| it.permissions.clone())
-      .unwrap_or_else(|| PermissionsOptions {
-        allow_all: true,
-        allow_env: Some(Default::default()),
-        deny_env: None,
-        allow_net: Some(Default::default()),
-        deny_net: None,
-        allow_ffi: Some(Default::default()),
-        deny_ffi: None,
-        allow_read: Some(Default::default()),
-        deny_read: None,
-        allow_run: Some(Default::default()),
-        deny_run: None,
-        allow_sys: Some(Default::default()),
-        deny_sys: None,
-        allow_write: Some(Default::default()),
-        deny_write: None,
-        allow_import: Some(Default::default()),
-        ..Default::default()
-      });
+      .unwrap_or_else(|| get_default_permisisons(conf.to_worker_kind()));
 
     if is_some_entry_point {
       main_module_url = Url::parse(&maybe_entrypoint.unwrap())?;
     }
 
-    // let mut net_access_disabled = false;
-    // // let mut allow_net = None;
-    // let mut allow_remote_modules = true;
-
-    // if is_user_worker {
-    //   let user_conf = maybe_user_conf.unwrap();
-
-    //   net_access_disabled = user_conf.net_access_disabled;
-    //   allow_remote_modules = user_conf.allow_remote_modules;
-
-    //   // allow_net = match &user_conf.allow_net {
-    //   //   Some(allow_net) => Some(
-    //   //     allow_net
-    //   //       .iter()
-    //   //       .map(|s| FromStr::from_str(s.as_str()))
-    //   //       .collect::<Result<Vec<_>, _>>()?,
-    //   //   ),
-    //   //   None => None,
-    //   // };
-    // }
-
-    let mut maybe_import_map = None;
     let only_module_code = maybe_module_code.is_some()
       && maybe_eszip.is_none()
       && !is_some_entry_point;
@@ -584,16 +542,6 @@ where
           .unwrap_or(true),
       );
       emitter_factory.set_cache_strategy(Some(cache_strategy));
-      emitter_factory.set_decorator_type(maybe_decorator);
-
-      if let Some(jsx_import_source_config) =
-        maybe_jsx_import_source_config.clone()
-      {
-        emitter_factory.set_jsx_import_source(Some(jsx_import_source_config));
-      }
-
-      emitter_factory.set_import_map(load_import_map(import_map_path.clone())?);
-      maybe_import_map.clone_from(emitter_factory.import_map());
 
       let main_module_url_file_path =
         main_module_url.clone().to_file_path().unwrap();
@@ -613,7 +561,6 @@ where
       let mut eszip = generate_binary_eszip(
         Arc::new(emitter_factory),
         maybe_code,
-        import_map_path.clone(),
         // here we don't want to add extra cost, so we won't use a checksum
         None,
       )
@@ -629,50 +576,7 @@ where
       EszipPayloadKind::Eszip(eszip)
     };
 
-    // Create and populate a root cert store based on environment variable.
-    // Reference: https://github.com/denoland/deno/blob/v1.37.0/cli/args/mod.rs#L467
-    let mut root_cert_store = RootCertStore::empty();
-    let ca_stores: Vec<String> = (|| {
-      let env_ca_store = std::env::var("DENO_TLS_CA_STORE").ok()?;
-      Some(
-        env_ca_store
-          .split(',')
-          .map(|s| s.trim().to_string())
-          .filter(|s| !s.is_empty())
-          .collect(),
-      )
-    })()
-    .unwrap_or_else(|| vec!["mozilla".to_string()]);
-
-    for store in ca_stores.iter() {
-      match store.as_str() {
-        "mozilla" => {
-          root_cert_store = deno_tls::create_default_root_cert_store();
-        }
-        "system" => {
-          let roots =
-            load_native_certs().expect("could not load platform certs");
-          for root in roots {
-            root_cert_store
-              .add((&*root.0).into())
-              .expect("Failed to add platform cert to root cert store");
-          }
-        }
-        _ => {
-          bail!(
-            concat!(
-              "Unknown certificate store \"{0}\" specified ",
-              "(allowed: \"system,mozilla\")"
-            ),
-            store
-          );
-        }
-      }
-    }
-
-    let root_cert_store_provider: Arc<dyn RootCertStoreProvider> =
-      Arc::new(ValueRootCertStoreProvider::new(root_cert_store.clone()));
-
+    let root_cert_store_provider = get_root_cert_store_provider()?;
     let stdio = if is_user_worker {
       let stdio_pipe = deno_io::StdioPipe::file(
         tokio::fs::File::create("/dev/null").await?.into_std().await,
@@ -697,8 +601,6 @@ where
       eszip,
       base_dir_path.clone(),
       permissions_options,
-      maybe_import_map,
-      import_map_path,
       has_inspector || need_source_map,
     )
     .await?;
@@ -1918,6 +1820,53 @@ fn terminate_execution_if_cancelled(
   )
 }
 
+fn get_root_cert_store_provider(
+) -> Result<Arc<dyn RootCertStoreProvider>, AnyError> {
+  // Create and populate a root cert store based on environment variable.
+  // Reference: https://github.com/denoland/deno/blob/v1.37.0/cli/args/mod.rs#L467
+  let mut root_cert_store = RootCertStore::empty();
+  let ca_stores: Vec<String> = (|| {
+    let env_ca_store = std::env::var("DENO_TLS_CA_STORE").ok()?;
+    Some(
+      env_ca_store
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect(),
+    )
+  })()
+  .unwrap_or_else(|| vec!["mozilla".to_string()]);
+
+  for store in ca_stores.iter() {
+    match store.as_str() {
+      "mozilla" => {
+        root_cert_store = deno_tls::create_default_root_cert_store();
+      }
+      "system" => {
+        let roots = load_native_certs().expect("could not load platform certs");
+        for root in roots {
+          root_cert_store
+            .add((&*root.0).into())
+            .expect("Failed to add platform cert to root cert store");
+        }
+      }
+      _ => {
+        bail!(
+          concat!(
+            "Unknown certificate store \"{0}\" specified ",
+            "(allowed: \"system,mozilla\")"
+          ),
+          store
+        );
+      }
+    }
+  }
+
+  Ok(Arc::new(ValueRootCertStoreProvider::new(
+    root_cert_store.clone(),
+  )))
+}
+
 fn set_v8_flags() {
   let v8_flags = std::env::var("V8_FLAGS").unwrap_or("".to_string());
   let mut vec = vec![""];
@@ -1960,7 +1909,6 @@ mod test {
 
   use anyhow::Context;
   use deno::DenoOptionsBuilder;
-  use deno_config::deno_json::JsxImportSourceConfig;
   use deno_core::error::AnyError;
   use deno_core::serde_json;
   use deno_core::serde_v8;
@@ -1984,7 +1932,6 @@ mod test {
   use serial_test::serial;
   use tokio::sync::mpsc;
   use tokio::time::timeout;
-  use url::Url;
 
   use crate::runtime::DenoRuntime;
   use crate::worker::DuplexStreamEntry;
@@ -2014,7 +1961,6 @@ mod test {
     env_vars: Option<HashMap<String, String>>,
     worker_runtime_conf: Option<WorkerRuntimeOpts>,
     static_patterns: Vec<String>,
-    jsx_import_source_config: Option<JsxImportSourceConfig>,
     s3_fs_config: Option<S3FsConfig>,
     tmp_fs_config: Option<TmpFsConfig>,
     _phantom_context: PhantomData<C>,
@@ -2037,7 +1983,6 @@ mod test {
         env_vars: self.env_vars,
         worker_runtime_conf: self.worker_runtime_conf,
         static_patterns: self.static_patterns,
-        jsx_import_source_config: self.jsx_import_source_config,
         s3_fs_config: self.s3_fs_config,
         tmp_fs_config: self.tmp_fs_config,
         _phantom_context: PhantomData,
@@ -2056,7 +2001,6 @@ mod test {
         env_vars,
         worker_runtime_conf,
         static_patterns,
-        jsx_import_source_config,
         s3_fs_config,
         tmp_fs_config,
         _phantom_context,
@@ -2085,17 +2029,14 @@ mod test {
             },
 
             maybe_entrypoint: None,
-            maybe_decorator: None,
             maybe_module_code: None,
 
             no_module_cache: false,
             env_vars: env_vars.unwrap_or_default(),
 
             static_patterns,
-            maybe_jsx_import_source_config: jsx_import_source_config,
 
             timing: None,
-            import_map_path: None,
 
             maybe_s3_fs_config: s3_fs_config,
             maybe_tmp_fs_config: tmp_fs_config,
@@ -2149,14 +2090,6 @@ mod test {
       self
     }
 
-    fn set_jsx_import_source_config(
-      mut self,
-      config: JsxImportSourceConfig,
-    ) -> Self {
-      let _ = self.jsx_import_source_config.insert(config);
-      self
-    }
-
     fn add_static_pattern(mut self, pat: &str) -> Self {
       self.static_patterns.push(pat.to_string());
       self
@@ -2191,12 +2124,10 @@ mod test {
         WorkerContextInitOpts {
           service_path: PathBuf::from("./test_cases/"),
           no_module_cache: false,
-          import_map_path: None,
           env_vars: Default::default(),
           timing: None,
           maybe_eszip: None,
           maybe_entrypoint: None,
-          maybe_decorator: None,
           maybe_module_code: Some(FastString::from(String::from(
             "Deno.serve((req) => new Response('Hello World'));",
           ))),
@@ -2209,7 +2140,6 @@ mod test {
           },
           static_patterns: vec![],
 
-          maybe_jsx_import_source_config: None,
           maybe_s3_fs_config: None,
           maybe_tmp_fs_config: None,
         },
@@ -2242,7 +2172,7 @@ mod test {
     );
 
     let bin_eszip =
-      generate_binary_eszip(Arc::new(emitter_factory), None, None, None)
+      generate_binary_eszip(Arc::new(emitter_factory), None, None)
         .await
         .unwrap();
 
@@ -2255,12 +2185,10 @@ mod test {
         WorkerContextInitOpts {
           service_path: PathBuf::from("./test_cases/"),
           no_module_cache: false,
-          import_map_path: None,
           env_vars: Default::default(),
           timing: None,
           maybe_eszip: Some(EszipPayloadKind::VecKind(eszip_code)),
           maybe_entrypoint: None,
-          maybe_decorator: None,
           maybe_module_code: None,
           conf: {
             WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
@@ -2271,7 +2199,6 @@ mod test {
           },
           static_patterns: vec![],
 
-          maybe_jsx_import_source_config: None,
           maybe_s3_fs_config: None,
           maybe_tmp_fs_config: None,
         },
@@ -2321,7 +2248,7 @@ mod test {
     );
 
     let binary_eszip =
-      generate_binary_eszip(Arc::new(emitter_factory), None, None, None)
+      generate_binary_eszip(Arc::new(emitter_factory), None, None)
         .await
         .unwrap();
 
@@ -2331,12 +2258,10 @@ mod test {
         WorkerContextInitOpts {
           service_path,
           no_module_cache: false,
-          import_map_path: None,
           env_vars: Default::default(),
           timing: None,
           maybe_eszip: Some(EszipPayloadKind::VecKind(eszip_code)),
           maybe_entrypoint: None,
-          maybe_decorator: None,
           maybe_module_code: None,
           conf: {
             WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
@@ -2347,7 +2272,6 @@ mod test {
           },
           static_patterns: vec![],
 
-          maybe_jsx_import_source_config: None,
           maybe_s3_fs_config: None,
           maybe_tmp_fs_config: None,
         },
@@ -2488,13 +2412,6 @@ mod test {
     let mut main_rt = RuntimeBuilder::new()
       .set_std_env()
       .set_path("./test_cases/jsx-preact")
-      .set_jsx_import_source_config(JsxImportSourceConfig {
-        default_specifier: Some("https://esm.sh/preact".to_string()),
-        default_types_specifier: None,
-        module: "jsx-runtime".to_string(),
-        base_url: Url::from_file_path(std::env::current_dir().unwrap())
-          .unwrap(),
-      })
       .build()
       .await;
 
@@ -2510,8 +2427,8 @@ mod test {
         "<anon>",
         ModuleCodeString::from(
           r#"
-                        globalThis.hello;
-                    "#
+              globalThis.hello;
+          "#
           .to_string(),
         ),
       )
@@ -2593,30 +2510,30 @@ mod test {
       .await;
 
     let user_rt_execute_scripts = user_rt
-            .js_runtime
-            .execute_script(
-                "<anon>",
-                ModuleCodeString::from(
-                  r#"
-                    // Should not be able to set
-                    const data = {
-                      gid: Deno.gid(),
-                      uid: Deno.uid(),
-                      hostname: Deno.hostname(),
-                      loadavg: Deno.loadavg(),
-                      osUptime: Deno.osUptime(),
-                      osRelease: Deno.osRelease(),
-                      systemMemoryInfo: Deno.systemMemoryInfo(),
-                      consoleSize: Deno.consoleSize(),
-                      version: [Deno.version.deno, Deno.version.v8, Deno.version.typescript],
-                      networkInterfaces: Deno.networkInterfaces()
-                    };
-                    data;
-                  "#
-                  .to_string(),
-                ),
-            )
-            .unwrap();
+      .js_runtime
+      .execute_script(
+        "<anon>",
+        ModuleCodeString::from(
+          r#"
+            // Should not be able to set
+            const data = {
+              gid: Deno.gid(),
+              uid: Deno.uid(),
+              hostname: Deno.hostname(),
+              loadavg: Deno.loadavg(),
+              osUptime: Deno.osUptime(),
+              osRelease: Deno.osRelease(),
+              systemMemoryInfo: Deno.systemMemoryInfo(),
+              consoleSize: Deno.consoleSize(),
+              version: [Deno.version.deno, Deno.version.v8, Deno.version.typescript],
+              networkInterfaces: Deno.networkInterfaces()
+            };
+            data;
+          "#
+          .to_string(),
+        ),
+      )
+      .unwrap();
     let serde_deno_env = user_rt
       .to_value_mut::<serde_json::Value>(&user_rt_execute_scripts)
       .unwrap();

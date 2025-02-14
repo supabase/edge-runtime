@@ -1,6 +1,11 @@
-use crate::rt::SYNC_IO_RT;
-use crate::EszipStaticFiles;
-use crate::FileBackedVfs;
+use std::borrow::Cow;
+use std::fmt::Debug;
+use std::io;
+use std::path::Path;
+use std::path::PathBuf;
+use std::rc::Rc;
+use std::sync::Arc;
+
 use deno_core::normalize_path;
 use deno_fs::AccessCheckCb;
 use deno_fs::FsDirEntry;
@@ -11,13 +16,10 @@ use deno_io::fs::FsError;
 use deno_io::fs::FsResult;
 use deno_io::fs::FsStat;
 use deno_npm::resolution::ValidSerializedNpmResolutionSnapshot;
-use std::borrow::Cow;
-use std::fmt::Debug;
-use std::io;
-use std::path::Path;
-use std::path::PathBuf;
-use std::rc::Rc;
-use std::sync::Arc;
+use eszip_trait::EszipStaticFiles;
+
+use crate::rt::SYNC_IO_RT;
+use crate::FileBackedVfs;
 
 #[derive(Debug, Clone)]
 pub struct StaticFs {

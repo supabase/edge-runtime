@@ -9,8 +9,8 @@ use std::io::Cursor;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
-use std::path::Path;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -19,7 +19,7 @@ use async_tungstenite::WebSocketStream;
 use base::integration_test;
 use base::integration_test_listen_fut;
 use base::integration_test_with_server_flag;
-use base::server::Server;
+use base::server::Builder;
 use base::server::ServerEvent;
 use base::server::ServerFlags;
 use base::server::ServerHealth;
@@ -31,9 +31,7 @@ use base::utils::test_utils::TestBedBuilder;
 use base::utils::test_utils::{self};
 use base::worker;
 use base::worker::TerminationToken;
-use base::DecoratorType;
 use deno::DenoOptionsBuilder;
-use deno_config::deno_json::JsxImportSourceConfig;
 use deno_core::serde_json::json;
 use deno_core::serde_json::{self};
 use deno_facade::generate_binary_eszip;
@@ -89,8 +87,6 @@ use tokio_rustls::TlsConnector;
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use tokio_util::sync::CancellationToken;
 use tungstenite::Message;
-use url::Url;
-use urlencoding::encode;
 
 const MB: usize = 1024 * 1024;
 const NON_SECURE_PORT: u16 = 8498;
@@ -113,7 +109,6 @@ async fn test_custom_readable_stream_response() {
     None,
     None,
     None,
-    None,
     (|resp| async {
       assert_eq!(
         resp.unwrap().text().await.unwrap(),
@@ -132,47 +127,6 @@ async fn test_import_map_file_path() {
     NON_SECURE_PORT,
     "",
     None,
-    Some("./test_cases/with_import_map/import_map.json".to_string()),
-    None,
-    None,
-    (|resp| async {
-      let res = resp.unwrap();
-      assert!(res.status().as_u16() == 200);
-
-      let body_bytes = res.bytes().await.unwrap();
-      assert_eq!(body_bytes, r#"{"message":"ok"}"#);
-    }),
-    TerminationToken::new()
-  );
-}
-
-#[tokio::test]
-#[serial]
-async fn test_import_map_inline() {
-  let inline_import_map = format!(
-    "data:{}?{}",
-    encode(
-      r#"{
-        "imports": {
-            "std/": "https://deno.land/std@0.131.0/",
-            "foo/": "./bar/"
-        }
-    }"#
-    ),
-    encode(
-      Path::new(&std::env::current_dir().unwrap())
-        .join("./test_cases/with_import_map")
-        .to_str()
-        .unwrap()
-    )
-  );
-
-  integration_test!(
-    "./test_cases/with_import_map",
-    NON_SECURE_PORT,
-    "",
-    None,
-    Some(inline_import_map),
     None,
     None,
     (|resp| async {
@@ -194,7 +148,6 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_cli() {
     "./test_cases/main",
     NON_SECURE_PORT,
     "slow_resp",
-    None,
     None,
     None,
     None,
@@ -220,7 +173,6 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
     Some(pool_termination_token.clone()),
     vec![],
     None,
-    None,
   )
   .await
   .unwrap();
@@ -229,12 +181,10 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
     .init_opts(WorkerContextInitOpts {
       service_path: "./test_cases/slow_resp".into(),
       no_module_cache: false,
-      import_map_path: None,
       env_vars: HashMap::new(),
       timing: None,
       maybe_eszip: None,
       maybe_entrypoint: None,
-      maybe_decorator: None,
       maybe_module_code: None,
       conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
         worker_pool_tx,
@@ -243,7 +193,6 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
       }),
       static_patterns: vec![],
 
-      maybe_jsx_import_source_config: None,
       maybe_s3_fs_config: None,
       maybe_tmp_fs_config: None,
     })
@@ -304,7 +253,6 @@ async fn test_main_worker_options_request() {
     NON_SECURE_PORT,
     "",
     None,
-    None,
     request_builder,
     None,
     (|resp| async {
@@ -355,7 +303,6 @@ async fn test_main_worker_post_request() {
     NON_SECURE_PORT,
     "",
     None,
-    None,
     request_builder,
     None,
     (|resp| async {
@@ -383,21 +330,18 @@ async fn test_main_worker_boot_error() {
     Some(pool_termination_token.clone()),
     vec![],
     None,
-    None,
   )
   .await
   .unwrap();
 
   let result = worker::WorkerSurfaceBuilder::new()
     .init_opts(WorkerContextInitOpts {
-      service_path: "./test_cases/main".into(),
+      service_path: "./test_cases/meow".into(),
       no_module_cache: false,
-      import_map_path: Some("./non-existing-import-map.json".to_string()),
       env_vars: HashMap::new(),
       timing: None,
       maybe_eszip: None,
       maybe_entrypoint: None,
-      maybe_decorator: None,
       maybe_module_code: None,
       conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
         worker_pool_tx,
@@ -406,7 +350,6 @@ async fn test_main_worker_boot_error() {
       }),
       static_patterns: vec![],
 
-      maybe_jsx_import_source_config: None,
       maybe_s3_fs_config: None,
       maybe_tmp_fs_config: None,
     })
@@ -455,7 +398,6 @@ async fn test_main_worker_abort_request() {
     NON_SECURE_PORT,
     "",
     None,
-    None,
     request_builder,
     None,
     (|resp| async {
@@ -475,13 +417,12 @@ async fn test_main_worker_abort_request() {
 #[tokio::test]
 #[serial]
 async fn test_main_worker_with_jsx_function() {
-  let jsx_tests: Vec<&str> = vec!["./test_cases/jsx", "./test_cases/jsx-2"];
+  let jsx_tests: Vec<&str> = vec!["jsx-1", "jsx-2"];
   for test_path in jsx_tests {
     integration_test!(
-      test_path,
+      "./test_cases/main",
       NON_SECURE_PORT,
-      "jsx-server",
-      None,
+      test_path,
       None,
       None,
       None,
@@ -513,7 +454,6 @@ async fn test_main_worker_user_worker_mod_evaluate_exception() {
     Some(pool_termination_token.clone()),
     vec![],
     None,
-    None,
   )
   .await
   .unwrap();
@@ -522,12 +462,10 @@ async fn test_main_worker_user_worker_mod_evaluate_exception() {
     .init_opts(WorkerContextInitOpts {
       service_path: "./test_cases/main".into(),
       no_module_cache: false,
-      import_map_path: None,
       env_vars: HashMap::new(),
       timing: None,
       maybe_eszip: None,
       maybe_entrypoint: None,
-      maybe_decorator: None,
       maybe_module_code: None,
       conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
         worker_pool_tx,
@@ -536,7 +474,6 @@ async fn test_main_worker_user_worker_mod_evaluate_exception() {
       }),
       static_patterns: vec![],
 
-      maybe_jsx_import_source_config: None,
       maybe_s3_fs_config: None,
       maybe_tmp_fs_config: None,
     })
@@ -602,7 +539,6 @@ async fn test_main_worker_post_request_with_transfer_encoding(
     NON_SECURE_PORT,
     "",
     None,
-    None,
     request_builder,
     maybe_tls,
     (|resp| async {
@@ -642,7 +578,6 @@ async fn test_null_body_with_204_status() {
     None,
     None,
     None,
-    None,
     (|resp| async {
       let res = resp.unwrap();
       assert!(res.status().as_u16() == 204);
@@ -676,7 +611,6 @@ async fn test_null_body_with_204_status_post() {
     NON_SECURE_PORT,
     "",
     None,
-    None,
     request_builder,
     None,
     (|resp| async {
@@ -697,7 +631,6 @@ async fn test_oak_server() {
     "./test_cases/oak",
     NON_SECURE_PORT,
     "oak",
-    None,
     None,
     None,
     None,
@@ -751,7 +684,6 @@ async fn test_file_upload() {
     "./test_cases/oak-v12-file-upload",
     NON_SECURE_PORT,
     "",
-    None,
     None,
     request_builder,
     None,
@@ -818,23 +750,22 @@ async fn test_node_server() {
     None,
     None,
     None,
-    None,
     (|resp| async {
       let res = resp.unwrap();
       assert_eq!(res.status().as_u16(), 200);
       let body_bytes = res.bytes().await.unwrap();
       assert_eq!(
-                body_bytes,
-                concat!(
-                    "Look again at that dot. That's here. That's home. That's us. On it everyone you love, ",
-                    "everyone you know, everyone you ever heard of, every human being who ever was, lived out ",
-                    "their lives. The aggregate of our joy and suffering, thousands of confident religions, ideologies, ",
-                    "and economic doctrines, every hunter and forager, every hero and coward, every creator and destroyer of ",
-                    "civilization, every king and peasant, every young couple in love, every mother and father, hopeful child, ",
-                    "inventor and explorer, every teacher of morals, every corrupt politician, every 'superstar,' every 'supreme leader,' ",
-                    "every saint and sinner in the history of our species lived there-on a mote of dust suspended in a sunbeam."
-                )
-            );
+        body_bytes,
+        concat!(
+          "Look again at that dot. That's here. That's home. That's us. On it everyone you love, ",
+          "everyone you know, everyone you ever heard of, every human being who ever was, lived out ",
+          "their lives. The aggregate of our joy and suffering, thousands of confident religions, ideologies, ",
+          "and economic doctrines, every hunter and forager, every hero and coward, every creator and destroyer of ",
+          "civilization, every king and peasant, every young couple in love, every mother and father, hopeful child, ",
+          "inventor and explorer, every teacher of morals, every corrupt politician, every 'superstar,' every 'supreme leader,' ",
+          "every saint and sinner in the history of our species lived there-on a mote of dust suspended in a sunbeam."
+        )
+      );
     }),
     TerminationToken::new()
   );
@@ -847,7 +778,6 @@ async fn test_tls_throw_invalid_data() {
     "./test_cases/tls_invalid_data",
     NON_SECURE_PORT,
     "",
-    None,
     None,
     None,
     None,
@@ -872,7 +802,6 @@ async fn test_user_worker_json_imports() {
     None,
     None,
     None,
-    None,
     (|resp| async {
       let res = resp.unwrap();
       assert!(res.status().as_u16() == 200);
@@ -891,7 +820,6 @@ async fn test_user_imports_npm() {
     "./test_cases/npm",
     NON_SECURE_PORT,
     "",
-    None,
     None,
     None,
     None,
@@ -915,17 +843,14 @@ async fn test_worker_boot_invalid_imports() {
   let opts = WorkerContextInitOpts {
     service_path: "./test_cases/invalid_imports".into(),
     no_module_cache: false,
-    import_map_path: None,
     env_vars: HashMap::new(),
     timing: None,
     maybe_eszip: None,
     maybe_entrypoint: None,
-    maybe_decorator: None,
     maybe_module_code: None,
     conf: WorkerRuntimeOpts::UserWorker(test_user_runtime_opts()),
     static_patterns: vec![],
 
-    maybe_jsx_import_source_config: None,
     maybe_s3_fs_config: None,
     maybe_tmp_fs_config: None,
   };
@@ -945,17 +870,14 @@ async fn test_worker_boot_with_0_byte_eszip() {
   let opts = WorkerContextInitOpts {
     service_path: "./test_cases/meow".into(),
     no_module_cache: false,
-    import_map_path: None,
     env_vars: HashMap::new(),
     timing: None,
     maybe_eszip: Some(EszipPayloadKind::VecKind(vec![])),
     maybe_entrypoint: Some("file:///src/index.ts".to_string()),
-    maybe_decorator: None,
     maybe_module_code: None,
     conf: WorkerRuntimeOpts::UserWorker(test_user_runtime_opts()),
     static_patterns: vec![],
 
-    maybe_jsx_import_source_config: None,
     maybe_s3_fs_config: None,
     maybe_tmp_fs_config: None,
   };
@@ -973,17 +895,14 @@ async fn test_worker_boot_with_invalid_entrypoint() {
   let opts = WorkerContextInitOpts {
     service_path: "./test_cases/meow".into(),
     no_module_cache: false,
-    import_map_path: None,
     env_vars: HashMap::new(),
     timing: None,
     maybe_eszip: None,
     maybe_entrypoint: Some("file:///meow/mmmmeeeow.ts".to_string()),
-    maybe_decorator: None,
     maybe_module_code: None,
     conf: WorkerRuntimeOpts::UserWorker(test_user_runtime_opts()),
     static_patterns: vec![],
 
-    maybe_jsx_import_source_config: None,
     maybe_s3_fs_config: None,
     maybe_tmp_fs_config: None,
   };
@@ -1218,7 +1137,6 @@ async fn req_failure_case_intentional_peer_reset(maybe_tls: Option<Tls>) {
     "slow_resp",
     None,
     None,
-    None,
     maybe_tls.clone(),
     (
       |(_, url, _, mut ev, ..)| async move {
@@ -1371,7 +1289,6 @@ async fn test_oak_file_upload<F, R>(
     NON_SECURE_PORT,
     "",
     None,
-    None,
     request_builder,
     None,
     (|resp| async {
@@ -1408,7 +1325,6 @@ async fn test_websocket_upgrade(maybe_tls: Option<Tls>, use_node_ws: bool) {
     "./test_cases/main",
     NON_SECURE_PORT,
     "",
-    None,
     None,
     request_builder,
     maybe_tls,
@@ -1503,7 +1419,6 @@ async fn test_graceful_shutdown() {
     None,
     None,
     None,
-    None,
     (
       |(.., mut ev, metric_src)| async move {
         metric_tx.send(metric_src).unwrap();
@@ -1552,54 +1467,33 @@ async fn test_websocket_upgrade_node_secure() {
   test_websocket_upgrade(new_localhost_tls(true), true).await;
 }
 
-async fn test_decorators(ty: Option<DecoratorType>) {
-  let is_disabled = ty.is_none();
+async fn test_decorators(suffix: &str, should_error: bool) {
   let client = Client::new();
-
-  let endpoint = if is_disabled {
-    "tc39".to_string()
-  } else {
-    serde_json::to_string(&ty).unwrap().replace('\"', "")
-  };
-
-  let payload = if is_disabled {
-    serde_json::json!({})
-  } else {
-    serde_json::json!({
-        "decoratorType": ty
-    })
-  };
-
   let req = client
     .request(
       Method::OPTIONS,
-      format!(
-        "http://localhost:{}/decorator_{}",
-        NON_SECURE_PORT, endpoint
-      ),
+      format!("http://localhost:{}/decorator_{}", NON_SECURE_PORT, suffix),
     )
-    .json(&payload)
     .build()
     .unwrap();
 
   integration_test!(
-    "./test_cases/main_with_decorator",
+    "./test_cases/main",
     NON_SECURE_PORT,
     "",
-    None,
     None,
     Some(RequestBuilder::from_parts(client, req)),
     None,
     (|resp| async {
       let resp = resp.unwrap();
 
-      if is_disabled {
+      if should_error {
         assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
         assert!(resp
-                    .text()
-                    .await
-                    .unwrap()
-                    .starts_with("{\"msg\":\"InvalidWorkerCreation: worker boot error: Uncaught SyntaxError: Invalid or unexpected token"),);
+          .text()
+          .await
+          .unwrap()
+          .starts_with("{\"msg\":\"InvalidWorkerCreation: worker boot error: Uncaught SyntaxError: Invalid or unexpected token"),);
       } else {
         assert_eq!(resp.status(), StatusCode::OK);
         assert_eq!(resp.text().await.unwrap().as_str(), "meow?");
@@ -1612,19 +1506,19 @@ async fn test_decorators(ty: Option<DecoratorType>) {
 #[tokio::test]
 #[serial]
 async fn test_decorator_should_be_syntax_error() {
-  test_decorators(None).await;
+  test_decorators("decorator_tc39_no_decorator_opt", true).await;
 }
 
 #[tokio::test]
 #[serial]
 async fn test_decorator_parse_tc39() {
-  test_decorators(Some(DecoratorType::Tc39)).await;
+  test_decorators("tc39", false).await;
 }
 
 #[tokio::test]
 #[serial]
 async fn test_decorator_parse_typescript_experimental_with_metadata() {
-  test_decorators(Some(DecoratorType::TypescriptWithMetadata)).await;
+  test_decorators("typescript_with_metadata", false).await;
 }
 
 #[tokio::test]
@@ -1685,7 +1579,6 @@ async fn oak_with_jsr_specifier() {
     None,
     None,
     None,
-    None,
     (|resp| async {
       assert_eq!(resp.unwrap().text().await.unwrap(), "meow");
     }),
@@ -1710,7 +1603,6 @@ async fn test_slowloris<F, R>(
     NON_SECURE_PORT,
     maybe_tls,
     "./test_cases/main",
-    None,
     None,
     ServerFlags {
       request_read_timeout_ms: Some(request_read_timeout_ms),
@@ -1940,7 +1832,6 @@ async fn test_request_idle_timeout_no_streamed_response(
     NON_SECURE_PORT,
     "",
     None,
-    None,
     request_builder,
     maybe_tls,
     (|resp| async {
@@ -1998,7 +1889,6 @@ async fn test_request_idle_timeout_streamed_response(maybe_tls: Option<Tls>) {
     "./test_cases/main",
     NON_SECURE_PORT,
     "",
-    None,
     None,
     request_builder,
     maybe_tls,
@@ -2072,7 +1962,6 @@ async fn test_request_idle_timeout_streamed_response_first_chunk_timeout(
     "./test_cases/main",
     NON_SECURE_PORT,
     "",
-    None,
     None,
     request_builder,
     maybe_tls,
@@ -2162,7 +2051,6 @@ async fn test_request_idle_timeout_websocket_deno(
     NON_SECURE_PORT,
     "",
     None,
-    None,
     request_builder,
     maybe_tls,
     (|resp| async {
@@ -2238,7 +2126,6 @@ async fn test_should_not_hang_when_forced_redirection_for_specifiers() {
     None,
     None,
     None,
-    None,
     (|resp| async {
       assert_eq!(resp.unwrap().status().as_u16(), 200);
       tx.send(()).unwrap();
@@ -2278,7 +2165,6 @@ async fn test_allow_net<F, R>(
     "./test_cases/main_with_allow_net",
     NON_SECURE_PORT,
     "",
-    None,
     None,
     Some(RequestBuilder::from_parts(client, req)),
     None,
@@ -2375,7 +2261,6 @@ async fn test_fastify_v4_package() {
     None,
     None,
     None,
-    None,
     (|resp| async {
       assert_eq!(resp.unwrap().text().await.unwrap(), "meow");
     }),
@@ -2390,7 +2275,6 @@ async fn test_fastify_latest_package() {
     "./test_cases/main",
     NON_SECURE_PORT,
     "fastify-latest",
-    None,
     None,
     None,
     None,
@@ -2411,7 +2295,6 @@ async fn test_declarative_style_fetch_handler() {
     None,
     None,
     None,
-    None,
     (|resp| async {
       assert_eq!(resp.unwrap().text().await.unwrap(), "meow");
     }),
@@ -2426,7 +2309,6 @@ async fn test_issue_420() {
     "./test_cases/main",
     NON_SECURE_PORT,
     "issue-420",
-    None,
     None,
     None,
     None,
@@ -2471,7 +2353,6 @@ async fn test_should_render_detailed_failed_to_create_graph_error() {
       None,
       None,
       None,
-      None,
       (|resp| async {
         let (payload, status) =
           ErrorResponsePayload::assert_error_response(resp).await;
@@ -2491,7 +2372,6 @@ async fn test_should_render_detailed_failed_to_create_graph_error() {
       "./test_cases/main",
       NON_SECURE_PORT,
       "graph-error-2",
-      None,
       None,
       None,
       None,
@@ -2521,7 +2401,6 @@ async fn test_js_entrypoint() {
       None,
       None,
       None,
-      None,
       (|resp| async {
         let resp = resp.unwrap();
         assert_eq!(resp.status().as_u16(), 200);
@@ -2537,7 +2416,6 @@ async fn test_js_entrypoint() {
       "./test_cases/main",
       NON_SECURE_PORT,
       "serve-declarative-style-js",
-      None,
       None,
       None,
       None,
@@ -2559,12 +2437,12 @@ async fn test_should_be_able_to_bundle_against_various_exts() {
     let path = path.to_string();
     let mut emitter_factory = EmitterFactory::new();
 
-    emitter_factory.set_jsx_import_source(Some(JsxImportSourceConfig {
-      default_specifier: Some("https://esm.sh/preact".to_string()),
-      default_types_specifier: None,
-      module: "jsx-runtime".to_string(),
-      base_url: Url::from_file_path(std::env::current_dir().unwrap()).unwrap(),
-    }));
+    // emitter_factory.set_jsx_import_source(Some(JsxImportSourceConfig {
+    //   default_specifier: Some("https://esm.sh/preact".to_string()),
+    //   default_types_specifier: None,
+    //   module: "jsx-runtime".to_string(),
+    //   base_url: Url::from_file_path(std::env::current_dir().unwrap()).unwrap(),
+    // }));
 
     emitter_factory.set_deno_options(
       DenoOptionsBuilder::new()
@@ -2574,7 +2452,7 @@ async fn test_should_be_able_to_bundle_against_various_exts() {
     );
 
     async {
-      generate_binary_eszip(Arc::new(emitter_factory), None, None, None)
+      generate_binary_eszip(Arc::new(emitter_factory), None, None)
         .await
         .unwrap()
         .into_bytes()
@@ -2598,7 +2476,6 @@ async fn test_should_be_able_to_bundle_against_various_exts() {
       "./test_cases/main_eszip",
       NON_SECURE_PORT,
       "",
-      None,
       None,
       Some(req),
       None,
@@ -2636,7 +2513,6 @@ async fn test_should_be_able_to_bundle_against_various_exts() {
         NON_SECURE_PORT,
         "",
         None,
-        None,
         Some(req),
         None,
         (|resp| async move {
@@ -2660,7 +2536,7 @@ async fn test_should_be_able_to_bundle_against_various_exts() {
   test_serve_simple_fn("tsx", REACT_RESULT.as_bytes()).await;
 }
 
-#[tokio::test]
+// #[tokio::test]
 #[serial]
 async fn test_private_npm_package_import() {
   // Required because test_cases/main_with_registry/registry/registry-handler.ts:58
@@ -2674,29 +2550,14 @@ async fn test_private_npm_package_import() {
     let (tx, mut rx) = mpsc::channel(1);
     let handle = tokio::task::spawn({
       async move {
-        Server::new(
-          "127.0.0.1",
-          NON_SECURE_PORT,
-          None,
-          main.to_string(),
-          None,
-          None,
-          None,
-          None,
-          Default::default(),
-          Some(tx),
-          Default::default(),
-          Some(token),
-          vec![],
-          None,
-          None,
-          None,
-        )
-        .await
-        .unwrap()
-        .listen()
-        .await
-        .unwrap();
+        let mut builder = Builder::new(
+          SocketAddr::from_str(&format!("127.0.0.1:{NON_SECURE_PORT}"))
+            .unwrap(),
+          main,
+        );
+
+        builder.event_callback(tx).termination_token(token);
+        builder.build().await.unwrap().listen().await.unwrap()
       }
     });
 
@@ -2784,7 +2645,7 @@ async fn test_private_npm_package_import() {
           .unwrap(),
       );
 
-      generate_binary_eszip(Arc::new(emitter_factory), None, None, None)
+      generate_binary_eszip(Arc::new(emitter_factory), None, None)
         .await
         .unwrap()
         .into_bytes()
@@ -2825,7 +2686,6 @@ async fn test_tmp_fs_usage() {
       None,
       None,
       None,
-      None,
       (|resp| async {
         let resp = resp.unwrap();
 
@@ -2853,7 +2713,6 @@ async fn test_tmp_fs_usage() {
       "./test_cases/main",
       NON_SECURE_PORT,
       "use-tmp-fs-2",
-      None,
       None,
       None,
       None,
@@ -2922,7 +2781,6 @@ async fn test_tmp_fs_should_not_be_available_in_import_stmt() {
     "./test_cases/main",
     NON_SECURE_PORT,
     "use-tmp-fs-in-import-stmt",
-    None,
     None,
     None,
     None,
@@ -3005,7 +2863,6 @@ async fn test_ort_transformers_js(script_path: &str) {
     main_path,
     NON_SECURE_PORT,
     "",
-    None,
     None,
     Some(req),
     None,

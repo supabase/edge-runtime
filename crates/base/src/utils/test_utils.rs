@@ -227,7 +227,6 @@ impl TestBedBuilder {
           Some(token.clone()),
           vec![],
           None,
-          None,
         )
         .await
         .unwrap(),
@@ -242,12 +241,10 @@ impl TestBedBuilder {
       .init_opts(WorkerContextInitOpts {
         service_path: self.main_service_path,
         no_module_cache: false,
-        import_map_path: None,
         env_vars: std::env::vars().collect(),
         timing: None,
         maybe_eszip: None,
         maybe_entrypoint: None,
-        maybe_decorator: None,
         maybe_module_code: None,
         conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
           worker_pool_tx,
@@ -256,7 +253,6 @@ impl TestBedBuilder {
         }),
         static_patterns: vec![],
 
-        maybe_jsx_import_source_config: None,
         maybe_s3_fs_config: None,
         maybe_tmp_fs_config: None,
       })

@@ -11,6 +11,8 @@ use args::NpmCachingStrategy;
 use args::TypeCheckMode;
 use cache::DenoDirProvider;
 use deno_config::deno_json::NodeModulesDirMode;
+use deno_config::deno_json::TsConfigForEmit;
+use deno_config::deno_json::TsConfigType;
 use deno_config::workspace::CreateResolverOptions;
 use deno_config::workspace::PackageJsonDepResolution;
 use deno_config::workspace::VendorEnablement;
@@ -23,6 +25,8 @@ use deno_core::error::AnyError;
 use deno_core::ModuleSpecifier;
 use deno_npm::npm_rc::ResolvedNpmRc;
 use deno_path_util::normalize_path;
+use dotenvy::from_filename;
+use file_fetcher::FileFetcher;
 
 pub mod args;
 pub mod auth_tokens;
@@ -37,6 +41,7 @@ pub mod npm;
 pub mod npmrc;
 pub mod resolver;
 pub mod runtime;
+pub mod standalone;
 pub mod util;
 pub mod versions;
 
@@ -66,8 +71,6 @@ pub use deno_websocket;
 pub use deno_webstorage;
 
 pub use deno_resolver;
-use dotenvy::from_filename;
-use file_fetcher::FileFetcher;
 pub use node_resolver;
 
 pub use deno_permissions::PermissionsContainer;
@@ -180,14 +183,18 @@ impl DenoOptions {
       |path| Ok(std::fs::read_to_string(path)?),
     )?)
   }
+
+  pub fn resolve_ts_config_for_emit(
+    &self,
+    config_type: TsConfigType,
+  ) -> Result<TsConfigForEmit, AnyError> {
+    self.workspace().resolve_ts_config_for_emit(config_type)
+  }
 }
 
 impl DenoOptions {
   fn from_builder(builder: DenoOptionsBuilder) -> Result<Self, AnyError> {
-    let config = builder
-      .config
-      .clone()
-      .unwrap_or_else(|| ConfigMode::Discover);
+    let config = builder.config.clone().unwrap_or(ConfigMode::Discover);
     let no_npm = builder.no_npm.unwrap_or_default();
     let initial_cwd =
       std::env::current_dir().with_context(|| "failed getting cwd")?;
@@ -337,6 +344,12 @@ pub struct DenoOptionsBuilder {
   env_file: Option<Vec<String>>,
   frozen_lockfile: Option<bool>,
   force_global_cache: Option<bool>,
+}
+
+impl Default for DenoOptionsBuilder {
+  fn default() -> Self {
+    Self::new()
+  }
 }
 
 impl DenoOptionsBuilder {

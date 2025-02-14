@@ -3,8 +3,6 @@
 use crate::args::config_to_deno_graph_workspace_member;
 use crate::args::jsr_url;
 use crate::args::CliLockfile;
-// use crate::args::GraphOptionsProvider;
-// use crate::args::CliOptions;
 pub use crate::args::NpmCachingStrategy;
 use crate::args::DENO_DISABLE_PEDANTIC_NODE_WARNINGS;
 use crate::cache;
@@ -19,9 +17,6 @@ use crate::resolver::CjsTracker;
 use crate::resolver::CliResolver;
 use crate::resolver::CliSloppyImportsResolver;
 use crate::resolver::SloppyImportsCachedFs;
-// use crate::tools::check;
-// use crate::tools::check::TypeChecker;
-// use crate::util::file_watcher::WatcherCommunicator;
 use crate::util::fs::canonicalize_path;
 use crate::DenoOptions;
 

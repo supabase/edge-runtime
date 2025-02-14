@@ -13,7 +13,7 @@ deno.workspace = true
 deno_config.workspace = true
 deno_core.workspace = true
 
-eszip_async_trait.workspace = true
+eszip_trait.workspace = true
 fs.workspace = true
 
 ext_node.workspace = true
@@ -27,6 +27,7 @@ futures.workspace = true
 futures-util.workspace = true
 glob.workspace = true
 import_map.workspace = true
+indexmap.workspace = true
 log.workspace = true
 monch.workspace = true
 once_cell.workspace = true
@@ -36,6 +37,7 @@ serde.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+url.workspace = true
 urlencoding.workspace = true
 
 dashmap = "5.5.3"

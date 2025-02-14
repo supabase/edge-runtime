@@ -1,11 +1,8 @@
 use std::future::pending;
 use std::future::Future;
-use std::net::IpAddr;
-use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::str;
-use std::str::FromStr;
 use std::sync::Arc;
 use std::task::Poll;
 use std::time::Duration;
@@ -14,8 +11,6 @@ use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Context;
 use anyhow::Error;
-use deno_config::deno_json::JsxImportSourceConfig;
-use deno_facade::DecoratorType;
 use either::Either;
 use either::Either::Left;
 use either::Either::Right;
@@ -54,7 +49,6 @@ use tokio_rustls::rustls::pki_types::PrivateKeyDer;
 use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::TlsAcceptor;
 use tokio_util::sync::CancellationToken;
-use url::Url;
 
 use crate::inspector_server::Inspector;
 use crate::worker;
@@ -361,8 +355,7 @@ impl Tls {
 pub type SignumOrExitCode = Either<i32, std::process::ExitCode>;
 
 pub struct Server {
-  ip: Ipv4Addr,
-  port: u16,
+  addr: SocketAddr,
   tls: Option<Tls>,
   main_worker_surface: worker::MainWorkerSurface,
   callback_tx: Option<Sender<ServerHealth>>,
@@ -372,71 +365,52 @@ pub struct Server {
 }
 
 impl Server {
-  #[allow(clippy::too_many_arguments)]
-  pub async fn new(
-    ip: &str,
-    port: u16,
-    tls: Option<Tls>,
-    main_service_path: String,
-    maybe_event_service_path: Option<String>,
-    maybe_decorator: Option<DecoratorType>,
-    maybe_user_worker_policy: Option<WorkerPoolPolicy>,
-    import_map_path: Option<String>,
-    flags: ServerFlags,
-    callback_tx: Option<Sender<ServerHealth>>,
-    entrypoints: WorkerEntrypoints,
-    termination_token: Option<TerminationToken>,
-    static_patterns: Vec<String>,
-    inspector: Option<Inspector>,
-    jsx_specifier: Option<String>,
-    jsx_module: Option<String>,
-  ) -> Result<Self, Error> {
+  async fn from_builder(builder: Builder) -> Result<Self, Error> {
+    let Builder {
+      addr,
+      tls,
+      main_service_path,
+      event_worker_path,
+      user_worker_policy,
+      flags,
+      callback_tx,
+      entrypoints,
+      termination_token,
+      static_patterns,
+      inspector,
+    } = builder;
+
     let flags = Arc::new(flags);
     let maybe_event_entrypoint = entrypoints.events;
     let maybe_main_entrypoint = entrypoints.main;
-    let termination_tokens = TerminationTokens::new(
-      termination_token,
-      maybe_event_service_path.is_some(),
-    );
+    let termination_tokens =
+      TerminationTokens::new(termination_token, event_worker_path.is_some());
 
     // create an event worker
-    let event_worker_surface = if let Some(service_path) =
-      maybe_event_service_path
-    {
+    let event_worker_surface = if let Some(service_path) = event_worker_path {
       let mut builder = worker::EventWorkerSurfaceBuilder::new(&service_path);
 
       builder
         .set_server_flags(Some(Left(flags.clone())))
         .set_termination_token(Some(termination_tokens.event.clone().unwrap()));
 
-      builder
-        .set_import_map_path(import_map_path.as_deref())
-        .set_entrypoint(maybe_event_entrypoint.as_deref())
-        .set_decorator(maybe_decorator);
+      builder.set_entrypoint(maybe_event_entrypoint.as_deref());
 
       Some(builder.build().await?)
     } else {
       None
     };
 
-    let jsx_config = jsx_module.map(|jsx_mod| JsxImportSourceConfig {
-      default_specifier: jsx_specifier,
-      default_types_specifier: None,
-      module: jsx_mod,
-      base_url: Url::from_file_path(std::env::current_dir().unwrap()).unwrap(),
-    });
-
     // create a user worker pool
     let (shared_metric_src, worker_pool_tx) = worker::create_user_worker_pool(
       flags.clone(),
-      maybe_user_worker_policy.unwrap_or_default(),
+      user_worker_policy.unwrap_or_default(),
       event_worker_surface
         .as_ref()
         .map(|it| it.event_message_sender()),
       Some(termination_tokens.pool.clone()),
       static_patterns,
       inspector.clone(),
-      jsx_config.clone(),
     )
     .await?;
 
@@ -457,11 +431,8 @@ impl Server {
       }
 
       builder
-        .set_import_map_path(import_map_path.as_deref())
         .set_entrypoint(maybe_main_entrypoint.as_deref())
-        .set_decorator(maybe_decorator)
         .set_no_module_cache(Some(flags.no_module_cache))
-        .set_jsx_import_source_config(jsx_config)
         .set_worker_pool_sender(Some(worker_pool_tx))
         .set_shared_metric_source(Some(shared_metric_src.clone()))
         .set_event_worker_metric_source(
@@ -472,8 +443,7 @@ impl Server {
     };
 
     Ok(Self {
-      ip: Ipv4Addr::from_str(ip)?,
-      port,
+      addr,
       tls,
       main_worker_surface,
       callback_tx,
@@ -488,12 +458,14 @@ impl Server {
   }
 
   pub async fn listen(&mut self) -> Result<Option<SignumOrExitCode>, Error> {
-    let addr = SocketAddr::new(IpAddr::V4(self.ip), self.port);
-    let non_secure_listener = TcpListener::bind(&addr).await?;
+    let non_secure_listener = TcpListener::bind(&self.addr).await?;
     let mut secure_listener = if let Some(tls) = self.tls.take() {
-      let addr = SocketAddr::new(IpAddr::V4(self.ip), tls.port);
+      let addr = SocketAddr::new(self.addr.ip(), tls.port);
       Some((
-        TlsListener::new(tls.into_acceptor()?, TcpListener::bind(addr).await?),
+        TlsListener::new(
+          tls.into_acceptor()?,
+          TcpListener::bind(self.addr).await?,
+        ),
         addr,
       ))
     } else {
@@ -747,6 +719,128 @@ impl Server {
     }
 
     Ok(ret)
+  }
+}
+
+pub struct Builder {
+  addr: SocketAddr,
+  tls: Option<Tls>,
+  main_service_path: String,
+  event_worker_path: Option<String>,
+  // decorator: Option<DecoratorType>,
+  user_worker_policy: Option<WorkerPoolPolicy>,
+  // import_map_path: Option<String>,
+  flags: ServerFlags,
+  callback_tx: Option<Sender<ServerHealth>>,
+  entrypoints: WorkerEntrypoints,
+  termination_token: Option<TerminationToken>,
+  static_patterns: Vec<String>,
+  inspector: Option<Inspector>,
+  // jsx_specifier: Option<String>,
+  // jsx_module: Option<String>,
+}
+
+impl Builder {
+  pub fn new(addr: SocketAddr, main_service_path: &str) -> Self {
+    Self {
+      addr,
+      tls: None,
+      main_service_path: main_service_path.to_owned(),
+      event_worker_path: None,
+      // decorator: None,
+      user_worker_policy: None,
+      // import_map_path: None,
+      flags: ServerFlags::default(),
+      callback_tx: None,
+      entrypoints: WorkerEntrypoints::default(),
+      termination_token: None,
+      static_patterns: vec![],
+      inspector: None,
+      // jsx_specifier: None,
+      // jsx_module: None,
+    }
+  }
+
+  pub fn tls(&mut self, val: Tls) -> &mut Self {
+    self.tls = Some(val);
+    self
+  }
+
+  pub fn event_worker_path(&mut self, val: &str) -> &mut Self {
+    self.event_worker_path = Some(val.to_owned());
+    self
+  }
+
+  // pub fn decorator(&mut self, val: DecoratorType) -> &mut Self {
+  //     self.decorator = Some(val);
+  //     self
+  // }
+
+  pub fn user_worker_policy(&mut self, val: WorkerPoolPolicy) -> &mut Self {
+    self.user_worker_policy = Some(val);
+    self
+  }
+
+  // pub fn import_map_path(&mut self, val: &str) -> &mut Self {
+  //     self.import_map_path = Some(val.to_owned());
+  //     self
+  // }
+
+  pub fn event_callback(
+    &mut self,
+    val: mpsc::Sender<ServerHealth>,
+  ) -> &mut Self {
+    self.callback_tx = Some(val);
+    self
+  }
+
+  pub fn termination_token(&mut self, val: TerminationToken) -> &mut Self {
+    self.termination_token = Some(val);
+    self
+  }
+
+  pub fn add_static_pattern(&mut self, val: &str) -> &mut Self {
+    self.static_patterns.push(val.to_owned());
+    self
+  }
+
+  pub fn extend_static_patterns<I, T>(&mut self, val: I) -> &mut Self
+  where
+    I: IntoIterator<Item = T>,
+    T: ToOwned<Owned = String>,
+  {
+    self
+      .static_patterns
+      .extend(val.into_iter().map(|it| it.to_owned()));
+
+    self
+  }
+
+  pub fn inspector(&mut self, val: InspectorOption) -> &mut Self {
+    self.inspector = Some(Inspector::from_option(val));
+    self
+  }
+
+  // pub fn jsx_specifier(&mut self, val: &str) -> &mut Self {
+  //     self.jsx_specifier = Some(val.to_owned());
+  //     self
+  // }
+
+  // pub fn jsx_module(&mut self, val: &str) -> &mut Self {
+  //     self.jsx_module = Some(val.to_owned());
+  //     self
+  // }
+
+  pub fn flags_mut(&mut self) -> &mut ServerFlags {
+    &mut self.flags
+  }
+
+  pub fn entrypoints_mut(&mut self) -> &mut WorkerEntrypoints {
+    &mut self.entrypoints
+  }
+
+  pub async fn build(self) -> Result<Server, Error> {
+    Server::from_builder(self).await
   }
 }
 

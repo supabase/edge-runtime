@@ -3,28 +3,24 @@ use std::io::Write;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::str::FromStr;
 use std::sync::Arc;
 
-use anyhow::anyhow;
 use anyhow::bail;
+use anyhow::Context;
 use anyhow::Error;
-use base::commands::start_server;
+use base::server::Builder;
 use base::server::ServerFlags;
 use base::server::Tls;
-use base::server::WorkerEntrypoints;
-use base::utils::path::find_up;
 use base::utils::units::percentage_value;
 use base::worker::pool::SupervisorPolicy;
 use base::worker::pool::WorkerPoolPolicy;
 use base::CacheSetting;
-use base::DecoratorType;
 use base::InspectorOption;
-use clap::ArgMatches;
+use base::WorkerKind;
 use deno::DenoOptionsBuilder;
-use deno_core::url::Url;
 use deno_facade::extract_from_file;
 use deno_facade::generate_binary_eszip;
-use deno_facade::import_map::load_import_map;
 use deno_facade::include_glob_patterns_in_eszip;
 use deno_facade::EmitterFactory;
 use env::resolve_deno_runtime_env;
@@ -83,6 +79,8 @@ fn main() -> Result<ExitCode, anyhow::Error> {
       Some(("start", sub_matches)) => {
         let ip = sub_matches.get_one::<String>("ip").cloned().unwrap();
         let port = sub_matches.get_one::<u16>("port").copied().unwrap();
+        let addr = SocketAddr::from_str(&format!("{ip}:{port}"))
+          .context("failed to parse the address to bind the server")?;
 
         let maybe_tls =
           if let Some(port) = sub_matches.get_one::<u16>("tls").copied() {
@@ -107,8 +105,6 @@ fn main() -> Result<ExitCode, anyhow::Error> {
           .get_one::<String>("main-service")
           .cloned()
           .unwrap();
-        let import_map_path =
-          sub_matches.get_one::<String>("import-map").cloned();
 
         let no_module_cache = sub_matches
           .get_one::<bool>("disable-module-cache")
@@ -178,10 +174,6 @@ fn main() -> Result<ExitCode, anyhow::Error> {
             vec![]
           };
 
-        let jsx_specifier =
-          sub_matches.get_one::<String>("jsx-specifier").cloned();
-        let jsx_module = sub_matches.get_one::<String>("jsx-module").cloned();
-
         let static_patterns: Vec<String> =
           static_patterns.into_iter().map(|s| s.to_string()).collect();
 
@@ -223,51 +215,51 @@ fn main() -> Result<ExitCode, anyhow::Error> {
           beforeunload_memory_pct: maybe_beforeunload_memory_pct,
         };
 
-        let maybe_received_signum_or_exit_code = start_server(
-          ip.as_str(),
-          port,
-          maybe_tls,
-          main_service_path,
-          event_service_manager_path,
-          get_decorator_option(sub_matches),
-          Some(WorkerPoolPolicy::new(
-            maybe_supervisor_policy,
-            if let Some(true) = maybe_supervisor_policy
-              .as_ref()
-              .map(SupervisorPolicy::is_oneshot)
-            {
-              if let Some(parallelism) = maybe_max_parallelism {
-                if parallelism == 0 || parallelism > 1 {
-                  warn!(
-                    "{}",
-                    concat!(
-                      "if `oneshot` policy is enabled, the maximum ",
-                      "parallelism is fixed to `1` as forcibly"
-                    )
-                  );
-                }
-              }
+        let mut builder = Builder::new(addr, &main_service_path);
 
-              Some(1)
-            } else {
-              maybe_max_parallelism
-            },
-            flags,
-          )),
-          import_map_path,
-          flags,
-          None,
-          WorkerEntrypoints {
-            main: maybe_main_entrypoint,
-            events: maybe_events_entrypoint,
+        builder.user_worker_policy(WorkerPoolPolicy::new(
+          maybe_supervisor_policy,
+          if let Some(true) = maybe_supervisor_policy
+            .as_ref()
+            .map(SupervisorPolicy::is_oneshot)
+          {
+            if let Some(parallelism) = maybe_max_parallelism {
+              if parallelism == 0 || parallelism > 1 {
+                warn!(
+                  "{}",
+                  concat!(
+                    "if `oneshot` policy is enabled, the maximum ",
+                    "parallelism is fixed to `1` as forcibly"
+                  )
+                );
+              }
+            }
+
+            Some(1)
+          } else {
+            maybe_max_parallelism
           },
-          None,
-          static_patterns,
-          maybe_inspector_option,
-          jsx_specifier,
-          jsx_module,
-        )
-        .await?;
+          flags,
+        ));
+
+        if let Some(tls) = maybe_tls {
+          builder.tls(tls);
+        }
+        if let Some(worker_path) = event_service_manager_path {
+          builder.event_worker_path(&worker_path);
+        }
+        if let Some(inspector_option) = maybe_inspector_option {
+          builder.inspector(inspector_option);
+        }
+
+        builder.extend_static_patterns(static_patterns);
+        builder.entrypoints_mut().main = maybe_main_entrypoint;
+        builder.entrypoints_mut().events = maybe_events_entrypoint;
+
+        *builder.flags_mut() = flags;
+
+        let maybe_received_signum_or_exit_code =
+          builder.build().await?.listen().await?;
 
         maybe_received_signum_or_exit_code
           .map(|it| it.map_left(|it| ExitCode::from(it as u8)).into_inner())
@@ -277,9 +269,6 @@ fn main() -> Result<ExitCode, anyhow::Error> {
       Some(("bundle", sub_matches)) => {
         let output_path =
           sub_matches.get_one::<String>("output").cloned().unwrap();
-        let import_map_path =
-          sub_matches.get_one::<String>("import-map").cloned();
-        let maybe_decorator = get_decorator_option(sub_matches);
         let static_patterns =
           if let Some(val_ref) = sub_matches.get_many::<String>("static") {
             val_ref.map(|s| s.as_str()).collect::<Vec<&str>>()
@@ -307,19 +296,6 @@ fn main() -> Result<ExitCode, anyhow::Error> {
 
         let mut emitter_factory = EmitterFactory::new();
 
-        let maybe_import_map = load_import_map(import_map_path.clone())
-          .map_err(|e| anyhow!("import map path is invalid ({})", e))?;
-        let mut maybe_import_map_url = None;
-        if maybe_import_map.is_some() {
-          let abs_import_map_path = std::env::current_dir()
-            .map(|p| p.join(import_map_path.unwrap()))?;
-          maybe_import_map_url = Some(
-            Url::from_file_path(abs_import_map_path)
-              .map_err(|_| anyhow!("failed get import map url"))?
-              .to_string(),
-          );
-        }
-
         if sub_matches
           .get_one::<bool>("disable-module-cache")
           .cloned()
@@ -328,22 +304,14 @@ fn main() -> Result<ExitCode, anyhow::Error> {
           emitter_factory.set_cache_strategy(Some(CacheSetting::ReloadAll));
         }
 
-        if let Some(npmrc_path) = find_up(".npmrc", entrypoint_dir_path) {
-          if npmrc_path.exists() && npmrc_path.is_file() {
-            todo!()
-            // emitter_factory.set_npmrc_path(Some(npmrc_path));
-            // emitter_factory
-            //   .set_npmrc_env_vars(Some(std::env::vars().collect()));
-          }
-        }
-
         let maybe_checksum_kind = sub_matches
           .get_one::<EszipV2ChecksumKind>("checksum")
           .copied()
           .and_then(EszipV2ChecksumKind::into);
 
-        emitter_factory.set_decorator_type(maybe_decorator);
-        emitter_factory.set_import_map(maybe_import_map.clone());
+        emitter_factory.set_permissions_options(Some(
+          base::get_default_permisisons(WorkerKind::MainWorker),
+        ));
         emitter_factory.set_deno_options(
           DenoOptionsBuilder::new()
             .entrypoint(entrypoint_script_path.clone())
@@ -353,7 +321,6 @@ fn main() -> Result<ExitCode, anyhow::Error> {
         let mut eszip = generate_binary_eszip(
           Arc::new(emitter_factory),
           None,
-          maybe_import_map_url,
           maybe_checksum_kind,
         )
         .await?;
@@ -409,18 +376,6 @@ fn main() -> Result<ExitCode, anyhow::Error> {
   });
 
   res
-}
-
-fn get_decorator_option(sub_matches: &ArgMatches) -> Option<DecoratorType> {
-  sub_matches
-    .get_one::<String>("decorator")
-    .cloned()
-    .and_then(|it| match it.to_lowercase().as_str() {
-      "tc39" => Some(DecoratorType::Tc39),
-      "typescript" => Some(DecoratorType::Typescript),
-      "typescript_with_metadata" => Some(DecoratorType::TypescriptWithMetadata),
-      _ => None,
-    })
 }
 
 fn get_inspector_option(

@@ -6,10 +6,8 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use anyhow::Error;
 use deno::deno_permissions::PermissionsOptions;
-use deno_config::deno_json::JsxImportSourceConfig;
 use deno_core::unsync::sync::AtomicFlag;
 use deno_core::FastString;
-use deno_facade::DecoratorType;
 use deno_facade::EszipPayloadKind;
 use enum_as_inner::EnumAsInner;
 use ext_event_worker::events::UncaughtExceptionEvent;
@@ -84,8 +82,6 @@ pub struct UserWorkerRuntimeOpts {
   pub beforeunload_memory_pct: Option<u8>,
 
   pub force_create: bool,
-  pub net_access_disabled: bool,
-  pub allow_net: Option<Vec<String>>,
   pub allow_remote_modules: bool,
   pub custom_module_root: Option<String>,
   pub permissions: Option<PermissionsOptions>,
@@ -124,8 +120,6 @@ impl Default for UserWorkerRuntimeOpts {
       beforeunload_memory_pct: None,
 
       force_create: false,
-      net_access_disabled: false,
-      allow_net: None,
       allow_remote_modules: true,
       custom_module_root: None,
       permissions: None,
@@ -238,13 +232,13 @@ pub struct WorkerContextInitOpts {
   pub env_vars: HashMap<String, String>,
   pub conf: WorkerRuntimeOpts,
   pub static_patterns: Vec<String>,
-  pub import_map_path: Option<String>,
+  // pub import_map_path: Option<String>,
   pub timing: Option<Timing>,
   pub maybe_eszip: Option<EszipPayloadKind>,
   pub maybe_module_code: Option<FastString>,
   pub maybe_entrypoint: Option<String>,
-  pub maybe_decorator: Option<DecoratorType>,
-  pub maybe_jsx_import_source_config: Option<JsxImportSourceConfig>,
+  // pub maybe_decorator: Option<DecoratorType>,
+  // pub maybe_jsx_import_source_config: Option<JsxImportSourceConfig>,
   pub maybe_s3_fs_config: Option<S3FsConfig>,
   pub maybe_tmp_fs_config: Option<TmpFsConfig>,
 }

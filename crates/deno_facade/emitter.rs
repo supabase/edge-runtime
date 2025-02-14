@@ -2,7 +2,9 @@ use std::future::Future;
 use std::sync::Arc;
 
 use anyhow::Context;
+use deno::args::check_warn_tsconfig;
 use deno::args::CacheSetting;
+use deno::args::TsConfigType;
 use deno::cache::Caches;
 use deno::cache::DenoCacheEnvFsAdapter;
 use deno::cache::DenoDir;
@@ -13,10 +15,8 @@ use deno::cache::ModuleInfoCache;
 use deno::cache::ParsedSourceCache;
 use deno::deno_ast::EmitOptions;
 use deno::deno_ast::SourceMapOption;
-use deno::deno_ast::TranspileOptions;
 use deno::deno_cache_dir::npm::NpmCacheDir;
 use deno::deno_cache_dir::HttpCache;
-use deno::deno_config::deno_json::JsxImportSourceConfig;
 use deno::deno_config::workspace::PackageJsonDepResolution;
 use deno::deno_config::workspace::WorkspaceResolver;
 use deno::deno_npm::npm_rc::ResolvedNpmRc;
@@ -52,13 +52,8 @@ use deno_core::futures::FutureExt;
 use ext_node::DenoFsNodeResolverEnv;
 use ext_node::NodeResolver;
 use ext_node::PackageJsonResolver;
-use import_map::ImportMap;
-
-use crate::jsx_util::get_jsx_emit_opts;
-use crate::jsx_util::get_rt_from_jsx;
 
 use crate::permissions::RuntimePermissionDescriptorParser;
-use crate::DecoratorType;
 
 struct Deferred<T>(once_cell::unsync::OnceCell<T>);
 
@@ -100,6 +95,7 @@ impl<T> Deferred<T> {
 pub struct EmitterFactory {
   cjs_tracker: Deferred<Arc<CjsTracker>>,
   deno_resolver: Deferred<Arc<CliDenoResolver>>,
+  emitter: Deferred<Arc<Emitter>>,
   file_fetcher: Deferred<Arc<FileFetcher>>,
   global_http_cache: Deferred<Arc<GlobalHttpCache>>,
   http_client_provider: Deferred<Arc<HttpClientProvider>>,
@@ -119,12 +115,9 @@ pub struct EmitterFactory {
   workspace_resolver: Deferred<Arc<WorkspaceResolver>>,
 
   cache_strategy: Option<CacheSetting>,
-  decorator: Option<DecoratorType>,
   deno_dir: DenoDir,
   deno_options: Option<Arc<DenoOptions>>,
   file_fetcher_allow_remote: bool,
-  import_map: Option<ImportMap>,
-  jsx_import_source_config: Option<JsxImportSourceConfig>,
   permissions_options: Option<PermissionsOptions>,
 }
 
@@ -141,6 +134,7 @@ impl EmitterFactory {
     Self {
       cjs_tracker: Default::default(),
       deno_resolver: Default::default(),
+      emitter: Default::default(),
       file_fetcher: Default::default(),
       global_http_cache: Default::default(),
       http_client_provider: Default::default(),
@@ -163,9 +157,6 @@ impl EmitterFactory {
       deno_dir,
       deno_options: None,
       file_fetcher_allow_remote: true,
-      jsx_import_source_config: None,
-      decorator: None,
-      import_map: None,
       permissions_options: None,
     }
   }
@@ -192,31 +183,6 @@ impl EmitterFactory {
 
   pub fn set_file_fetcher_allow_remote(&mut self, value: bool) -> &mut Self {
     self.file_fetcher_allow_remote = value;
-    self
-  }
-
-  pub fn import_map(&self) -> &Option<ImportMap> {
-    &self.import_map
-  }
-
-  pub fn set_import_map(&mut self, value: Option<ImportMap>) -> &mut Self {
-    self.import_map = value;
-    self
-  }
-
-  pub fn set_jsx_import_source(
-    &mut self,
-    value: Option<JsxImportSourceConfig>,
-  ) -> &mut Self {
-    self.jsx_import_source_config = value;
-    self
-  }
-
-  pub fn set_decorator_type(
-    &mut self,
-    value: Option<DecoratorType>,
-  ) -> &mut Self {
-    self.decorator = value;
     self
   }
 
@@ -273,54 +239,25 @@ impl EmitterFactory {
     }
   }
 
-  pub fn transpile_options(&self) -> TranspileOptions {
-    let (specifier, module) =
-      if let Some(jsx_config) = self.jsx_import_source_config.clone() {
-        (jsx_config.default_specifier, jsx_config.module)
-      } else {
-        (None, "react".to_string())
-      };
-
-    let jsx_module = get_rt_from_jsx(Some(module));
-
-    let (transform_jsx, jsx_automatic, jsx_development, precompile_jsx) =
-      get_jsx_emit_opts(jsx_module.as_str());
-
-    TranspileOptions {
-      use_decorators_proposal: self
-        .decorator
-        .map(DecoratorType::is_use_decorators_proposal)
-        .unwrap_or_default(),
-
-      use_ts_decorators: self
-        .decorator
-        .map(DecoratorType::is_use_ts_decorators)
-        .unwrap_or_default(),
-
-      emit_metadata: self
-        .decorator
-        .map(DecoratorType::is_emit_metadata)
-        .unwrap_or_default(),
-
-      jsx_import_source: specifier,
-      transform_jsx,
-      jsx_automatic,
-      jsx_development,
-      precompile_jsx,
-      ..Default::default()
-    }
-  }
-
-  pub fn emitter(&self) -> Result<Arc<Emitter>, anyhow::Error> {
-    let emitter = Arc::new(Emitter::new(
-      self.cjs_tracker()?.clone(),
-      Arc::new(self.emit_cache()?),
-      self.parsed_source_cache()?,
-      self.transpile_options(),
-      self.emit_options(),
-    ));
-
-    Ok(emitter)
+  pub fn emitter(&self) -> Result<&Arc<Emitter>, anyhow::Error> {
+    self.emitter.get_or_try_init(|| {
+      let options = self.deno_options()?;
+      let ts_config_result =
+        options.resolve_ts_config_for_emit(TsConfigType::Emit)?;
+      check_warn_tsconfig(&ts_config_result);
+      let emit_options = self.emit_options();
+      let (transpile_options, _) =
+        deno::args::ts_config_to_transpile_and_emit_options(
+          ts_config_result.ts_config,
+        )?;
+      Ok(Arc::new(Emitter::new(
+        self.cjs_tracker()?.clone(),
+        Arc::new(self.emit_cache()?),
+        self.parsed_source_cache()?,
+        transpile_options,
+        emit_options,
+      )))
+    })
   }
 
   pub fn global_http_cache(&self) -> &Arc<GlobalHttpCache> {

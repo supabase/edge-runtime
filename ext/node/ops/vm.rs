@@ -1111,6 +1111,7 @@ pub fn op_vm_script_run_in_context<'a>(
   )
 }
 
+#[allow(clippy::too_many_arguments)]
 #[op2(fast)]
 pub fn op_vm_create_context(
   scope: &mut v8::HandleScope,

@@ -479,6 +479,7 @@ impl FileFetcher {
       break result;
     };
 
+    #[allow(clippy::let_and_return)]
     result
   }
 

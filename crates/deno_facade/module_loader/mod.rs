@@ -6,11 +6,10 @@ use deno::deno_npm::resolution::ValidSerializedNpmResolutionSnapshot;
 use deno::PermissionsContainer;
 use deno_core::FastString;
 use deno_core::ModuleLoader;
+use eszip_trait::EszipStaticFiles;
 use ext_node::NodeExtInitServices;
 use fs::virtual_fs::FileBackedVfs;
-use fs::EszipStaticFiles;
 
-pub mod metadata;
 pub mod standalone;
 pub mod util;
 

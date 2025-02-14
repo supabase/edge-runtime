@@ -7,8 +7,6 @@ use ::eszip::EszipV2;
 use deno_core::url::Url;
 use eszip::extract_eszip;
 use eszip::ExtractEszipPayload;
-use serde::Deserialize;
-use serde::Serialize;
 use tokio::fs::create_dir_all;
 
 mod emitter;
@@ -18,7 +16,7 @@ pub mod errors;
 pub mod graph;
 pub mod import_map;
 pub mod jsr;
-pub mod jsx_util;
+pub mod metadata;
 pub mod module_loader;
 pub mod permissions;
 
@@ -30,37 +28,6 @@ pub use eszip::migrate;
 pub use eszip::payload_to_eszip;
 pub use eszip::EszipPayloadKind;
 pub use eszip::LazyLoadableEszip;
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum DecoratorType {
-  /// Use TC39 Decorators Proposal - https://github.com/tc39/proposal-decorators
-  Tc39,
-  /// Use TypeScript experimental decorators.
-  Typescript,
-  /// Use TypeScript experimental decorators. It also emits metadata.
-  TypescriptWithMetadata,
-}
-
-impl Default for DecoratorType {
-  fn default() -> Self {
-    Self::Typescript
-  }
-}
-
-impl DecoratorType {
-  fn is_use_decorators_proposal(self) -> bool {
-    matches!(self, Self::Tc39)
-  }
-
-  fn is_use_ts_decorators(self) -> bool {
-    matches!(self, Self::Typescript | Self::TypescriptWithMetadata)
-  }
-
-  fn is_emit_metadata(self) -> bool {
-    matches!(self, Self::TypescriptWithMetadata)
-  }
-}
 
 fn ensure_unix_relative_path(path: &Path) -> &Path {
   assert!(path.is_relative());
@@ -159,10 +126,9 @@ mod test {
         .unwrap(),
     );
 
-    let eszip =
-      generate_binary_eszip(Arc::new(emitter_factory), None, None, None)
-        .await
-        .unwrap();
+    let eszip = generate_binary_eszip(Arc::new(emitter_factory), None, None)
+      .await
+      .unwrap();
 
     assert!(
       extract_eszip(ExtractEszipPayload {

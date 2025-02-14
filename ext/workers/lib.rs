@@ -8,8 +8,6 @@ use anyhow::Error;
 use context::SendRequestResult;
 use deno::deno_http::HttpRequestReader;
 use deno::deno_http::HttpStreamReadResource;
-use deno_config::deno_json::JsxImportSourceConfig;
-use deno_core;
 use deno_core::error::custom_error;
 use deno_core::error::type_error;
 use deno_core::error::AnyError;
@@ -27,13 +25,11 @@ use deno_core::CancelFuture;
 use deno_core::CancelHandle;
 use deno_core::CancelTryFuture;
 use deno_core::JsBuffer;
-use deno_core::ModuleSpecifier;
 use deno_core::OpState;
 use deno_core::RcRef;
 use deno_core::Resource;
 use deno_core::ResourceId;
 use deno_core::WriteOutcome;
-use deno_facade::DecoratorType;
 use deno_facade::EszipPayloadKind;
 use errors::WorkerError;
 use ext_runtime::conn_sync::ConnWatcher;
@@ -93,11 +89,8 @@ pub struct UserWorkerCreateOptions {
   service_path: String,
   env_vars: Vec<(String, String)>,
   no_module_cache: bool,
-  import_map_path: Option<String>,
 
   force_create: bool,
-  net_access_disabled: bool,
-  allow_net: Option<Vec<String>>,
   allow_remote_modules: bool,
   custom_module_root: Option<String>,
 
@@ -111,9 +104,8 @@ pub struct UserWorkerCreateOptions {
   cpu_time_soft_limit_ms: Option<u64>,
   cpu_time_hard_limit_ms: Option<u64>,
 
-  decorator_type: Option<DecoratorType>,
-  jsx_import_source_config: Option<JsxImportBaseConfig>,
-
+  // decorator_type: Option<DecoratorType>,
+  // jsx_import_source_config: Option<JsxImportBaseConfig>,
   s3_fs_config: Option<S3FsConfig>,
   tmp_fs_config: Option<TmpFsConfig>,
 
@@ -136,10 +128,7 @@ pub async fn op_user_worker_create(
       service_path,
       env_vars,
       no_module_cache,
-      import_map_path,
       force_create,
-      net_access_disabled,
-      allow_net,
       allow_remote_modules,
       custom_module_root,
       maybe_eszip,
@@ -151,9 +140,6 @@ pub async fn op_user_worker_create(
       worker_timeout_ms,
       cpu_time_soft_limit_ms,
       cpu_time_hard_limit_ms,
-
-      decorator_type: maybe_decorator,
-      jsx_import_source_config,
 
       s3_fs_config: maybe_s3_fs_config,
       tmp_fs_config: maybe_tmp_fs_config,
@@ -184,8 +170,6 @@ pub async fn op_user_worker_create(
             .unwrap_or(DEFAULT.cpu_time_hard_limit_ms),
 
           force_create,
-          net_access_disabled,
-          allow_net,
           allow_remote_modules,
           custom_module_root,
 
@@ -196,30 +180,11 @@ pub async fn op_user_worker_create(
       }),
 
       static_patterns: vec![],
-      import_map_path,
       timing: None,
 
       maybe_eszip: maybe_eszip.map(EszipPayloadKind::JsBufferKind),
       maybe_module_code: maybe_module_code.map(String::into),
       maybe_entrypoint,
-      maybe_decorator,
-      maybe_jsx_import_source_config: jsx_import_source_config
-        .map(|it| -> Result<_, AnyError> {
-          Ok(JsxImportSourceConfig {
-            default_specifier: it.default_specifier,
-            default_types_specifier: None,
-            module: it.module,
-            base_url: {
-              deno_core::resolve_url_or_path(
-                // FIXME: The type alias does not have a unique
-                // type id and should not be used here.
-                op_state.borrow::<ModuleSpecifier>().as_str(),
-                std::env::current_dir()?.as_path(),
-              )?
-            },
-          })
-        })
-        .transpose()?,
 
       maybe_s3_fs_config,
       maybe_tmp_fs_config,

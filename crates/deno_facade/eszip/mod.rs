@@ -27,14 +27,9 @@ use eszip::EszipV2;
 use eszip::Module;
 use eszip::ModuleKind;
 use eszip::ParseError;
-use eszip_async_trait::AsyncEszipDataRead;
-use eszip_async_trait::NPM_RC_SCOPES_KEY;
-use eszip_async_trait::SOURCE_CODE_ESZIP_KEY;
-use eszip_async_trait::STATIC_FILES_ESZIP_KEY;
-use eszip_async_trait::SUPABASE_ESZIP_VERSION;
-use eszip_async_trait::SUPABASE_ESZIP_VERSION_KEY;
-use eszip_async_trait::VFS_ESZIP_KEY;
-use fs::build_vfs;
+use eszip_trait::AsyncEszipDataRead;
+use eszip_trait::SUPABASE_ESZIP_VERSION;
+use eszip_trait::SUPABASE_ESZIP_VERSION_KEY;
 use fs::VfsOpts;
 use futures::future::OptionFuture;
 use futures::io::AllowStdIo;
@@ -45,6 +40,7 @@ use glob::glob;
 use scopeguard::ScopeGuard;
 use tokio::fs::create_dir_all;
 use tokio::sync::Mutex;
+use vfs::build_npm_vfs;
 
 use crate::emitter::EmitterFactory;
 use crate::extract_modules;
@@ -56,6 +52,7 @@ mod parse;
 
 pub mod error;
 pub mod migrate;
+pub mod vfs;
 
 #[derive(Debug)]
 pub enum EszipPayloadKind {
@@ -651,7 +648,6 @@ pub async fn payload_to_eszip(
 pub async fn generate_binary_eszip(
   emitter_factory: Arc<EmitterFactory>,
   maybe_module_code: Option<FastString>,
-  maybe_import_map_url: Option<String>,
   maybe_checksum: Option<eszip::v2::Checksum>,
 ) -> Result<EszipV2, anyhow::Error> {
   let args = if let Some(path) = emitter_factory.deno_options()?.entrypoint() {
@@ -669,7 +665,7 @@ pub async fn generate_binary_eszip(
 
     CreateGraphArgs::Code {
       path: PathBuf::from("/src/index.ts"),
-      code: &module_code,
+      code: module_code,
     }
   };
 
@@ -734,7 +730,7 @@ pub async fn generate_binary_eszip(
         managed.serialized_valid_snapshot_for_system(&NpmSystemInfo::default());
       if !snapshot.as_serialized().packages.is_empty() {
         let mut count = 0;
-        let (root_dir, files) = build_vfs(
+        let (root_dir, files) = build_npm_vfs(
           VfsOpts {
             npm_resolver: resolver.clone(),
           },
@@ -770,20 +766,24 @@ pub async fn generate_binary_eszip(
   );
 
   eszip.add_opaque_data(
-    String::from(VFS_ESZIP_KEY),
+    String::from(eszip_trait::v1::VFS_ESZIP_KEY),
     Arc::from(npm_vfs.into_boxed_slice()),
   );
 
-  eszip.add_opaque_data(String::from(SOURCE_CODE_ESZIP_KEY), bin_code);
+  eszip.add_opaque_data(
+    String::from(eszip_trait::v1::SOURCE_CODE_ESZIP_KEY),
+    bin_code,
+  );
 
   // add import map
-  if let Some(import_map) = emitter_factory.import_map() {
-    eszip.add_import_map(
-      ModuleKind::Json,
-      maybe_import_map_url.unwrap(),
-      Arc::from(import_map.to_json().as_bytes()),
-    );
-  }
+  // let workspace_resolver = emitter_factory.workspace_resolver()?;
+  // if let Some(import_map) = workspace_resolver.maybe_import_map() {
+  //   eszip.add_import_map(
+  //     ModuleKind::Json,
+  //     import_map.base_url(),
+  //     Arc::from(import_map.to_json().as_bytes()),
+  //   );
+  // }
 
   let resolved_npm_rc = emitter_factory.resolved_npm_rc()?;
   let modified_scopes = resolved_npm_rc
@@ -815,7 +815,7 @@ pub async fn generate_binary_eszip(
     .collect::<HashMap<_, _>>();
 
   eszip.add_opaque_data(
-    String::from(NPM_RC_SCOPES_KEY),
+    String::from(eszip_trait::v1::NPM_RC_SCOPES_KEY),
     Arc::from(
       rkyv::to_bytes::<_, 1024>(&modified_scopes)
         .with_context(|| "cannot serialize vfs data")?
@@ -869,7 +869,7 @@ where
 
   if !specifiers.is_empty() {
     eszip.add_opaque_data(
-      String::from(STATIC_FILES_ESZIP_KEY),
+      String::from(eszip_trait::v1::STATIC_FILES_ESZIP_KEY),
       Arc::from(
         rkyv::to_bytes::<_, 1024>(&specifiers)
           .with_context(|| {

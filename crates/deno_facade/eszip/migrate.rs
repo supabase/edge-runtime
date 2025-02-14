@@ -66,9 +66,8 @@ mod v0 {
   use deno_core::serde_json;
   use eszip::v2::EszipV2Modules;
   use eszip::EszipV2;
-  use eszip_async_trait::AsyncEszipDataRead;
-  use eszip_async_trait::SUPABASE_ESZIP_VERSION_KEY;
-  use eszip_async_trait::VFS_ESZIP_KEY;
+  use eszip_trait::AsyncEszipDataRead;
+  use eszip_trait::SUPABASE_ESZIP_VERSION_KEY;
   use futures::future::OptionFuture;
   use once_cell::sync::Lazy;
   use serde::Deserialize;
@@ -107,6 +106,8 @@ mod v0 {
   pub async fn try_migrate_v0_v1(
     v0_eszip: &mut LazyLoadableEszip,
   ) -> Result<LazyLoadableEszip, anyhow::Error> {
+    use eszip_trait::v1::VFS_ESZIP_KEY;
+
     let mut v1_eszip = LazyLoadableEszip::new(
       EszipV2 {
         modules: EszipV2Modules::default(),
@@ -280,9 +281,8 @@ mod v1_1 {
   use anyhow::Context;
   use eszip::v2::Checksum;
   use eszip::EszipV2;
-  use eszip_async_trait::AsyncEszipDataRead;
-  use eszip_async_trait::SUPABASE_ESZIP_VERSION_KEY;
-  use eszip_async_trait::VFS_ESZIP_KEY;
+  use eszip_trait::AsyncEszipDataRead;
+  use eszip_trait::SUPABASE_ESZIP_VERSION_KEY;
   use futures::future::OptionFuture;
 
   use super::v1;
@@ -291,6 +291,8 @@ mod v1_1 {
   pub async fn try_migrate_v1_v1_1(
     v1_eszip: &mut LazyLoadableEszip,
   ) -> Result<LazyLoadableEszip, anyhow::Error> {
+    use eszip_trait::v1::VFS_ESZIP_KEY;
+
     let mut v1_1_eszip = LazyLoadableEszip::new(
       EszipV2 {
         modules: v1_eszip.modules.clone(),
@@ -361,8 +363,7 @@ mod v1_1 {
 mod test {
   use std::path::PathBuf;
 
-  use eszip_async_trait::AsyncEszipDataRead;
-  use eszip_async_trait::VFS_ESZIP_KEY;
+  use eszip_trait::AsyncEszipDataRead;
   use tokio::fs;
 
   use crate::eszip::extract_eszip;
@@ -441,6 +442,8 @@ mod test {
   }
 
   async fn test_vfs_npm_registry_migration_1_45_x(buf: Vec<u8>) {
+    use eszip_trait::v1::VFS_ESZIP_KEY;
+
     let eszip = payload_to_eszip(EszipPayloadKind::VecKind(buf))
       .await
       .unwrap();

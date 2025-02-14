@@ -5,10 +5,12 @@ use std::sync::Arc;
 
 use anyhow::bail;
 use anyhow::Context;
+use deno_ast::SourceMapOption;
 use deno_config::deno_json::ConfigFile;
 use deno_config::workspace::FolderConfigs;
 use deno_config::workspace::Workspace;
 use deno_core::error::AnyError;
+use deno_core::serde_json;
 use deno_npm::npm_rc::NpmRc;
 use deno_npm::npm_rc::ResolvedNpmRc;
 use deno_npm_cache::NpmCacheSetting;
@@ -338,4 +340,60 @@ pub fn resolve_node_modules_folder(
     resolve_from_root(root_folder, cwd)
   };
   Ok(Some(canonicalize_path_maybe_not_exists(&path)?))
+}
+
+pub fn ts_config_to_transpile_and_emit_options(
+  config: deno_config::deno_json::TsConfig,
+) -> Result<(deno_ast::TranspileOptions, deno_ast::EmitOptions), AnyError> {
+  let options: deno_config::deno_json::EmitConfigOptions =
+    serde_json::from_value(config.0)
+      .context("Failed to parse compilerOptions")?;
+  let imports_not_used_as_values =
+    match options.imports_not_used_as_values.as_str() {
+      "preserve" => deno_ast::ImportsNotUsedAsValues::Preserve,
+      "error" => deno_ast::ImportsNotUsedAsValues::Error,
+      _ => deno_ast::ImportsNotUsedAsValues::Remove,
+    };
+  let (transform_jsx, jsx_automatic, jsx_development, precompile_jsx) =
+    match options.jsx.as_str() {
+      "react" => (true, false, false, false),
+      "react-jsx" => (true, true, false, false),
+      "react-jsxdev" => (true, true, true, false),
+      "precompile" => (false, false, false, true),
+      _ => (false, false, false, false),
+    };
+  let source_map = if options.inline_source_map {
+    SourceMapOption::Inline
+  } else if options.source_map {
+    SourceMapOption::Separate
+  } else {
+    SourceMapOption::None
+  };
+  Ok((
+    deno_ast::TranspileOptions {
+      use_ts_decorators: options.experimental_decorators,
+      use_decorators_proposal: !options.experimental_decorators,
+      emit_metadata: options.emit_decorator_metadata,
+      imports_not_used_as_values,
+      jsx_automatic,
+      jsx_development,
+      jsx_factory: options.jsx_factory,
+      jsx_fragment_factory: options.jsx_fragment_factory,
+      jsx_import_source: options.jsx_import_source,
+      precompile_jsx,
+      precompile_jsx_skip_elements: options.jsx_precompile_skip_elements,
+      precompile_jsx_dynamic_props: None,
+      transform_jsx,
+      var_decl_imports: false,
+      // todo(dsherret): support verbatim_module_syntax here properly
+      verbatim_module_syntax: false,
+    },
+    deno_ast::EmitOptions {
+      inline_sources: options.inline_sources,
+      remove_comments: false,
+      source_map,
+      source_map_base: None,
+      source_map_file: None,
+    },
+  ))
 }

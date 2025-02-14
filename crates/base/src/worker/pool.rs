@@ -13,7 +13,6 @@ use anyhow::bail;
 use anyhow::Context;
 use anyhow::Error;
 use deno::util::sync::AtomicFlag;
-use deno_config::deno_json::JsxImportSourceConfig;
 use either::Either::Left;
 use enum_as_inner::EnumAsInner;
 use ext_event_worker::events::WorkerEventWithMetadata;
@@ -388,14 +387,11 @@ impl WorkerPool {
           let WorkerContextInitOpts {
             service_path,
             no_module_cache,
-            import_map_path,
             env_vars,
             conf,
             maybe_eszip,
             maybe_module_code,
             maybe_entrypoint,
-            maybe_decorator,
-            maybe_jsx_import_source_config,
             maybe_s3_fs_config,
             maybe_tmp_fs_config,
             ..
@@ -406,17 +402,14 @@ impl WorkerPool {
               WorkerContextInitOpts {
                 service_path,
                 no_module_cache,
-                import_map_path,
                 env_vars,
                 timing: None,
                 conf,
                 maybe_eszip,
                 maybe_module_code,
                 maybe_entrypoint,
-                maybe_decorator,
                 static_patterns: vec![],
 
-                maybe_jsx_import_source_config,
                 maybe_s3_fs_config,
                 maybe_tmp_fs_config,
               },
@@ -713,7 +706,6 @@ pub async fn create_user_worker_pool(
   termination_token: Option<TerminationToken>,
   static_patterns: Vec<String>,
   inspector: Option<Inspector>,
-  jsx: Option<JsxImportSourceConfig>,
 ) -> Result<(SharedMetricSource, mpsc::UnboundedSender<UserWorkerMsgs>), Error>
 {
   let metric_src = SharedMetricSource::default();
@@ -764,13 +756,6 @@ pub async fn create_user_worker_pool(
               Some(UserWorkerMsgs::Create(worker_options, tx)) => {
                 worker_pool.create_user_worker(WorkerContextInitOpts {
                   static_patterns: static_patterns.clone(),
-                  maybe_jsx_import_source_config: {
-                    if worker_options.maybe_jsx_import_source_config.is_some() {
-                      worker_options.maybe_jsx_import_source_config
-                    } else {
-                      jsx.clone()
-                    }
-                  },
                   ..worker_options
                 }, tx, token.map(TerminationToken::child_token));
               }

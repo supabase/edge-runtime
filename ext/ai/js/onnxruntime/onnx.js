@@ -18,7 +18,7 @@ const DataTypeMap = Object.freeze({
 class TensorProxy {
   get(target, property) {
     switch (property) {
-      case "data":
+      case 'data':
         return target.data?.c ?? target.data;
 
       default:
@@ -86,6 +86,15 @@ export class InferenceSession {
     return new InferenceSession(id, inputs, outputs);
   }
 
+  static async fromRequest(modelUrl, authorization) {
+    const [id, inputs, outputs] = await core.ops.op_ai_ort_init_session(
+      modelUrl,
+      authorization,
+    );
+
+    return new InferenceSession(id, inputs, outputs);
+  }
+
   async run(inputs) {
     const sessionInputs = {};
 
@@ -125,4 +134,4 @@ const onnxruntime = {
   },
 };
 
-globalThis[Symbol.for("onnxruntime")] = onnxruntime;
+globalThis[Symbol.for('onnxruntime')] = onnxruntime;

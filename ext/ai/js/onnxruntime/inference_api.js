@@ -1,90 +1,93 @@
+const core = globalThis.Deno.core;
 import { InferenceSession, Tensor } from 'ext:ai/onnxruntime/onnx.js';
 
 const DEFAULT_HUGGING_FACE_OPTIONS = {
-    hostname: 'https://huggingface.co',
-    path: {
-        template: '{REPO_ID}/resolve/{REVISION}/onnx/{MODEL_FILE}?donwload=true',
-        revision: 'main',
-        modelFile: 'model_quantized.onnx',
-    },
+  hostname: 'https://huggingface.co',
+  path: {
+    template: '{REPO_ID}/resolve/{REVISION}/onnx/{MODEL_FILE}?donwload=true',
+    revision: 'main',
+    modelFile: 'model_quantized.onnx',
+  },
 };
 
 /**
  * An user friendly API for onnx backend
  */
 class UserInferenceSession {
-    inner;
+  inner;
 
-    id;
-    inputs;
-    outputs;
+  id;
+  inputs;
+  outputs;
 
-    constructor(session) {
-        this.inner = session;
+  constructor(session) {
+    this.inner = session;
 
-        this.id = session.sessionId;
-        this.inputs = session.inputNames;
-        this.outputs = session.outputNames;
+    this.id = session.sessionId;
+    this.inputs = session.inputNames;
+    this.outputs = session.outputNames;
+  }
+
+  static async fromUrl(modelUrl) {
+    if (modelUrl instanceof URL) {
+      modelUrl = modelUrl.toString();
     }
 
-    static async fromUrl(modelUrl) {
-        if (modelUrl instanceof URL) {
-            modelUrl = modelUrl.toString();
-        }
+    const encoder = new TextEncoder();
+    const modelUrlBuffer = encoder.encode(modelUrl);
+    const session = await InferenceSession.fromBuffer(modelUrlBuffer);
 
-        const encoder = new TextEncoder();
-        const modelUrlBuffer = encoder.encode(modelUrl);
-        const session = await InferenceSession.fromBuffer(modelUrlBuffer);
+    return new UserInferenceSession(session);
+  }
 
-        return new UserInferenceSession(session);
+  static async fromHuggingFace(repoId, opts = {}) {
+    const hostname = opts?.hostname ?? DEFAULT_HUGGING_FACE_OPTIONS.hostname;
+    const pathOpts = {
+      ...DEFAULT_HUGGING_FACE_OPTIONS.path,
+      ...opts?.path,
+    };
+
+    const modelPath = pathOpts.template
+      .replaceAll('{REPO_ID}', repoId)
+      .replaceAll('{REVISION}', pathOpts.revision)
+      .replaceAll('{MODEL_FILE}', pathOpts.modelFile);
+
+    if (!URL.canParse(modelPath, hostname)) {
+      throw Error(
+        `[Invalid URL] Couldn't parse the model path: "${modelPath}"`,
+      );
     }
 
-    static async fromHuggingFace(repoId, opts = {}) {
-        const hostname = opts?.hostname ?? DEFAULT_HUGGING_FACE_OPTIONS.hostname;
-        const pathOpts = {
-            ...DEFAULT_HUGGING_FACE_OPTIONS.path,
-            ...opts?.path,
-        };
+    return await UserInferenceSession.fromUrl(new URL(modelPath, hostname));
+  }
 
-        const modelPath = pathOpts.template
-            .replaceAll('{REPO_ID}', repoId)
-            .replaceAll('{REVISION}', pathOpts.revision)
-            .replaceAll('{MODEL_FILE}', pathOpts.modelFile);
+  async run(inputs) {
+    const outputs = await core.ops.op_ai_ort_run_session(this.id, inputs);
 
-        if (!URL.canParse(modelPath, hostname)) {
-            throw Error(`[Invalid URL] Couldn't parse the model path: "${modelPath}"`);
-        }
+    // Parse to Tensor
+    for (const key in outputs) {
+      if (Object.hasOwn(outputs, key)) {
+        const { type, data, dims } = outputs[key];
 
-        return await UserInferenceSession.fromUrl(new URL(modelPath, hostname));
+        outputs[key] = new UserTensor(type, data.buffer, dims);
+      }
     }
 
-    async run(inputs) {
-        const outputs = await core.ops.op_sb_ai_ort_run_session(this.id, inputs);
-
-        // Parse to Tensor
-        for (const key in outputs) {
-            if (Object.hasOwn(outputs, key)) {
-                const { type, data, dims } = outputs[key];
-
-                outputs[key] = new UserTensor(type, data.buffer, dims);
-            }
-        }
-
-        return outputs;
-    }
+    return outputs;
+  }
 }
 
 class UserTensor extends Tensor {
-    constructor(type, data, dim) {
-        super(type, data, dim);
-    }
+  constructor(type, data, dim) {
+    super(type, data, dim);
+  }
 
-    async tryEncodeAudio(sampleRate) {
-        return await core.ops.op_sb_ai_ort_encode_tensor_audio(this.data, sampleRate);
-    }
+  async tryEncodeAudio(sampleRate) {
+    return await core.ops.op_ai_ort_encode_tensor_audio(this.data, sampleRate);
+  }
 }
 
 export default {
-    RawSession: UserInferenceSession,
-    RawTensor: UserTensor,
+  RawSession: UserInferenceSession,
+  RawTensor: UserTensor,
 };

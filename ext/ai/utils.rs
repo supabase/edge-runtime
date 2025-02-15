@@ -20,6 +20,7 @@ pub async fn fetch_and_cache_from_url(
   kind: &'static str,
   url: Url,
   cache_id: Option<String>,
+  authorization: Option<String>,
 ) -> Result<PathBuf, AnyError> {
   let cache_id = cache_id.unwrap_or(fxhash::hash(url.as_str()).to_string());
   let download_dir = std::env::var("EXT_AI_CACHE_DIR")
@@ -91,13 +92,26 @@ pub async fn fetch_and_cache_from_url(
 
       use reqwest::*;
 
+      let mut headers = header::HeaderMap::new();
+
+      if let Some(authorization) = authorization {
+        let mut authorization =
+          header::HeaderValue::from_str(authorization.as_str())?;
+        authorization.set_sensitive(true);
+
+        headers.insert(header::AUTHORIZATION, authorization);
+      };
+
       let resp = Client::builder()
         .http1_only()
+        .default_headers(headers)
         .build()
         .context("failed to create http client")?
         .get(url.clone())
         .send()
         .await
+        .context("failed to download")?
+        .error_for_status()
         .context("failed to download")?;
 
       let file = tokio::fs::File::create(&filepath)

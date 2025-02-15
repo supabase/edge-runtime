@@ -154,9 +154,10 @@ pub(crate) async fn load_session_from_bytes(
 
 #[instrument(level = "debug", fields(%model_url), err)]
 pub(crate) async fn load_session_from_url(
-  model_url: Url,
+    model_url: Url,
+    authorization: Option<String>,
 ) -> Result<SessionWithId, Error> {
-  let session_id = fxhash::hash(model_url.as_str()).to_string();
+    let session_id = fxhash::hash(model_url.as_str()).to_string();
 
   let mut sessions = SESSIONS.lock().await;
 
@@ -165,12 +166,13 @@ pub(crate) async fn load_session_from_url(
     return Ok((session_id, session.clone()).into());
   }
 
-  let model_file_path = crate::utils::fetch_and_cache_from_url(
-    "model",
-    model_url,
-    Some(session_id.to_string()),
-  )
-  .await?;
+    let model_file_path = crate::utils::fetch_and_cache_from_url(
+        "model",
+        model_url,
+        Some(session_id.to_string()),
+        authorization,
+    )
+    .await?;
 
   let model_bytes = tokio::fs::read(model_file_path).await?;
   let session = create_session(model_bytes.as_slice())?;

@@ -37,26 +37,28 @@ use tokio_util::bytes::BufMut;
 #[op2(async)]
 #[to_v8]
 pub async fn op_ai_ort_init_session(
-  state: Rc<RefCell<OpState>>,
-  #[buffer] model_bytes: JsBuffer,
+    state: Rc<RefCell<OpState>>,
+    #[buffer] model_bytes: JsBuffer,
+    // Maybe improve the code style to enum payload or something else
+    #[string] req_authorization: Option<String>,
 ) -> Result<ModelInfo> {
   let model_bytes = model_bytes.into_parts().to_boxed_slice();
   let model_bytes_or_url = str::from_utf8(&model_bytes)
     .map_err(AnyError::from)
     .and_then(|utf8_str| Url::parse(utf8_str).map_err(AnyError::from));
 
-  let model = match model_bytes_or_url {
-    Ok(model_url) => {
-      trace!(kind = "url", url = %model_url);
-      Model::from_url(model_url).await?
-    }
-    Err(_) => {
-      trace!(kind = "bytes", len = model_bytes.len());
-      Model::from_bytes(&model_bytes).await?
-    }
-  };
+    let model = match model_bytes_or_url {
+        Ok(model_url) => {
+            trace!(kind = "url", url = %model_url);
+            Model::from_url(model_url, req_authorization).await?
+        }
+        Err(_) => {
+            trace!(kind = "bytes", len = model_bytes.len());
+            Model::from_bytes(&model_bytes).await?
+        }
+    };
 
-  let mut state = state.borrow_mut();
+    let mut state = state.borrow_mut();
   let mut sessions =
     { state.try_take::<Vec<Arc<Session>>>().unwrap_or_default() };
 

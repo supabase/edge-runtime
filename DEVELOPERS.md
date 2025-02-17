@@ -62,6 +62,8 @@ This repository uses Dev Container for a unifying local development environment.
 
 * Dev Container requires [VS Code](https://code.visualstudio.com/download) and [Docker](https://www.docker.com/get-started/) to be pre-installed to use it.
 
+* It is recommended to increase the maximum memory allocated to the Dev Container to at least 24GB, otherwise you may run into spurious errors while compiling. This can be configured via the Docker CLI or the Docker Desktop at `Settings -> Resources -> Advanced -> Memory`.
+
 * Install the [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) to VS Code.
 
 * Open the command palette, and select `Dev Containers: Open Folder in Container...`

@@ -11,11 +11,11 @@ use deno_core::OpState;
 use deno_core::{op2, JsRuntime, V8CrossThreadTaskSpawner};
 use futures::TryFutureExt;
 use ndarray::{Array1, Array2, ArrayView3, Axis, Ix3};
-use ndarray_linalg::norm::{normalize, NormalizeAxis};
 use ort::inputs;
 use reqwest::Url;
 use session::load_session_from_url;
 use std::cell::RefCell;
+use std::num::FpCategory;
 use std::rc::Rc;
 use std::sync::Arc;
 use tokenizers::Tokenizer;
@@ -58,6 +58,17 @@ fn mean_pool(last_hidden_states: ArrayView3<f32>, attention_mask: ArrayView3<i64
     let sum_attention_mask = attention_mask.mapv(|x| x as f32).sum_axis(Axis(1));
 
     sum_hidden_states / sum_attention_mask
+}
+
+fn normalize(mut tensor: Array2<f32>) -> Array2<f32> {
+    let l2 = tensor.mapv(|value| value * value).sum().sqrt();
+
+    // avoid zero division
+    if l2.classify() != FpCategory::Zero {
+        tensor.mapv_inplace(|value| value / l2);
+    }
+
+    tensor
 }
 
 async fn init_gte(state: Rc<RefCell<OpState>>) -> Result<(), Error> {
@@ -190,8 +201,7 @@ async fn init_gte(state: Rc<RefCell<OpState>>) -> Result<(), Error> {
             };
 
             let result = if do_normalize {
-                let (normalized, _) = normalize(result, NormalizeAxis::Row);
-                normalized
+                normalize(result)
             } else {
                 result
             };

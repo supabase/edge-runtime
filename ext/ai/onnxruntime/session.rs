@@ -12,8 +12,13 @@ use xxhash_rust::xxh3::Xxh3;
 
 use anyhow::{anyhow, Context, Error};
 use ort::{
-    CPUExecutionProvider, CUDAExecutionProvider, ExecutionProvider, ExecutionProviderDispatch,
-    GraphOptimizationLevel, Session, SessionBuilder,
+    execution_providers::{
+        CPUExecutionProvider, CUDAExecutionProvider, ExecutionProvider, ExecutionProviderDispatch,
+    },
+    session::{
+        builder::{GraphOptimizationLevel, SessionBuilder},
+        Session,
+    },
 };
 
 use crate::onnx::ensure_onnx_env_init;

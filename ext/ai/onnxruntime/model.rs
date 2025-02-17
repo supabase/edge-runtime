@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use deno_core::{serde_v8::to_v8, ToV8};
-use ort::Session;
+use ort::session::Session;
 use reqwest::Url;
 
 use super::session::{get_session, load_session_from_bytes, load_session_from_url, SessionWithId};

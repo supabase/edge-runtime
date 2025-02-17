@@ -15,6 +15,10 @@ use deno::deno_fs::RealFs;
 use deno::deno_npm::NpmSystemInfo;
 use deno::deno_path_util::normalize_path;
 use deno::npm::InnerCliNpmResolverRef;
+use deno::standalone::binary::SerializedResolverWorkspaceJsrPackage;
+use deno::standalone::binary::SerializedWorkspaceResolver;
+use deno::standalone::binary::SerializedWorkspaceResolverImportMap;
+use deno_core::serde_json;
 use deno_core::url::Url;
 use deno_core::FastString;
 use deno_core::JsBuffer;
@@ -652,7 +656,8 @@ pub async fn generate_binary_eszip(
   maybe_module_code: Option<FastString>,
   maybe_checksum: Option<eszip::v2::Checksum>,
 ) -> Result<EszipV2, anyhow::Error> {
-  let args = if let Some(path) = emitter_factory.deno_options()?.entrypoint() {
+  let deno_options = emitter_factory.deno_options()?.clone();
+  let args = if let Some(path) = deno_options.entrypoint() {
     CreateGraphArgs::File(if !path.is_absolute() {
       let initial_cwd =
         std::env::current_dir().with_context(|| "failed getting cwd")?;
@@ -724,13 +729,13 @@ pub async fn generate_binary_eszip(
     .await?;
 
   let resolver = emitter_factory.npm_resolver().await.cloned()?;
-  let (virtual_dir, _npm_files) = match resolver.clone().as_inner() {
+  let virtual_dir = match resolver.clone().as_inner() {
     InnerCliNpmResolverRef::Managed(managed) => {
       let snapshot =
         managed.serialized_valid_snapshot_for_system(&NpmSystemInfo::default());
       if !snapshot.as_serialized().packages.is_empty() {
         let mut count = 0;
-        let (root_dir, files) = build_npm_vfs(
+        let root_dir = build_npm_vfs(
           VfsOpts {
             npm_resolver: resolver.clone(),
           },
@@ -742,16 +747,16 @@ pub async fn generate_binary_eszip(
             key
           },
         )?
-        .into_dir_and_files();
+        .into_dir();
 
         let snapshot = managed
           .serialized_valid_snapshot_for_system(&NpmSystemInfo::default());
 
         eszip.add_npm_snapshot(snapshot);
 
-        (Some(root_dir), files)
+        Some(root_dir)
       } else {
-        (None, Vec::new())
+        None
       }
     }
     InnerCliNpmResolverRef::Byonm(_) => unreachable!(),
@@ -791,9 +796,52 @@ pub async fn generate_binary_eszip(
     })
     .collect();
 
+  // let root_dir_url = compile::resolve_root_dir_from_specifiers(
+  //   emitter_factory.deno_options()?.workspace().root_dir(),
+  //   graph.specifiers().map(|(s, _)| s).chain(
+  //     deno_options
+  //       .node_modules_dir_path()
+  //       .and_then(|it| ModuleSpecifier::from_directory_path(it).ok())
+  //       .iter(),
+  //   ),
+  // );
+
+  let workspace_resolver = emitter_factory.workspace_resolver()?.clone();
+  let serialized_workspace_resolver = SerializedWorkspaceResolver {
+    import_map: workspace_resolver.maybe_import_map().map(|it| {
+      SerializedWorkspaceResolverImportMap {
+        specifier: "deno.json".to_string(),
+        json: it.to_json(),
+      }
+    }),
+    jsr_pkgs: workspace_resolver
+      .jsr_packages()
+      .map(|it| SerializedResolverWorkspaceJsrPackage {
+        relative_base: it.base.to_string(),
+        name: it.name.clone(),
+        version: it.version.clone(),
+        exports: it.exports.clone(),
+      })
+      .collect(),
+    package_jsons: workspace_resolver
+      .package_jsons()
+      .map(|it| {
+        (
+          it.specifier().to_string(),
+          serde_json::to_value(it).unwrap(),
+        )
+      })
+      .collect(),
+    pkg_json_resolution: workspace_resolver.pkg_json_dep_resolution(),
+  };
+
   metadata.module_code = Some(emit_source);
   metadata.npmrc_scopes = Some(modified_scopes);
   metadata.virtual_dir = virtual_dir;
+  metadata.serialized_workspace_resolver_raw = Some(
+    serde_json::to_vec(&serialized_workspace_resolver)
+      .with_context(|| "failed to serialize workspace resolver")?,
+  );
 
   Ok(eszip)
 }

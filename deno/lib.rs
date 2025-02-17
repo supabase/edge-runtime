@@ -42,6 +42,7 @@ pub mod npmrc;
 pub mod resolver;
 pub mod runtime;
 pub mod standalone;
+pub mod tools;
 pub mod util;
 pub mod versions;
 

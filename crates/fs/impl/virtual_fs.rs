@@ -50,7 +50,6 @@ type AddContentCallback<'scope> = Arc<
 pub struct VfsBuilder<'scope> {
   root_path: PathBuf,
   root_dir: VirtualDirectory,
-  files: Vec<Vec<u8>>,
   current_offset: u64,
   file_offsets: HashMap<String, u64>,
   add_content_callback_fn: AddContentCallback<'scope>,
@@ -75,7 +74,6 @@ impl<'scope> VfsBuilder<'scope> {
         entries: Vec::new(),
       },
       root_path,
-      files: Vec::new(),
       current_offset: 0,
       file_offsets: Default::default(),
       add_content_callback_fn: Arc::from(std::sync::Mutex::new(
@@ -124,31 +122,31 @@ impl<'scope> VfsBuilder<'scope> {
               if target.is_file() {
                 // this may change behavior, so warn the user about it
                 log::warn!(
-                                    "Symlink target is outside '{}'. Inlining symlink at '{}' to '{}' as file.",
-                                    self.root_path.display(),
-                                    path.display(),
-                                    target.display(),
-                                );
+                  "Symlink target is outside '{}'. Inlining symlink at '{}' to '{}' as file.",
+                  self.root_path.display(),
+                  path.display(),
+                  target.display(),
+                );
                 // inline the symlink and make the target file
                 let file_bytes = std::fs::read(&target)
                   .with_context(|| format!("Reading {}", path.display()))?;
                 self.add_file(&path, file_bytes)?;
               } else {
                 log::warn!(
-                                    "Symlink target is outside '{}'. Excluding symlink at '{}' with target '{}'.",
-                                    self.root_path.display(),
-                                    path.display(),
-                                    target.display(),
-                                );
+                  "Symlink target is outside '{}'. Excluding symlink at '{}' with target '{}'.",
+                  self.root_path.display(),
+                  path.display(),
+                  target.display(),
+                );
               }
             }
           }
           Err(err) => {
             log::warn!(
-                            "Failed resolving symlink. Ignoring.\n    Path: {}\n    Message: {:#}",
-                            path.display(),
-                            err
-                        );
+              "Failed resolving symlink. Ignoring.\n    Path: {}\n    Message: {:#}",
+              path.display(),
+              err
+            );
           }
         }
       }
@@ -291,8 +289,8 @@ impl<'scope> VfsBuilder<'scope> {
     Ok(())
   }
 
-  pub fn into_dir_and_files(self) -> (VirtualDirectory, Vec<Vec<u8>>) {
-    (self.root_dir, self.files)
+  pub fn into_dir(self) -> VirtualDirectory {
+    self.root_dir
   }
 
   fn path_relative_root(&self, path: &Path) -> Result<PathBuf, StripRootError> {

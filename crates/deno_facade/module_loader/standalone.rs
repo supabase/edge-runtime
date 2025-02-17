@@ -17,6 +17,7 @@ use deno::cache::NodeAnalysisCache;
 use deno::deno_ast::MediaType;
 use deno::deno_cache_dir::npm::NpmCacheDir;
 use deno::deno_fs::RealFs;
+use deno::deno_package_json;
 use deno::deno_package_json::PackageJsonDepValue;
 use deno::deno_permissions::PermissionDescriptorParser;
 use deno::deno_permissions::Permissions;
@@ -46,7 +47,7 @@ use deno::resolver::NpmModuleLoader;
 use deno::util::text_encoding::from_utf8_lossy_cow;
 use deno::PermissionsContainer;
 use deno_config::workspace::MappedResolution;
-use deno_config::workspace::PackageJsonDepResolution;
+use deno_config::workspace::ResolverWorkspaceJsrPackage;
 use deno_config::workspace::WorkspaceResolver;
 use deno_core::error::generic_error;
 use deno_core::error::type_error;
@@ -639,19 +640,66 @@ where
     pkg_json_resolver.clone(),
   ));
 
+  let serialized_workspace_resolver =
+    metadata.serialized_workspace_resolver()?;
+
   let module_loader_factory = StandaloneModuleLoaderFactory {
     shared: Arc::new(SharedModuleLoaderState {
       eszip: WorkspaceEszip {
         eszip,
         root_dir_url: root_dir_url.clone(),
       },
-      workspace_resolver: WorkspaceResolver::new_raw(
-        root_dir_url,
-        None,
-        vec![],
-        vec![],
-        PackageJsonDepResolution::Disabled,
-      ),
+      workspace_resolver: {
+        let import_map = match serialized_workspace_resolver.import_map {
+          Some(import_map) => Some(
+            import_map::parse_from_json_with_options(
+              Url::parse(&import_map.specifier)?,
+              &import_map.json,
+              import_map::ImportMapOptions {
+                address_hook: None,
+                expand_imports: true,
+              },
+            )?
+            .import_map,
+          ),
+          None => None,
+        };
+        let pkg_jsons = serialized_workspace_resolver
+          .package_jsons
+          .into_iter()
+          .map(|(relative_path, json)| {
+            let Ok(path) = Url::from_file_path(relative_path)
+              .and_then(|it| it.to_file_path())
+            else {
+              bail!("failed to parse path");
+            };
+            let pkg_json =
+              deno_package_json::PackageJson::load_from_value(path, json);
+            Ok(Arc::new(pkg_json))
+          })
+          .collect::<Result<_, _>>()?;
+        WorkspaceResolver::new_raw(
+          root_dir_url.clone(),
+          import_map,
+          serialized_workspace_resolver
+            .jsr_pkgs
+            .iter()
+            .map(|it| {
+              Ok::<_, AnyError>(ResolverWorkspaceJsrPackage {
+                is_patch: false,
+                base: root_dir_url
+                  .join(&it.relative_base)
+                  .with_context(|| "failed to parse base url")?,
+                name: it.name.clone(),
+                version: it.version.clone(),
+                exports: it.exports.clone(),
+              })
+            })
+            .collect::<Result<_, _>>()?,
+          pkg_jsons,
+          serialized_workspace_resolver.pkg_json_resolution,
+        )
+      },
       cjs_tracker: cjs_tracker.clone(),
       npm_module_loader: Arc::new(NpmModuleLoader::new(
         cjs_tracker.clone(),

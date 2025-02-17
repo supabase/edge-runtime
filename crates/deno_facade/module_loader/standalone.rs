@@ -544,18 +544,10 @@ where
   let root_node_modules_path = root_path.join("node_modules");
 
   let (fs, vfs) = {
-    let vfs_data = OptionFuture::<_>::from(
-      eszip
-        .ensure_module(eszip_trait::v1::VFS_ESZIP_KEY)
-        .map(|it| async move { it.source().await }),
-    )
-    .await
-    .flatten();
-
     let vfs = load_npm_vfs(
       Arc::new(eszip.clone()),
       root_node_modules_path.clone(),
-      vfs_data.as_deref(),
+      metadata.virtual_dir.take(),
     )
     .context("Failed to load npm vfs.")?;
 

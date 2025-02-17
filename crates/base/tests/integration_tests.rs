@@ -37,6 +37,7 @@ use deno_core::serde_json::{self};
 use deno_facade::generate_binary_eszip;
 use deno_facade::EmitterFactory;
 use deno_facade::EszipPayloadKind;
+use deno_facade::Metadata;
 use ext_event_worker::events::LogLevel;
 use ext_event_worker::events::WorkerEvents;
 use ext_runtime::SharedMetricSource;
@@ -2452,10 +2453,18 @@ async fn test_should_be_able_to_bundle_against_various_exts() {
     );
 
     async {
-      generate_binary_eszip(Arc::new(emitter_factory), None, None)
-        .await
-        .unwrap()
-        .into_bytes()
+      let mut metadata = Metadata::default();
+      let mut eszip = generate_binary_eszip(
+        &mut metadata,
+        Arc::new(emitter_factory),
+        None,
+        None,
+      )
+      .await
+      .unwrap();
+
+      metadata.bake(&mut eszip).unwrap();
+      eszip.into_bytes()
     }
   };
 
@@ -2645,10 +2654,18 @@ async fn test_private_npm_package_import() {
           .unwrap(),
       );
 
-      generate_binary_eszip(Arc::new(emitter_factory), None, None)
-        .await
-        .unwrap()
-        .into_bytes()
+      let mut metadata = Metadata::default();
+      let mut eszip = generate_binary_eszip(
+        &mut metadata,
+        Arc::new(emitter_factory),
+        None,
+        None,
+      )
+      .await
+      .unwrap();
+
+      metadata.bake(&mut eszip).unwrap();
+      eszip.into_bytes()
     };
 
     let resp = client

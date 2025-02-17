@@ -2,8 +2,6 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::bail;
-use anyhow::Context;
 use deno::deno_npm::NpmSystemInfo;
 use deno::npm::CliNpmResolver;
 use deno::npm::InnerCliNpmResolverRef;
@@ -20,27 +18,9 @@ use indexmap::IndexMap;
 pub fn load_npm_vfs(
   eszip: Arc<dyn AsyncEszipDataRead + 'static>,
   root_dir_path: PathBuf,
-  vfs_data_slice: Option<&[u8]>,
+  maybe_virtual_dir: Option<VirtualDirectory>,
 ) -> Result<FileBackedVfs, AnyError> {
-  let dir = match vfs_data_slice
-        .map(rkyv::check_archived_root::<Option<VirtualDirectory>>)
-        .transpose()
-    {
-        Ok(Some(archived)) => Some(
-            <<Option<VirtualDirectory> as rkyv::Archive>
-              ::Archived as rkyv::Deserialize<
-                Option<VirtualDirectory>,
-                rkyv::Infallible,
-            >>::deserialize(archived, &mut rkyv::Infallible)
-            .with_context(|| "cannot deserialize vfs data")?,
-        ),
-
-        Ok(None) => None,
-        Err(err) => bail!("cannot load npm vfs: {}", err),
-    }
-    .flatten();
-
-  let fs_root: VfsRoot = if let Some(mut dir) = dir {
+  let fs_root: VfsRoot = if let Some(mut dir) = maybe_virtual_dir {
     // align the name of the directory with the root dir
     dir.name = root_dir_path
       .file_name()

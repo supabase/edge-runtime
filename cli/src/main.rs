@@ -6,6 +6,7 @@ use std::process::ExitCode;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Context;
 use anyhow::Error;
@@ -23,6 +24,7 @@ use deno_facade::extract_from_file;
 use deno_facade::generate_binary_eszip;
 use deno_facade::include_glob_patterns_in_eszip;
 use deno_facade::EmitterFactory;
+use deno_facade::Metadata;
 use env::resolve_deno_runtime_env;
 use flags::get_cli;
 use flags::EszipV2ChecksumKind;
@@ -318,7 +320,9 @@ fn main() -> Result<ExitCode, anyhow::Error> {
             .build()?,
         );
 
+        let mut metadata = Metadata::default();
         let mut eszip = generate_binary_eszip(
+          &mut metadata,
           Arc::new(emitter_factory),
           None,
           maybe_checksum_kind,
@@ -326,11 +330,16 @@ fn main() -> Result<ExitCode, anyhow::Error> {
         .await?;
 
         include_glob_patterns_in_eszip(
-          static_patterns,
           &mut eszip,
+          &mut metadata,
+          static_patterns,
           entrypoint_dir_path,
         )
         .await?;
+
+        metadata
+          .bake(&mut eszip)
+          .map_err(|_| anyhow!("failed to add metadata into eszip"))?;
 
         let bin = eszip.into_bytes();
 

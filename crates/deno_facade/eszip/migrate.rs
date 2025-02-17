@@ -13,26 +13,28 @@ pub async fn try_migrate_if_needed(
         warn!("{}: will attempt migration", err);
 
         macro_rules! cont {
-                    ($name: ident, $label:tt, $expr:expr) => {
-                        #[allow(unused_mut)]
-                        let mut $name = {
-                            match $expr {
-                                Ok(v) => v,
-                                err @ Err(_) => break $label err,
-                            }
-                        };
-                    };
-                }
+          ($name: ident, $label:tt, $expr:expr) => {
+            #[allow(unused_mut)]
+            let mut $name = {
+              match $expr {
+                Ok(v) => v,
+                err @ Err(_) => break $label err,
+              }
+            };
+          };
+        }
 
         let result = match err {
           EszipError::UnsupportedVersion { expected, found } => {
             match (expected, found.as_deref()) {
               (&b"1.1", None) => 'scope: {
-                cont!(v1, 'scope, v0::try_migrate_v0_v1(&mut eszip).await);
-                v1_1::try_migrate_v1_v1_1(&mut v1).await
+                cont!(v1, 'scope, v1::try_migrate_v0_v1(&mut eszip).await);
+                cont!(v1_1, 'scope, v1_1::try_migrate_v1_v1_1(&mut v1).await);
+                v2::try_migrate_v1_1_v2(&mut v1_1).await
               }
-              (&b"1.1", Some(b"1")) => {
-                v1_1::try_migrate_v1_v1_1(&mut eszip).await
+              (&b"1.1", Some(b"1")) => 'scope: {
+                cont!(v1_1, 'scope, v1_1::try_migrate_v1_v1_1(&mut eszip).await);
+                v2::try_migrate_v1_1_v2(&mut v1_1).await
               }
               _ => unreachable!(),
             }
@@ -59,22 +61,8 @@ pub async fn try_migrate_if_needed(
 }
 
 mod v0 {
-  use std::collections::HashSet;
-  use std::sync::Arc;
-
-  use anyhow::Context;
-  use deno_core::serde_json;
-  use eszip::v2::EszipV2Modules;
-  use eszip::EszipV2;
-  use eszip_trait::AsyncEszipDataRead;
-  use eszip_trait::SUPABASE_ESZIP_VERSION_KEY;
-  use futures::future::OptionFuture;
-  use once_cell::sync::Lazy;
   use serde::Deserialize;
   use serde::Serialize;
-
-  use crate::eszip::migrate::v1;
-  use crate::eszip::LazyLoadableEszip;
 
   #[derive(Serialize, Deserialize, Debug)]
   pub struct Directory {
@@ -97,6 +85,67 @@ mod v0 {
   }
 
   #[derive(Serialize, Deserialize, Debug)]
+  pub enum Entry {
+    Dir(Directory),
+    File(File),
+    Symlink(Symlink),
+  }
+}
+
+mod v1 {
+  use std::collections::HashSet;
+  use std::sync::Arc;
+
+  use anyhow::Context;
+  use deno_core::serde_json;
+  use eszip::v2::EszipV2Modules;
+  use eszip::EszipV2;
+  use eszip_trait::AsyncEszipDataRead;
+  use eszip_trait::SUPABASE_ESZIP_VERSION_KEY;
+  use futures::future::OptionFuture;
+  use once_cell::sync::Lazy;
+  use rkyv::Archive;
+  use rkyv::Deserialize;
+  use rkyv::Serialize;
+
+  use crate::migrate::v0;
+  use crate::LazyLoadableEszip;
+
+  #[derive(Archive, Serialize, Deserialize, Debug)]
+  #[archive(
+    check_bytes,
+    bound(serialize = "__S: rkyv::ser::ScratchSpace + rkyv::ser::Serializer")
+  )]
+  #[archive_attr(check_bytes(
+    bound = "__C: rkyv::validation::ArchiveContext, <__C as rkyv::Fallible>::Error: std::error::Error"
+  ))]
+  pub struct Directory {
+    pub name: String,
+    // should be sorted by name
+    #[omit_bounds]
+    #[archive_attr(omit_bounds)]
+    pub entries: Vec<Entry>,
+  }
+
+  #[derive(Archive, Serialize, Deserialize, Debug, Clone)]
+  #[archive(check_bytes)]
+  pub struct File {
+    pub key: String,
+    pub name: String,
+    pub offset: u64,
+    pub len: u64,
+  }
+
+  #[derive(Archive, Serialize, Deserialize, Debug)]
+  #[archive(check_bytes)]
+  pub struct Symlink {
+    pub name: String,
+    pub dest_parts: Vec<String>,
+  }
+
+  #[derive(Archive, Serialize, Deserialize, Debug)]
+  #[cfg_attr(test, derive(enum_as_inner::EnumAsInner))]
+  #[archive(check_bytes)]
   pub enum Entry {
     Dir(Directory),
     File(File),
@@ -134,15 +183,16 @@ mod v0 {
 
     let v1_dir = if let Some(data) = vfs_mod_data {
       let mut count = 0;
-      let v0_dir = serde_json::from_slice::<Option<Directory>>(data.as_ref())
-        .with_context(|| "failed to parse v0 structure")?;
+      let v0_dir =
+        serde_json::from_slice::<Option<v0::Directory>>(data.as_ref())
+          .with_context(|| "failed to parse v0 structure")?;
 
       fn migrate_dir_v0_v1(
-        v0_dir: self::Directory,
+        v0_dir: v0::Directory,
         v1_eszip: &mut LazyLoadableEszip,
         count: &mut i32,
-      ) -> v1::Directory {
-        let mut v1_dir = v1::Directory {
+      ) -> Directory {
+        let mut v1_dir = Directory {
           name: v0_dir.name.clone(),
           entries: vec![],
         };
@@ -151,18 +201,18 @@ mod v0 {
 
         for entry in v0_dir.entries.into_iter() {
           match entry {
-            Entry::Dir(v0_sub_dir) => {
-              v1_dir_entries.push(v1::Entry::Dir(migrate_dir_v0_v1(
+            v0::Entry::Dir(v0_sub_dir) => {
+              v1_dir_entries.push(Entry::Dir(migrate_dir_v0_v1(
                 v0_sub_dir, v1_eszip, count,
               )));
             }
 
-            Entry::File(v0_sub_file) => {
+            v0::Entry::File(v0_sub_file) => {
               let key = format!("vfs://{}", *count);
               let data = v0_sub_file.content;
 
               *count += 1;
-              v1_dir_entries.push(v1::Entry::File(v1::File {
+              v1_dir_entries.push(Entry::File(File {
                 key: key.clone(),
                 name: v0_sub_file.name,
                 offset: v0_sub_file.offset,
@@ -174,8 +224,8 @@ mod v0 {
               }
             }
 
-            Entry::Symlink(v0_sub_symlink) => {
-              v1_dir_entries.push(v1::Entry::Symlink(v1::Symlink {
+            v0::Entry::Symlink(v0_sub_symlink) => {
+              v1_dir_entries.push(Entry::Symlink(Symlink {
                 name: v0_sub_symlink.name,
                 dest_parts: v0_sub_symlink.dest_parts,
               }));
@@ -224,53 +274,6 @@ mod v0 {
     drop(v1_modules);
 
     Ok(v1_eszip)
-  }
-}
-
-mod v1 {
-  use rkyv::Archive;
-  use rkyv::Deserialize;
-  use rkyv::Serialize;
-
-  #[derive(Archive, Serialize, Deserialize, Debug)]
-  #[archive(
-    check_bytes,
-    bound(serialize = "__S: rkyv::ser::ScratchSpace + rkyv::ser::Serializer")
-  )]
-  #[archive_attr(check_bytes(
-    bound = "__C: rkyv::validation::ArchiveContext, <__C as rkyv::Fallible>::Error: std::error::Error"
-  ))]
-  pub struct Directory {
-    pub name: String,
-    // should be sorted by name
-    #[omit_bounds]
-    #[archive_attr(omit_bounds)]
-    pub entries: Vec<Entry>,
-  }
-
-  #[derive(Archive, Serialize, Deserialize, Debug, Clone)]
-  #[archive(check_bytes)]
-  pub struct File {
-    pub key: String,
-    pub name: String,
-    pub offset: u64,
-    pub len: u64,
-  }
-
-  #[derive(Archive, Serialize, Deserialize, Debug)]
-  #[archive(check_bytes)]
-  pub struct Symlink {
-    pub name: String,
-    pub dest_parts: Vec<String>,
-  }
-
-  #[derive(Archive, Serialize, Deserialize, Debug)]
-  #[cfg_attr(test, derive(enum_as_inner::EnumAsInner))]
-  #[archive(check_bytes)]
-  pub enum Entry {
-    Dir(Directory),
-    File(File),
-    Symlink(Symlink),
   }
 }
 
@@ -356,6 +359,117 @@ mod v1_1 {
     );
 
     Ok(v1_1_eszip)
+  }
+}
+
+mod v2 {
+  use std::sync::Arc;
+
+  use anyhow::anyhow;
+  use anyhow::Context;
+  use eszip::v2::Checksum;
+  use eszip::EszipV2;
+  use eszip_trait::v1;
+  use eszip_trait::v2;
+  use eszip_trait::AsyncEszipDataRead;
+  use eszip_trait::SUPABASE_ESZIP_VERSION_KEY;
+  use futures::future::OptionFuture;
+
+  use crate::metadata::Metadata;
+  use crate::LazyLoadableEszip;
+
+  pub async fn try_migrate_v1_1_v2(
+    v1_1_eszip: &mut LazyLoadableEszip,
+  ) -> Result<LazyLoadableEszip, anyhow::Error> {
+    // In v2, almost everything is managed in the Metadata struct. This reduces
+    // the effort required to serialize/deserialize.
+    let mut v2_eszip = LazyLoadableEszip::new(
+      EszipV2 {
+        modules: v1_1_eszip.modules.clone(),
+        npm_snapshot: v1_1_eszip.npm_snapshot.take(),
+        options: v1_1_eszip.options,
+      },
+      None,
+    );
+
+    v2_eszip
+      .ensure_read_all()
+      .await
+      .with_context(|| "failed to load v1.1 eszip data")?;
+
+    v2_eszip.set_checksum(Checksum::NoChecksum);
+    v2_eszip.add_opaque_data(
+      String::from(SUPABASE_ESZIP_VERSION_KEY),
+      Arc::from(b"2.0" as &[u8]),
+    );
+
+    let module_code =
+      get_binary_from_eszip(v1_1_eszip, v1::SOURCE_CODE_ESZIP_KEY)
+        .await
+        .map(|it| String::from_utf8_lossy(it.as_ref()).into_owned());
+
+    let static_asset_specifiers =
+      get_binary_from_eszip(v1_1_eszip, v1::STATIC_FILES_ESZIP_KEY)
+        .await
+        .map(|it| {
+          rkyv::from_bytes(it.as_ref()).map_err(|_| {
+            anyhow!("failed to deserialize specifiers for static files")
+          })
+        })
+        .transpose()?
+        .unwrap_or_default();
+
+    let virtual_dir = get_binary_from_eszip(v1_1_eszip, v1::VFS_ESZIP_KEY)
+      .await
+      .map(|it| {
+        rkyv::from_bytes(it.as_ref())
+          .map_err(|_| anyhow!("failed to deserialize virtual directory"))
+      })
+      .transpose()?
+      .flatten();
+
+    let npmrc_scopes = get_binary_from_eszip(v1_1_eszip, v1::NPM_RC_SCOPES_KEY)
+      .await
+      .map(|it| {
+        rkyv::from_bytes(it.as_ref())
+          .map_err(|_| anyhow!("failed to deserialize npm scopes"))
+      })
+      .transpose()?;
+
+    let metadata = Metadata {
+      module_code,
+      serialized_workspace_resolver_raw: None,
+      npmrc_scopes,
+      static_asset_specifiers,
+      virtual_dir,
+      ca_stores: None,
+      ca_data: None,
+      unsafely_ignore_certificate_errors: None,
+    };
+
+    v2_eszip.add_opaque_data(
+      String::from(v2::METADATA_KEY),
+      Arc::from(
+        rkyv::to_bytes::<_, 1024>(&metadata)
+          .with_context(|| "cannot serialize metadata")?
+          .into_boxed_slice(),
+      ),
+    );
+
+    Ok(v2_eszip)
+  }
+
+  async fn get_binary_from_eszip(
+    eszip: &LazyLoadableEszip,
+    specifier: &str,
+  ) -> Option<Arc<[u8]>> {
+    OptionFuture::<_>::from(
+      eszip
+        .ensure_module(specifier)
+        .map(|it| async move { it.source().await }),
+    )
+    .await
+    .flatten()
   }
 }
 

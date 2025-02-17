@@ -28,6 +28,7 @@ pub use eszip::migrate;
 pub use eszip::payload_to_eszip;
 pub use eszip::EszipPayloadKind;
 pub use eszip::LazyLoadableEszip;
+pub use metadata::Metadata;
 
 fn ensure_unix_relative_path(path: &Path) -> &Path {
   assert!(path.is_relative());
@@ -113,6 +114,7 @@ mod test {
   use crate::eszip::generate_binary_eszip;
   use crate::eszip::EszipPayloadKind;
   use crate::eszip::ExtractEszipPayload;
+  use crate::Metadata;
 
   #[tokio::test]
   #[allow(clippy::arc_with_non_send_sync)]
@@ -126,9 +128,17 @@ mod test {
         .unwrap(),
     );
 
-    let eszip = generate_binary_eszip(Arc::new(emitter_factory), None, None)
-      .await
-      .unwrap();
+    let mut metadata = Metadata::default();
+    let mut eszip = generate_binary_eszip(
+      &mut metadata,
+      Arc::new(emitter_factory),
+      None,
+      None,
+    )
+    .await
+    .unwrap();
+
+    metadata.bake(&mut eszip).unwrap();
 
     assert!(
       extract_eszip(ExtractEszipPayload {

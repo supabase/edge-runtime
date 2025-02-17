@@ -70,6 +70,7 @@ use deno_facade::module_loader::standalone::create_module_loader_for_standalone_
 use deno_facade::module_loader::RuntimeProviders;
 use deno_facade::EmitterFactory;
 use deno_facade::EszipPayloadKind;
+use deno_facade::Metadata;
 use ext_event_worker::events::EventMetadata;
 use ext_event_worker::events::WorkerEventWithMetadata;
 use ext_runtime::cert::ValueRootCertStoreProvider;
@@ -558,7 +559,9 @@ where
           .build()?,
       );
 
+      let mut metadata = Metadata::default();
       let mut eszip = generate_binary_eszip(
+        &mut metadata,
         Arc::new(emitter_factory),
         maybe_code,
         // here we don't want to add extra cost, so we won't use a checksum
@@ -567,11 +570,16 @@ where
       .await?;
 
       include_glob_patterns_in_eszip(
-        static_patterns.iter().map(|s| s.as_str()).collect(),
         &mut eszip,
+        &mut metadata,
+        static_patterns.iter().map(|s| s.as_str()).collect(),
         &base_dir_path,
       )
       .await?;
+
+      metadata
+        .bake(&mut eszip)
+        .map_err(|_| anyhow!("failed to add metadata into eszip"))?;
 
       EszipPayloadKind::Eszip(eszip)
     };
@@ -1920,6 +1928,7 @@ mod test {
   use deno_facade::generate_binary_eszip;
   use deno_facade::EmitterFactory;
   use deno_facade::EszipPayloadKind;
+  use deno_facade::Metadata;
   use ext_workers::context::MainWorkerRuntimeOpts;
   use ext_workers::context::UserWorkerMsgs;
   use ext_workers::context::UserWorkerRuntimeOpts;
@@ -2171,15 +2180,20 @@ mod test {
         .unwrap(),
     );
 
-    let bin_eszip =
-      generate_binary_eszip(Arc::new(emitter_factory), None, None)
-        .await
-        .unwrap();
+    let mut metadata = Metadata::default();
+    let mut bin_eszip = generate_binary_eszip(
+      &mut metadata,
+      Arc::new(emitter_factory),
+      None,
+      None,
+    )
+    .await
+    .unwrap();
 
+    metadata.bake(&mut bin_eszip).unwrap();
     std::fs::remove_file("./test_cases/eszip-source-test.ts").unwrap();
 
     let eszip_code = bin_eszip.into_bytes();
-
     let runtime = DenoRuntime::<()>::new(
       WorkerBuilder::new(
         WorkerContextInitOpts {
@@ -2247,10 +2261,17 @@ mod test {
       DenoOptionsBuilder::new().entrypoint(file).build().unwrap(),
     );
 
-    let binary_eszip =
-      generate_binary_eszip(Arc::new(emitter_factory), None, None)
-        .await
-        .unwrap();
+    let mut metadata = Metadata::default();
+    let mut binary_eszip = generate_binary_eszip(
+      &mut metadata,
+      Arc::new(emitter_factory),
+      None,
+      None,
+    )
+    .await
+    .unwrap();
+
+    metadata.bake(&mut binary_eszip).unwrap();
 
     let eszip_code = binary_eszip.into_bytes();
     let runtime = DenoRuntime::<()>::new(

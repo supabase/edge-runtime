@@ -3,6 +3,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use anyhow::anyhow;
 use anyhow::Context;
 use deno::deno_npm;
 use deno::deno_npm::npm_rc::RegistryConfigWithUrl;
@@ -11,6 +12,7 @@ use deno::deno_path_util::normalize_path;
 use deno::standalone::binary::SerializedWorkspaceResolver;
 use deno_core::error::AnyError;
 use deno_core::serde_json;
+use eszip::EszipV2;
 use eszip_trait::EszipStaticFiles;
 use fs::virtual_fs::VirtualDirectory;
 use log::warn;
@@ -19,7 +21,7 @@ use rkyv::Deserialize;
 use rkyv::Serialize;
 use url::Url;
 
-#[derive(Default, Archive, Deserialize, Serialize)]
+#[derive(Default, Debug, Archive, Deserialize, Serialize)]
 #[archive(check_bytes)]
 #[archive_attr(repr(C))]
 pub struct Metadata {
@@ -27,7 +29,7 @@ pub struct Metadata {
   pub serialized_workspace_resolver_raw: Option<Vec<u8>>,
   pub npmrc_scopes: Option<HashMap<String, String>>,
   pub static_asset_specifiers: Vec<String>,
-  pub vfs: Option<VirtualDirectory>,
+  pub virtual_dir: Option<VirtualDirectory>,
   pub ca_stores: Option<Vec<String>>,
   pub ca_data: Option<Vec<u8>>,
   pub unsafely_ignore_certificate_errors: Option<Vec<String>>,
@@ -111,5 +113,18 @@ impl Metadata {
     }
 
     lookup
+  }
+
+  pub fn bake(&self, eszip: &mut EszipV2) -> Result<(), AnyError> {
+    let Ok(bytes) = rkyv::to_bytes::<_, 1024>(self) else {
+      return Err(anyhow!("failed to add metadata into eszip"));
+    };
+
+    eszip.add_opaque_data(
+      String::from(eszip_trait::v2::METADATA_KEY),
+      Arc::from(bytes.into_boxed_slice()),
+    );
+
+    Ok(())
   }
 }

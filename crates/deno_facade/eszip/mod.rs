@@ -47,6 +47,7 @@ use crate::extract_modules;
 use crate::graph::create_eszip_from_graph_raw;
 use crate::graph::create_graph;
 use crate::graph::CreateGraphArgs;
+use crate::metadata::Metadata;
 
 mod parse;
 
@@ -646,6 +647,7 @@ pub async fn payload_to_eszip(
 }
 
 pub async fn generate_binary_eszip(
+  metadata: &mut Metadata,
   emitter_factory: Arc<EmitterFactory>,
   maybe_module_code: Option<FastString>,
   maybe_checksum: Option<eszip::v2::Checksum>,
@@ -721,10 +723,8 @@ pub async fn generate_binary_eszip(
     )
     .await?;
 
-  let bin_code: Arc<[u8]> = emit_source.as_bytes().into();
   let resolver = emitter_factory.npm_resolver().await.cloned()?;
-
-  let (npm_vfs, _npm_files) = match resolver.clone().as_inner() {
+  let (virtual_dir, _npm_files) = match resolver.clone().as_inner() {
     InnerCliNpmResolverRef::Managed(managed) => {
       let snapshot =
         managed.serialized_valid_snapshot_for_system(&NpmSystemInfo::default());
@@ -757,33 +757,10 @@ pub async fn generate_binary_eszip(
     InnerCliNpmResolverRef::Byonm(_) => unreachable!(),
   };
 
-  let npm_vfs = rkyv::to_bytes::<_, 1024>(&npm_vfs)
-    .with_context(|| "cannot serialize vfs data")?;
-
   eszip.add_opaque_data(
     String::from(SUPABASE_ESZIP_VERSION_KEY),
     Arc::from(SUPABASE_ESZIP_VERSION),
   );
-
-  eszip.add_opaque_data(
-    String::from(eszip_trait::v1::VFS_ESZIP_KEY),
-    Arc::from(npm_vfs.into_boxed_slice()),
-  );
-
-  eszip.add_opaque_data(
-    String::from(eszip_trait::v1::SOURCE_CODE_ESZIP_KEY),
-    bin_code,
-  );
-
-  // add import map
-  // let workspace_resolver = emitter_factory.workspace_resolver()?;
-  // if let Some(import_map) = workspace_resolver.maybe_import_map() {
-  //   eszip.add_import_map(
-  //     ModuleKind::Json,
-  //     import_map.base_url(),
-  //     Arc::from(import_map.to_json().as_bytes()),
-  //   );
-  // }
 
   let resolved_npm_rc = emitter_factory.resolved_npm_rc()?;
   let modified_scopes = resolved_npm_rc
@@ -812,23 +789,19 @@ pub async fn generate_binary_eszip(
         url.to_string()
       }))
     })
-    .collect::<HashMap<_, _>>();
+    .collect();
 
-  eszip.add_opaque_data(
-    String::from(eszip_trait::v1::NPM_RC_SCOPES_KEY),
-    Arc::from(
-      rkyv::to_bytes::<_, 1024>(&modified_scopes)
-        .with_context(|| "cannot serialize vfs data")?
-        .into_boxed_slice(),
-    ),
-  );
+  metadata.module_code = Some(emit_source);
+  metadata.npmrc_scopes = Some(modified_scopes);
+  metadata.virtual_dir = virtual_dir;
 
   Ok(eszip)
 }
 
 pub async fn include_glob_patterns_in_eszip<P>(
-  patterns: Vec<&str>,
   eszip: &mut EszipV2,
+  metadata: &mut Metadata,
+  patterns: Vec<&str>,
   base_dir: P,
 ) -> Result<(), anyhow::Error>
 where
@@ -867,18 +840,7 @@ where
     }
   }
 
-  if !specifiers.is_empty() {
-    eszip.add_opaque_data(
-      String::from(eszip_trait::v1::STATIC_FILES_ESZIP_KEY),
-      Arc::from(
-        rkyv::to_bytes::<_, 1024>(&specifiers)
-          .with_context(|| {
-            "cannot serialize accessible paths for static files"
-          })?
-          .into_boxed_slice(),
-      ),
-    );
-  }
+  metadata.static_asset_specifiers = specifiers;
 
   Ok(())
 }

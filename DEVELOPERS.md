@@ -55,6 +55,7 @@ and run `orb` in the base directory to enter the virtual machine.
 
 * Select the Deno version to upgrade and visit its tag on GitHub (eg: https://github.com/denoland/deno/blob/v1.30.3/Cargo.toml)
 * Open the `Cargo.toml` at the root of of this repo and modify all `deno_*` modules to match to the selected tag of Deno.
+* Update the contents of `ext/node/` to match the contents of `deno@selected-tag/ext/node`.
 
 ## How to use Dev Container
 

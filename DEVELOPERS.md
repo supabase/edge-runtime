@@ -72,11 +72,16 @@ This repository uses Dev Container for a unifying local development environment.
 - Dev Container requires [VS Code](https://code.visualstudio.com/download) and
   [Docker](https://www.docker.com/get-started/) to be pre-installed to use it.
 
-- Install the
+- It is recommended to increase the maximum memory allocated to the Dev
+  Container to at least 24GB, otherwise you may run into spurious errors while
+  compiling. This can be configured via the Docker CLI or the Docker Desktop at
+  `Settings -> Resources -> Advanced -> Memory`.
+
+* Install the
   [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers)
   to VS Code.
 
-- Open the command palette, and select
+* Open the command palette, and select
   `Dev Containers: Open Folder in Container...`
 
   ![figure-vscode](assets/dev-container-vscode.gif)
@@ -113,10 +118,10 @@ After running the script, `k6` should run normally as shown below.
 ```sh
 vscode ➜ /workspaces/edge-runtime/k6/scripts $ k6 --help
 
-          /\      |‾‾| /‾‾/   /‾‾/   
-     /\  /  \     |  |/  /   /  /    
-    /  \/    \    |     (   /   ‾‾\  
-   /          \   |  |\  \ |  (‾)  | 
+          /\      |‾‾| /‾‾/   /‾‾/
+     /\  /  \     |  |/  /   /  /
+    /  \/    \    |     (   /   ‾‾\
+   /          \   |  |\  \ |  (‾)  |
   / __________ \  |__| \__\ \_____/ .io
 
 Usage:
@@ -138,7 +143,7 @@ Once you've confirmed that k6 is run properly, you can proceed to load testing.
   vscode ➜ /workspaces/edge-runtime $ pwd
   /workspaces/edge-runtime
 
-  vscode ➜ /workspaces/edge-runtime $ cat ./scripts/run.sh 
+  vscode ➜ /workspaces/edge-runtime $ cat ./scripts/run.sh
   #!/usr/bin/env bash
 
   GIT_V_TAG=0.1.1 cargo build && EDGE_RUNTIME_PORT=9998 RUST_BACKTRACE=full ./target/debug/edge-runtime "$@" start --main-service ./examples/main --event-worker ./examples/event-manager
@@ -157,10 +162,10 @@ Once you've confirmed that k6 is run properly, you can proceed to load testing.
   ```sh
   vscode ➜ /workspaces/edge-runtime $ k6 run ./k6/dist/specs/simple.js
 
-          /\      |‾‾| /‾‾/   /‾‾/   
-     /\  /  \     |  |/  /   /  /    
-    /  \/    \    |     (   /   ‾‾\  
-   /          \   |  |\  \ |  (‾)  | 
+          /\      |‾‾| /‾‾/   /‾‾/
+     /\  /  \     |  |/  /   /  /
+    /  \/    \    |     (   /   ‾‾\
+   /          \   |  |\  \ |  (‾)  |
   / __________ \  |__| \__\ \_____/ .io
 
      execution: local

@@ -10,6 +10,7 @@ use deno::file_fetcher::File;
 use deno_core::error::AnyError;
 use deno_core::FastString;
 use deno_core::ModuleSpecifier;
+use eszip::EszipRelativeFileBaseUrl;
 use eszip::EszipV2;
 
 use crate::emitter::EmitterFactory;
@@ -18,6 +19,7 @@ use crate::emitter::EmitterFactory;
 pub async fn create_eszip_from_graph_raw(
   graph: ModuleGraph,
   emitter_factory: Option<Arc<EmitterFactory>>,
+  relative_file_base: Option<EszipRelativeFileBaseUrl<'_>>,
 ) -> Result<EszipV2, AnyError> {
   let emitter =
     emitter_factory.unwrap_or_else(|| Arc::new(EmitterFactory::new()));
@@ -38,7 +40,7 @@ pub async fn create_eszip_from_graph_raw(
     parser,
     transpile_options,
     emit_options,
-    relative_file_base: None,
+    relative_file_base,
     npm_packages: None,
   })
 }

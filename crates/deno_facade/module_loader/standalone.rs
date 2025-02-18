@@ -653,7 +653,7 @@ where
         let import_map = match serialized_workspace_resolver.import_map {
           Some(import_map) => Some(
             import_map::parse_from_json_with_options(
-              Url::parse(&import_map.specifier)?,
+              root_dir_url.join(&import_map.specifier)?,
               &import_map.json,
               import_map::ImportMapOptions {
                 address_hook: None,
@@ -668,14 +668,13 @@ where
           .package_jsons
           .into_iter()
           .map(|(relative_path, json)| {
-            let Ok(path) = Url::from_file_path(relative_path)
-              .and_then(|it| it.to_file_path())
-            else {
-              bail!("failed to parse path");
-            };
+            let path =
+              root_dir_url.join(&relative_path)?.to_file_path().map_err(
+                |_| anyhow!("failed to convert to file path from url"),
+              )?;
             let pkg_json =
               deno_package_json::PackageJson::load_from_value(path, json);
-            Ok(Arc::new(pkg_json))
+            Ok::<_, AnyError>(Arc::new(pkg_json))
           })
           .collect::<Result<_, _>>()?;
         WorkspaceResolver::new_raw(

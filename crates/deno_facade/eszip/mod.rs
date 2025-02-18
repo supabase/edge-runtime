@@ -18,6 +18,7 @@ use deno::npm::InnerCliNpmResolverRef;
 use deno::standalone::binary::SerializedResolverWorkspaceJsrPackage;
 use deno::standalone::binary::SerializedWorkspaceResolver;
 use deno::standalone::binary::SerializedWorkspaceResolverImportMap;
+use deno::tools::compile;
 use deno_core::serde_json;
 use deno_core::url::Url;
 use deno_core::FastString;
@@ -27,6 +28,7 @@ use error::EszipError;
 use eszip::v2::EszipV2Module;
 use eszip::v2::EszipV2Modules;
 use eszip::v2::EszipV2SourceSlot;
+use eszip::EszipRelativeFileBaseUrl;
 use eszip::EszipV2;
 use eszip::Module;
 use eszip::ModuleKind;
@@ -703,8 +705,23 @@ pub async fn generate_binary_eszip(
     m.is_script,
   )?;
 
-  let mut eszip =
-    create_eszip_from_graph_raw(graph, Some(emitter_factory.clone())).await?;
+  let root_dir_url = compile::resolve_root_dir_from_specifiers(
+    emitter_factory.deno_options()?.workspace().root_dir(),
+    graph.specifiers().map(|(s, _)| s).chain(
+      deno_options
+        .node_modules_dir_path()
+        .and_then(|it| ModuleSpecifier::from_directory_path(it).ok())
+        .iter(),
+    ),
+  );
+  let root_dir_url = EszipRelativeFileBaseUrl::new(&root_dir_url);
+  let mut eszip = create_eszip_from_graph_raw(
+    graph,
+    Some(emitter_factory.clone()),
+    Some(root_dir_url),
+  )
+  .await?;
+
   if let Some(checksum) = maybe_checksum {
     eszip.set_checksum(checksum);
   }
@@ -795,29 +812,23 @@ pub async fn generate_binary_eszip(
       }))
     })
     .collect();
-
-  // let root_dir_url = compile::resolve_root_dir_from_specifiers(
-  //   emitter_factory.deno_options()?.workspace().root_dir(),
-  //   graph.specifiers().map(|(s, _)| s).chain(
-  //     deno_options
-  //       .node_modules_dir_path()
-  //       .and_then(|it| ModuleSpecifier::from_directory_path(it).ok())
-  //       .iter(),
-  //   ),
-  // );
-
   let workspace_resolver = emitter_factory.workspace_resolver()?.clone();
   let serialized_workspace_resolver = SerializedWorkspaceResolver {
     import_map: workspace_resolver.maybe_import_map().map(|it| {
       SerializedWorkspaceResolverImportMap {
-        specifier: "deno.json".to_string(),
+        specifier: if it.base_url().scheme() == "file" {
+          root_dir_url.specifier_key(it.base_url()).into_owned()
+        } else {
+          // just make a remote url local
+          "deno.json".to_string()
+        },
         json: it.to_json(),
       }
     }),
     jsr_pkgs: workspace_resolver
       .jsr_packages()
       .map(|it| SerializedResolverWorkspaceJsrPackage {
-        relative_base: it.base.to_string(),
+        relative_base: root_dir_url.specifier_key(&it.base).into_owned(),
         name: it.name.clone(),
         version: it.version.clone(),
         exports: it.exports.clone(),
@@ -827,7 +838,7 @@ pub async fn generate_binary_eszip(
       .package_jsons()
       .map(|it| {
         (
-          it.specifier().to_string(),
+          root_dir_url.specifier_key(&it.specifier()).into_owned(),
           serde_json::to_value(it).unwrap(),
         )
       })

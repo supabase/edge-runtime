@@ -375,6 +375,7 @@ mod v2 {
   use eszip_trait::SUPABASE_ESZIP_VERSION_KEY;
   use futures::future::OptionFuture;
 
+  use crate::metadata::Entrypoint;
   use crate::metadata::Metadata;
   use crate::LazyLoadableEszip;
 
@@ -403,10 +404,11 @@ mod v2 {
       Arc::from(b"2.0" as &[u8]),
     );
 
-    let module_code =
+    let entrypoint =
       get_binary_from_eszip(v1_1_eszip, v1::SOURCE_CODE_ESZIP_KEY)
         .await
-        .map(|it| String::from_utf8_lossy(it.as_ref()).into_owned());
+        .map(|it| String::from_utf8_lossy(it.as_ref()).into_owned())
+        .map(Entrypoint::ModuleCode);
 
     let static_asset_specifiers =
       get_binary_from_eszip(v1_1_eszip, v1::STATIC_FILES_ESZIP_KEY)
@@ -437,7 +439,7 @@ mod v2 {
       .transpose()?;
 
     let metadata = Metadata {
-      module_code,
+      entrypoint,
       serialized_workspace_resolver_raw: None,
       npmrc_scopes,
       static_asset_specifiers,

@@ -418,28 +418,25 @@ async fn test_main_worker_abort_request() {
 #[tokio::test]
 #[serial]
 async fn test_main_worker_with_jsx_function() {
-  let jsx_tests: Vec<&str> = vec!["jsx-1", "jsx-2"];
-  for test_path in jsx_tests {
-    integration_test!(
-      "./test_cases/main",
-      NON_SECURE_PORT,
-      test_path,
-      None,
-      None,
-      None,
-      (|resp: Result<reqwest::Response, reqwest::Error>| async {
-        let res = resp.unwrap();
-        assert!(res.status().as_u16() == 200);
+  integration_test!(
+    "./test_cases/main",
+    NON_SECURE_PORT,
+    "jsx",
+    None,
+    None,
+    None,
+    (|resp: Result<reqwest::Response, reqwest::Error>| async {
+      let res = resp.unwrap();
+      assert!(res.status().as_u16() == 200);
 
-        let body_bytes = res.bytes().await.unwrap();
-        assert_eq!(
-          body_bytes,
-          r#"{"type":"div","props":{"children":"Hello"},"__k":null,"__":null,"__b":0,"__e":null,"__c":null,"__v":-1,"__i":-1,"__u":0}"#
-        );
-      }),
-      TerminationToken::new()
-    );
-  }
+      let body_bytes = res.bytes().await.unwrap();
+      assert_eq!(
+        body_bytes,
+        r#"{"type":"div","props":{"children":"Hello"},"__k":null,"__":null,"__b":0,"__e":null,"__c":null,"__v":-1,"__i":-1,"__u":0}"#
+      );
+    }),
+    TerminationToken::new()
+  );
 }
 
 #[tokio::test]
@@ -2454,16 +2451,16 @@ async fn test_should_be_able_to_bundle_against_various_exts() {
 
     async {
       let mut metadata = Metadata::default();
-      let mut eszip = generate_binary_eszip(
+      let eszip = generate_binary_eszip(
         &mut metadata,
         Arc::new(emitter_factory),
+        None,
         None,
         None,
       )
       .await
       .unwrap();
 
-      metadata.bake(&mut eszip).unwrap();
       eszip.into_bytes()
     }
   };
@@ -2655,16 +2652,16 @@ async fn test_private_npm_package_import() {
       );
 
       let mut metadata = Metadata::default();
-      let mut eszip = generate_binary_eszip(
+      let eszip = generate_binary_eszip(
         &mut metadata,
         Arc::new(emitter_factory),
+        None,
         None,
         None,
       )
       .await
       .unwrap();
 
-      metadata.bake(&mut eszip).unwrap();
       eszip.into_bytes()
     };
 

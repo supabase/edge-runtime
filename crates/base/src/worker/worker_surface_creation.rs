@@ -476,10 +476,7 @@ pub struct MainWorkerSurfaceBuilder {
 
   main_worker_path: PathBuf,
   no_module_cache: Option<bool>,
-  // import_map_path: Option<String>,
   entrypoint: Option<String>,
-  // decorator: Option<DecoratorType>,
-  // jsx: Option<JsxImportSourceConfig>,
   worker_pool_tx: Option<mpsc::UnboundedSender<UserWorkerMsgs>>,
   shared_metric_src: Option<SharedMetricSource>,
   event_worker_metric_src: Option<MetricSource>,
@@ -527,14 +524,6 @@ impl MainWorkerSurfaceBuilder {
     self
   }
 
-  // pub fn jsx_import_source_config(
-  //   mut self,
-  //   value: JsxImportSourceConfig,
-  // ) -> Self {
-  //   self.jsx = Some(value);
-  //   self
-  // }
-
   pub fn worker_pool_sender(
     mut self,
     value: mpsc::UnboundedSender<UserWorkerMsgs>,
@@ -558,28 +547,10 @@ impl MainWorkerSurfaceBuilder {
     self
   }
 
-  // pub fn set_import_map_path(&mut self, value: Option<&str>) -> &mut Self {
-  //   self.import_map_path = value.map(str::to_string);
-  //   self
-  // }
-
   pub fn set_entrypoint(&mut self, value: Option<&str>) -> &mut Self {
     self.entrypoint = value.map(str::to_string);
     self
   }
-
-  // pub fn set_decorator(&mut self, value: Option<DecoratorType>) -> &mut Self {
-  //   self.decorator = value;
-  //   self
-  // }
-
-  // pub fn set_jsx_import_source_config(
-  //   &mut self,
-  //   value: Option<JsxImportSourceConfig>,
-  // ) -> &mut Self {
-  //   self.jsx = value;
-  //   self
-  // }
 
   pub fn set_worker_pool_sender(
     &mut self,

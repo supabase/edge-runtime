@@ -421,6 +421,7 @@ impl VfsEntry {
 #[archive_attr(check_bytes(
   bound = "__C: rkyv::validation::ArchiveContext, <__C as rkyv::Fallible>::Error: std::error::Error"
 ))]
+#[archive_attr(repr(C))]
 pub struct VirtualDirectory {
   pub name: String,
   // should be sorted by name

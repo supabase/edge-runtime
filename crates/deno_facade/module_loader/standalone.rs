@@ -54,7 +54,6 @@ use deno_core::error::type_error;
 use deno_core::error::AnyError;
 use deno_core::futures::FutureExt;
 use deno_core::url::Url;
-use deno_core::FastString;
 use deno_core::ModuleLoader;
 use deno_core::ModuleSourceCode;
 use deno_core::ModuleSpecifier;
@@ -480,15 +479,11 @@ impl RootCertStoreProvider for StandaloneRootCertStoreProvider {
   }
 }
 
-pub async fn create_module_loader_for_eszip<P>(
+pub async fn create_module_loader_for_eszip(
   mut eszip: LazyLoadableEszip,
-  base_dir_path: P,
   permissions_options: PermissionsOptions,
   include_source_map: bool,
-) -> Result<RuntimeProviders, AnyError>
-where
-  P: AsRef<Path>,
-{
+) -> Result<RuntimeProviders, AnyError> {
   let current_exe_path = std::env::current_exe().unwrap();
   let current_exe_name =
     current_exe_path.file_name().unwrap().to_string_lossy();
@@ -515,7 +510,17 @@ where
   .transpose()?
   .unwrap_or_default();
 
-  let static_files = metadata.static_assets_lookup(base_dir_path);
+  let root_path = if cfg!(target_family = "unix") {
+    PathBuf::from("/var/tmp")
+  } else {
+    std::env::temp_dir()
+  }
+  .join(format!("sb-compile-{}", current_exe_name));
+
+  let root_dir_url =
+    Arc::new(ModuleSpecifier::from_directory_path(&root_path).unwrap());
+  let root_node_modules_path = root_path.join("node_modules");
+  let static_files = metadata.static_assets_lookup(&root_path);
 
   // use a dummy npm registry url
   let npm_registry_url = ModuleSpecifier::parse("https://localhost/").unwrap();
@@ -532,17 +537,6 @@ where
     Some(root_cert_store_provider.clone()),
     metadata.unsafely_ignore_certificate_errors.clone(),
   ));
-
-  let root_path = if cfg!(target_family = "unix") {
-    PathBuf::from("/var/tmp")
-  } else {
-    std::env::temp_dir()
-  }
-  .join(format!("sb-compile-{}", current_exe_name));
-
-  let root_dir_url =
-    Arc::new(ModuleSpecifier::from_directory_path(&root_path).unwrap());
-  let root_node_modules_path = root_path.join("node_modules");
 
   let (fs, vfs) = {
     let vfs = load_npm_vfs(
@@ -567,9 +561,7 @@ where
     npmrc.get_all_known_registries_urls(),
   ));
 
-  let module_code = metadata.module_code.take().map(FastString::from);
   let snapshot = eszip.take_npm_snapshot();
-
   let pkg_json_resolver = Arc::new(PackageJsonResolver::new(
     ext_node::DenoFsNodeResolverEnv::new(fs.clone()),
   ));
@@ -718,7 +710,6 @@ where
   });
 
   Ok(RuntimeProviders {
-    module_code,
     module_loader: module_loader.clone(),
     node_services: NodeExtInitServices {
       node_require_loader: module_loader.clone(),
@@ -728,21 +719,18 @@ where
     },
     npm_snapshot: snapshot,
     permissions: permissions_container,
+    metadata,
     static_files,
     vfs_path: npm_cache_dir.root_dir().to_path_buf(),
     vfs,
   })
 }
 
-pub async fn create_module_loader_for_standalone_from_eszip_kind<P>(
+pub async fn create_module_loader_for_standalone_from_eszip_kind(
   eszip_payload_kind: EszipPayloadKind,
-  base_dir_path: P,
   permissions_options: PermissionsOptions,
   include_source_map: bool,
-) -> Result<RuntimeProviders, AnyError>
-where
-  P: AsRef<Path>,
-{
+) -> Result<RuntimeProviders, AnyError> {
   let eszip = match migrate::try_migrate_if_needed(
     payload_to_eszip(eszip_payload_kind).await?,
   )
@@ -754,11 +742,6 @@ where
     }
   };
 
-  create_module_loader_for_eszip(
-    eszip,
-    base_dir_path,
-    permissions_options,
-    include_source_map,
-  )
-  .await
+  create_module_loader_for_eszip(eszip, permissions_options, include_source_map)
+    .await
 }

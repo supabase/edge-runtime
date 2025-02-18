@@ -23,7 +23,6 @@ pub mod permissions;
 pub use ::eszip::v2::Checksum;
 pub use emitter::EmitterFactory;
 pub use eszip::generate_binary_eszip;
-pub use eszip::include_glob_patterns_in_eszip;
 pub use eszip::migrate;
 pub use eszip::payload_to_eszip;
 pub use eszip::EszipPayloadKind;
@@ -129,16 +128,15 @@ mod test {
     );
 
     let mut metadata = Metadata::default();
-    let mut eszip = generate_binary_eszip(
+    let eszip = generate_binary_eszip(
       &mut metadata,
       Arc::new(emitter_factory),
+      None,
       None,
       None,
     )
     .await
     .unwrap();
-
-    metadata.bake(&mut eszip).unwrap();
 
     assert!(
       extract_eszip(ExtractEszipPayload {

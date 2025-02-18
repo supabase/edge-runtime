@@ -3,15 +3,12 @@ use std::collections::HashMap;
 use std::io::Cursor;
 use std::io::SeekFrom;
 use std::io::Write;
-use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Context;
-use deno::deno_ast;
-use deno::deno_fs::FileSystem;
-use deno::deno_fs::RealFs;
 use deno::deno_npm::NpmSystemInfo;
 use deno::deno_path_util::normalize_path;
 use deno::npm::InnerCliNpmResolverRef;
@@ -53,6 +50,7 @@ use crate::extract_modules;
 use crate::graph::create_eszip_from_graph_raw;
 use crate::graph::create_graph;
 use crate::graph::CreateGraphArgs;
+use crate::metadata::Entrypoint;
 use crate::metadata::Metadata;
 
 mod parse;
@@ -657,6 +655,7 @@ pub async fn generate_binary_eszip(
   emitter_factory: Arc<EmitterFactory>,
   maybe_module_code: Option<FastString>,
   maybe_checksum: Option<eszip::v2::Checksum>,
+  maybe_static_patterns: Option<Vec<&str>>,
 ) -> Result<EszipV2, anyhow::Error> {
   let deno_options = emitter_factory.deno_options()?.clone();
   let args = if let Some(path) = deno_options.entrypoint() {
@@ -679,7 +678,6 @@ pub async fn generate_binary_eszip(
   };
 
   let path = args.path().clone();
-  let cjs_tracker = emitter_factory.cjs_tracker()?.clone();
   let graph =
     Arc::into_inner(create_graph(&args, emitter_factory.clone()).await?)
       .context("can't unwrap the graph")?;
@@ -691,19 +689,6 @@ pub async fn generate_binary_eszip(
       .unwrap_or("http://localhost".into()),
   )
   .unwrap();
-
-  let m = graph
-    .get(&specifier)
-    .context("cannot get a module")?
-    .js()
-    .context("not a js module")?;
-
-  let media_type = m.media_type;
-  let is_cjs = cjs_tracker.is_cjs_with_known_is_script(
-    &specifier,
-    m.media_type,
-    m.is_script,
-  )?;
 
   let root_dir_url = compile::resolve_root_dir_from_specifiers(
     emitter_factory.deno_options()?.workspace().root_dir(),
@@ -725,25 +710,6 @@ pub async fn generate_binary_eszip(
   if let Some(checksum) = maybe_checksum {
     eszip.set_checksum(checksum);
   }
-
-  let source_code = match args {
-    CreateGraphArgs::File(path) => {
-      String::from_utf8(RealFs.read_file_sync(&path, None)?.to_vec())?.into()
-    }
-
-    CreateGraphArgs::Code { code, .. } => code.as_str().into(),
-  };
-
-  let emit_source = emitter_factory
-    .emitter()
-    .unwrap()
-    .emit_parsed_source(
-      &specifier,
-      media_type,
-      deno_ast::ModuleKind::from_is_cjs(is_cjs),
-      &source_code,
-    )
-    .await?;
 
   let resolver = emitter_factory.npm_resolver().await.cloned()?;
   let virtual_dir = match resolver.clone().as_inner() {
@@ -846,7 +812,10 @@ pub async fn generate_binary_eszip(
     pkg_json_resolution: workspace_resolver.pkg_json_dep_resolution(),
   };
 
-  metadata.module_code = Some(emit_source);
+  metadata.entrypoint = Some(Entrypoint::Key(
+    root_dir_url.specifier_key(&specifier).into_owned(),
+  ));
+
   metadata.npmrc_scopes = Some(modified_scopes);
   metadata.virtual_dir = virtual_dir;
   metadata.serialized_workspace_resolver_raw = Some(
@@ -854,20 +823,30 @@ pub async fn generate_binary_eszip(
       .with_context(|| "failed to serialize workspace resolver")?,
   );
 
+  if let Some(static_patterns) = maybe_static_patterns {
+    include_glob_patterns_in_eszip(
+      &mut eszip,
+      metadata,
+      static_patterns,
+      root_dir_url,
+    )
+    .await?;
+  }
+
+  metadata
+    .bake(&mut eszip)
+    .map_err(|_| anyhow!("failed to add metadata into eszip"))?;
+
   Ok(eszip)
 }
 
-pub async fn include_glob_patterns_in_eszip<P>(
+async fn include_glob_patterns_in_eszip(
   eszip: &mut EszipV2,
   metadata: &mut Metadata,
   patterns: Vec<&str>,
-  base_dir: P,
-) -> Result<(), anyhow::Error>
-where
-  P: AsRef<Path>,
-{
+  relative_file_base: EszipRelativeFileBaseUrl<'_>,
+) -> Result<(), anyhow::Error> {
   let cwd = std::env::current_dir();
-  let base_dir = base_dir.as_ref();
   let mut specifiers: Vec<String> = vec![];
 
   for pattern in patterns {
@@ -875,13 +854,12 @@ where
       match entry {
         Ok(path) => {
           let path = cwd.as_ref().unwrap().join(path);
-          let (path, rel) = match pathdiff::diff_paths(&path, base_dir) {
-            Some(rel) => (path, rel.to_string_lossy().to_string()),
-            None => (path.clone(), path.to_string_lossy().to_string()),
-          };
+          let path_url = Url::from_file_path(&path)
+            .map_err(|_| anyhow!("failed to convert to file path from url"))?;
+          let relative_path = relative_file_base.specifier_key(&path_url);
 
           if path.exists() {
-            let specifier = format!("static:{}", rel.as_str());
+            let specifier = format!("static:{}", relative_path);
 
             eszip.add_opaque_data(
               specifier.clone(),

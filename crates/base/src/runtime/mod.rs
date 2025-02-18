@@ -65,7 +65,7 @@ use deno_core::PollEventLoopOptions;
 use deno_core::ResolutionKind;
 use deno_core::RuntimeOptions;
 use deno_facade::generate_binary_eszip;
-use deno_facade::include_glob_patterns_in_eszip;
+use deno_facade::metadata::Entrypoint;
 use deno_facade::module_loader::standalone::create_module_loader_for_standalone_from_eszip_kind;
 use deno_facade::module_loader::RuntimeProviders;
 use deno_facade::EmitterFactory;
@@ -475,33 +475,15 @@ where
       ..
     } = init_opts.unwrap();
 
+    let base_dir_path =
+      std::env::current_dir().map(|p| p.join(&service_path))?;
+
     // TODO(Nyannyacha): Make sure `service_path` is an absolute path first.
 
     let drop_token = CancellationToken::default();
     let termination_request_token = CancellationToken::default();
     let promise_metrics = PromiseMetrics::default();
     let runtime_state = Arc::<RuntimeState>::default();
-
-    let base_dir_path =
-      std::env::current_dir().map(|p| p.join(&service_path))?;
-
-    let Ok(mut main_module_url) = Url::from_directory_path(&base_dir_path)
-    else {
-      bail!(
-        "malformed base directory: {}",
-        base_dir_path.to_string_lossy()
-      );
-    };
-
-    static POTENTIAL_EXTS: &[&str] = &["ts", "tsx", "js", "mjs", "jsx"];
-
-    for ext in POTENTIAL_EXTS.iter() {
-      main_module_url =
-        main_module_url.join(format!("index.{}", ext).as_str())?;
-      if main_module_url.to_file_path().unwrap().exists() {
-        break;
-      }
-    }
 
     let is_user_worker = conf.is_user_worker();
     let is_some_entry_point = maybe_entrypoint.is_some();
@@ -515,10 +497,6 @@ where
       .and_then(|it| it.permissions.clone())
       .unwrap_or_else(|| get_default_permisisons(conf.to_worker_kind()));
 
-    if is_some_entry_point {
-      main_module_url = Url::parse(&maybe_entrypoint.unwrap())?;
-    }
-
     let only_module_code = maybe_module_code.is_some()
       && maybe_eszip.is_none()
       && !is_some_entry_point;
@@ -526,6 +504,28 @@ where
     let eszip = if let Some(eszip_payload) = maybe_eszip {
       eszip_payload
     } else {
+      let Ok(mut main_module_url) = Url::from_directory_path(&base_dir_path)
+      else {
+        bail!(
+          "malformed base directory: {}",
+          base_dir_path.to_string_lossy()
+        );
+      };
+
+      static POTENTIAL_EXTS: &[&str] = &["ts", "tsx", "js", "mjs", "jsx"];
+
+      for ext in POTENTIAL_EXTS.iter() {
+        main_module_url =
+          main_module_url.join(format!("index.{}", ext).as_str())?;
+        if main_module_url.to_file_path().unwrap().exists() {
+          break;
+        }
+      }
+
+      if is_some_entry_point {
+        main_module_url = Url::parse(&maybe_entrypoint.unwrap())?;
+      }
+
       let mut emitter_factory = EmitterFactory::new();
 
       let cache_strategy = if no_module_cache {
@@ -544,9 +544,6 @@ where
       );
       emitter_factory.set_cache_strategy(Some(cache_strategy));
 
-      let main_module_url_file_path =
-        main_module_url.clone().to_file_path().unwrap();
-
       let maybe_code = if only_module_code {
         maybe_module_code
       } else {
@@ -555,31 +552,20 @@ where
 
       emitter_factory.set_deno_options(
         DenoOptionsBuilder::new()
-          .entrypoint(main_module_url_file_path)
+          .entrypoint(main_module_url.clone().to_file_path().unwrap())
           .build()?,
       );
 
       let mut metadata = Metadata::default();
-      let mut eszip = generate_binary_eszip(
+      let eszip = generate_binary_eszip(
         &mut metadata,
         Arc::new(emitter_factory),
         maybe_code,
         // here we don't want to add extra cost, so we won't use a checksum
         None,
+        Some(static_patterns.iter().map(|s| s.as_str()).collect()),
       )
       .await?;
-
-      include_glob_patterns_in_eszip(
-        &mut eszip,
-        &mut metadata,
-        static_patterns.iter().map(|s| s.as_str()).collect(),
-        &base_dir_path,
-      )
-      .await?;
-
-      metadata
-        .bake(&mut eszip)
-        .map_err(|_| anyhow!("failed to add metadata into eszip"))?;
 
       EszipPayloadKind::Eszip(eszip)
     };
@@ -607,22 +593,34 @@ where
 
     let rt_provider = create_module_loader_for_standalone_from_eszip_kind(
       eszip,
-      base_dir_path.clone(),
       permissions_options,
       has_inspector || need_source_map,
     )
     .await?;
 
     let RuntimeProviders {
-      module_code,
       module_loader,
       node_services,
       npm_snapshot,
       permissions,
+      metadata,
       static_files,
       vfs_path,
       vfs,
     } = rt_provider;
+
+    let entrypoint = metadata
+      .entrypoint
+      .as_ref()
+      .with_context(|| "could not find entrypoint from metadata")?;
+
+    let main_module_url = Url::parse(match entrypoint {
+      Entrypoint::Key(key) => key,
+      Entrypoint::ModuleCode(_) => user_context
+        .get("entrypoint")
+        .and_then(|it| it.as_str())
+        .with_context(|| "could not find entrypoint key")?,
+    })?;
 
     let build_file_system_fn = |base_fs: Arc<dyn deno_fs::FileSystem>| -> Result<
       (Arc<dyn deno_fs::FileSystem>, Option<S3Fs>),
@@ -652,7 +650,6 @@ where
       Arc::new(DenoCompileFileSystem::from_rc(vfs))
     })?;
 
-    let mod_code = module_code;
     let extensions = vec![
       deno_telemetry::deno_telemetry::init_ops(),
       deno_webidl::deno_webidl::init_ops(),
@@ -959,12 +956,19 @@ where
     }
 
     let main_module_id = {
-      if let Some(code) = mod_code {
-        js_runtime
-          .load_main_es_module_from_code(&main_module_url, code)
-          .await?
-      } else {
-        js_runtime.load_main_es_module(&main_module_url).await?
+      match entrypoint {
+        Entrypoint::Key(key) => {
+          debug_assert_eq!(main_module_url.as_str(), key);
+          js_runtime.load_main_es_module(&main_module_url).await?
+        }
+        Entrypoint::ModuleCode(module_code) => {
+          js_runtime
+            .load_main_es_module_from_code(
+              &main_module_url,
+              module_code.to_string(),
+            )
+            .await?
+        }
       }
     };
 
@@ -2181,16 +2185,16 @@ mod test {
     );
 
     let mut metadata = Metadata::default();
-    let mut bin_eszip = generate_binary_eszip(
+    let bin_eszip = generate_binary_eszip(
       &mut metadata,
       Arc::new(emitter_factory),
+      None,
       None,
       None,
     )
     .await
     .unwrap();
 
-    metadata.bake(&mut bin_eszip).unwrap();
     std::fs::remove_file("./test_cases/eszip-source-test.ts").unwrap();
 
     let eszip_code = bin_eszip.into_bytes();
@@ -2262,16 +2266,15 @@ mod test {
     );
 
     let mut metadata = Metadata::default();
-    let mut binary_eszip = generate_binary_eszip(
+    let binary_eszip = generate_binary_eszip(
       &mut metadata,
       Arc::new(emitter_factory),
+      None,
       None,
       None,
     )
     .await
     .unwrap();
-
-    metadata.bake(&mut binary_eszip).unwrap();
 
     let eszip_code = binary_eszip.into_bytes();
     let runtime = DenoRuntime::<()>::new(

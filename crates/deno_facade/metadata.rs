@@ -21,11 +21,18 @@ use rkyv::Deserialize;
 use rkyv::Serialize;
 use url::Url;
 
+#[derive(Debug, Archive, Deserialize, Serialize, Clone)]
+#[archive(check_bytes)]
+pub enum Entrypoint {
+  Key(String),
+  ModuleCode(String),
+}
+
 #[derive(Default, Debug, Archive, Deserialize, Serialize)]
 #[archive(check_bytes)]
 #[archive_attr(repr(C))]
 pub struct Metadata {
-  pub module_code: Option<String>,
+  pub entrypoint: Option<Entrypoint>,
   pub serialized_workspace_resolver_raw: Option<Vec<u8>>,
   pub npmrc_scopes: Option<HashMap<String, String>>,
   pub static_asset_specifiers: Vec<String>,
@@ -115,7 +122,7 @@ impl Metadata {
     lookup
   }
 
-  pub fn bake(&self, eszip: &mut EszipV2) -> Result<(), AnyError> {
+  pub(crate) fn bake(&self, eszip: &mut EszipV2) -> Result<(), AnyError> {
     let Ok(bytes) = rkyv::to_bytes::<_, 1024>(self) else {
       return Err(anyhow!("failed to add metadata into eszip"));
     };

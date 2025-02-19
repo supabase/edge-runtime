@@ -498,33 +498,41 @@ where
       .and_then(|it| it.permissions.clone())
       .unwrap_or_else(|| get_default_permissions(conf.to_worker_kind()));
 
-    let only_module_code = maybe_module_code.is_some()
-      && maybe_eszip.is_none()
-      && !is_some_entry_point;
-
     let eszip = if let Some(eszip_payload) = maybe_eszip {
       eszip_payload
     } else {
-      let Ok(mut main_module_url) = Url::from_directory_path(&base_dir_path)
-      else {
+      let Ok(base_dir_url) = Url::from_directory_path(&base_dir_path) else {
         bail!(
           "malformed base directory: {}",
           base_dir_path.to_string_lossy()
         );
       };
 
-      static POTENTIAL_EXTS: &[&str] = &["ts", "tsx", "js", "mjs", "jsx"];
+      let mut main_module_url = None;
+      let only_module_code = maybe_module_code.is_some()
+        && maybe_eszip.is_none()
+        && !is_some_entry_point;
 
-      for ext in POTENTIAL_EXTS.iter() {
-        main_module_url =
-          main_module_url.join(format!("index.{}", ext).as_str())?;
-        if main_module_url.to_file_path().unwrap().exists() {
-          break;
+      if only_module_code {
+        main_module_url = None;
+      } else {
+        static POTENTIAL_EXTS: &[&str] = &["ts", "tsx", "js", "mjs", "jsx"];
+
+        let mut found = false;
+        for ext in POTENTIAL_EXTS.iter() {
+          let url = base_dir_url.join(format!("index.{}", ext).as_str())?;
+          if url.to_file_path().unwrap().exists() {
+            found = true;
+            main_module_url = Some(url);
+            break;
+          }
+        }
+        if !is_some_entry_point && !found {
+          bail!("could not find an appropriate entry point");
         }
       }
-
       if is_some_entry_point {
-        main_module_url = Url::parse(&maybe_entrypoint.unwrap())?;
+        main_module_url = Some(Url::parse(&maybe_entrypoint.unwrap())?);
       }
 
       let mut emitter_factory = EmitterFactory::new();
@@ -551,11 +559,12 @@ where
         None
       };
 
-      emitter_factory.set_deno_options(
-        DenoOptionsBuilder::new()
-          .entrypoint(main_module_url.clone().to_file_path().unwrap())
-          .build()?,
-      );
+      let mut builder = DenoOptionsBuilder::new();
+
+      if let Some(module_url) = main_module_url {
+        builder.set_entrypoint(Some(module_url.to_file_path().unwrap()));
+      }
+      emitter_factory.set_deno_options(builder.build()?);
 
       let mut metadata = Metadata::default();
       let eszip = generate_binary_eszip(

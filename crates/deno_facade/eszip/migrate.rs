@@ -1,3 +1,4 @@
+use eszip_trait::SUPABASE_ESZIP_VERSION;
 use log::error;
 use log::warn;
 
@@ -26,16 +27,18 @@ pub async fn try_migrate_if_needed(
 
         let result = match err {
           EszipError::UnsupportedVersion { expected, found } => {
-            match (expected, found.as_deref()) {
-              (&b"1.1", None) => 'scope: {
+            debug_assert_eq!(*expected, SUPABASE_ESZIP_VERSION);
+            match found.as_deref() {
+              None => 'scope: {
                 cont!(v1, 'scope, v1::try_migrate_v0_v1(&mut eszip).await);
                 cont!(v1_1, 'scope, v1_1::try_migrate_v1_v1_1(&mut v1).await);
                 v2::try_migrate_v1_1_v2(&mut v1_1).await
               }
-              (&b"1.1", Some(b"1")) => 'scope: {
+              Some(b"1") => 'scope: {
                 cont!(v1_1, 'scope, v1_1::try_migrate_v1_v1_1(&mut eszip).await);
                 v2::try_migrate_v1_1_v2(&mut v1_1).await
               }
+              Some(b"1.1") => v2::try_migrate_v1_1_v2(&mut eszip).await,
               _ => unreachable!(),
             }
           }

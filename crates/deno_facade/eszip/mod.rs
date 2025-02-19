@@ -41,6 +41,8 @@ use futures::io::BufReader;
 use futures::AsyncReadExt;
 use futures::AsyncSeekExt;
 use glob::glob;
+use once_cell::sync::Lazy;
+use regex::Regex;
 use scopeguard::ScopeGuard;
 use tokio::fs::create_dir_all;
 use tokio::sync::Mutex;
@@ -894,11 +896,28 @@ async fn include_glob_patterns_in_eszip(
   Ok(())
 }
 
+fn is_schema(s: &str) -> bool {
+  if let Some(colon_idx) = s.find(':') {
+    if let Some(slash_idx) = s.find('/') {
+      return colon_idx < slash_idx;
+    } else {
+      return true;
+    }
+  }
+  false
+}
+
 fn extract_file_specifiers(eszip: &EszipV2) -> Vec<String> {
+  static RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^[^/]+/[^/]+(?:/[^/]+)*$").unwrap());
+
   eszip
     .specifiers()
     .iter()
-    .filter(|specifier| specifier.starts_with("file:"))
+    .filter(|specifier| {
+      specifier.starts_with("file:")
+        || (!is_schema(specifier) && RE.is_match(specifier))
+    })
     .cloned()
     .collect()
 }

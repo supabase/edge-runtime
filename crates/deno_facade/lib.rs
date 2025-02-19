@@ -117,12 +117,12 @@ mod test {
 
   #[tokio::test]
   #[allow(clippy::arc_with_non_send_sync)]
-  async fn test_module_code_no_eszip() {
+  async fn test_extract_eszip() {
     let mut emitter_factory = EmitterFactory::new();
 
     emitter_factory.set_deno_options(
       DenoOptionsBuilder::new()
-        .entrypoint(PathBuf::from("./test_cases/npm/index.ts"))
+        .entrypoint(PathBuf::from("../base/test_cases/npm/index.ts"))
         .build()
         .unwrap(),
     );
@@ -141,12 +141,12 @@ mod test {
     assert!(
       extract_eszip(ExtractEszipPayload {
         data: EszipPayloadKind::Eszip(eszip),
-        folder: PathBuf::from("../test_cases/npm/"),
+        folder: PathBuf::from("../base/test_cases/extracted-npm/"),
       })
       .await
     );
 
-    assert!(PathBuf::from("./test_cases/extracted-npm/hello.js").exists());
-    remove_dir_all(PathBuf::from("./test_cases/extracted-npm/")).unwrap();
+    assert!(PathBuf::from("../base/test_cases/extracted-npm/hello.js").exists());
+    remove_dir_all(PathBuf::from("../base/test_cases/extracted-npm/")).unwrap();
   }
 }

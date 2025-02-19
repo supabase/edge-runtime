@@ -2159,6 +2159,7 @@ dependencies = [
  "monch",
  "once_cell",
  "pathdiff",
+ "regex",
  "rkyv",
  "scopeguard",
  "serde",

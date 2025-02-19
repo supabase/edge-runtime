@@ -528,7 +528,7 @@ where
           }
         }
         if !is_some_entry_point && !found {
-          bail!("could not find an appropriate entry point");
+          bail!("could not find an appropriate entrypoint");
         }
       }
       if is_some_entry_point {

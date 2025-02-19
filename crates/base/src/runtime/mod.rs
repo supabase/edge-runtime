@@ -5,6 +5,7 @@ use std::ffi::c_void;
 use std::future::Future;
 use std::marker::PhantomData;
 use std::mem::ManuallyDrop;
+use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::RwLock;
@@ -644,7 +645,16 @@ where
     let (fs, maybe_s3_fs) = build_file_system_fn(if is_user_worker {
       Arc::new(StaticFs::new(
         static_files,
-        base_dir_path,
+        main_module_url
+          .to_file_path()
+          .map_err(|_| {
+            anyhow!("failed to resolve base dir using main module url")
+          })
+          .and_then(|it| {
+            it.parent()
+              .map(Path::to_path_buf)
+              .with_context(|| "failed to determine parent directory")
+          })?,
         vfs_path,
         vfs,
         npm_snapshot,
@@ -2521,7 +2531,7 @@ mod test {
 
     assert_eq!(
       serde_deno_env,
-      deno_core::serde_json::Value::String(String::from("Some test file"))
+      deno_core::serde_json::Value::String(String::from("Some test file\n"))
     );
   }
 

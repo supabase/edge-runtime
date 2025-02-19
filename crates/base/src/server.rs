@@ -462,10 +462,7 @@ impl Server {
     let mut secure_listener = if let Some(tls) = self.tls.take() {
       let addr = SocketAddr::new(self.addr.ip(), tls.port);
       Some((
-        TlsListener::new(
-          tls.into_acceptor()?,
-          TcpListener::bind(self.addr).await?,
-        ),
+        TlsListener::new(tls.into_acceptor()?, TcpListener::bind(addr).await?),
         addr,
       ))
     } else {

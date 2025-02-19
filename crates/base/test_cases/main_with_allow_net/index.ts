@@ -18,11 +18,14 @@ Deno.serve({
 
 		const servicePath = `./test_cases/${service_name}`;
 
-		let allowNet: string[] | null | undefined;
+		let allow_net: string[] | null | undefined;
+		let deny_net: string[] | null;
 
 		try {
 			const payload = await req.clone().json();
-			allowNet = payload.allowNet;
+
+			allow_net = payload.allowNet;
+			deny_net = payload.allowNet === null ? [] : null;
 		} catch {}
 
 		console.error(`serving the request with ${servicePath}`);
@@ -44,7 +47,16 @@ Deno.serve({
 				cpuTimeHardLimitMs,
 				noModuleCache,
 				envVars,
-				allowNet,
+				permissions: {
+					allow_all: false,
+					allow_env: [],
+					allow_net,
+					deny_net,
+					allow_read: [],
+					allow_write: [],
+					allow_import: [],
+					allow_sys: ['hostname'],
+				},
 			});
 		};
 

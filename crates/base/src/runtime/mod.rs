@@ -91,7 +91,7 @@ use futures_util::FutureExt;
 use log::error;
 use once_cell::sync::Lazy;
 use once_cell::sync::OnceCell;
-use permissions::get_default_permisisons;
+use permissions::get_default_permissions;
 use scopeguard::ScopeGuard;
 use serde::Serialize;
 use strum::IntoStaticStr;
@@ -495,7 +495,7 @@ where
 
     let permissions_options = maybe_user_conf
       .and_then(|it| it.permissions.clone())
-      .unwrap_or_else(|| get_default_permisisons(conf.to_worker_kind()));
+      .unwrap_or_else(|| get_default_permissions(conf.to_worker_kind()));
 
     let only_module_code = maybe_module_code.is_some()
       && maybe_eszip.is_none()
@@ -605,8 +605,9 @@ where
       permissions,
       metadata,
       static_files,
-      vfs_path,
       vfs,
+      vfs_path,
+      base_url,
     } = rt_provider;
 
     let entrypoint = metadata
@@ -614,13 +615,15 @@ where
       .as_ref()
       .with_context(|| "could not find entrypoint from metadata")?;
 
-    let main_module_url = Url::parse(match entrypoint {
-      Entrypoint::Key(key) => key,
-      Entrypoint::ModuleCode(_) => user_context
-        .get("entrypoint")
-        .and_then(|it| it.as_str())
-        .with_context(|| "could not find entrypoint key")?,
-    })?;
+    let main_module_url = match entrypoint {
+      Entrypoint::Key(key) => base_url.join(&key)?,
+      Entrypoint::ModuleCode(_) => Url::parse(
+        user_context
+          .get("entrypoint")
+          .and_then(|it| it.as_str())
+          .with_context(|| "could not find entrypoint key")?,
+      )?,
+    };
 
     let build_file_system_fn = |base_fs: Arc<dyn deno_fs::FileSystem>| -> Result<
       (Arc<dyn deno_fs::FileSystem>, Option<S3Fs>),
@@ -957,8 +960,7 @@ where
 
     let main_module_id = {
       match entrypoint {
-        Entrypoint::Key(key) => {
-          debug_assert_eq!(main_module_url.as_str(), key);
+        Entrypoint::Key(_) => {
           js_runtime.load_main_es_module(&main_module_url).await?
         }
         Entrypoint::ModuleCode(module_code) => {
@@ -2426,7 +2428,7 @@ mod test {
       .to_value_mut::<serde_json::Value>(&global_value_deno_read_file_script);
     assert_eq!(
       fs_read_result.unwrap().as_str().unwrap(),
-      "{\n  \"hello\": \"world\"\n}"
+      "{\n  \"hello\": \"world\"\n}\n"
     );
   }
 

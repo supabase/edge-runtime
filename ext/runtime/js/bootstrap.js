@@ -64,6 +64,8 @@ import {
   setUserAgent,
 } from "ext:runtime/navigator.js";
 
+import process from "node:process";
+
 let globalThis_;
 
 const ops = core.ops;
@@ -262,6 +264,9 @@ const globalScope = {
   // messagePort
   MessageChannel: nonEnumerable(messagePort.MessageChannel),
   structuredClone: writable(messagePort.structuredClone),
+
+  // process
+  process: writable(process),
 
   // Branding as a WebIDL object
   [webidl.brand]: nonEnumerable(webidl.brand),

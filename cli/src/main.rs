@@ -309,7 +309,7 @@ fn main() -> Result<ExitCode, anyhow::Error> {
           .and_then(EszipV2ChecksumKind::into);
 
         emitter_factory.set_permissions_options(Some(
-          base::get_default_permisisons(WorkerKind::MainWorker),
+          base::get_default_permissions(WorkerKind::MainWorker),
         ));
         emitter_factory.set_deno_options(
           DenoOptionsBuilder::new()

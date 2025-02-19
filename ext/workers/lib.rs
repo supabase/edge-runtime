@@ -8,6 +8,7 @@ use anyhow::Error;
 use context::SendRequestResult;
 use deno::deno_http::HttpRequestReader;
 use deno::deno_http::HttpStreamReadResource;
+use deno::deno_permissions::PermissionsOptions;
 use deno_core::error::custom_error;
 use deno_core::error::type_error;
 use deno_core::error::AnyError;
@@ -93,6 +94,7 @@ pub struct UserWorkerCreateOptions {
   force_create: bool,
   allow_remote_modules: bool,
   custom_module_root: Option<String>,
+  permissions: Option<PermissionsOptions2>,
 
   maybe_eszip: Option<JsBuffer>,
   maybe_entrypoint: Option<String>,
@@ -104,12 +106,55 @@ pub struct UserWorkerCreateOptions {
   cpu_time_soft_limit_ms: Option<u64>,
   cpu_time_hard_limit_ms: Option<u64>,
 
-  // decorator_type: Option<DecoratorType>,
-  // jsx_import_source_config: Option<JsxImportBaseConfig>,
   s3_fs_config: Option<S3FsConfig>,
   tmp_fs_config: Option<TmpFsConfig>,
 
   context: Option<JsonMap>,
+}
+
+/// It is identical to [`PermissionsOptions`], except for `prompt`.
+#[derive(Clone, Debug, Eq, PartialEq, Default, Serialize, Deserialize)]
+pub struct PermissionsOptions2 {
+  pub allow_all: Option<bool>,
+  pub allow_env: Option<Vec<String>>,
+  pub deny_env: Option<Vec<String>>,
+  pub allow_net: Option<Vec<String>>,
+  pub deny_net: Option<Vec<String>>,
+  pub allow_ffi: Option<Vec<String>>,
+  pub deny_ffi: Option<Vec<String>>,
+  pub allow_read: Option<Vec<String>>,
+  pub deny_read: Option<Vec<String>>,
+  pub allow_run: Option<Vec<String>>,
+  pub deny_run: Option<Vec<String>>,
+  pub allow_sys: Option<Vec<String>>,
+  pub deny_sys: Option<Vec<String>>,
+  pub allow_write: Option<Vec<String>>,
+  pub deny_write: Option<Vec<String>>,
+  pub allow_import: Option<Vec<String>>,
+}
+
+impl PermissionsOptions2 {
+  fn into_permissions_options(self) -> PermissionsOptions {
+    PermissionsOptions {
+      prompt: false,
+      allow_all: self.allow_all.unwrap_or_default(),
+      allow_env: self.allow_env,
+      deny_env: self.deny_env,
+      allow_net: self.allow_net,
+      deny_net: self.deny_net,
+      allow_ffi: self.allow_ffi,
+      deny_ffi: self.deny_ffi,
+      allow_read: self.allow_read,
+      deny_read: self.deny_read,
+      allow_run: self.allow_run,
+      deny_run: self.deny_run,
+      allow_sys: self.allow_sys,
+      deny_sys: self.deny_sys,
+      allow_write: self.allow_write,
+      deny_write: self.deny_write,
+      allow_import: self.allow_import,
+    }
+  }
 }
 
 #[op2(async)]
@@ -128,9 +173,12 @@ pub async fn op_user_worker_create(
       service_path,
       env_vars,
       no_module_cache,
+
       force_create,
       allow_remote_modules,
       custom_module_root,
+      permissions,
+
       maybe_eszip,
       maybe_entrypoint,
       maybe_module_code,
@@ -172,6 +220,8 @@ pub async fn op_user_worker_create(
           force_create,
           allow_remote_modules,
           custom_module_root,
+          permissions: permissions
+            .map(PermissionsOptions2::into_permissions_options),
 
           context,
 

@@ -2033,8 +2033,7 @@ dependencies = [
 [[package]]
 name = "deno_core"
 version = "0.324.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "24503eda646f246aa6eb0f794909f9a857c8f05095fed66f36e0eaef92edce23"
+source = "git+https://github.com/supabase/deno_core?branch=324-supabase#48428e4f791556e552902ef4ce17f89ac76be808"
 dependencies = [
  "anyhow",
  "az",
@@ -2431,8 +2430,7 @@ dependencies = [
 [[package]]
 name = "deno_ops"
 version = "0.200.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "03a529a2c488cd3042f12f35666569ebe5b3cf89d2b7d1cafc1a652f6d7bcc8f"
+source = "git+https://github.com/supabase/deno_core?branch=324-supabase#48428e4f791556e552902ef4ce17f89ac76be808"
 dependencies = [
  "proc-macro-rules",
  "proc-macro2",
@@ -7168,8 +7166,7 @@ dependencies = [
 [[package]]
 name = "serde_v8"
 version = "0.233.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "307f176b7475480cee690c34c7118f96fe564d1f2a974bf990294b8310ae4983"
+source = "git+https://github.com/supabase/deno_core?branch=324-supabase#48428e4f791556e552902ef4ce17f89ac76be808"
 dependencies = [
  "num-bigint",
  "serde",

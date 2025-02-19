@@ -13,7 +13,7 @@ pub mod worker;
 pub use deno::args::CacheSetting;
 pub use ext_workers::context::WorkerKind;
 pub use inspector_server::InspectorOption;
-pub use runtime::permissions::get_default_permisisons;
+pub use runtime::permissions::get_default_permissions;
 
 #[cfg(any(test, feature = "tracing"))]
 mod tracing_subscriber;

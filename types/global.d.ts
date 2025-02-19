@@ -25,22 +25,22 @@ interface UserWorkerFetchOptions {
 }
 
 interface PermissionsOptions {
-	allow_all?: boolean;
-	allow_env?: string[];
-	deny_env?: string[];
-	allow_net?: string[];
-	deny_net?: string[];
-	allow_ffi?: string[];
-	deny_ffi?: string[];
-	allow_read?: string[];
-	deny_read?: string[];
-	allow_run?: string[];
-	deny_run?: string[];
-	allow_sys?: string[];
-	deny_sys?: string[];
-	allow_write?: string[];
-	deny_write?: string[];
-	allow_import?: string[];
+	allow_all?: boolean | null;
+	allow_env?: string[] | null;
+	deny_env?: string[] | null;
+	allow_net?: string[] | null;
+	deny_net?: string[] | null;
+	allow_ffi?: string[] | null;
+	deny_ffi?: string[] | null;
+	allow_read?: string[] | null;
+	deny_read?: string[] | null;
+	allow_run?: string[] | null;
+	deny_run?: string[] | null;
+	allow_sys?: string[] | null;
+	deny_sys?: string[] | null;
+	allow_write?: string[] | null;
+	deny_write?: string[] | null;
+	allow_import?: string[] | null;
 }
 
 interface UserWorkerCreateOptions {

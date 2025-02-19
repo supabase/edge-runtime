@@ -1,7 +1,7 @@
 use deno::deno_permissions::PermissionsOptions;
 use ext_workers::context::WorkerKind;
 
-pub fn get_default_permisisons(kind: WorkerKind) -> PermissionsOptions {
+pub fn get_default_permissions(kind: WorkerKind) -> PermissionsOptions {
   match kind {
     WorkerKind::MainWorker | WorkerKind::EventsWorker => PermissionsOptions {
       allow_all: true,

@@ -29,6 +29,7 @@ use deno::deno_tls::rustls::RootCertStore;
 use deno::deno_tls::RootCertStoreProvider;
 use deno::http_util::HttpClientProvider;
 use deno::node::CliCjsCodeAnalyzer;
+use deno::node::CliNodeCodeTranslator;
 use deno::node_resolver::analyze::NodeCodeTranslator;
 use deno::node_resolver::NodeResolutionKind;
 use deno::node_resolver::PackageJsonResolver;
@@ -54,6 +55,7 @@ use deno_core::error::type_error;
 use deno_core::error::AnyError;
 use deno_core::futures::FutureExt;
 use deno_core::url::Url;
+use deno_core::FastString;
 use deno_core::ModuleLoader;
 use deno_core::ModuleSourceCode;
 use deno_core::ModuleSpecifier;
@@ -127,6 +129,7 @@ pub struct SharedModuleLoaderState {
   pub(crate) eszip: WorkspaceEszip,
   pub(crate) workspace_resolver: WorkspaceResolver,
   pub(crate) cjs_tracker: Arc<CjsTracker>,
+  pub(crate) node_code_translator: Arc<CliNodeCodeTranslator>,
   pub(crate) npm_module_loader: Arc<NpmModuleLoader>,
   pub(crate) npm_req_resolver: Arc<CliNpmReqResolver>,
   pub(crate) npm_resolver: Arc<dyn CliNpmResolver>,
@@ -363,6 +366,20 @@ impl ModuleLoader for EmbeddedModuleLoader {
     };
 
     let original_specifier = original_specifier.clone();
+    let media_type = MediaType::from_specifier(&module.specifier);
+    let shared = self.shared.clone();
+    let is_maybe_cjs = match shared
+      .cjs_tracker
+      .is_maybe_cjs(&original_specifier, media_type)
+    {
+      Ok(is_maybe_cjs) => is_maybe_cjs,
+      Err(err) => {
+        return deno_core::ModuleLoadResponse::Sync(Err(type_error(format!(
+          "{:?}",
+          err
+        ))));
+      }
+    };
 
     deno_core::ModuleLoadResponse::Async(
       async move {
@@ -373,52 +390,76 @@ impl ModuleLoader for EmbeddedModuleLoader {
         let code = arc_u8_to_arc_str(code)
           .map_err(|_| type_error("Module source is not utf-8"))?;
 
-        let source_map = module.inner.source_map().await;
-        let maybe_code_with_source_map = 'scope: {
-          if !include_source_map
-            || !matches!(module.inner.kind, ModuleKind::JavaScript)
-          {
-            break 'scope code;
-          }
-
-          let Some(source_map) = source_map else {
-            break 'scope code;
+        if is_maybe_cjs {
+          let source = shared
+            .node_code_translator
+            .translate_cjs_to_esm(
+              &module.specifier,
+              Some(code.to_string().into()),
+            )
+            .await?;
+          let module_source = match source {
+            Cow::Owned(source) => ModuleSourceCode::String(source.into()),
+            Cow::Borrowed(source) => {
+              ModuleSourceCode::String(FastString::from_static(source))
+            }
           };
-          if source_map.is_empty() {
-            break 'scope code;
-          }
-
-          let mut src = code.to_string();
-
-          if !src.ends_with('\n') {
-            src.push('\n');
-          }
-
-          const SOURCE_MAP_PREFIX: &str =
-            "//# sourceMappingURL=data:application/json;base64,";
-
-          src.push_str(SOURCE_MAP_PREFIX);
-
-          base64::prelude::BASE64_STANDARD.encode_string(source_map, &mut src);
-          Arc::from(src)
-        };
-
-        Ok(deno_core::ModuleSource::new_with_redirect(
-          match module.inner.kind {
-            ModuleKind::JavaScript => ModuleType::JavaScript,
-            ModuleKind::Json => ModuleType::Json,
-            ModuleKind::Jsonc => {
-              return Err(type_error("jsonc modules not supported"))
+          Ok(deno_core::ModuleSource::new_with_redirect(
+            ModuleType::JavaScript,
+            module_source,
+            &original_specifier,
+            &module.specifier,
+            None,
+          ))
+        } else {
+          let source_map = module.inner.source_map().await;
+          let maybe_code_with_source_map = 'scope: {
+            if !include_source_map
+              || !matches!(module.inner.kind, ModuleKind::JavaScript)
+            {
+              break 'scope code;
             }
-            ModuleKind::OpaqueData => {
-              unreachable!();
+
+            let Some(source_map) = source_map else {
+              break 'scope code;
+            };
+            if source_map.is_empty() {
+              break 'scope code;
             }
-          },
-          ModuleSourceCode::String(maybe_code_with_source_map.into()),
-          &original_specifier,
-          &module.specifier,
-          None,
-        ))
+
+            let mut src = code.to_string();
+
+            if !src.ends_with('\n') {
+              src.push('\n');
+            }
+
+            const SOURCE_MAP_PREFIX: &str =
+              "//# sourceMappingURL=data:application/json;base64,";
+
+            src.push_str(SOURCE_MAP_PREFIX);
+
+            base64::prelude::BASE64_STANDARD
+              .encode_string(source_map, &mut src);
+            Arc::from(src)
+          };
+
+          Ok(deno_core::ModuleSource::new_with_redirect(
+            match module.inner.kind {
+              ModuleKind::JavaScript => ModuleType::JavaScript,
+              ModuleKind::Json => ModuleType::Json,
+              ModuleKind::Jsonc => {
+                return Err(type_error("jsonc modules not supported"))
+              }
+              ModuleKind::OpaqueData => {
+                unreachable!();
+              }
+            },
+            ModuleSourceCode::String(maybe_code_with_source_map.into()),
+            &original_specifier,
+            &module.specifier,
+            None,
+          ))
+        }
       }
       .boxed_local(),
     )
@@ -692,6 +733,7 @@ pub async fn create_module_loader_for_eszip(
         )
       },
       cjs_tracker: cjs_tracker.clone(),
+      node_code_translator: node_code_translator.clone(),
       npm_module_loader: Arc::new(NpmModuleLoader::new(
         cjs_tracker.clone(),
         fs.clone(),
@@ -723,6 +765,7 @@ pub async fn create_module_loader_for_eszip(
     static_files,
     vfs_path: npm_cache_dir.root_dir().to_path_buf(),
     vfs,
+    base_url: root_dir_url,
   })
 }
 

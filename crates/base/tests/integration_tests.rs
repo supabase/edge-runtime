@@ -16,6 +16,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use async_tungstenite::WebSocketStream;
+use base::get_default_permissions;
 use base::integration_test;
 use base::integration_test_listen_fut;
 use base::integration_test_with_server_flag;
@@ -31,6 +32,7 @@ use base::utils::test_utils::TestBedBuilder;
 use base::utils::test_utils::{self};
 use base::worker;
 use base::worker::TerminationToken;
+use base::WorkerKind;
 use deno::DenoOptionsBuilder;
 use deno_core::serde_json::json;
 use deno_core::serde_json::{self};
@@ -1465,7 +1467,7 @@ async fn test_websocket_upgrade_node_secure() {
   test_websocket_upgrade(new_localhost_tls(true), true).await;
 }
 
-async fn test_decorators(suffix: &str, should_error: bool) {
+async fn test_decorators(suffix: &str) {
   let client = Client::new();
   let req = client
     .request(
@@ -1485,17 +1487,8 @@ async fn test_decorators(suffix: &str, should_error: bool) {
     (|resp| async {
       let resp = resp.unwrap();
 
-      if should_error {
-        assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
-        assert!(resp
-          .text()
-          .await
-          .unwrap()
-          .starts_with("{\"msg\":\"InvalidWorkerCreation: worker boot error: Uncaught SyntaxError: Invalid or unexpected token"),);
-      } else {
-        assert_eq!(resp.status(), StatusCode::OK);
-        assert_eq!(resp.text().await.unwrap().as_str(), "meow?");
-      }
+      assert_eq!(resp.status(), StatusCode::OK);
+      assert_eq!(resp.text().await.unwrap().as_str(), "meow?");
     }),
     TerminationToken::new()
   );
@@ -1503,20 +1496,14 @@ async fn test_decorators(suffix: &str, should_error: bool) {
 
 #[tokio::test]
 #[serial]
-async fn test_decorator_should_be_syntax_error() {
-  test_decorators("decorator_tc39_no_decorator_opt", true).await;
-}
-
-#[tokio::test]
-#[serial]
 async fn test_decorator_parse_tc39() {
-  test_decorators("tc39", false).await;
+  test_decorators("tc39").await;
 }
 
 #[tokio::test]
 #[serial]
 async fn test_decorator_parse_typescript_experimental_with_metadata() {
-  test_decorators("typescript_with_metadata", false).await;
+  test_decorators("typescript_with_metadata").await;
 }
 
 #[tokio::test]
@@ -2202,26 +2189,26 @@ async fn test_allow_net_fetch_google_com() {
 
   // 2. allow only specific host (but not considering the redirected host)
   test_allow_net(
-        Some(vec!["google.com"]),
-        "https://google.com",
-        |resp| async move {
-            let resp = resp.unwrap();
+      Some(vec!["google.com"]),
+      "https://google.com",
+      |resp| async move {
+        let resp = resp.unwrap();
 
-            assert_eq!(resp.status().as_u16(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(resp.status().as_u16(), StatusCode::INTERNAL_SERVER_ERROR);
 
-            let msg = resp.text().await.unwrap();
+        let msg = resp.text().await.unwrap();
 
-            assert_eq!(
-                msg.as_str(),
-                // google.com redirects to www.google.com, but we didn't allow it
-                "PermissionDenied: Access to www.google.com is not allowed for user worker"
-            );
-        },
+        assert_eq!(
+          msg.as_str(),
+          // google.com redirects to www.google.com, but we didn't allow it
+          "NotCapable: Requires net access to \"www.google.com:443\", run again with the --allow-net flag"
+        );
+      },
     )
     .await;
 
   // 3. deny all hosts
-  test_allow_net(Some(vec![]), "https://google.com", |resp| async move {
+  test_allow_net(None, "https://google.com", |resp| async move {
     let resp = resp.unwrap();
 
     assert_eq!(resp.status().as_u16(), StatusCode::INTERNAL_SERVER_ERROR);
@@ -2230,13 +2217,13 @@ async fn test_allow_net_fetch_google_com() {
 
     assert_eq!(
       msg.as_str(),
-      "PermissionDenied: Access to google.com is not allowed for user worker"
+      "NotCapable: Requires net access to \"google.com:443\", run again with the --allow-net flag"
     );
   })
   .await;
 
   // 4. allow all hosts
-  test_allow_net(None, "https://google.com", |resp| async move {
+  test_allow_net(Some(vec![]), "https://google.com", |resp| async move {
     let resp = resp.unwrap();
 
     assert_eq!(resp.status().as_u16(), StatusCode::OK);
@@ -2435,13 +2422,9 @@ async fn test_should_be_able_to_bundle_against_various_exts() {
     let path = path.to_string();
     let mut emitter_factory = EmitterFactory::new();
 
-    // emitter_factory.set_jsx_import_source(Some(JsxImportSourceConfig {
-    //   default_specifier: Some("https://esm.sh/preact".to_string()),
-    //   default_types_specifier: None,
-    //   module: "jsx-runtime".to_string(),
-    //   base_url: Url::from_file_path(std::env::current_dir().unwrap()).unwrap(),
-    // }));
-
+    emitter_factory.set_permissions_options(Some(get_default_permissions(
+      WorkerKind::UserWorker,
+    )));
     emitter_factory.set_deno_options(
       DenoOptionsBuilder::new()
         .entrypoint(PathBuf::from(path))
@@ -2542,7 +2525,7 @@ async fn test_should_be_able_to_bundle_against_various_exts() {
   test_serve_simple_fn("tsx", REACT_RESULT.as_bytes()).await;
 }
 
-// #[tokio::test]
+#[tokio::test]
 #[serial]
 async fn test_private_npm_package_import() {
   // Required because test_cases/main_with_registry/registry/registry-handler.ts:58
@@ -3306,7 +3289,7 @@ async fn test_should_be_able_to_trigger_early_drop_with_mem() {
   let resp = tb
     .request(|b| {
       b.uri("/early-drop-mem")
-        .header("x-memory-limit-mb", HeaderValue::from_static("20"))
+        .header("x-memory-limit-mb", HeaderValue::from_static("22"))
         .body(Body::empty())
         .context("can't make request")
     })

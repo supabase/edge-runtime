@@ -8,6 +8,7 @@ use deno_core::ModuleLoader;
 use eszip_trait::EszipStaticFiles;
 use ext_node::NodeExtInitServices;
 use fs::virtual_fs::FileBackedVfs;
+use url::Url;
 
 use crate::Metadata;
 
@@ -23,4 +24,5 @@ pub struct RuntimeProviders {
   pub static_files: EszipStaticFiles,
   pub vfs_path: PathBuf,
   pub vfs: Arc<FileBackedVfs>,
+  pub base_url: Arc<Url>,
 }

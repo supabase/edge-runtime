@@ -33,6 +33,7 @@ use eszip::ParseError;
 use eszip_trait::AsyncEszipDataRead;
 use eszip_trait::SUPABASE_ESZIP_VERSION;
 use eszip_trait::SUPABASE_ESZIP_VERSION_KEY;
+use fs::virtual_fs::VfsBuilder;
 use fs::VfsOpts;
 use futures::future::OptionFuture;
 use futures::io::AllowStdIo;
@@ -700,6 +701,45 @@ pub async fn generate_binary_eszip(
     ),
   );
   let root_dir_url = EszipRelativeFileBaseUrl::new(&root_dir_url);
+  let root_path = root_dir_url.inner().to_file_path().unwrap();
+
+  let mut contents = HashMap::new();
+  let mut vfs_count = 0;
+  let mut vfs_content_callback_fn = |_path: &_, _key: &_, content: Vec<u8>| {
+    let key = format!("vfs://{}", vfs_count);
+
+    vfs_count += 1;
+    contents.insert(key.clone(), content);
+    key
+  };
+
+  let resolver = emitter_factory.npm_resolver().await.cloned()?;
+  let (vfs, npm_snapshot) =
+    match resolver.clone().as_inner() {
+      InnerCliNpmResolverRef::Managed(managed) => {
+        let snapshot = managed
+          .serialized_valid_snapshot_for_system(&NpmSystemInfo::default());
+        if !snapshot.as_serialized().packages.is_empty() {
+          let npm_vfs_builder = build_npm_vfs(
+            VfsOpts {
+              npm_resolver: resolver.clone(),
+            },
+            &mut vfs_content_callback_fn,
+          )?;
+
+          (npm_vfs_builder, Some(managed
+          .serialized_valid_snapshot_for_system(&NpmSystemInfo::default()) ))
+        } else {
+          (
+            VfsBuilder::new(root_path, &mut vfs_content_callback_fn)?,
+            None,
+          )
+        }
+      }
+      InnerCliNpmResolverRef::Byonm(_) => unreachable!(),
+    };
+
+  let vfs = vfs.into_dir();
   let mut eszip = create_eszip_from_graph_raw(
     graph,
     Some(emitter_factory.clone()),
@@ -707,48 +747,20 @@ pub async fn generate_binary_eszip(
   )
   .await?;
 
-  if let Some(checksum) = maybe_checksum {
-    eszip.set_checksum(checksum);
-  }
-
-  let resolver = emitter_factory.npm_resolver().await.cloned()?;
-  let virtual_dir = match resolver.clone().as_inner() {
-    InnerCliNpmResolverRef::Managed(managed) => {
-      let snapshot =
-        managed.serialized_valid_snapshot_for_system(&NpmSystemInfo::default());
-      if !snapshot.as_serialized().packages.is_empty() {
-        let mut count = 0;
-        let root_dir = build_npm_vfs(
-          VfsOpts {
-            npm_resolver: resolver.clone(),
-          },
-          |_path, _key, content| {
-            let key = format!("vfs://{}", count);
-
-            count += 1;
-            eszip.add_opaque_data(key.clone(), content.into());
-            key
-          },
-        )?
-        .into_dir();
-
-        let snapshot = managed
-          .serialized_valid_snapshot_for_system(&NpmSystemInfo::default());
-
-        eszip.add_npm_snapshot(snapshot);
-
-        Some(root_dir)
-      } else {
-        None
-      }
-    }
-    InnerCliNpmResolverRef::Byonm(_) => unreachable!(),
-  };
-
   eszip.add_opaque_data(
     String::from(SUPABASE_ESZIP_VERSION_KEY),
     Arc::from(SUPABASE_ESZIP_VERSION),
   );
+
+  if let Some(checksum) = maybe_checksum {
+    eszip.set_checksum(checksum);
+  }
+  if let Some(snapshot) = npm_snapshot {
+    eszip.add_npm_snapshot(snapshot);
+  }
+  for (specifier, content) in contents {
+    eszip.add_opaque_data(specifier, content.into());
+  }
 
   let resolved_npm_rc = emitter_factory.resolved_npm_rc()?;
   let modified_scopes = resolved_npm_rc
@@ -817,7 +829,7 @@ pub async fn generate_binary_eszip(
   ));
 
   metadata.npmrc_scopes = Some(modified_scopes);
-  metadata.virtual_dir = virtual_dir;
+  metadata.virtual_dir = Some(vfs);
   metadata.serialized_workspace_resolver_raw = Some(
     serde_json::to_vec(&serialized_workspace_resolver)
       .with_context(|| "failed to serialize workspace resolver")?,

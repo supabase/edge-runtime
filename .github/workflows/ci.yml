@@ -24,6 +24,7 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
+      - run: rustup show
       - run: deno run --allow-write --allow-read --allow-run --allow-net ./scripts/format.js --check
 
   cargo-clippy:

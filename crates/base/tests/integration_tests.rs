@@ -2799,21 +2799,21 @@ async fn test_tmp_fs_should_not_be_available_in_import_stmt() {
 #[tokio::test]
 #[serial]
 async fn test_supabase_ai_gte() {
-    let tb = TestBedBuilder::new("./test_cases/main")
-        .with_per_worker_policy(None)
-        .build()
-        .await;
+  let tb = TestBedBuilder::new("./test_cases/main")
+    .with_per_worker_policy(None)
+    .build()
+    .await;
 
-    let resp = tb
-        .request(|b| {
-            b.uri("/supabase-ai")
-                .body(Body::empty())
-                .context("can't make request")
-        })
-        .await
-        .unwrap();
+  let resp = tb
+    .request(|b| {
+      b.uri("/supabase-ai")
+        .body(Body::empty())
+        .context("can't make request")
+    })
+    .await
+    .unwrap();
 
-    assert_eq!(resp.status().as_u16(), StatusCode::OK);
+  assert_eq!(resp.status().as_u16(), StatusCode::OK);
 }
 
 // -- ext_ai: ORT @huggingface/transformers

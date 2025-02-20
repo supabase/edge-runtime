@@ -5,18 +5,18 @@ import {
   MagickColors,
   MagickFormat,
   MagickGeometry,
-} from 'npm:@imagemagick/magick-wasm@0.0.30';
+} from "npm:@imagemagick/magick-wasm@0.0.30";
 
 import {
   env,
   pipeline,
   RawImage,
-} from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.1';
+} from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.1";
 
 const wasmBytes = await Deno.readFile(
   new URL(
-    'magick.wasm',
-    import.meta.resolve('npm:@imagemagick/magick-wasm@0.0.30'),
+    "magick.wasm",
+    import.meta.resolve("npm:@imagemagick/magick-wasm@0.0.30"),
   ),
 );
 
@@ -25,9 +25,13 @@ await initializeImageMagick(
 );
 
 // May need to increase the worker memory limit
-const pipe = await pipeline('image-feature-extraction', 'Xenova/clip-vit-base-patch32', {
-  device: 'auto',
-});
+const pipe = await pipeline(
+  "image-feature-extraction",
+  "Xenova/clip-vit-base-patch32",
+  {
+    device: "auto",
+  },
+);
 
 // Ensure we do not use browser cache
 env.useBrowserCache = false;
@@ -51,7 +55,11 @@ Deno.serve(async (request) => {
     // We need to resize to fit model dims
     // https://legacy.imagemagick.org/Usage/resize/#space_fill
     img.resize(new MagickGeometry(width, height));
-    img.extent(new MagickGeometry(width, height), Gravity.Center, MagickColors.Transparent);
+    img.extent(
+      new MagickGeometry(width, height),
+      Gravity.Center,
+      MagickColors.Transparent,
+    );
 
     return img
       .write(

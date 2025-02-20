@@ -1,13 +1,19 @@
-await Deno.writeTextFile("/tmp/meowmeow.ts", `
+await Deno.writeTextFile(
+  "/tmp/meowmeow.ts",
+  `
     import { meow } from "/tmp/meowmeow2.ts";
     export { meow }
-`);
+`,
+);
 
-await Deno.writeTextFile("/tmp/meowmeow2.ts", `
+await Deno.writeTextFile(
+  "/tmp/meowmeow2.ts",
+  `
     export function meow() {
         return "meowmeow"
     }
-`);
+`,
+);
 
 const module = await import("/tmp/meowmeow.ts");
 

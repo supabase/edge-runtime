@@ -9,23 +9,23 @@ name = "edge-runtime"
 path = "src/main.rs"
 
 [dependencies]
+deno.workspace = true
 deno_core.workspace = true
 
-base.workspace = true
-deno_manifest.workspace = true
-graph.workspace = true
+deno_facade.workspace = true
 
-sb_event_worker = { workspace = true, optional = true, features = ["tracing"] }
+ext_event_worker = { workspace = true, optional = true, features = ["tracing"] }
 
 anyhow.workspace = true
-log.workspace = true
-tokio.workspace = true
-glob.workspace = true
-once_cell.workspace = true
+base.workspace = true
 clap.workspace = true
+glob.workspace = true
+log.workspace = true
+once_cell.workspace = true
+tokio.workspace = true
 tracing-subscriber = { workspace = true, optional = true }
 
-env_logger = "0.10.0"
+env_logger = "=0.10.0"
 
 [features]
-tracing = ["dep:tracing-subscriber", "dep:sb_event_worker"]
+tracing = ["dep:tracing-subscriber", "dep:ext_event_worker"]

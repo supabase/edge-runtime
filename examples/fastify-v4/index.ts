@@ -5,7 +5,7 @@ const fastify = Fastify();
 
 // Declare a route
 fastify.get(`/${servicePath}`, function handler(_request, _reply) {
-    return "Hello World!";
+  return "Hello World!";
 });
 
 // Run the server!

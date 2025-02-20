@@ -1,15 +1,15 @@
 [package]
-name = "sb_env"
+name = "ext_env"
 version = "0.1.0"
-authors = ["Supabase <team@supabase.com>"]
-edition = "2021"
-license = "MIT"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
 
 [lib]
 path = "lib.rs"
 
 [dependencies]
+deno.workspace = true
 deno_core.workspace = true
 
-sb_core.workspace = true
-sb_node.workspace = true
+ext_node.workspace = true

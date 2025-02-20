@@ -38,7 +38,7 @@ class Tensor {
     this.type = type;
     this.data = dataArray;
     this.dims = dims;
-    this.size = dataArray.length
+    this.size = dataArray.length;
   }
 }
 
@@ -54,13 +54,18 @@ class InferenceSession {
   }
 
   static async fromBuffer(modelBuffer) {
-    const [id, inputs, outputs] = await core.ops.op_sb_ai_ort_init_session(modelBuffer);
+    const [id, inputs, outputs] = await core.ops.op_ai_ort_init_session(
+      modelBuffer,
+    );
 
     return new InferenceSession(id, inputs, outputs);
   }
 
   async run(inputs) {
-    const outputs = await core.ops.op_sb_ai_ort_run_session(this.sessionId, inputs);
+    const outputs = await core.ops.op_ai_ort_run_session(
+      this.sessionId,
+      inputs,
+    );
 
     // Parse to Tensor
     for (const key in outputs) {
@@ -79,7 +84,7 @@ const onnxruntime = {
   Tensor,
   env: {},
   InferenceSession: {
-    create: InferenceSession.fromBuffer
+    create: InferenceSession.fromBuffer,
   },
 };
 

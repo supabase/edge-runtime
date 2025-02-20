@@ -1,4 +1,4 @@
 export const numbers = {
-    "Uno": 1,
-    "Dos": 2
-}
+  "Uno": 1,
+  "Dos": 2,
+};

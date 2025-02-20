@@ -25,20 +25,21 @@
 
 import {
   op_cpus,
+  op_homedir,
   op_node_os_get_priority,
   op_node_os_set_priority,
-  op_node_os_username,
+  op_node_os_user_info,
 } from "ext:core/ops";
 
 import { validateIntegerRange } from "ext:deno_node/_utils.ts";
 import process from "node:process";
 import { isWindows } from "ext:deno_node/_util/os.ts";
-import { ERR_OS_NO_HOMEDIR } from "ext:deno_node/internal/errors.ts";
 import { os } from "ext:deno_node/internal_binding/constants.ts";
-import { osCalls } from "ext:sb_os/os.js"
-import { Buffer } from "ext:deno_node/internal/buffer.mjs";
+import { osCalls } from "ext:os/os.js";
+// import { Buffer } from "ext:deno_node/internal/buffer.mjs";
+import { primordials } from "ext:core/mod.js";
+const { StringPrototypeEndsWith, StringPrototypeSlice } = primordials;
 
-const osUptime = osCalls.osUptime;
 export const constants = os;
 
 interface CPUTimes {
@@ -136,6 +137,8 @@ export function arch(): string {
 (uptime as any)[Symbol.toPrimitive] = (): number => uptime();
 // deno-lint-ignore no-explicit-any
 (machine as any)[Symbol.toPrimitive] = (): string => machine();
+// deno-lint-ignore no-explicit-any
+(tmpdir as any)[Symbol.toPrimitive] = (): string | null => tmpdir();
 
 export function cpus(): CPUCoreInfo[] {
   return [{
@@ -146,9 +149,9 @@ export function cpus(): CPUCoreInfo[] {
       nice: 0,
       sys: 0,
       idle: 0,
-      irq: 0
-    }
-  }]
+      irq: 0,
+    },
+  }];
 }
 
 /**
@@ -177,28 +180,15 @@ export function freemem(): number {
 }
 
 /** Not yet implemented */
-export function getPriority(_pid = 0): number {
-  return 0;
+export function getPriority(pid = 0): number {
+  validateIntegerRange(pid, "pid");
+  return op_node_os_get_priority(pid);
 }
 
 /** Returns the string path of the current user's home directory. */
 export function homedir(): string | null {
-  /*  // Note: Node/libuv calls getpwuid() / GetUserProfileDirectory() when the
-    // environment variable isn't set but that's the (very uncommon) fallback
-    // path. IMO, it's okay to punt on that for now.
-    switch (osType) {
-      case "windows":
-        return Deno.env.get("USERPROFILE") || null;
-      case "linux":
-      case "android":
-      case "darwin":
-      case "freebsd":
-      case "openbsd":
-        return Deno.env.get("HOME") || null;
-      default:
-        throw Error("unreachable");
-    }*/
-  return "/home/deno"
+  // return op_homedir();
+  return "/home/deno";
 }
 
 /** Returns the host name of the operating system as a string. */
@@ -276,33 +266,43 @@ export function machine(): string {
 
 /** Not yet implemented */
 export function setPriority(pid: number, priority?: number) {
-  throw new Error("Unsupported"); // Same as Deno deploy
+  /* The node API has the 'pid' as the first parameter and as optional.
+       This makes for a problematic implementation in Typescript. */
+  if (priority === undefined) {
+    priority = pid;
+    pid = 0;
+  }
+  validateIntegerRange(pid, "pid");
+  validateIntegerRange(priority, "priority", -20, 19);
+
+  op_node_os_set_priority(pid, priority);
 }
 
 /** Returns the operating system's default directory for temporary files as a string. */
 export function tmpdir(): string | null {
   /* This follows the node js implementation, but has a few
      differences:
-     * On windows, if none of the environment variables are defined,
-       we return null.
-     * On unix we use a plain Deno.env.get, instead of safeGetenv,
+     * We use a plain Deno.env.get, instead of safeGetenv,
        which special cases setuid binaries.
-     * Node removes a single trailing / or \, we remove all.
   */
   if (isWindows) {
-    const temp = Deno.env.get("TEMP") || Deno.env.get("TMP");
-    if (temp) {
-      return temp.replace(/(?<!:)[/\\]*$/, "");
+    let temp = Deno.env.get("TEMP") || Deno.env.get("TMP") ||
+      (Deno.env.get("SystemRoot") || Deno.env.get("windir")) + "\\temp";
+    if (
+      temp.length > 1 && StringPrototypeEndsWith(temp, "\\") &&
+      !StringPrototypeEndsWith(temp, ":\\")
+    ) {
+      temp = StringPrototypeSlice(temp, 0, -1);
     }
-    const base = Deno.env.get("SYSTEMROOT") || Deno.env.get("WINDIR");
-    if (base) {
-      return base + "\\temp";
-    }
-    return null;
+
+    return temp;
   } else { // !isWindows
-    const temp = Deno.env.get("TMPDIR") || Deno.env.get("TMP") ||
+    let temp = Deno.env.get("TMPDIR") || Deno.env.get("TMP") ||
       Deno.env.get("TEMP") || "/tmp";
-    return temp.replace(/(?<!^)\/*$/, "");
+    if (temp.length > 1 && StringPrototypeEndsWith(temp, "/")) {
+      temp = StringPrototypeSlice(temp, 0, -1);
+    }
+    return temp;
   }
 }
 
@@ -326,40 +326,29 @@ export function type(): string {
     case "openbsd":
       return "OpenBSD";
     default:
-      throw Error("unreachable");
+      throw new Error("unreachable");
   }
 }
 
 /** Returns the Operating System uptime in number of seconds. */
 export function uptime(): number {
-  return osUptime();
+  return osCalls.osUptime();
 }
 
-/** Not yet implemented */
 export function userInfo(
   options: UserInfoOptions = { encoding: "utf-8" },
 ): UserInfo {
   // let uid = Deno.uid();
   // let gid = Deno.gid();
-  //
+
   // if (isWindows) {
   //   uid = -1;
   //   gid = -1;
   // }
-  //
-  // // TODO(@crowlKats): figure out how to do this correctly:
-  // //  The value of homedir returned by os.userInfo() is provided by the operating system.
-  // //  This differs from the result of os.homedir(), which queries environment
-  // //  variables for the home directory before falling back to the operating system response.
-  // let _homedir = homedir();
-  // if (!_homedir) {
-  //   throw new ERR_OS_NO_HOMEDIR();
-  // }
-  // let shell = isWindows ? (Deno.env.get("SHELL") || null) : null;
-  // let username = op_node_os_username();
-  //
+  // let { username, homedir, shell } = op_node_os_user_info(uid);
+
   // if (options?.encoding === "buffer") {
-  //   _homedir = _homedir ? Buffer.from(_homedir) : _homedir;
+  //   homedir = homedir ? Buffer.from(homedir) : homedir;
   //   shell = shell ? Buffer.from(shell) : shell;
   //   username = Buffer.from(username);
   // }

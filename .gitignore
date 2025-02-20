@@ -13,4 +13,6 @@ scripts/debug.sh
 node_modules/
 .DS_Store
 eszip.bin
+
 deno.lock
+package-lock.json

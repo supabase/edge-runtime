@@ -8,7 +8,7 @@ export function run() {
   notImplemented("test.run");
 }
 
-function noop() { }
+function noop() {}
 
 class NodeTestContext {
   #denoContext: Deno.TestContext;
@@ -28,6 +28,7 @@ class NodeTestContext {
   }
 
   diagnostic(message) {
+    // deno-lint-ignore no-console
     console.log("DIAGNOSTIC:", message);
   }
 

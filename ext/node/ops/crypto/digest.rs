@@ -1,6 +1,4 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
-use deno_core::error::generic_error;
-use deno_core::error::AnyError;
 use deno_core::GarbageCollected;
 use digest::Digest;
 use digest::DynDigest;
@@ -10,44 +8,50 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 pub struct Hasher {
-    pub hash: Rc<RefCell<Option<Hash>>>,
+  pub hash: Rc<RefCell<Option<Hash>>>,
 }
 
 impl GarbageCollected for Hasher {}
 
 impl Hasher {
-    pub fn new(algorithm: &str, output_length: Option<usize>) -> Result<Self, AnyError> {
-        let hash = Hash::new(algorithm, output_length)?;
+  pub fn new(
+    algorithm: &str,
+    output_length: Option<usize>,
+  ) -> Result<Self, HashError> {
+    let hash = Hash::new(algorithm, output_length)?;
 
-        Ok(Self {
-            hash: Rc::new(RefCell::new(Some(hash))),
-        })
-    }
+    Ok(Self {
+      hash: Rc::new(RefCell::new(Some(hash))),
+    })
+  }
 
-    pub fn update(&self, data: &[u8]) -> bool {
-        if let Some(hash) = self.hash.borrow_mut().as_mut() {
-            hash.update(data);
-            true
-        } else {
-            false
-        }
+  pub fn update(&self, data: &[u8]) -> bool {
+    if let Some(hash) = self.hash.borrow_mut().as_mut() {
+      hash.update(data);
+      true
+    } else {
+      false
     }
+  }
 
-    pub fn digest(&self) -> Option<Box<[u8]>> {
-        let hash = self.hash.borrow_mut().take()?;
-        Some(hash.digest_and_drop())
-    }
+  pub fn digest(&self) -> Option<Box<[u8]>> {
+    let hash = self.hash.borrow_mut().take()?;
+    Some(hash.digest_and_drop())
+  }
 
-    pub fn clone_inner(&self, output_length: Option<usize>) -> Result<Option<Self>, AnyError> {
-        let hash = self.hash.borrow();
-        let Some(hash) = hash.as_ref() else {
-            return Ok(None);
-        };
-        let hash = hash.clone_hash(output_length)?;
-        Ok(Some(Self {
-            hash: Rc::new(RefCell::new(Some(hash))),
-        }))
-    }
+  pub fn clone_inner(
+    &self,
+    output_length: Option<usize>,
+  ) -> Result<Option<Self>, HashError> {
+    let hash = self.hash.borrow();
+    let Some(hash) = hash.as_ref() else {
+      return Ok(None);
+    };
+    let hash = hash.clone_hash(output_length)?;
+    Ok(Some(Self {
+      hash: Rc::new(RefCell::new(Some(hash))),
+    }))
+  }
 }
 
 macro_rules! match_fixed_digest {
@@ -72,6 +76,10 @@ macro_rules! match_fixed_digest_with_eager_block_buffer {
     match $algorithm_name {
       "rsa-sm3" | "sm3" | "sm3withrsaencryption" => {
         type $type = ::sm3::Sm3;
+        $body
+      }
+      "rsa-md4" | "md4" | "md4withrsaencryption" => {
+        type $type = ::md4::Md4;
         $body
       }
       "md5-sha1" => {
@@ -166,136 +174,151 @@ macro_rules! match_fixed_digest_with_oid {
 pub(crate) use match_fixed_digest_with_oid;
 
 pub enum Hash {
-    FixedSize(Box<dyn DynDigest>),
+  FixedSize(Box<dyn DynDigest>),
 
-    Shake128(Box<sha3::Shake128>, /* output_length: */ Option<usize>),
-    Shake256(Box<sha3::Shake256>, /* output_length: */ Option<usize>),
+  Shake128(Box<sha3::Shake128>, /* output_length: */ Option<usize>),
+  Shake256(Box<sha3::Shake256>, /* output_length: */ Option<usize>),
 }
 
 use Hash::*;
 
+#[derive(Debug, thiserror::Error)]
+pub enum HashError {
+  #[error("Output length mismatch for non-extendable algorithm")]
+  OutputLengthMismatch,
+  #[error("Digest method not supported: {0}")]
+  DigestMethodUnsupported(String),
+}
+
 impl Hash {
-    pub fn new(algorithm_name: &str, output_length: Option<usize>) -> Result<Self, AnyError> {
-        match algorithm_name {
-            "shake128" => return Ok(Shake128(Default::default(), output_length)),
-            "shake256" => return Ok(Shake256(Default::default(), output_length)),
-            _ => {}
-        }
+  pub fn new(
+    algorithm_name: &str,
+    output_length: Option<usize>,
+  ) -> Result<Self, HashError> {
+    match algorithm_name {
+      "shake128" => return Ok(Shake128(Default::default(), output_length)),
+      "shake256" => return Ok(Shake256(Default::default(), output_length)),
+      _ => {}
+    }
 
-        let algorithm = match_fixed_digest!(
-          algorithm_name,
-          fn <D>() {
-            let digest: D = Digest::new();
-            if let Some(length) = output_length {
-              if length != digest.output_size() {
-                return Err(generic_error(
-                  "Output length mismatch for non-extendable algorithm",
-                ));
-              }
-            }
-            FixedSize(Box::new(digest))
-          },
-          _ => {
-            return Err(generic_error(format!(
-              "Digest method not supported: {algorithm_name}"
-            )))
+    let algorithm = match_fixed_digest!(
+      algorithm_name,
+      fn <D>() {
+        let digest: D = Digest::new();
+        if let Some(length) = output_length {
+          if length != digest.output_size() {
+            return Err(HashError::OutputLengthMismatch);
           }
-        );
-
-        Ok(algorithm)
-    }
-
-    pub fn update(&mut self, data: &[u8]) {
-        match self {
-            FixedSize(context) => DynDigest::update(&mut **context, data),
-            Shake128(context, _) => Update::update(&mut **context, data),
-            Shake256(context, _) => Update::update(&mut **context, data),
-        };
-    }
-
-    pub fn digest_and_drop(self) -> Box<[u8]> {
-        match self {
-            FixedSize(context) => context.finalize(),
-
-            // The default output lengths align with Node.js
-            Shake128(context, output_length) => context.finalize_boxed(output_length.unwrap_or(16)),
-            Shake256(context, output_length) => context.finalize_boxed(output_length.unwrap_or(32)),
         }
-    }
+        FixedSize(Box::new(digest))
+      },
+      _ => {
+        return Err(HashError::DigestMethodUnsupported(algorithm_name.to_string()))
+      }
+    );
 
-    pub fn clone_hash(&self, output_length: Option<usize>) -> Result<Self, AnyError> {
-        let hash = match self {
-            FixedSize(context) => {
-                if let Some(length) = output_length {
-                    if length != context.output_size() {
-                        return Err(generic_error(
-                            "Output length mismatch for non-extendable algorithm",
-                        ));
-                    }
-                }
-                FixedSize(context.box_clone())
-            }
+    Ok(algorithm)
+  }
 
-            Shake128(context, _) => Shake128(context.clone(), output_length),
-            Shake256(context, _) => Shake256(context.clone(), output_length),
-        };
-        Ok(hash)
-    }
+  pub fn update(&mut self, data: &[u8]) {
+    match self {
+      FixedSize(context) => DynDigest::update(&mut **context, data),
+      Shake128(context, _) => Update::update(&mut **context, data),
+      Shake256(context, _) => Update::update(&mut **context, data),
+    };
+  }
 
-    pub fn get_hashes() -> Vec<&'static str> {
-        vec![
-            "RSA-MD5",
-            "RSA-RIPEMD160",
-            "RSA-SHA1",
-            "RSA-SHA1-2",
-            "RSA-SHA224",
-            "RSA-SHA256",
-            "RSA-SHA3-224",
-            "RSA-SHA3-256",
-            "RSA-SHA3-384",
-            "RSA-SHA3-512",
-            "RSA-SHA384",
-            "RSA-SHA512",
-            "RSA-SHA512/224",
-            "RSA-SHA512/256",
-            "RSA-SM3",
-            "blake2b512",
-            "blake2s256",
-            "id-rsassa-pkcs1-v1_5-with-sha3-224",
-            "id-rsassa-pkcs1-v1_5-with-sha3-256",
-            "id-rsassa-pkcs1-v1_5-with-sha3-384",
-            "id-rsassa-pkcs1-v1_5-with-sha3-512",
-            "md5",
-            "md5-sha1",
-            "md5WithRSAEncryption",
-            "ripemd",
-            "ripemd160",
-            "ripemd160WithRSA",
-            "rmd160",
-            "sha1",
-            "sha1WithRSAEncryption",
-            "sha224",
-            "sha224WithRSAEncryption",
-            "sha256",
-            "sha256WithRSAEncryption",
-            "sha3-224",
-            "sha3-256",
-            "sha3-384",
-            "sha3-512",
-            "sha384",
-            "sha384WithRSAEncryption",
-            "sha512",
-            "sha512-224",
-            "sha512-224WithRSAEncryption",
-            "sha512-256",
-            "sha512-256WithRSAEncryption",
-            "sha512WithRSAEncryption",
-            "shake128",
-            "shake256",
-            "sm3",
-            "sm3WithRSAEncryption",
-            "ssl3-md5",
-            "ssl3-sha1",
-        ]
+  pub fn digest_and_drop(self) -> Box<[u8]> {
+    match self {
+      FixedSize(context) => context.finalize(),
+
+      // The default output lengths align with Node.js
+      Shake128(context, output_length) => {
+        context.finalize_boxed(output_length.unwrap_or(16))
+      }
+      Shake256(context, output_length) => {
+        context.finalize_boxed(output_length.unwrap_or(32))
+      }
     }
+  }
+
+  pub fn clone_hash(
+    &self,
+    output_length: Option<usize>,
+  ) -> Result<Self, HashError> {
+    let hash = match self {
+      FixedSize(context) => {
+        if let Some(length) = output_length {
+          if length != context.output_size() {
+            return Err(HashError::OutputLengthMismatch);
+          }
+        }
+        FixedSize(context.box_clone())
+      }
+
+      Shake128(context, _) => Shake128(context.clone(), output_length),
+      Shake256(context, _) => Shake256(context.clone(), output_length),
+    };
+    Ok(hash)
+  }
+
+  pub fn get_hashes() -> Vec<&'static str> {
+    vec![
+      "RSA-MD4",
+      "RSA-MD5",
+      "RSA-RIPEMD160",
+      "RSA-SHA1",
+      "RSA-SHA1-2",
+      "RSA-SHA224",
+      "RSA-SHA256",
+      "RSA-SHA3-224",
+      "RSA-SHA3-256",
+      "RSA-SHA3-384",
+      "RSA-SHA3-512",
+      "RSA-SHA384",
+      "RSA-SHA512",
+      "RSA-SHA512/224",
+      "RSA-SHA512/256",
+      "RSA-SM3",
+      "blake2b512",
+      "blake2s256",
+      "id-rsassa-pkcs1-v1_5-with-sha3-224",
+      "id-rsassa-pkcs1-v1_5-with-sha3-256",
+      "id-rsassa-pkcs1-v1_5-with-sha3-384",
+      "id-rsassa-pkcs1-v1_5-with-sha3-512",
+      "md4",
+      "md4WithRSAEncryption",
+      "md5",
+      "md5-sha1",
+      "md5WithRSAEncryption",
+      "ripemd",
+      "ripemd160",
+      "ripemd160WithRSA",
+      "rmd160",
+      "sha1",
+      "sha1WithRSAEncryption",
+      "sha224",
+      "sha224WithRSAEncryption",
+      "sha256",
+      "sha256WithRSAEncryption",
+      "sha3-224",
+      "sha3-256",
+      "sha3-384",
+      "sha3-512",
+      "sha384",
+      "sha384WithRSAEncryption",
+      "sha512",
+      "sha512-224",
+      "sha512-224WithRSAEncryption",
+      "sha512-256",
+      "sha512-256WithRSAEncryption",
+      "sha512WithRSAEncryption",
+      "shake128",
+      "shake256",
+      "sm3",
+      "sm3WithRSAEncryption",
+      "ssl3-md5",
+      "ssl3-sha1",
+    ]
+  }
 }

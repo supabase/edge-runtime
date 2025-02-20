@@ -1,2 +1,3 @@
 // @ts-ignore
-let s = ""; while(true) { s += "Hello"; }
+let s = "";
+while (true) s += "Hello";

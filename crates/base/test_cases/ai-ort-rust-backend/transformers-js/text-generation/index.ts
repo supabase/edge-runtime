@@ -1,8 +1,8 @@
-import { assertGreater } from 'jsr:@std/assert';
+import { assertGreater } from "jsr:@std/assert";
 import {
   env,
   pipeline,
-} from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.1';
+} from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.1";
 
 // Ensure we do not use browser cache
 env.useBrowserCache = false;
@@ -11,13 +11,13 @@ env.allowLocalModels = false;
 // There's a little bug in pipeline that can't resolve the model name by itself
 // So we need to explicit pass it
 const pipe = await pipeline(
-  'text-generation',
-  'Xenova/gpt2',
-  { device: 'auto', model_file_name: 'decoder_model_merged_quantized' },
+  "text-generation",
+  "Xenova/gpt2",
+  { device: "auto", model_file_name: "decoder_model_merged_quantized" },
 );
 
 Deno.serve(async () => {
-  const input = 'Once upon a time, there was a';
+  const input = "Once upon a time, there was a";
 
   const output = await pipe(input, {
     max_new_tokens: 10,

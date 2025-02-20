@@ -14,7 +14,7 @@ use spki::der::asn1;
 //  privateValueLength INTEGER OPTIONAL }
 #[derive(Clone, Sequence)]
 pub struct DhParameter {
-    pub prime: asn1::Int,
-    pub base: asn1::Int,
-    pub private_value_length: Option<asn1::Int>,
+  pub prime: asn1::Int,
+  pub base: asn1::Int,
+  pub private_value_length: Option<asn1::Int>,
 }

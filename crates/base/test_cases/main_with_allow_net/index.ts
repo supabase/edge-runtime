@@ -1,4 +1,4 @@
-console.log('main function started');
+console.log("main function started");
 
 Deno.serve({
   handler: async (req: Request) => {
@@ -9,21 +9,24 @@ Deno.serve({
     const service_name = path_parts[1];
 
     if (!service_name || service_name === "") {
-      const error = { msg: "missing function name in request" }
+      const error = { msg: "missing function name in request" };
       return new Response(
         JSON.stringify(error),
         { status: 400, headers: { "Content-Type": "application/json" } },
-      )
+      );
     }
 
     const servicePath = `./test_cases/${service_name}`;
 
-    let allowNet: string[] | null | undefined;
+    let allow_net: string[] | null | undefined;
+    let deny_net: string[] | null;
 
     try {
       const payload = await req.clone().json();
-      allowNet = payload.allowNet;
-    } catch { }
+
+      allow_net = payload.allowNet;
+      deny_net = payload.allowNet === null ? [] : null;
+    } catch {}
 
     console.error(`serving the request with ${servicePath}`);
 
@@ -33,9 +36,8 @@ Deno.serve({
       const cpuTimeSoftLimitMs = 10 * 60 * 1000;
       const cpuTimeHardLimitMs = 10 * 60 * 1000;
       const noModuleCache = false;
-      const importMapPath = null;
       const envVarsObj = Deno.env.toObject();
-      const envVars = Object.keys(envVarsObj).map(k => [k, envVarsObj[k]]);
+      const envVars = Object.keys(envVarsObj).map((k) => [k, envVarsObj[k]]);
 
       return await EdgeRuntime.userWorkers.create({
         servicePath,
@@ -44,11 +46,19 @@ Deno.serve({
         cpuTimeSoftLimitMs,
         cpuTimeHardLimitMs,
         noModuleCache,
-        importMapPath,
         envVars,
-        allowNet,
+        permissions: {
+          allow_all: false,
+          allow_env: [],
+          allow_net,
+          deny_net,
+          allow_read: [],
+          allow_write: [],
+          allow_import: [],
+          allow_sys: ["hostname"],
+        },
       });
-    }
+    };
 
     const callWorker = async () => {
       try {
@@ -61,16 +71,16 @@ Deno.serve({
         // 	return await callWorker();
         // }
 
-        const error = { msg: e.toString() }
+        const error = { msg: e.toString() };
         return new Response(
           JSON.stringify(error),
           { status: 500, headers: { "Content-Type": "application/json" } },
         );
       }
-    }
+    };
 
     return callWorker();
   },
 
-  onError: e => new Response(e.toString(), { status: 500 })
-})
+  onError: (e) => new Response(e.toString(), { status: 500 }),
+});

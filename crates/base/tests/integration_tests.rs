@@ -2775,7 +2775,6 @@ async fn test_tmp_fs_usage() {
       None,
       None,
       None,
-      None,
       (|resp| async {
         let resp = resp.unwrap();
         assert_eq!(resp.status().as_u16(), 200);

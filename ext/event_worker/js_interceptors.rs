@@ -7,8 +7,6 @@ use deno_core::error::AnyError;
 use deno_core::op2;
 use deno_core::OpState;
 use tokio::sync::mpsc;
-use tracing::event;
-use tracing::trace;
 
 #[op2(fast)]
 fn op_user_worker_log(
@@ -37,7 +35,7 @@ fn op_user_worker_log(
       metadata: EventMetadata { ..event_metadata },
     };
 
-    trace!(?metadata);
+    tracing::trace!(?metadata);
     tx.send(metadata)?;
   } else {
     #[cfg(feature = "tracing")]

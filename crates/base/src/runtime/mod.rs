@@ -532,7 +532,7 @@ where
         }
       }
       if is_some_entry_point {
-        main_module_url = Some(Url::parse(&maybe_entrypoint.unwrap())?);
+        main_module_url = Some(Url::parse(&maybe_entrypoint.clone().unwrap())?);
       }
 
       let mut emitter_factory = EmitterFactory::new();
@@ -626,10 +626,10 @@ where
       .with_context(|| "could not find entrypoint from metadata")?;
 
     let main_module_url = match entrypoint {
-      Entrypoint::Key(key) => base_url.join(&key)?,
+      Entrypoint::Key(key) => base_url.join(key)?,
       Entrypoint::ModuleCode(_) => Url::parse(
         maybe_entrypoint
-          .and_then(|it| it.as_str())
+          .as_ref()
           .with_context(|| "could not find entrypoint key")?,
       )?,
     };

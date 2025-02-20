@@ -725,7 +725,7 @@ impl deno_io::fs::File for FileBackedVfsFile {
     std::thread::scope(|s| {
       let inner = (*self).clone();
 
-      s.spawn(move || SYNC_IO_RT.block_on(inner.read_to_end()))
+      s.spawn(move || IO_RT.block_on(inner.read_to_end()))
         .join()
         .unwrap()
         .map(Cow::Owned)

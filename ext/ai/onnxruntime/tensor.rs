@@ -251,7 +251,7 @@ mod tests {
       // ref: https://github.com/denoland/deno_core/blob/490079f6b5c9233f476b0a529eace1f5b2c4ed07/serde_v8/tests/magic.rs#L23
       let isolate = &mut v8::Isolate::new(v8::CreateParams::default());
       let handle_scope = &mut v8::HandleScope::new(isolate);
-      let context = v8::Context::new(handle_scope);
+      let context = v8::Context::new(handle_scope, Default::default());
       let scope = &mut v8::ContextScope::new(handle_scope, context);
       // endregion: v8-init
 

@@ -79,7 +79,7 @@ class InferenceSession {
   }
 
   static async fromBuffer(modelBuffer) {
-    const [id, inputs, outputs] = await core.ops.op_sb_ai_ort_init_session(
+    const [id, inputs, outputs] = await core.ops.op_ai_ort_init_session(
       modelBuffer,
     );
 
@@ -99,7 +99,7 @@ class InferenceSession {
       }
     }
 
-    const outputs = await core.ops.op_sb_ai_ort_run_session(
+    const outputs = await core.ops.op_ai_ort_run_session(
       this.sessionId,
       sessionInputs,
     );

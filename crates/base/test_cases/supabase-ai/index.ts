@@ -1,6 +1,6 @@
-import { assertGreater, assertLessOrEqual } from 'jsr:@std/assert';
+import { assertGreater, assertLessOrEqual } from "jsr:@std/assert";
 
-const session = new Supabase.ai.Session('gte-small');
+const session = new Supabase.ai.Session("gte-small");
 
 function dotProduct(a: number[], b: number[]) {
   let result = 0;
@@ -15,13 +15,13 @@ export default {
   async fetch() {
     // Generate embedding
     // @ts-ignore unkwnow type
-    const meow: number[] = await session.run('meow', {
+    const meow: number[] = await session.run("meow", {
       mean_pool: true,
       normalize: true,
     });
 
     // @ts-ignore unkwnow type
-    const love: number[] = await session.run('I love cats', {
+    const love: number[] = await session.run("I love cats", {
       mean_pool: true,
       normalize: true,
     });

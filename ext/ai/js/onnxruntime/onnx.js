@@ -18,7 +18,7 @@ const DataTypeMap = Object.freeze({
 class TensorProxy {
   get(target, property) {
     switch (property) {
-      case 'data':
+      case "data":
         return target.data?.c ?? target.data;
 
       default:
@@ -125,4 +125,4 @@ const onnxruntime = {
   },
 };
 
-globalThis[Symbol.for('onnxruntime')] = onnxruntime;
+globalThis[Symbol.for("onnxruntime")] = onnxruntime;

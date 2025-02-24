@@ -41,4 +41,3 @@ tokenizers = { version = ">=0.13.4", default-features = false, features = ["onig
 
 ort = { version = "=2.0.0-rc.9", default-features = false, features = ["ndarray", "half", "load-dynamic", "cuda"] }
 ort-sys = "=2.0.0-rc.9"
-

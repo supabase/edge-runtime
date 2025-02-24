@@ -1,7 +1,8 @@
 import { env, pipeline } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.1';
 
-// Ensure we do not use browser cache
-env.useBrowserCache = false;
+// Ensure we do use browser cache, in order to apply the fetch optimizations
+env.useBrowserCache = true;
+
 env.allowLocalModels = false;
 
 const pipe = await pipeline('feature-extraction', 'supabase/gte-small', {
@@ -9,8 +10,7 @@ const pipe = await pipeline('feature-extraction', 'supabase/gte-small', {
 });
 
 Deno.serve(async (req: Request) => {
-  // const { input } = await req.json();
-  const input = 'hello world';
+  const { input } = await req.json();
 
   const output = await pipe(input, { pooling: 'mean', normalize: true });
 

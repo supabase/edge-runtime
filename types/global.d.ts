@@ -286,6 +286,19 @@ export namespace ai {
                 };
             }): Promise<RawSession>;
 
+            /** Loads a ONNX model session from **Storage**.
+             * Sessions are loaded once, then will keep warm cross worker's requests
+             */
+            static fromStorage(repoId: string, opts?: {
+                /**
+                 * @default 'env SUPABASE_URL'
+                 */
+                hostname?: string | URL;
+                mode?: 'public' | {
+                    authorization: string;
+                };
+            }): Promise<RawSession>;
+
             /** Run the current session with the given inputs.
              * Use `inputs` and `outputs` properties to know the required inputs and expected results for the model session.
              *

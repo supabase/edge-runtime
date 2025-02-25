@@ -10,6 +10,13 @@ const DEFAULT_HUGGING_FACE_OPTIONS = {
   },
 };
 
+const DEFAULT_STORAGE_OPTIONS = () => ({
+  hostname: Deno.env.get('SUPABASE_URL'),
+  mode: {
+    authorization: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'),
+  },
+});
+
 /**
  * An user friendly API for onnx backend
  */
@@ -28,14 +35,17 @@ class UserInferenceSession {
     this.outputs = session.outputNames;
   }
 
-  static async fromUrl(modelUrl) {
+  static async fromUrl(modelUrl, authorization) {
     if (modelUrl instanceof URL) {
       modelUrl = modelUrl.toString();
     }
 
     const encoder = new TextEncoder();
     const modelUrlBuffer = encoder.encode(modelUrl);
-    const session = await InferenceSession.fromBuffer(modelUrlBuffer);
+    const session = await InferenceSession.fromRequest(
+      modelUrlBuffer,
+      authorization,
+    );
 
     return new UserInferenceSession(session);
   }
@@ -61,6 +71,26 @@ class UserInferenceSession {
     return await UserInferenceSession.fromUrl(new URL(modelPath, hostname));
   }
 
+  static async fromStorage(modelPath, opts = {}) {
+    const defaultOpts = DEFAULT_STORAGE_OPTIONS();
+    const hostname = opts?.hostname ?? defaultOpts.hostname;
+    const mode = opts?.mode ?? defaultOpts.mode;
+
+    const assetPath = mode === 'public' ? `public/${modelPath}` : `authenticated/${modelPath}`;
+
+    const storageUrl = `/storage/v1/object/${assetPath}`;
+
+    if (!URL.canParse(storageUrl, hostname)) {
+      throw Error(
+        `[Invalid URL] Couldn't parse the model path: "${storageUrl}"`,
+      );
+    }
+
+    return await UserInferenceSession.fromUrl(
+      new URL(storageUrl, hostname),
+      mode?.authorization,
+    );
+  }
   async run(inputs) {
     const outputs = await core.ops.op_ai_ort_run_session(this.id, inputs);
 

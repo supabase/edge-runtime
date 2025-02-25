@@ -9,13 +9,20 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Context;
+use deno::deno_ast;
+use deno::deno_fs::FileSystem;
+use deno::deno_fs::RealFs;
+use deno::deno_graph;
 use deno::deno_npm::NpmSystemInfo;
+use deno::deno_path_util;
 use deno::deno_path_util::normalize_path;
 use deno::npm::InnerCliNpmResolverRef;
+use deno::standalone::binary::NodeModules;
 use deno::standalone::binary::SerializedResolverWorkspaceJsrPackage;
 use deno::standalone::binary::SerializedWorkspaceResolver;
 use deno::standalone::binary::SerializedWorkspaceResolverImportMap;
 use deno::tools::compile;
+use deno_core::error::AnyError;
 use deno_core::serde_json;
 use deno_core::url::Url;
 use deno_core::FastString;
@@ -34,17 +41,22 @@ use eszip_trait::AsyncEszipDataRead;
 use eszip_trait::SUPABASE_ESZIP_VERSION;
 use eszip_trait::SUPABASE_ESZIP_VERSION_KEY;
 use fs::virtual_fs::VfsBuilder;
+use fs::virtual_fs::VfsEntry;
 use fs::VfsOpts;
+use futures::future::BoxFuture;
 use futures::future::OptionFuture;
 use futures::io::AllowStdIo;
 use futures::io::BufReader;
 use futures::AsyncReadExt;
 use futures::AsyncSeekExt;
+use futures::FutureExt;
 use glob::glob;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use scopeguard::ScopeGuard;
 use tokio::fs::create_dir_all;
+use tokio::fs::File;
+use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 use tokio::sync::Semaphore;
 use vfs::build_npm_vfs;
@@ -743,31 +755,120 @@ pub async fn generate_binary_eszip(
   };
 
   let resolver = emitter_factory.npm_resolver().await.cloned()?;
-  let (vfs, npm_snapshot) =
-    match resolver.clone().as_inner() {
-      InnerCliNpmResolverRef::Managed(managed) => {
-        let snapshot = managed
-          .serialized_valid_snapshot_for_system(&NpmSystemInfo::default());
-        if !snapshot.as_serialized().packages.is_empty() {
-          let npm_vfs_builder = build_npm_vfs(
-            VfsOpts {
-              npm_resolver: resolver.clone(),
-            },
-            &mut vfs_content_callback_fn,
-          )?;
+  let (mut vfs, node_modules, npm_snapshot) = match resolver.clone().as_inner()
+  {
+    InnerCliNpmResolverRef::Managed(managed) => {
+      let snapshot =
+        managed.serialized_valid_snapshot_for_system(&NpmSystemInfo::default());
+      if !snapshot.as_serialized().packages.is_empty() {
+        let npm_vfs_builder = build_npm_vfs(
+          VfsOpts {
+            root_path,
+            npm_resolver: resolver.clone(),
+          },
+          emitter_factory.deno_options()?.clone(),
+          &mut vfs_content_callback_fn,
+        )?;
 
-          (npm_vfs_builder, Some(managed
-          .serialized_valid_snapshot_for_system(&NpmSystemInfo::default()) ))
-        } else {
-          (
-            VfsBuilder::new(root_path, &mut vfs_content_callback_fn)?,
-            None,
-          )
-        }
+        (
+          npm_vfs_builder,
+          Some(NodeModules::Managed {
+            node_modules_dir: resolver.root_node_modules_path().map(|it| {
+              root_dir_url
+                .specifier_key(
+                  &ModuleSpecifier::from_directory_path(it).unwrap(),
+                )
+                .into_owned()
+            }),
+          }),
+          Some(
+            managed
+              .serialized_valid_snapshot_for_system(&NpmSystemInfo::default()),
+          ),
+        )
+      } else {
+        (
+          VfsBuilder::new(root_path, &mut vfs_content_callback_fn)?,
+          None,
+          None,
+        )
       }
-      InnerCliNpmResolverRef::Byonm(_) => unreachable!(),
-    };
-
+    }
+    InnerCliNpmResolverRef::Byonm(_) => {
+      let npm_vfs_builder = build_npm_vfs(
+        VfsOpts {
+          root_path,
+          npm_resolver: resolver.clone(),
+        },
+        emitter_factory.deno_options()?.clone(),
+        vfs_content_callback_fn,
+      )?;
+      (
+        npm_vfs_builder,
+        Some(NodeModules::Byonm {
+          root_node_modules_dir: resolver.root_node_modules_path().map(|it| {
+            root_dir_url
+              .specifier_key(&ModuleSpecifier::from_directory_path(it).unwrap())
+              .into_owned()
+          }),
+        }),
+        None,
+      )
+    }
+  };
+  let workspace_resolver = emitter_factory.workspace_resolver()?.clone();
+  if deno_options.use_byonm() {
+    let cjs_tracker = emitter_factory.cjs_tracker()?.clone();
+    let emitter = emitter_factory.emitter()?.clone();
+    for module in graph.modules() {
+      if module.specifier().scheme() == "data" {
+        continue; // don't store data urls as an entry as they're in the code
+      }
+      let maybe_source = match module {
+        deno_graph::Module::Js(m) => {
+          let source = if m.media_type.is_emittable() {
+            let is_cjs = cjs_tracker.is_cjs_with_known_is_script(
+              &m.specifier,
+              m.media_type,
+              m.is_script,
+            )?;
+            let module_kind = deno_ast::ModuleKind::from_is_cjs(is_cjs);
+            let source = emitter
+              .emit_parsed_source(
+                &m.specifier,
+                m.media_type,
+                module_kind,
+                &m.source,
+              )
+              .await?;
+            source.into_bytes()
+          } else {
+            m.source.as_bytes().to_vec()
+          };
+          Some(source)
+        }
+        deno_graph::Module::Json(m) => Some(m.source.as_bytes().to_vec()),
+        deno_graph::Module::Wasm(m) => Some(m.source.to_vec()),
+        deno_graph::Module::Npm(_)
+        | deno_graph::Module::Node(_)
+        | deno_graph::Module::External(_) => None,
+      };
+      if module.specifier().scheme() == "file" {
+        let file_path = deno_path_util::url_to_file_path(module.specifier())?;
+        vfs
+          .add_file(
+            &file_path,
+            match maybe_source {
+              Some(source) => source,
+              None => RealFs.read_file_sync(&file_path, None)?.into_owned(),
+            },
+          )
+          .with_context(|| {
+            format!("Failed adding '{}'", file_path.display())
+          })?;
+      }
+    }
+  }
   let vfs = vfs.into_dir();
   let mut eszip = create_eszip_from_graph_raw(
     graph,
@@ -819,7 +920,6 @@ pub async fn generate_binary_eszip(
       }))
     })
     .collect();
-  let workspace_resolver = emitter_factory.workspace_resolver()?.clone();
   let serialized_workspace_resolver = SerializedWorkspaceResolver {
     import_map: workspace_resolver.maybe_import_map().map(|it| {
       SerializedWorkspaceResolverImportMap {
@@ -863,6 +963,12 @@ pub async fn generate_binary_eszip(
     serde_json::to_vec(&serialized_workspace_resolver)
       .with_context(|| "failed to serialize workspace resolver")?,
   );
+  metadata.node_modules = node_modules
+    .map(|it| {
+      serde_json::to_vec(&it)
+        .with_context(|| "failed to serialize node modules")
+    })
+    .transpose()?;
 
   if let Some(static_patterns) = maybe_static_patterns {
     include_glob_patterns_in_eszip(
@@ -974,18 +1080,97 @@ pub async fn extract_eszip(payload: ExtractEszipPayload) -> bool {
 
   eszip.ensure_read_all().await.unwrap();
 
+  let mut metadata = match OptionFuture::<_>::from(
+    eszip
+      .ensure_module(eszip_trait::v2::METADATA_KEY)
+      .map(|it| async move { it.source().await }),
+  )
+  .await
+  .flatten()
+  .map(|it| {
+    rkyv::from_bytes::<Metadata>(it.as_ref())
+      .map_err(|_| anyhow!("failed to deserialize metadata from eszip"))
+  })
+  .transpose()
+  {
+    Ok(metadata) => metadata,
+    Err(err) => {
+      log::error!("{err}");
+      return false;
+    }
+  }
+  .unwrap_or_default();
+  let node_modules = match metadata.node_modules() {
+    Ok(node_modules) => node_modules,
+    Err(err) => {
+      log::error!("{err}");
+      return false;
+    }
+  };
+  let use_byonm = matches!(node_modules, Some(NodeModules::Byonm { .. }));
+
   if !output_folder.exists() {
     create_dir_all(&output_folder).await.unwrap();
   }
+  if use_byonm {
+    fn extract_entries(
+      eszip: Arc<LazyLoadableEszip>,
+      entries: Vec<VfsEntry>,
+      base_path: PathBuf,
+    ) -> BoxFuture<'static, Result<(), AnyError>> {
+      async move {
+        for entry in entries {
+          match entry {
+            VfsEntry::Dir(virtual_directory) => {
+              let path = base_path.join(&virtual_directory.name);
+              create_dir_all(&path).await.unwrap();
+              extract_entries(eszip.clone(), virtual_directory.entries, path)
+                .await?;
+            }
+            VfsEntry::File(virtual_file) => {
+              let path = base_path.join(&virtual_file.name);
+              let module_content = eszip
+                .get_module(&virtual_file.key)
+                .unwrap()
+                .source()
+                .await
+                .unwrap();
+              let mut file = File::create(&path).await.unwrap();
+              file.write_all(module_content.as_ref()).await.unwrap();
+            }
+            VfsEntry::Symlink(virtual_symlink) => {
+              let name = virtual_symlink.name;
+              bail!("found unexpected symlink: {name}");
+            }
+          }
+        }
+        Ok(())
+      }
+      .boxed()
+    }
 
-  let file_specifiers = extract_file_specifiers(&eszip);
-  if let Some(lowest_path) =
-    deno::util::path::find_lowest_path(&file_specifiers)
-  {
-    extract_modules(&eszip, &file_specifiers, &lowest_path, &output_folder)
-      .await;
+    let eszip = Arc::new(eszip);
+    let Some(dir) = metadata.virtual_dir.take() else {
+      return true;
+    };
+    match extract_entries(eszip, dir.entries, output_folder).await {
+      Err(err) => {
+        log::error!("{err}");
+        return false;
+      }
+      _ => {}
+    }
     true
   } else {
-    panic!("Path seems to be invalid");
+    let file_specifiers = extract_file_specifiers(&eszip);
+    if let Some(lowest_path) =
+      deno::util::path::find_lowest_path(&file_specifiers)
+    {
+      extract_modules(&eszip, &file_specifiers, &lowest_path, &output_folder)
+        .await;
+      true
+    } else {
+      panic!("Path seems to be invalid");
+    }
   }
 }

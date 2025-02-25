@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use deno::npm::CliNpmResolver;
@@ -16,5 +17,6 @@ pub use r#impl::virtual_fs;
 pub use rt::IO_RT;
 
 pub struct VfsOpts {
+  pub root_path: PathBuf,
   pub npm_resolver: Arc<dyn CliNpmResolver>,
 }

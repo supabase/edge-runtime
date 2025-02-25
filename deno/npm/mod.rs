@@ -8,10 +8,12 @@ use std::path::Path;
 use std::sync::Arc;
 
 use byonm::CliByonmNpmResolver;
+use byonm::CliByonmNpmResolverCreateOptions;
 use deno_core::error::AnyError;
 use deno_core::url::Url;
 use deno_fs::FileSystem;
 use deno_resolver::npm::ByonmInNpmPackageChecker;
+use deno_resolver::npm::ByonmNpmResolver;
 use deno_resolver::npm::CliNpmReqResolver;
 use ext_node::NodePermissions;
 use http::HeaderName;
@@ -126,6 +128,21 @@ impl deno_npm_cache::NpmCacheEnv for CliNpmCacheEnv {
 //   Snapshot(deno_npm::resolution::SerializedNpmResolutionSnapshot),
 //   Byonm,
 // }
+
+pub enum CliNpmResolverCreateOptions {
+  Managed(CliManagedNpmResolverCreateOptions),
+  Byonm(CliByonmNpmResolverCreateOptions),
+}
+
+pub async fn create_cli_npm_resolver(
+  options: CliNpmResolverCreateOptions,
+) -> Result<Arc<dyn CliNpmResolver>, AnyError> {
+  use CliNpmResolverCreateOptions::*;
+  match options {
+    Managed(options) => managed::create_managed_npm_resolver(options).await,
+    Byonm(options) => Ok(Arc::new(ByonmNpmResolver::new(options))),
+  }
+}
 
 pub enum CreateInNpmPkgCheckerOptions<'a> {
   Managed(CliManagedInNpmPkgCheckerCreateOptions<'a>),

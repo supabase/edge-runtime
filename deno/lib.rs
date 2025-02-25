@@ -81,6 +81,7 @@ pub fn version() -> &'static str {
 }
 
 pub struct DenoOptions {
+  initial_cwd: PathBuf,
   maybe_node_modules_folder: Option<PathBuf>,
   npmrc: Arc<ResolvedNpmRc>,
   maybe_lockfile: Option<Arc<CliLockfile>>,
@@ -90,6 +91,10 @@ pub struct DenoOptions {
 }
 
 impl DenoOptions {
+  pub fn initial_cwd(&self) -> &Path {
+    &self.initial_cwd
+  }
+
   pub fn npmrc(&self) -> &Arc<ResolvedNpmRc> {
     &self.npmrc
   }
@@ -110,8 +115,23 @@ impl DenoOptions {
     self.builder.unstable_detect_cjs.unwrap_or_default()
   }
 
+  fn byonm_enabled(&self) -> bool {
+    self.node_modules_dir().ok().flatten() == Some(NodeModulesDirMode::Manual)
+  }
+
   pub fn use_byonm(&self) -> bool {
-    self.builder.use_byonm.unwrap_or_default()
+    if self.node_modules_dir().ok().flatten().is_none()
+      && self.maybe_node_modules_folder.is_some()
+      && self
+        .workspace()
+        .config_folders()
+        .values()
+        .any(|it| it.pkg_json.is_some())
+    {
+      return true;
+    }
+
+    self.byonm_enabled()
   }
 
   pub fn is_node_main(&self) -> bool {
@@ -293,6 +313,7 @@ impl DenoOptions {
     load_env_variables_from_env_file(builder.env_file.as_ref());
 
     Ok(Self {
+      initial_cwd,
       maybe_node_modules_folder,
       npmrc,
       maybe_lockfile: maybe_lockfile.map(Arc::new),

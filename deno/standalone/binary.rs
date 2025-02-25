@@ -10,6 +10,17 @@ use serde::Deserialize;
 use serde::Serialize;
 
 #[derive(Deserialize, Serialize)]
+pub enum NodeModules {
+  Managed {
+    /// Relative path for the node_modules directory in the vfs.
+    node_modules_dir: Option<String>,
+  },
+  Byonm {
+    root_node_modules_dir: Option<String>,
+  },
+}
+
+#[derive(Deserialize, Serialize)]
 pub struct SerializedWorkspaceResolverImportMap {
   pub specifier: String,
   pub json: String,

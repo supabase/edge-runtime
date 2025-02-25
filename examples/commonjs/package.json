@@ -4,5 +4,8 @@
   "main": "index.js",
   "devDependencies": {
     "@types/node": "^22.13.4"
+  },
+  "dependencies": {
+    "is-odd": "^3.0.1"
   }
 }

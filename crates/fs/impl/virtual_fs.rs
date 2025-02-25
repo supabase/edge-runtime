@@ -209,7 +209,11 @@ impl<'scope> VfsBuilder<'scope> {
     self.add_file(path, file_bytes)
   }
 
-  fn add_file(&mut self, path: &Path, data: Vec<u8>) -> Result<(), AnyError> {
+  pub fn add_file(
+    &mut self,
+    path: &Path,
+    data: Vec<u8>,
+  ) -> Result<(), AnyError> {
     log::debug!("Adding file '{}'", path.display());
     let checksum = checksum::gen(&[&data]);
     let offset = if let Some(offset) = self.file_offsets.get(&checksum) {

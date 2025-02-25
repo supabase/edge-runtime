@@ -450,6 +450,7 @@ mod v2 {
       ca_stores: None,
       ca_data: None,
       unsafely_ignore_certificate_errors: None,
+      node_modules: None,
     };
 
     v2_eszip.add_opaque_data(

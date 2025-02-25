@@ -1,10 +1,13 @@
+use std::collections::VecDeque;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use anyhow::Context;
 use deno::deno_npm::NpmSystemInfo;
 use deno::npm::CliNpmResolver;
 use deno::npm::InnerCliNpmResolverRef;
+use deno::DenoOptions;
 use deno_core::error::AnyError;
 use eszip_trait::AsyncEszipDataRead;
 use fs::virtual_fs::FileBackedVfs;
@@ -47,6 +50,7 @@ pub fn load_npm_vfs(
 
 pub fn build_npm_vfs<'scope, F>(
   opts: VfsOpts,
+  deno_options: Arc<DenoOptions>,
   add_content_callback_fn: F,
 ) -> Result<VfsBuilder<'scope>, AnyError>
 where
@@ -119,9 +123,36 @@ where
         Ok(builder)
       }
     }
-
-    _ => {
-      unreachable!();
+    InnerCliNpmResolverRef::Byonm(_) => {
+      let mut builder =
+        VfsBuilder::new(opts.root_path.clone(), add_content_callback_fn)?;
+      for pkg_json in deno_options.workspace().package_jsons() {
+        builder.add_file_at_path(&pkg_json.path)?;
+      }
+      // traverse and add all the node_modules directories in the workspace
+      let mut pending_dirs = VecDeque::new();
+      pending_dirs
+        .push_back(deno_options.workspace().root_dir().to_file_path().unwrap());
+      while let Some(pending_dir) = pending_dirs.pop_front() {
+        let mut entries = std::fs::read_dir(&pending_dir)
+          .with_context(|| {
+            format!("Failed reading: {}", pending_dir.display())
+          })?
+          .collect::<Result<Vec<_>, _>>()?;
+        entries.sort_by_cached_key(|entry| entry.file_name()); // determinism
+        for entry in entries {
+          let path = entry.path();
+          if !path.is_dir() {
+            continue;
+          }
+          if path.ends_with("node_modules") {
+            builder.add_dir_recursive(&path)?;
+          } else {
+            pending_dirs.push_back(path);
+          }
+        }
+      }
+      Ok(builder)
     }
   }
 }

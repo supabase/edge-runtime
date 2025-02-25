@@ -1,11 +1,15 @@
 const http = require("http");
+const isOdd = require("is-odd");
 
 console.log(require);
+console.log(isOdd(33));
 
-http.createServer((_, resp) => {
+const server = http.createServer((_, resp) => {
   resp.writeHead(200, {
     "content-type": "text-plain",
   });
-  resp.write("meow\n");
+  resp.write("Hello, World!\n");
   resp.end();
 });
+
+server.listen(8080);

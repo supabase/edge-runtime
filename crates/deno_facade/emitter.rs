@@ -32,11 +32,13 @@ use deno::graph_util::ModuleGraphBuilder;
 use deno::graph_util::ModuleGraphCreator;
 use deno::http_util::HttpClientProvider;
 use deno::node_resolver::InNpmPackageChecker;
+use deno::npm::byonm::CliByonmNpmResolverCreateOptions;
+use deno::npm::create_cli_npm_resolver;
 use deno::npm::create_in_npm_pkg_checker;
-use deno::npm::create_managed_npm_resolver;
 use deno::npm::CliManagedInNpmPkgCheckerCreateOptions;
 use deno::npm::CliManagedNpmResolverCreateOptions;
 use deno::npm::CliNpmResolver;
+use deno::npm::CliNpmResolverCreateOptions;
 use deno::npm::CliNpmResolverManagedSnapshotOption;
 use deno::npm::CreateInNpmPkgCheckerOptions;
 use deno::resolver::CjsTracker;
@@ -45,6 +47,7 @@ use deno::resolver::CliDenoResolverFs;
 use deno::resolver::CliNpmReqResolver;
 use deno::resolver::CliResolver;
 use deno::resolver::CliResolverOptions;
+use deno::util::fs::canonicalize_path_maybe_not_exists;
 use deno::DenoOptions;
 use deno::PermissionsContainer;
 use deno_core::error::AnyError;
@@ -279,7 +282,7 @@ impl EmitterFactory {
       .get_or_init(|| Arc::new(HttpClientProvider::new(None, None)))
   }
 
-  pub fn real_fs(&self) -> Arc<dyn deno::deno_fs::FileSystem> {
+  pub fn fs(&self) -> Arc<dyn deno::deno_fs::FileSystem> {
     Arc::new(deno::deno_fs::RealFs)
   }
 
@@ -326,25 +329,49 @@ impl EmitterFactory {
   ) -> Result<&Arc<dyn CliNpmResolver>, anyhow::Error> {
     self
       .npm_resolver
-      .get_or_try_init_async(async {
-        let options = self.deno_options()?;
-        create_managed_npm_resolver(CliManagedNpmResolverCreateOptions {
-          snapshot: CliNpmResolverManagedSnapshotOption::Specified(None),
-          maybe_lockfile: options.maybe_lockfile().cloned(),
-          fs: self.real_fs(),
-          http_client_provider: self.http_client_provider().clone(),
-          npm_cache_dir: self.npm_cache_dir()?.clone(),
-          cache_setting: self
-            .cache_strategy
-            .clone()
-            .unwrap_or(CacheSetting::Use),
-          maybe_node_modules_path: None,
-          npm_system_info: Default::default(),
-          npm_install_deps_provider: Default::default(),
-          npmrc: self.resolved_npm_rc()?.clone(),
-        })
-        .await
-      })
+      .get_or_try_init_async(
+        async {
+          let fs = self.fs();
+          let options = self.deno_options()?;
+          create_cli_npm_resolver(if options.use_byonm() {
+            CliNpmResolverCreateOptions::Byonm(
+              CliByonmNpmResolverCreateOptions {
+                fs: CliDenoResolverFs(fs),
+                pkg_json_resolver: self.pkg_json_resolver().clone(),
+                root_node_modules_dir: Some(
+                  match options.node_modules_dir_path() {
+                    Some(node_modules_path) => node_modules_path.to_path_buf(),
+                    None => {
+                      canonicalize_path_maybe_not_exists(options.initial_cwd())?
+                        .join("node_modules")
+                    }
+                  },
+                ),
+              },
+            )
+          } else {
+            CliNpmResolverCreateOptions::Managed(
+              CliManagedNpmResolverCreateOptions {
+                snapshot: CliNpmResolverManagedSnapshotOption::Specified(None),
+                maybe_lockfile: options.maybe_lockfile().cloned(),
+                fs,
+                http_client_provider: self.http_client_provider().clone(),
+                npm_cache_dir: self.npm_cache_dir()?.clone(),
+                cache_setting: self
+                  .cache_strategy
+                  .clone()
+                  .unwrap_or(CacheSetting::Use),
+                maybe_node_modules_path: None,
+                npm_system_info: Default::default(),
+                npm_install_deps_provider: Default::default(),
+                npmrc: self.resolved_npm_rc()?.clone(),
+              },
+            )
+          })
+          .await
+        }
+        .boxed_local(),
+      )
       .await
   }
 
@@ -357,7 +384,7 @@ impl EmitterFactory {
         let npm_resolver = self.npm_resolver().await?;
         Ok(Arc::new(CliNpmReqResolver::new(NpmReqResolverOptions {
           byonm_resolver: (npm_resolver.clone()).into_maybe_byonm(),
-          fs: CliDenoResolverFs(self.real_fs()),
+          fs: CliDenoResolverFs(self.fs()),
           in_npm_pkg_checker: self.in_npm_pkg_checker()?.clone(),
           node_resolver: self.node_resolver().await?.clone(),
           npm_req_resolver: npm_resolver.clone().into_npm_req_resolver(),
@@ -404,7 +431,7 @@ impl EmitterFactory {
 
   pub fn npm_cache_dir(&self) -> Result<&Arc<NpmCacheDir>, anyhow::Error> {
     self.npm_cache_dir.get_or_try_init(|| {
-      let fs = self.real_fs();
+      let fs = self.fs();
       let global_path = self.deno_dir.npm_folder_path();
       let options = self.deno_options()?;
       Ok(Arc::new(NpmCacheDir::new(
@@ -429,7 +456,7 @@ impl EmitterFactory {
       .get_or_try_init_async(
         async {
           Ok(Arc::new(NodeResolver::new(
-            DenoFsNodeResolverEnv::new(self.real_fs().clone()),
+            DenoFsNodeResolverEnv::new(self.fs().clone()),
             self.in_npm_pkg_checker()?.clone(),
             self
               .npm_resolver()
@@ -447,7 +474,7 @@ impl EmitterFactory {
   pub fn pkg_json_resolver(&self) -> &Arc<PackageJsonResolver> {
     self.pkg_json_resolver.get_or_init(|| {
       Arc::new(PackageJsonResolver::new(DenoFsNodeResolverEnv::new(
-        self.real_fs().clone(),
+        self.fs().clone(),
       )))
     })
   }
@@ -456,7 +483,7 @@ impl EmitterFactory {
     &self,
   ) -> Result<&Arc<RuntimePermissionDescriptorParser>, anyhow::Error> {
     self.permission_desc_parser.get_or_try_init(|| {
-      let fs = self.real_fs();
+      let fs = self.fs();
       Ok(Arc::new(RuntimePermissionDescriptorParser::new(fs)))
     })
   }
@@ -537,7 +564,7 @@ impl EmitterFactory {
           self.cjs_tracker()?.clone(),
           options.clone(),
           self.file_fetcher()?.clone(),
-          self.real_fs().clone(),
+          self.fs().clone(),
           self.global_http_cache().clone(),
           self.in_npm_pkg_checker()?.clone(),
           options.maybe_lockfile().cloned(),

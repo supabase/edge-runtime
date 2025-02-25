@@ -9,6 +9,7 @@ use deno::deno_npm;
 use deno::deno_npm::npm_rc::RegistryConfigWithUrl;
 use deno::deno_npm::npm_rc::ResolvedNpmRc;
 use deno::deno_path_util::normalize_path;
+use deno::standalone::binary::NodeModules;
 use deno::standalone::binary::SerializedWorkspaceResolver;
 use deno_core::error::AnyError;
 use deno_core::serde_json;
@@ -40,6 +41,7 @@ pub struct Metadata {
   pub ca_stores: Option<Vec<String>>,
   pub ca_data: Option<Vec<u8>>,
   pub unsafely_ignore_certificate_errors: Option<Vec<String>>,
+  pub node_modules: Option<Vec<u8>>,
 }
 
 impl Metadata {
@@ -51,12 +53,23 @@ impl Metadata {
         .serialized_workspace_resolver_raw
         .as_ref()
         .map(|it| {
-          serde_json::from_slice::<SerializedWorkspaceResolver>(it.as_slice())
+          serde_json::from_slice(it.as_slice())
             .context("failed to deserialize workspace resolver from metadata")
         })
         .transpose()?
         .unwrap_or_default(),
     )
+  }
+
+  pub fn node_modules(&self) -> Result<Option<NodeModules>, AnyError> {
+    self
+      .node_modules
+      .as_ref()
+      .map(|it| {
+        serde_json::from_slice(it.as_slice())
+          .context("failed to deserialize node modules from metadata")
+      })
+      .transpose()
   }
 
   pub fn resolved_npmrc(

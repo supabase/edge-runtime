@@ -20,10 +20,10 @@ use xxhash_rust::xxh3::Xxh3;
 
 #[instrument(fields(%kind, url = %url))]
 pub async fn fetch_and_cache_from_url(
-    kind: &'static str,
-    url: Url,
-    cache_id: Option<String>,
-    authorization: Option<String>,
+  kind: &'static str,
+  url: Url,
+  cache_id: Option<String>,
+  authorization: Option<String>,
 ) -> Result<PathBuf, AnyError> {
   let cache_id = cache_id.unwrap_or(fxhash::hash(url.as_str()).to_string());
   let download_dir = std::env::var("EXT_AI_CACHE_DIR")

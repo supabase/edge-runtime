@@ -71,11 +71,14 @@ impl Model {
       .map(Self::new)
   }
 
-    pub async fn from_url(model_url: Url, authorization: Option<String>) -> Result<Self> {
-        load_session_from_url(model_url, authorization)
-            .await
-            .map(Self::new)
-    }
+  pub async fn from_url(
+    model_url: Url,
+    authorization: Option<String>,
+  ) -> Result<Self> {
+    load_session_from_url(model_url, authorization)
+      .await
+      .map(Self::new)
+  }
 
   pub async fn from_bytes(model_bytes: &[u8]) -> Result<Self> {
     load_session_from_bytes(model_bytes).await.map(Self::new)

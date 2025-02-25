@@ -4,13 +4,12 @@ const isOdd = require("is-odd");
 console.log(require);
 console.log(isOdd(33));
 
-const meow = http.createServer((_, resp) => {
-  console.log("meow");
+const server = http.createServer((_, resp) => {
   resp.writeHead(200, {
     "content-type": "text-plain",
   });
-  resp.write("meow\n");
+  resp.write("Hello, World!\n");
   resp.end();
 });
 
-meow.listen(8080);
+server.listen(8080);

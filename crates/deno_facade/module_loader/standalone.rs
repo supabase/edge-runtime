@@ -163,7 +163,6 @@ impl ModuleLoader for EmbeddedModuleLoader {
         )));
       }
 
-      // let current_dir = std::env::current_dir().unwrap();
       deno_core::resolve_path(".", &self.shared.root_path)?
     } else {
       ModuleSpecifier::parse(referrer).map_err(|err| {

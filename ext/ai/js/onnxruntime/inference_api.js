@@ -1,19 +1,19 @@
 const core = globalThis.Deno.core;
-import { InferenceSession, Tensor } from 'ext:ai/onnxruntime/onnx.js';
+import { InferenceSession, Tensor } from "ext:ai/onnxruntime/onnx.js";
 
 const DEFAULT_HUGGING_FACE_OPTIONS = {
-  hostname: 'https://huggingface.co',
+  hostname: "https://huggingface.co",
   path: {
-    template: '{REPO_ID}/resolve/{REVISION}/onnx/{MODEL_FILE}?donwload=true',
-    revision: 'main',
-    modelFile: 'model_quantized.onnx',
+    template: "{REPO_ID}/resolve/{REVISION}/onnx/{MODEL_FILE}?donwload=true",
+    revision: "main",
+    modelFile: "model_quantized.onnx",
   },
 };
 
 const DEFAULT_STORAGE_OPTIONS = () => ({
-  hostname: Deno.env.get('SUPABASE_URL'),
+  hostname: Deno.env.get("SUPABASE_URL"),
   mode: {
-    authorization: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'),
+    authorization: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"),
   },
 });
 
@@ -58,9 +58,9 @@ class UserInferenceSession {
     };
 
     const modelPath = pathOpts.template
-      .replaceAll('{REPO_ID}', repoId)
-      .replaceAll('{REVISION}', pathOpts.revision)
-      .replaceAll('{MODEL_FILE}', pathOpts.modelFile);
+      .replaceAll("{REPO_ID}", repoId)
+      .replaceAll("{REVISION}", pathOpts.revision)
+      .replaceAll("{MODEL_FILE}", pathOpts.modelFile);
 
     if (!URL.canParse(modelPath, hostname)) {
       throw Error(
@@ -76,7 +76,9 @@ class UserInferenceSession {
     const hostname = opts?.hostname ?? defaultOpts.hostname;
     const mode = opts?.mode ?? defaultOpts.mode;
 
-    const assetPath = mode === 'public' ? `public/${modelPath}` : `authenticated/${modelPath}`;
+    const assetPath = mode === "public"
+      ? `public/${modelPath}`
+      : `authenticated/${modelPath}`;
 
     const storageUrl = `/storage/v1/object/${assetPath}`;
 

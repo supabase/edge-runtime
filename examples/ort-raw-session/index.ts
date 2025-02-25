@@ -71,43 +71,49 @@ Deno.serve(async (_req: Request) => {
 
 const { RawTensor, RawSession } = Supabase.ai;
 
-const session = await RawSession.fromHuggingFace('kallebysantos/vehicle-emission', {
+const session = await RawSession.fromHuggingFace(
+  "kallebysantos/vehicle-emission",
+  {
     path: {
-        modelFile: 'model.onnx',
+      modelFile: "model.onnx",
     },
-});
+  },
+);
 
 Deno.serve(async (_req: Request) => {
-    // sample data could be a JSON request
-    const carsBatchInput = [{
-        'Model_Year': 2021,
-        'Engine_Size': 2.9,
-        'Cylinders': 6,
-        'Fuel_Consumption_in_City': 13.9,
-        'Fuel_Consumption_in_City_Hwy': 10.3,
-        'Fuel_Consumption_comb': 12.3,
-        'Smog_Level': 3,
-    }, {
-        'Model_Year': 2023,
-        'Engine_Size': 2.4,
-        'Cylinders': 4,
-        'Fuel_Consumption_in_City': 9.9,
-        'Fuel_Consumption_in_City_Hwy': 7.0,
-        'Fuel_Consumption_comb': 8.6,
-        'Smog_Level': 3,
-    }];
+  // sample data could be a JSON request
+  const carsBatchInput = [{
+    "Model_Year": 2021,
+    "Engine_Size": 2.9,
+    "Cylinders": 6,
+    "Fuel_Consumption_in_City": 13.9,
+    "Fuel_Consumption_in_City_Hwy": 10.3,
+    "Fuel_Consumption_comb": 12.3,
+    "Smog_Level": 3,
+  }, {
+    "Model_Year": 2023,
+    "Engine_Size": 2.4,
+    "Cylinders": 4,
+    "Fuel_Consumption_in_City": 9.9,
+    "Fuel_Consumption_in_City_Hwy": 7.0,
+    "Fuel_Consumption_comb": 8.6,
+    "Smog_Level": 3,
+  }];
 
-    // Parsing objects to tensor input
-    const inputTensors: Record<string, Supabase.ai.RawTensor<'float32'>> = {};
-    session.inputs.forEach((inputKey) => {
-        const values = carsBatchInput.map((item) => item[inputKey]);
+  // Parsing objects to tensor input
+  const inputTensors: Record<string, Supabase.ai.RawTensor<"float32">> = {};
+  session.inputs.forEach((inputKey) => {
+    const values = carsBatchInput.map((item) => item[inputKey]);
 
-        inputTensors[inputKey] = new RawTensor('float32', values, [values.length, 1]);
-    });
+    inputTensors[inputKey] = new RawTensor("float32", values, [
+      values.length,
+      1,
+    ]);
+  });
 
-    const { emissions } = await session.run(inputTensors);
-    console.log(emissions);
-    // [ 289.01, 199.53]
+  const { emissions } = await session.run(inputTensors);
+  console.log(emissions);
+  // [ 289.01, 199.53]
 
-    return Response.json({ result: emissions });
+  return Response.json({ result: emissions });
 });

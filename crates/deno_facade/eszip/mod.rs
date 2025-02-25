@@ -1153,12 +1153,9 @@ pub async fn extract_eszip(payload: ExtractEszipPayload) -> bool {
     let Some(dir) = metadata.virtual_dir.take() else {
       return true;
     };
-    match extract_entries(eszip, dir.entries, output_folder).await {
-      Err(err) => {
-        log::error!("{err}");
-        return false;
-      }
-      _ => {}
+    if let Err(err) = extract_entries(eszip, dir.entries, output_folder).await {
+      log::error!("{err}");
+      return false;
     }
     true
   } else {

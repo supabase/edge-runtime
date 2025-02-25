@@ -124,9 +124,30 @@ async fn test_custom_readable_stream_response() {
 
 #[tokio::test]
 #[serial]
+async fn test_import_map_inlined() {
+  integration_test!(
+    "./test_cases/with-import-map",
+    NON_SECURE_PORT,
+    "",
+    None,
+    None,
+    None,
+    (|resp| async {
+      let res = resp.unwrap();
+      assert!(res.status().as_u16() == 200);
+
+      let body_bytes = res.bytes().await.unwrap();
+      assert_eq!(body_bytes, r#"{"message":"ok"}"#);
+    }),
+    TerminationToken::new()
+  );
+}
+
+#[tokio::test]
+#[serial]
 async fn test_import_map_file_path() {
   integration_test!(
-    "./test_cases/with_import_map",
+    "./test_cases/with-import-map-2",
     NON_SECURE_PORT,
     "",
     None,

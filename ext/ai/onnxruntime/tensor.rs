@@ -8,18 +8,19 @@ use deno_core::error::AnyError;
 use deno_core::v8;
 use deno_core::JsBuffer;
 use deno_core::ToJsBuffer;
-use ort::AllocationDevice;
-use ort::AllocatorType;
-use ort::DynValue;
-use ort::DynValueTypeMarker;
-use ort::IntoTensorElementType;
-use ort::MemoryInfo;
-use ort::MemoryType;
-use ort::SessionInputValue;
-use ort::TensorElementType;
-use ort::TensorRefMut;
-use ort::ValueRefMut;
-use ort::ValueType;
+use ort::memory::AllocationDevice;
+use ort::memory::AllocatorType;
+use ort::memory::MemoryInfo;
+use ort::memory::MemoryType;
+use ort::session::SessionInputValue;
+use ort::tensor::PrimitiveTensorElementType;
+use ort::tensor::TensorElementType;
+use ort::value::DynValue;
+use ort::value::DynValueTypeMarker;
+use ort::value::Tensor;
+use ort::value::TensorRefMut;
+use ort::value::ValueRefMut;
+
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -120,24 +121,51 @@ struct JsTensorTypeSerdeHelper(
 );
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "ty", content = "c")]
+enum JsTensorData {
+  #[serde(rename = "string")]
+  StringArray(Vec<String>),
+  #[serde(
+    alias = "float32",
+    alias = "float64",
+    alias = "int8",
+    alias = "uint8",
+    alias = "int16",
+    alias = "uint16",
+    alias = "int32",
+    alias = "uint32",
+    alias = "int64",
+    alias = "uint64",
+    alias = "bool"
+  )]
+  TypedArrayBuffer(JsBuffer),
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct JsTensor {
   #[serde(rename = "type", with = "JsTensorType")]
   data_type: TensorElementType,
-  data: JsBuffer,
+  data: JsTensorData,
   dims: Vec<i64>,
 }
 
 impl JsTensor {
-  pub fn extract_ort_tensor_ref<'a, T: IntoTensorElementType + Debug>(
-    mut self,
+  pub fn extract_ort_tensor_ref<'a, T: PrimitiveTensorElementType + Debug>(
+    self,
   ) -> anyhow::Result<ValueRefMut<'a, DynValueTypeMarker>> {
+    let JsTensorData::TypedArrayBuffer(mut data) = self.data else {
+      return Err(anyhow!(
+        "'StringArray' is not supported by 'PrimitiveTensorElementType'."
+      ));
+    };
+
     let expected_length = self.dims.iter().product::<i64>() as usize;
-    let current_length = self.data.len() / size_of::<T>();
+    let current_length = data.len() / size_of::<T>();
 
     if current_length != expected_length {
       return Err(anyhow!(
-            "invalid tensor length! got '{current_length}' expect '{expected_length}'"
-        ));
+                "invalid tensor length! got '{current_length}' expect '{expected_length}'"
+            ));
     };
 
     // Same impl. as the Tensor::from_array()
@@ -154,7 +182,7 @@ impl JsTensor {
     let tensor = unsafe {
       TensorRefMut::<T>::from_raw(
         memory_info,
-        self.data.as_mut_ptr() as *mut c_void,
+        data.as_mut_ptr() as *mut c_void,
         self.dims,
       )
     }?;
@@ -171,8 +199,13 @@ impl JsTensor {
         self.extract_ort_tensor_ref::<f64>()?.into()
       }
       TensorElementType::String => {
-        // TODO: Handle string[] tensors from 'v8::Array'
-        return Err(anyhow!("Can't extract tensor from it: 'String' does not implement the 'IntoTensorElementType' trait."));
+        let JsTensorData::StringArray(data) = self.data else {
+          return Err(anyhow!(
+            "'String Tensor' is not supported by JS Buffer."
+          ));
+        };
+
+        Tensor::from_string_array((self.dims, data))?.into()
       }
       TensorElementType::Int8 => self.extract_ort_tensor_ref::<i8>()?.into(),
       TensorElementType::Uint8 => self.extract_ort_tensor_ref::<u8>()?.into(),
@@ -205,15 +238,14 @@ pub struct ToJsTensor {
 
 impl ToJsTensor {
   pub fn from_ort_tensor(mut value: DynValue) -> anyhow::Result<Self> {
-    let ort_type = value.dtype().map_err(AnyError::from)?;
-
-    let ValueType::Tensor { ty, dimensions } = ort_type else {
+    let Some(tensor_type) = value.dtype().tensor_type() else {
       return Err(anyhow!(
-        "JS only support 'ort::Value' of 'Tensor' type, got '{ort_type:?}'."
+        "JS only support 'ort::Value' of 'Tensor' type, got '{value:?}'."
       ));
     };
+    let tensor_shape = value.shape()?;
 
-    let buffer_slice = match ty {
+    let buffer_slice = match tensor_type {
       TensorElementType::Float32 => v8_slice_from!(tensor::<f32>(value)),
       TensorElementType::Float64 => v8_slice_from!(tensor::<f64>(value)),
       TensorElementType::Int8 => v8_slice_from!(tensor::<u8>(value)),
@@ -231,9 +263,9 @@ impl ToJsTensor {
     };
 
     Ok(Self {
-      data_type: ty,
+      data_type: tensor_type,
       data: ToJsBuffer::from(buffer_slice.to_boxed_slice()),
-      dims: dimensions,
+      dims: tensor_shape,
     })
   }
 }
@@ -257,11 +289,11 @@ mod tests {
 
       // Bad Tensor Scenario:
       let tensor_script = r#"({
-        type: 'float32',
-        data: new Float32Array([]),
-        dims: [1, 1],
-        size: 300
-      })"#;
+                type: 'float32',
+                data: { ty: 'float32', c: new Float32Array([]) },
+                dims: [1, 1],
+                size: 300
+            })"#;
 
       let js_tensor = {
         let code = v8::String::new(scope, tensor_script).unwrap();
@@ -280,11 +312,11 @@ mod tests {
 
       // Good Tensor Scenario:
       let tensor_script = r#"({
-        type: 'float32',
-        data: new Float32Array([0.1, 0.2]),
-        dims: [1, 2],
-        size: 2
-      })"#;
+                type: 'float32',
+                data: { ty: 'float32', c: new Float32Array([0.1, 0.2]) },
+                dims: [1, 2],
+                size: 2
+            })"#;
 
       let js_tensor = {
         let code = v8::String::new(scope, tensor_script).unwrap();

@@ -3,7 +3,7 @@ const core = globalThis.Deno.core;
 const DataTypeMap = Object.freeze({
   float32: Float32Array,
   float64: Float64Array,
-  string: Array, // string[]
+  string: Array.from, // string[]
   int8: Int8Array,
   uint8: Uint8Array,
   int16: Int16Array,
@@ -15,11 +15,27 @@ const DataTypeMap = Object.freeze({
   bool: Uint8Array,
 });
 
+class TensorProxy {
+  get(target, property) {
+    switch (property) {
+      case "data":
+        return target.data?.c ?? target.data;
+
+      default:
+        return target[property];
+    }
+  }
+
+  static fromTensor(tensor) {
+    return new Proxy(tensor, new TensorProxy());
+  }
+}
+
 class Tensor {
   /** @type {DataType} Type of the tensor. */
   type;
 
-  /** @type {DataArray} The data stored in the tensor. */
+  /** @type {{ty: DataType, c: DataArray}} The data stored in the tensor. */
   data;
 
   /** @type {number[]} Dimensions of the tensor. */
@@ -33,10 +49,19 @@ class Tensor {
       throw new Error(`Unsupported type: ${type}`);
     }
 
-    const dataArray = new DataTypeMap[type](data);
+    const dataType = DataTypeMap[type];
+
+    // Checking if is constructor or function
+    const dataArray = (dataType.prototype &&
+        Object.getOwnPropertyNames(dataType.prototype).length > 1)
+      ? data instanceof dataType ? data : new dataType(data)
+      : dataType(data);
 
     this.type = type;
-    this.data = dataArray;
+    this.data = {
+      ty: type,
+      c: dataArray,
+    };
     this.dims = dims;
     this.size = dataArray.length;
   }
@@ -62,17 +87,29 @@ class InferenceSession {
   }
 
   async run(inputs) {
+    const sessionInputs = {};
+
+    for (const key in inputs) {
+      if (Object.hasOwn(inputs, key)) {
+        const tensorLike = inputs[key];
+        // NOTE:(kallebysantos) we first apply the proxy because data could be either TypedArray or {ty: DataType, c: TypedArray}
+        const { type, data, dims } = TensorProxy.fromTensor(tensorLike);
+
+        sessionInputs[key] = new Tensor(type, data, dims);
+      }
+    }
+
     const outputs = await core.ops.op_ai_ort_run_session(
       this.sessionId,
-      inputs,
+      sessionInputs,
     );
 
-    // Parse to Tensor
     for (const key in outputs) {
       if (Object.hasOwn(outputs, key)) {
         const { type, data, dims } = outputs[key];
 
-        outputs[key] = new Tensor(type, data.buffer, dims);
+        const tensor = new Tensor(type, data.buffer, dims);
+        outputs[key] = TensorProxy.fromTensor(tensor);
       }
     }
 

@@ -813,7 +813,8 @@ fn enhanced_sloppy_imports_error_message(
         .resolve(specifier, SloppyImportsResolutionKind::Execution)?
         .as_suggestion_message();
       Some(format!(
-        "{} {} or run with --unstable-sloppy-imports",
+        // "{} {} or run with --unstable-sloppy-imports",
+        "{} {}",
         error,
         additional_message,
       ))

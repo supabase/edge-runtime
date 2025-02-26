@@ -3014,6 +3014,26 @@ async fn test_commonjs_express_websocket() {
 
 #[tokio::test]
 #[serial]
+async fn test_byonm_typescript() {
+  ensure_npm_package_installed("./test_cases/byonm-typescript").await;
+  integration_test!(
+    "./test_cases/main",
+    NON_SECURE_PORT,
+    "byonm-typescript",
+    None,
+    None,
+    None,
+    (|resp| async {
+      let resp = resp.unwrap();
+      assert_eq!(resp.status().as_u16(), 200);
+      assert_eq!(resp.text().await.unwrap().as_str(), "meow");
+    }),
+    TerminationToken::new()
+  );
+}
+
+#[tokio::test]
+#[serial]
 async fn test_supabase_ai_gte() {
   let tb = TestBedBuilder::new("./test_cases/main")
     .with_per_worker_policy(None)

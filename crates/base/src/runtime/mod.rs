@@ -35,6 +35,7 @@ use deno::deno_http;
 use deno::deno_http::DefaultHttpPropertyExtractor;
 use deno::deno_io;
 use deno::deno_net;
+use deno::deno_package_json;
 use deno::deno_telemetry;
 use deno::deno_tls;
 use deno::deno_tls::deno_native_certs::load_native_certs;
@@ -528,7 +529,7 @@ where
           }
         }
         if !is_some_entry_point && !found {
-          bail!("could not find an appropriate entrypoint");
+          main_module_url = Some(base_dir_url.clone());
         }
       }
       if is_some_entry_point {
@@ -561,11 +562,24 @@ where
 
       let mut builder = DenoOptionsBuilder::new();
 
-      if let Some(module_url) = main_module_url {
+      if let Some(module_url) = main_module_url.as_ref() {
         builder.set_entrypoint(Some(module_url.to_file_path().unwrap()));
       }
       emitter_factory.set_deno_options(builder.build()?);
 
+      let deno_options = emitter_factory.deno_options()?;
+      if !is_some_entry_point
+        && main_module_url.is_some_and(|it| it == base_dir_url)
+      {
+        if deno_options
+          .workspace()
+          .root_pkg_json()
+          .and_then(|it| it.main(deno_package_json::NodeModuleKind::Cjs))
+          .is_none()
+        {
+          bail!("could not find an appropriate entrypoint");
+        }
+      }
       let mut metadata = Metadata::default();
       let eszip = generate_binary_eszip(
         &mut metadata,

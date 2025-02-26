@@ -570,15 +570,13 @@ where
       let deno_options = emitter_factory.deno_options()?;
       if !is_some_entry_point
         && main_module_url.is_some_and(|it| it == base_dir_url)
-      {
-        if deno_options
+        && deno_options
           .workspace()
           .root_pkg_json()
           .and_then(|it| it.main(deno_package_json::NodeModuleKind::Cjs))
           .is_none()
-        {
-          bail!("could not find an appropriate entrypoint");
-        }
+      {
+        bail!("could not find an appropriate entrypoint");
       }
       let mut metadata = Metadata::default();
       let eszip = generate_binary_eszip(

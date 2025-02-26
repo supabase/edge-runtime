@@ -14,6 +14,7 @@ use deno::deno_fs::FileSystem;
 use deno::deno_fs::RealFs;
 use deno::deno_graph;
 use deno::deno_npm::NpmSystemInfo;
+use deno::deno_package_json;
 use deno::deno_path_util;
 use deno::deno_path_util::normalize_path;
 use deno::npm::InnerCliNpmResolverRef;
@@ -701,13 +702,29 @@ pub async fn generate_binary_eszip(
 ) -> Result<EszipV2, anyhow::Error> {
   let deno_options = emitter_factory.deno_options()?.clone();
   let args = if let Some(path) = deno_options.entrypoint() {
-    CreateGraphArgs::File(if !path.is_absolute() {
-      let initial_cwd =
-        std::env::current_dir().with_context(|| "failed getting cwd")?;
-      normalize_path(initial_cwd.join(path))
+    if path.is_file() {
+      Some(CreateGraphArgs::File(if !path.is_absolute() {
+        let initial_cwd =
+          std::env::current_dir().with_context(|| "failed getting cwd")?;
+        normalize_path(initial_cwd.join(path))
+      } else {
+        path.to_path_buf()
+      }))
+    } else if path.is_dir() {
+      deno_options
+        .use_byonm()
+        .then(|| {
+          let workspace = deno_options.workspace();
+          workspace
+            .root_pkg_json()
+            .and_then(|it| it.main(deno_package_json::NodeModuleKind::Cjs))
+            .map(|it| CreateGraphArgs::File(workspace.root_dir_path().join(it)))
+        })
+        .flatten()
     } else {
-      path.to_path_buf()
-    })
+      None
+    }
+    .context("failed to determine entrypoint")?
   } else {
     let Some(module_code) = maybe_module_code.as_ref() else {
       bail!("entrypoint or module code must be specified");
@@ -1005,7 +1022,7 @@ async fn include_glob_patterns_in_eszip(
             .map_err(|_| anyhow!("failed to convert to file path from url"))?;
           let relative_path = relative_file_base.specifier_key(&path_url);
 
-          if path.exists() {
+          if path.exists() && path.is_file() {
             let specifier = format!("static:{}", relative_path);
 
             eszip.add_opaque_data(

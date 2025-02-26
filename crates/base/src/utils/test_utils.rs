@@ -1,23 +1,24 @@
 #![allow(dead_code)]
 
 use std::marker::PhantomPinned;
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::task::ready;
 use std::task::Poll;
 use std::time::Duration;
 
-use crate::server::ServerFlags;
-use crate::worker::pool::SupervisorPolicy;
-use crate::worker::pool::WorkerPoolPolicy;
-use crate::worker::TerminationToken;
-use crate::worker::{self};
-
 use anyhow::bail;
 use anyhow::Context;
 use anyhow::Error;
 use either::Either::Right;
 use ext_event_worker::events::WorkerEventWithMetadata;
+use ext_workers::context::MainWorkerRuntimeOpts;
+use ext_workers::context::Timing;
+use ext_workers::context::UserWorkerRuntimeOpts;
+use ext_workers::context::WorkerContextInitOpts;
+use ext_workers::context::WorkerRequestMsg;
+use ext_workers::context::WorkerRuntimeOpts;
 use futures_util::future::BoxFuture;
 use futures_util::Future;
 use futures_util::FutureExt;
@@ -25,19 +26,19 @@ use http_v02::Request;
 use http_v02::Response;
 use hyper_v014::Body;
 use pin_project::pin_project;
-
-use ext_workers::context::MainWorkerRuntimeOpts;
-use ext_workers::context::Timing;
-use ext_workers::context::UserWorkerRuntimeOpts;
-use ext_workers::context::WorkerContextInitOpts;
-use ext_workers::context::WorkerRequestMsg;
-use ext_workers::context::WorkerRuntimeOpts;
 use scopeguard::ScopeGuard;
+use tokio::process::Command;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio::sync::Notify;
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
+
+use crate::server::ServerFlags;
+use crate::worker;
+use crate::worker::pool::SupervisorPolicy;
+use crate::worker::pool::WorkerPoolPolicy;
+use crate::worker::TerminationToken;
 
 pub struct CreateTestUserWorkerArgs(
   WorkerContextInitOpts,
@@ -369,6 +370,31 @@ pub fn test_user_runtime_opts() -> UserWorkerRuntimeOpts {
     cpu_time_soft_limit_ms: 4 * 1000 * 3600,
     cpu_time_hard_limit_ms: 4 * 1000 * 3600,
     ..Default::default()
+  }
+}
+
+pub async fn ensure_npm_package_installed<P>(path: P)
+where
+  P: AsRef<Path>,
+{
+  let cwd = std::env::current_dir().unwrap();
+  let path = cwd.join(path);
+
+  assert!(path.is_dir());
+
+  let output = Command::new("npm")
+    .current_dir(path)
+    .arg("i")
+    .output()
+    .await
+    .unwrap();
+
+  if !output.status.success() {
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    panic!(
+      "failed to execute npm command\n\nSTDOUT: ${stdout}\n\nSTDERR: ${stderr}"
+    );
   }
 }
 

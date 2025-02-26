@@ -26,6 +26,7 @@ use base::server::ServerFlags;
 use base::server::ServerHealth;
 use base::server::Tls;
 use base::utils::test_utils::create_test_user_worker;
+use base::utils::test_utils::ensure_npm_package_installed;
 use base::utils::test_utils::test_user_runtime_opts;
 use base::utils::test_utils::test_user_worker_pool_policy;
 use base::utils::test_utils::TestBedBuilder;
@@ -57,8 +58,8 @@ use http::Request;
 use http::Response as HttpResponse;
 use http::StatusCode;
 use http_utils::utils::get_upgrade_type;
+use http_v02 as http;
 use http_v02::HeaderValue;
-use http_v02::{self as http};
 use hyper::body::to_bytes;
 use hyper::Body;
 use hyper_v014 as hyper;
@@ -124,9 +125,30 @@ async fn test_custom_readable_stream_response() {
 
 #[tokio::test]
 #[serial]
+async fn test_import_map_inlined() {
+  integration_test!(
+    "./test_cases/with-import-map",
+    NON_SECURE_PORT,
+    "",
+    None,
+    None,
+    None,
+    (|resp| async {
+      let res = resp.unwrap();
+      assert!(res.status().as_u16() == 200);
+
+      let body_bytes = res.bytes().await.unwrap();
+      assert_eq!(body_bytes, r#"{"message":"ok"}"#);
+    }),
+    TerminationToken::new()
+  );
+}
+
+#[tokio::test]
+#[serial]
 async fn test_import_map_file_path() {
   integration_test!(
-    "./test_cases/with_import_map",
+    "./test_cases/with-import-map-2",
     NON_SECURE_PORT,
     "",
     None,
@@ -911,7 +933,7 @@ async fn test_worker_boot_with_invalid_entrypoint() {
 
   assert!(result.is_err());
   assert!(format!("{:#}", result.unwrap_err())
-    .starts_with("worker boot error: failed to read path"));
+    .starts_with("worker boot error: failed to determine entrypoint"));
 }
 
 #[tokio::test]
@@ -974,9 +996,9 @@ async fn req_failure_case_cpu_time_exhausted() {
   let buf = to_bytes(res.body_mut()).await.unwrap();
 
   assert_eq!(
-        buf,
-        "{\"msg\":\"WorkerRequestCancelled: request has been cancelled by supervisor\"}"
-    );
+    buf,
+    "{\"msg\":\"WorkerRequestCancelled: request has been cancelled by supervisor\"}"
+  );
 
   tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
 }
@@ -1002,9 +1024,9 @@ async fn req_failure_case_cpu_time_exhausted_2() {
   let buf = to_bytes(res.body_mut()).await.unwrap();
 
   assert_eq!(
-        buf,
-        "{\"msg\":\"WorkerRequestCancelled: request has been cancelled by supervisor\"}"
-    );
+    buf,
+    "{\"msg\":\"WorkerRequestCancelled: request has been cancelled by supervisor\"}"
+  );
 
   tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
 }
@@ -1030,10 +1052,10 @@ async fn req_failure_case_wall_clock_reached() {
   let buf = to_bytes(res.body_mut()).await.unwrap();
 
   assert!(
-        buf == "{\"msg\":\"InvalidWorkerResponse: user worker failed to respond\"}"
-            || buf
-                == "{\"msg\":\"WorkerRequestCancelled: request has been cancelled by supervisor\"}"
-    );
+    buf == "{\"msg\":\"InvalidWorkerResponse: user worker failed to respond\"}"
+    || buf
+      == "{\"msg\":\"WorkerRequestCancelled: request has been cancelled by supervisor\"}"
+  );
 
   tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
 }
@@ -1059,9 +1081,9 @@ async fn req_failture_case_memory_limit_1() {
   let buf = to_bytes(res.body_mut()).await.unwrap();
 
   assert_eq!(
-        buf,
-        "{\"msg\":\"WorkerRequestCancelled: request has been cancelled by supervisor\"}"
-    );
+    buf,
+    "{\"msg\":\"WorkerRequestCancelled: request has been cancelled by supervisor\"}"
+  );
 
   tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
 }
@@ -1087,9 +1109,9 @@ async fn req_failture_case_memory_limit_2() {
   let buf = to_bytes(res.body_mut()).await.unwrap();
 
   assert_eq!(
-        buf,
-        "{\"msg\":\"WorkerRequestCancelled: request has been cancelled by supervisor\"}"
-    );
+    buf,
+    "{\"msg\":\"WorkerRequestCancelled: request has been cancelled by supervisor\"}"
+  );
 
   tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
 }
@@ -1119,11 +1141,11 @@ async fn req_failure_case_wall_clock_reached_less_than_100ms() {
   let buf = to_bytes(res.body_mut()).await.unwrap();
 
   assert!(
-        buf == "{\"msg\":\"InvalidWorkerResponse: user worker failed to respond\"}"
-            || buf == "{\"msg\":\"InvalidWorkerCreation: worker did not respond in time\"}"
-            || buf
-                == "{\"msg\":\"WorkerRequestCancelled: request has been cancelled by supervisor\"}"
-    );
+    buf == "{\"msg\":\"InvalidWorkerResponse: user worker failed to respond\"}"
+    || buf == "{\"msg\":\"InvalidWorkerCreation: worker did not respond in time\"}"
+    || buf
+      == "{\"msg\":\"WorkerRequestCancelled: request has been cancelled by supervisor\"}"
+  );
 
   tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
 }
@@ -2344,9 +2366,9 @@ async fn test_should_render_detailed_failed_to_create_graph_error() {
 
         assert_eq!(status, 500);
         assert!(payload.msg.starts_with(
-                    "InvalidWorkerCreation: worker boot error: failed to create the graph: \
-                    Relative import path \"oak\" not prefixed with"
-                ));
+          "InvalidWorkerCreation: worker boot error: failed to create the graph: \
+          Relative import path \"oak\" not prefixed with"
+        ));
       }),
       TerminationToken::new()
     );
@@ -2366,9 +2388,9 @@ async fn test_should_render_detailed_failed_to_create_graph_error() {
 
         assert_eq!(status, 500);
         assert!(payload.msg.starts_with(
-                    "InvalidWorkerCreation: worker boot error: failed to create the graph: \
-                    Module not found \"file://"
-                ));
+          "InvalidWorkerCreation: worker boot error: failed to create the graph: \
+          Module not found \"file://"
+        ));
       }),
       TerminationToken::new()
     );
@@ -2805,11 +2827,189 @@ async fn test_tmp_fs_should_not_be_available_in_import_stmt() {
       dbg!(&payload.msg);
       assert!(payload.msg.starts_with(
         "InvalidWorkerResponse: event loop error while evaluating the module: \
-                TypeError: Module not found: file:///tmp/meowmeow.ts"
+        TypeError: Module not found: file:///tmp/meowmeow.ts"
       ));
     }),
     TerminationToken::new()
   );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_commonjs() {
+  integration_test!(
+    "./test_cases/main",
+    NON_SECURE_PORT,
+    "commonjs",
+    None,
+    None,
+    None,
+    (|resp| async {
+      let resp = resp.unwrap();
+      assert_eq!(resp.status().as_u16(), 200);
+      assert_eq!(resp.text().await.unwrap().as_str(), "meow");
+    }),
+    TerminationToken::new()
+  );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_commonjs_no_type_field_in_package_json() {
+  integration_test!(
+    "./test_cases/main",
+    NON_SECURE_PORT,
+    "commonjs-no-type-field",
+    None,
+    None,
+    None,
+    (|resp| async {
+      let resp = resp.unwrap();
+      assert_eq!(resp.status().as_u16(), 500);
+    }),
+    TerminationToken::new()
+  );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_commonjs_custom_main() {
+  integration_test!(
+    "./test_cases/main",
+    NON_SECURE_PORT,
+    "commonjs-custom-main",
+    None,
+    None,
+    None,
+    (|resp| async {
+      let resp = resp.unwrap();
+      assert_eq!(resp.status().as_u16(), 200);
+      assert_eq!(resp.text().await.unwrap().as_str(), "meow");
+    }),
+    TerminationToken::new()
+  );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_commonjs_express() {
+  ensure_npm_package_installed("./test_cases/commonjs-express").await;
+  integration_test!(
+    "./test_cases/main",
+    NON_SECURE_PORT,
+    "commonjs-express",
+    None,
+    None,
+    None,
+    (|resp| async {
+      let resp = resp.unwrap();
+      assert_eq!(resp.status().as_u16(), 200);
+      assert_eq!(resp.text().await.unwrap().as_str(), "meow");
+    }),
+    TerminationToken::new()
+  );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_commonjs_hono() {
+  ensure_npm_package_installed("./test_cases/commonjs-hono").await;
+  integration_test!(
+    "./test_cases/main",
+    NON_SECURE_PORT,
+    "commonjs-hono",
+    None,
+    None,
+    None,
+    (|resp| async {
+      let resp = resp.unwrap();
+      assert_eq!(resp.status().as_u16(), 200);
+      assert_eq!(resp.text().await.unwrap().as_str(), "meow");
+    }),
+    TerminationToken::new()
+  );
+}
+
+async fn test_commonjs_websocket(prefix: String) {
+  ensure_npm_package_installed(format!(
+    "./test_cases/commonjs-{}-websocket",
+    &prefix
+  ))
+  .await;
+  let nonce = tungstenite::handshake::client::generate_key();
+  let client = Client::new();
+  let req = client
+    .request(
+      Method::GET,
+      format!(
+        "http://localhost:{}/commonjs-{}-websocket",
+        NON_SECURE_PORT, prefix
+      ),
+    )
+    .header(header::CONNECTION, "upgrade")
+    .header(header::UPGRADE, "websocket")
+    .header(header::SEC_WEBSOCKET_KEY, &nonce)
+    .header(header::SEC_WEBSOCKET_VERSION, "13")
+    .build()
+    .unwrap();
+
+  let original = RequestBuilder::from_parts(client, req);
+  let request_builder = Some(original);
+
+  integration_test!(
+    "./test_cases/main",
+    NON_SECURE_PORT,
+    "",
+    None,
+    request_builder,
+    None,
+    (|resp| async {
+      let res = resp.unwrap();
+      let accepted = get_upgrade_type(res.headers());
+
+      assert!(res.status().as_u16() == 101);
+      assert!(accepted.is_some());
+      assert_eq!(accepted.as_ref().unwrap(), "websocket");
+
+      let upgraded = res.upgrade().await.unwrap();
+      let mut ws = WebSocketStream::from_raw_socket(
+        upgraded.compat(),
+        tungstenite::protocol::Role::Client,
+        None,
+      )
+      .await;
+
+      assert_eq!(
+        ws.next().await.unwrap().unwrap().into_text().unwrap(),
+        "meow"
+      );
+
+      ws.send(Message::Text("meow!!".into())).await.unwrap();
+      assert_eq!(
+        ws.next().await.unwrap().unwrap().into_text().unwrap(),
+        "meow!!"
+      );
+    }),
+    TerminationToken::new()
+  );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_commonjs_ws_websocket() {
+  test_commonjs_websocket(String::from("ws")).await;
+}
+
+#[tokio::test]
+#[serial]
+async fn test_commonjs_hono_websocket() {
+  test_commonjs_websocket(String::from("hono")).await;
+}
+
+#[tokio::test]
+#[serial]
+async fn test_commonjs_express_websocket() {
+  test_commonjs_websocket(String::from("express")).await;
 }
 
 #[tokio::test]

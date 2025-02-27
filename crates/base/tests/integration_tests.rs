@@ -2351,6 +2351,24 @@ async fn test_issue_456() {
 
 #[tokio::test]
 #[serial]
+async fn test_supabase_issue_29583() {
+  integration_test!(
+    "./test_cases/main",
+    NON_SECURE_PORT,
+    "supabase-issue-29583",
+    None,
+    None,
+    None,
+    (|resp| async {
+      let resp = resp.unwrap();
+      assert_eq!(resp.status().as_u16(), StatusCode::OK);
+    }),
+    TerminationToken::new()
+  );
+}
+
+#[tokio::test]
+#[serial]
 async fn test_should_render_detailed_failed_to_create_graph_error() {
   {
     integration_test!(

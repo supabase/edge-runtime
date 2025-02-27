@@ -3014,6 +3014,32 @@ async fn test_commonjs_express_websocket() {
 
 #[tokio::test]
 #[serial]
+async fn test_commonjs_workspace() {
+  ensure_npm_package_installed("./test_cases/commonjs-workspace").await;
+  integration_test!(
+    "./test_cases/main",
+    NON_SECURE_PORT,
+    "commonjs-workspace",
+    None,
+    None,
+    None,
+    (|resp| async {
+      let resp = resp.unwrap();
+      assert_eq!(resp.status().as_u16(), 200);
+
+      let body = resp.json::<serde_json::Value>().await.unwrap();
+      let body = body.as_object().unwrap();
+
+      assert_eq!(body.len(), 2);
+      assert_eq!(body.get("cat"), Some(&json!("meow")));
+      assert_eq!(body.get("dog"), Some(&json!("bark")));
+    }),
+    TerminationToken::new()
+  );
+}
+
+#[tokio::test]
+#[serial]
 async fn test_byonm_typescript() {
   ensure_npm_package_installed("./test_cases/byonm-typescript").await;
   integration_test!(
@@ -3027,6 +3053,32 @@ async fn test_byonm_typescript() {
       let resp = resp.unwrap();
       assert_eq!(resp.status().as_u16(), 200);
       assert_eq!(resp.text().await.unwrap().as_str(), "meow");
+    }),
+    TerminationToken::new()
+  );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_deno_workspace() {
+  integration_test!(
+    "./test_cases/main",
+    NON_SECURE_PORT,
+    "workspace",
+    None,
+    None,
+    None,
+    (|resp| async {
+      let resp = resp.unwrap();
+      assert_eq!(resp.status().as_u16(), 200);
+
+      let body = resp.json::<serde_json::Value>().await.unwrap();
+      let body = body.as_object().unwrap();
+
+      assert_eq!(body.len(), 3);
+      assert_eq!(body.get("cat"), Some(&json!("meow")));
+      assert_eq!(body.get("dog"), Some(&json!("bark")));
+      assert_eq!(body.get("sheep"), Some(&json!("howl")));
     }),
     TerminationToken::new()
   );

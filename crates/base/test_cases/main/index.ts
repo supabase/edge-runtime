@@ -19,7 +19,11 @@ Deno.serve((req: Request) => {
   const url = new URL(req.url);
   const { pathname } = url;
   const path_parts = pathname.split("/");
-  const service_name = path_parts[1];
+  let service_name = path_parts[1];
+
+  if (req.headers.has("x-service-path")) {
+    service_name = req.headers.get("x-service-path")!;
+  }
 
   if (!service_name || service_name === "") {
     const error = { msg: "missing function name in request" };

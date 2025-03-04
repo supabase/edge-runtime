@@ -724,17 +724,13 @@ pub struct Builder {
   tls: Option<Tls>,
   main_service_path: String,
   event_worker_path: Option<String>,
-  // decorator: Option<DecoratorType>,
   user_worker_policy: Option<WorkerPoolPolicy>,
-  // import_map_path: Option<String>,
   flags: ServerFlags,
   callback_tx: Option<Sender<ServerHealth>>,
   entrypoints: WorkerEntrypoints,
   termination_token: Option<TerminationToken>,
   static_patterns: Vec<String>,
   inspector: Option<Inspector>,
-  // jsx_specifier: Option<String>,
-  // jsx_module: Option<String>,
 }
 
 impl Builder {
@@ -768,20 +764,10 @@ impl Builder {
     self
   }
 
-  // pub fn decorator(&mut self, val: DecoratorType) -> &mut Self {
-  //     self.decorator = Some(val);
-  //     self
-  // }
-
   pub fn user_worker_policy(&mut self, val: WorkerPoolPolicy) -> &mut Self {
     self.user_worker_policy = Some(val);
     self
   }
-
-  // pub fn import_map_path(&mut self, val: &str) -> &mut Self {
-  //     self.import_map_path = Some(val.to_owned());
-  //     self
-  // }
 
   pub fn event_callback(
     &mut self,
@@ -817,16 +803,6 @@ impl Builder {
     self.inspector = Some(Inspector::from_option(val));
     self
   }
-
-  // pub fn jsx_specifier(&mut self, val: &str) -> &mut Self {
-  //     self.jsx_specifier = Some(val.to_owned());
-  //     self
-  // }
-
-  // pub fn jsx_module(&mut self, val: &str) -> &mut Self {
-  //     self.jsx_module = Some(val.to_owned());
-  //     self
-  // }
 
   pub fn flags_mut(&mut self) -> &mut ServerFlags {
     &mut self.flags

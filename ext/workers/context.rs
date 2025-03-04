@@ -232,13 +232,10 @@ pub struct WorkerContextInitOpts {
   pub env_vars: HashMap<String, String>,
   pub conf: WorkerRuntimeOpts,
   pub static_patterns: Vec<String>,
-  // pub import_map_path: Option<String>,
   pub timing: Option<Timing>,
   pub maybe_eszip: Option<EszipPayloadKind>,
   pub maybe_module_code: Option<FastString>,
   pub maybe_entrypoint: Option<String>,
-  // pub maybe_decorator: Option<DecoratorType>,
-  // pub maybe_jsx_import_source_config: Option<JsxImportSourceConfig>,
   pub maybe_s3_fs_config: Option<S3FsConfig>,
   pub maybe_tmp_fs_config: Option<TmpFsConfig>,
 }

@@ -581,10 +581,7 @@ impl MainWorkerSurfaceBuilder {
       mut inner,
       main_worker_path,
       no_module_cache,
-      // import_map_path,
       entrypoint,
-      // decorator,
-      // jsx,
       worker_pool_tx,
       shared_metric_src,
       event_worker_metric_src,
@@ -611,7 +608,6 @@ impl MainWorkerSurfaceBuilder {
       timing: None,
       maybe_eszip,
       maybe_entrypoint: entrypoint,
-      // maybe_decorator: decorator,
       maybe_module_code: None,
       conf: WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
         worker_pool_tx: worker_pool_tx
@@ -696,9 +692,7 @@ impl EventWorkerSurfaceBuilder {
 
       event_worker_path: event_worker_path.as_ref().to_path_buf(),
       no_module_cache: None,
-      // import_map_path: None,
       entrypoint: None,
-      // decorator: None,
     }
   }
 
@@ -707,49 +701,27 @@ impl EventWorkerSurfaceBuilder {
     self
   }
 
-  // pub fn import_map_path(mut self, value: &str) -> Self {
-  //   self.import_map_path = Some(value.to_string());
-  //   self
-  // }
-
   pub fn entrypoint(mut self, value: &str) -> Self {
     self.entrypoint = Some(value.to_string());
     self
   }
-
-  // pub fn decorator(mut self, value: DecoratorType) -> Self {
-  //   self.decorator = Some(value);
-  //   self
-  // }
 
   pub fn set_no_module_cache(&mut self, value: Option<bool>) -> &mut Self {
     self.no_module_cache = value;
     self
   }
 
-  // pub fn set_import_map_path(&mut self, value: Option<&str>) -> &mut Self {
-  //   self.import_map_path = value.map(str::to_string);
-  //   self
-  // }
-
   pub fn set_entrypoint(&mut self, value: Option<&str>) -> &mut Self {
     self.entrypoint = value.map(str::to_string);
     self
   }
-
-  // pub fn set_decorator(&mut self, value: Option<DecoratorType>) -> &mut Self {
-  //   self.decorator = value;
-  //   self
-  // }
 
   pub async fn build(self) -> Result<EventWorkerSurface, anyhow::Error> {
     let Self {
       mut inner,
       event_worker_path,
       no_module_cache,
-      // import_map_path,
       entrypoint,
-      // decorator,
     } = self;
 
     let (event_msg_tx, event_msg_rx) =

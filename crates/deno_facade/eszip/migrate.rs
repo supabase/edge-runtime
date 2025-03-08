@@ -396,7 +396,7 @@ mod v2 {
       None,
     );
 
-    v2_eszip
+    v1_1_eszip
       .ensure_read_all()
       .await
       .with_context(|| "failed to load v1.1 eszip data")?;

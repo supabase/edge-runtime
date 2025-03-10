@@ -632,14 +632,10 @@ where
       base_url,
     } = rt_provider;
 
-    let entrypoint = metadata
-      .entrypoint
-      .as_ref()
-      .with_context(|| "could not find entrypoint from metadata")?;
-
+    let entrypoint = metadata.entrypoint.as_ref();
     let main_module_url = match entrypoint {
-      Entrypoint::Key(key) => base_url.join(key)?,
-      Entrypoint::ModuleCode(_) => Url::parse(
+      Some(Entrypoint::Key(key)) => base_url.join(key)?,
+      Some(Entrypoint::ModuleCode(_)) | None => Url::parse(
         maybe_entrypoint
           .as_ref()
           .with_context(|| "could not find entrypoint key")?,
@@ -668,16 +664,25 @@ where
     let (fs, maybe_s3_fs) = build_file_system_fn(if is_user_worker {
       Arc::new(StaticFs::new(
         static_files,
-        main_module_url
-          .to_file_path()
-          .map_err(|_| {
-            anyhow!("failed to resolve base dir using main module url")
-          })
-          .and_then(|it| {
-            it.parent()
-              .map(Path::to_path_buf)
-              .with_context(|| "failed to determine parent directory")
-          })?,
+        if matches!(entrypoint, Some(Entrypoint::ModuleCode(_)) | None)
+          && maybe_entrypoint.is_some()
+        {
+          // it is eszip from before v2
+          base_url
+            .to_file_path()
+            .map_err(|_| anyhow!("failed to resolve base url"))?
+        } else {
+          main_module_url
+            .to_file_path()
+            .map_err(|_| {
+              anyhow!("failed to resolve base dir using main module url")
+            })
+            .and_then(|it| {
+              it.parent()
+                .map(Path::to_path_buf)
+                .with_context(|| "failed to determine parent directory")
+            })?
+        },
         vfs_path,
         vfs,
         npm_snapshot,
@@ -993,10 +998,10 @@ where
 
     let main_module_id = {
       match entrypoint {
-        Entrypoint::Key(_) => {
+        Some(Entrypoint::Key(_)) | None => {
           js_runtime.load_main_es_module(&main_module_url).await?
         }
-        Entrypoint::ModuleCode(module_code) => {
+        Some(Entrypoint::ModuleCode(module_code)) => {
           js_runtime
             .load_main_es_module_from_code(
               &main_module_url,

@@ -804,6 +804,7 @@ dependencies = [
  "either",
  "enum-as-inner",
  "eszip",
+ "eszip_async_trait",
  "fastwebsockets",
  "flume",
  "fs",

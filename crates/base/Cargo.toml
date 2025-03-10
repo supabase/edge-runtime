@@ -92,6 +92,8 @@ arc-swap = "1.7"
 winapi = { workspace = true, features = ["knownfolders", "mswsock", "objbase", "shlobj", "tlhelp32", "winbase", "winerror", "winsock2"] }
 
 [dev-dependencies]
+eszip_async_trait.workspace = true
+
 tokio-util = { workspace = true, features = ["rt", "compat"] }
 tracing-subscriber = { workspace = true, features = ["env-filter", "tracing-log"] }
 serial_test.workspace = true

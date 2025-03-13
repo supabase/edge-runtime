@@ -69,6 +69,7 @@ use eszip::deno_graph;
 use eszip::EszipRelativeFileBaseUrl;
 use eszip::ModuleKind;
 use eszip_trait::AsyncEszipDataRead;
+use ext_node::create_host_defined_options;
 use ext_node::DenoFsNodeResolverEnv;
 use ext_node::NodeExtInitServices;
 use ext_node::NodeRequireLoader;
@@ -299,6 +300,19 @@ impl ModuleLoader for EmbeddedModuleLoader {
         Err(err.into())
       }
       Err(err) => Err(err.into()),
+    }
+  }
+
+  fn get_host_defined_options<'s>(
+    &self,
+    scope: &mut deno_core::v8::HandleScope<'s>,
+    name: &str,
+  ) -> Option<deno_core::v8::Local<'s, deno_core::v8::Data>> {
+    let name = deno_core::ModuleSpecifier::parse(name).ok()?;
+    if self.shared.node_resolver.in_npm_package(&name) {
+      Some(create_host_defined_options(scope))
+    } else {
+      None
     }
   }
 

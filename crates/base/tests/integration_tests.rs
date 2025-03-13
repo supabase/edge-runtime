@@ -2351,6 +2351,23 @@ async fn test_issue_456() {
 
 #[tokio::test]
 #[serial]
+async fn test_issue_513() {
+  let tb = TestBedBuilder::new("./test_cases/main").build().await;
+  let resp = tb
+    .request(|b| {
+      b.uri("/issue-513")
+        .body(Body::empty())
+        .context("can't make request")
+    })
+    .await
+    .unwrap();
+
+  assert_eq!(resp.status().as_u16(), StatusCode::OK);
+  tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
+}
+
+#[tokio::test]
+#[serial]
 async fn test_supabase_issue_29583() {
   integration_test!(
     "./test_cases/main",

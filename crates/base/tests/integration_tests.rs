@@ -35,6 +35,7 @@ use base::worker;
 use base::worker::TerminationToken;
 use base::WorkerKind;
 use deno::DenoOptionsBuilder;
+use deno_core::error::AnyError;
 use deno_core::serde_json::json;
 use deno_core::serde_json::{self};
 use deno_facade::generate_binary_eszip;
@@ -79,14 +80,17 @@ use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWrite;
 use tokio::io::AsyncWriteExt;
 use tokio::join;
+use tokio::net::TcpListener;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio::time::sleep;
 use tokio::time::timeout;
+use tokio_rustls::rustls;
 use tokio_rustls::rustls::pki_types::ServerName;
 use tokio_rustls::rustls::ClientConfig;
 use tokio_rustls::rustls::RootCertStore;
+use tokio_rustls::TlsAcceptor;
 use tokio_rustls::TlsConnector;
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use tokio_util::sync::CancellationToken;
@@ -2311,6 +2315,109 @@ async fn test_declarative_style_fetch_handler() {
 
 #[tokio::test]
 #[serial]
+async fn test_issue_208() {
+  async fn create_simple_server(
+    tls: Option<Tls>,
+    token: CancellationToken,
+  ) -> Result<(), AnyError> {
+    let config = Arc::new(tls.server_config());
+    let acceptor = TlsAcceptor::from(config);
+    let listener =
+      TcpListener::bind(format!("127.0.0.1:{}", tls.port())).await?;
+    loop {
+      let acceptor = acceptor.clone();
+      tokio::select! {
+        Ok((stream, _)) = listener.accept() => {
+          tokio::spawn(async move {
+            if let Ok(tls_stream) = acceptor.accept(stream).await {
+              let _ = hyper::server::conn::Http::new().serve_connection(
+                tls_stream,
+                hyper::service::service_fn(|_req: _| async {
+                  Ok::<_, hyper::Error>(hyper::Response::new(Body::from("meow")))
+                })
+              )
+              .await
+              .ok();
+            }
+          });
+        }
+        _ = token.cancelled() => {
+          break;
+        }
+      }
+    }
+    Ok(())
+  }
+
+  let tls = new_localhost_tls(true);
+  let port = tls.port();
+  let token = CancellationToken::new();
+  let server = tokio::spawn({
+    let token = token.clone();
+    async move {
+      create_simple_server(tls, token).await.unwrap();
+    }
+  });
+
+  {
+    let client = Client::new();
+    let builder = client
+      .request(
+        Method::POST,
+        format!("http://localhost:{}/issue-208", NON_SECURE_PORT),
+      )
+      .header("x-port", port)
+      .body(TLS_LOCALHOST_ROOT_CA);
+
+    integration_test!(
+      "./test_cases/main",
+      NON_SECURE_PORT,
+      "",
+      None,
+      Some(builder),
+      None,
+      (|resp| async {
+        let resp = resp.unwrap();
+        assert!(resp.status().as_u16() == 200);
+        assert_eq!(resp.text().await.unwrap(), "meow");
+      }),
+      TerminationToken::new()
+    );
+  }
+
+  // unknown issuer
+  {
+    let client = Client::new();
+    let builder = client
+      .request(
+        Method::GET,
+        format!("http://localhost:{}/issue-208", NON_SECURE_PORT),
+      )
+      .header("x-port", port);
+
+    integration_test!(
+      "./test_cases/main",
+      NON_SECURE_PORT,
+      "",
+      None,
+      Some(builder),
+      None,
+      (|resp| async {
+        let resp = resp.unwrap();
+        assert!(resp.status().as_u16() == 500);
+        let reason = resp.text().await.unwrap();
+        assert!(reason.contains("invalid peer certificate: UnknownIssuer"));
+      }),
+      TerminationToken::new()
+    );
+  }
+
+  token.cancel();
+  server.await.unwrap();
+}
+
+#[tokio::test]
+#[serial]
 async fn test_issue_420() {
   integration_test!(
     "./test_cases/main",
@@ -3713,6 +3820,7 @@ trait TlsExt {
   fn sock_addr(&self) -> SocketAddr;
   fn port(&self) -> u16;
   fn stream(&self) -> BoxFuture<'static, Box<dyn AsyncReadWrite>>;
+  fn server_config(&self) -> rustls::ServerConfig;
 }
 
 impl TlsExt for Option<Tls> {
@@ -3791,6 +3899,27 @@ impl TlsExt for Option<Tls> {
       }
     }
     .boxed()
+  }
+
+  fn server_config(&self) -> rustls::ServerConfig {
+    assert!(self.is_some());
+    let certs =
+      rustls_pemfile::certs(&mut std::io::BufReader::new(TLS_LOCALHOST_CERT))
+        .into_iter()
+        .flatten()
+        .collect();
+    let key = rustls_pemfile::private_key(&mut std::io::BufReader::new(
+      TLS_LOCALHOST_KEY,
+    ))
+    .into_iter()
+    .flatten()
+    .next()
+    .unwrap();
+
+    rustls::ServerConfig::builder()
+      .with_no_client_auth()
+      .with_single_cert(certs, key)
+      .unwrap()
   }
 }
 

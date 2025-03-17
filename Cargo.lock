@@ -869,6 +869,7 @@ dependencies = [
  "either",
  "enum-as-inner",
  "eszip",
+ "eszip_trait",
  "ext_ai",
  "ext_env",
  "ext_event_worker",

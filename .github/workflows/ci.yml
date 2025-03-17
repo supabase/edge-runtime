@@ -14,7 +14,7 @@ env:
   RUSTUP_MAX_RETRIES: 10
   ORT_DYLIB_PATH: /tmp/onnxruntime/lib/libonnxruntime.so
   RUST_LOG: sb_event_worker=trace
-  ESZIP_TESTDATA_BUCKET: edge-functions-blobs-staging-ap-southeast-1
+  ESZIP_TESTDATA_BUCKET: edge-runtime-test-eszip-migration
 
 jobs:
   cargo-fmt:

@@ -15,6 +15,7 @@ env:
   RUSTUP_MAX_RETRIES: 10
   ORT_DYLIB_PATH: /tmp/onnxruntime/lib/libonnxruntime.so
   RUST_LOG: ext_event_worker=trace
+  ESZIP_TESTDATA_BUCKET: edge-runtime-test-eszip-migration
 
 jobs:
   cargo-fmt:
@@ -75,7 +76,28 @@ jobs:
       - name: Install ONNX Runtime Library
         run: ./scripts/install_onnx.sh ${{ env.ONNXRUNTIME_VERSION }} linux x64 /tmp/onnxruntime
 
-      - name: Install S3 credentials for testing
+      - name: Configure AWS Credentials
+        if: |
+          github.actor != 'dependabot[bot]' &&
+          (
+            github.event_name != 'pull_request'
+            || github.event.pull_request.head.repo.full_name == github.repository
+          )
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ap-southeast-1
+          role-to-assume: edge-runtime-ci
+
+      - name: Get test eszip binaries
+        if: |
+          github.actor != 'dependabot[bot]' &&
+          (
+            github.event_name != 'pull_request'
+            || github.event.pull_request.head.repo.full_name == github.repository
+          )
+        run: scripts/get_eszip_testdata.sh ${{ env.ESZIP_TESTDATA_BUCKET }} crates/base/tests/fixture/testdata
+
+      - name: Install Supabase Storage S3 credentials for testing
         if: |
           github.actor != 'dependabot[bot]' &&
           (

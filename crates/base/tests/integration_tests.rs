@@ -3905,7 +3905,6 @@ impl TlsExt for Option<Tls> {
     assert!(self.is_some());
     let certs =
       rustls_pemfile::certs(&mut std::io::BufReader::new(TLS_LOCALHOST_CERT))
-        .into_iter()
         .flatten()
         .collect();
     let key = rustls_pemfile::private_key(&mut std::io::BufReader::new(

@@ -1,8 +1,8 @@
-import { assertEquals } from 'jsr:@std/assert';
+import { assertEquals } from "jsr:@std/assert";
 
 export default {
   async fetch(req: Request) {
-    const port = parseInt(req.headers.get('x-port') ?? '');
+    const port = parseInt(req.headers.get("x-port") ?? "");
     if (isNaN(port)) {
       return new Response(null, {
         status: 500,
@@ -11,7 +11,7 @@ export default {
 
     const caCerts = [];
 
-    if (req.method === 'POST') {
+    if (req.method === "POST") {
       const arr = await req.arrayBuffer();
       const dec = new TextDecoder();
       const ca = dec.decode(arr);

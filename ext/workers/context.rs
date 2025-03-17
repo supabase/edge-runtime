@@ -148,12 +148,14 @@ pub struct MainWorkerRuntimeOpts {
   pub worker_pool_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
   pub shared_metric_src: Option<SharedMetricSource>,
   pub event_worker_metric_src: Option<MetricSource>,
+  pub context: Option<crate::JsonMap>,
 }
 
 #[derive(Debug)]
 pub struct EventWorkerRuntimeOpts {
   pub events_msg_rx: Option<mpsc::UnboundedReceiver<WorkerEventWithMetadata>>,
   pub event_worker_exit_deadline_sec: Option<u64>,
+  pub context: Option<crate::JsonMap>,
 }
 
 #[derive(Debug, EnumAsInner)]
@@ -169,6 +171,20 @@ impl WorkerRuntimeOpts {
       Self::UserWorker(_) => WorkerKind::UserWorker,
       Self::MainWorker(_) => WorkerKind::MainWorker,
       Self::EventsWorker(_) => WorkerKind::EventsWorker,
+    }
+  }
+
+  pub fn context(&self) -> Option<&crate::JsonMap> {
+    match self {
+      Self::UserWorker(user_worker_runtime_opts) => {
+        user_worker_runtime_opts.context.as_ref()
+      }
+      Self::MainWorker(main_worker_runtime_opts) => {
+        main_worker_runtime_opts.context.as_ref()
+      }
+      Self::EventsWorker(event_worker_runtime_opts) => {
+        event_worker_runtime_opts.context.as_ref()
+      }
     }
   }
 }

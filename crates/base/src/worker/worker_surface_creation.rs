@@ -614,6 +614,7 @@ impl MainWorkerSurfaceBuilder {
           .context("worker_pool_sender must be specified")?,
         shared_metric_src,
         event_worker_metric_src,
+        context: None,
       }),
       env_vars: std::env::vars().collect(),
       static_patterns: vec![],
@@ -745,16 +746,15 @@ impl EventWorkerSurfaceBuilder {
       service_path,
       no_module_cache: no_module_cache.unwrap_or(flags.no_module_cache),
 
-      // import_map_path,
       env_vars: std::env::vars().collect(),
       timing: None,
       maybe_eszip,
       maybe_entrypoint: entrypoint,
-      // maybe_decorator: decorator,
       maybe_module_code: None,
       conf: WorkerRuntimeOpts::EventsWorker(EventWorkerRuntimeOpts {
         events_msg_rx: Some(event_msg_rx),
         event_worker_exit_deadline_sec: Some(event_worker_exit_deadline_sec),
+        context: None,
       }),
       static_patterns: vec![],
 

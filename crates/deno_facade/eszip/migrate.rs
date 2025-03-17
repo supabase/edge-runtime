@@ -1,13 +1,21 @@
+use std::borrow::Cow;
+
+use anyhow::anyhow;
+use deno_core::error::AnyError;
 use eszip_trait::SUPABASE_ESZIP_VERSION;
-use log::error;
 use log::warn;
 
 use crate::errors::EszipError;
 use crate::eszip::LazyLoadableEszip;
 
+pub struct MigrateOptions {
+  pub maybe_import_map_path: Option<String>,
+}
+
 pub async fn try_migrate_if_needed(
   mut eszip: LazyLoadableEszip,
-) -> Result<LazyLoadableEszip, LazyLoadableEszip> {
+  options: Option<MigrateOptions>,
+) -> Result<LazyLoadableEszip, AnyError> {
   if let Err(err) = eszip.ensure_version().await {
     match err.downcast_ref::<EszipError>() {
       Some(err) => {
@@ -25,38 +33,37 @@ pub async fn try_migrate_if_needed(
           };
         }
 
+        let options = options.as_ref();
         let result = match err {
           EszipError::UnsupportedVersion { expected, found } => {
             debug_assert_eq!(*expected, SUPABASE_ESZIP_VERSION);
             match found.as_deref() {
               None => 'scope: {
-                cont!(v1, 'scope, v1::try_migrate_v0_v1(&mut eszip).await);
-                cont!(v1_1, 'scope, v1_1::try_migrate_v1_v1_1(&mut v1).await);
-                v2::try_migrate_v1_1_v2(&mut v1_1).await
+                cont!(v1, 'scope, v1::try_migrate_v0_v1(&mut eszip, options).await);
+                cont!(v1_1, 'scope, v1_1::try_migrate_v1_v1_1(&mut v1, options).await);
+                v2::try_migrate_v1_1_v2(&mut v1_1, options).await
               }
               Some(b"1") => 'scope: {
-                cont!(v1_1, 'scope, v1_1::try_migrate_v1_v1_1(&mut eszip).await);
-                v2::try_migrate_v1_1_v2(&mut v1_1).await
+                cont!(v1_1, 'scope, v1_1::try_migrate_v1_v1_1(&mut eszip, options).await);
+                v2::try_migrate_v1_1_v2(&mut v1_1, options).await
               }
-              Some(b"1.1") => v2::try_migrate_v1_1_v2(&mut eszip).await,
-              _ => unreachable!(),
+              Some(b"1.1") => {
+                v2::try_migrate_v1_1_v2(&mut eszip, options).await
+              }
+              found => Err(anyhow!(
+                "migration is not supported for this version: {}",
+                found
+                  .map(String::from_utf8_lossy)
+                  .unwrap_or(Cow::Borrowed("unknown"))
+              )),
             }
           }
         };
 
-        match result {
-          Ok(migrated) => Ok(migrated),
-          Err(err) => {
-            error!("{:?}", err);
-            Err(eszip)
-          }
-        }
+        result
       }
 
-      None => {
-        error!("failed to migrate (found unexpected error)");
-        Err(eszip)
-      }
+      None => Err(anyhow!("failed to migrate (found unexpected error)")),
     }
   } else {
     Ok(eszip)
@@ -114,6 +121,8 @@ mod v1 {
   use crate::migrate::v0;
   use crate::LazyLoadableEszip;
 
+  use super::MigrateOptions;
+
   #[derive(Archive, Serialize, Deserialize, Debug)]
   #[archive(
     check_bytes,
@@ -157,6 +166,7 @@ mod v1 {
 
   pub async fn try_migrate_v0_v1(
     v0_eszip: &mut LazyLoadableEszip,
+    _options: Option<&MigrateOptions>,
   ) -> Result<LazyLoadableEszip, anyhow::Error> {
     use eszip_trait::v1::VFS_ESZIP_KEY;
 
@@ -291,11 +301,14 @@ mod v1_1 {
   use eszip_trait::SUPABASE_ESZIP_VERSION_KEY;
   use futures::future::OptionFuture;
 
-  use super::v1;
   use crate::eszip::LazyLoadableEszip;
+
+  use super::v1;
+  use super::MigrateOptions;
 
   pub async fn try_migrate_v1_v1_1(
     v1_eszip: &mut LazyLoadableEszip,
+    _options: Option<&MigrateOptions>,
   ) -> Result<LazyLoadableEszip, anyhow::Error> {
     use eszip_trait::v1::VFS_ESZIP_KEY;
 
@@ -370,6 +383,10 @@ mod v2 {
 
   use anyhow::anyhow;
   use anyhow::Context;
+  use deno::standalone::binary::SerializedWorkspaceResolver;
+  use deno::standalone::binary::SerializedWorkspaceResolverImportMap;
+  use deno_core::serde_json;
+  use deno_core::ModuleSpecifier;
   use eszip::v2::Checksum;
   use eszip::EszipV2;
   use eszip_trait::v1;
@@ -382,8 +399,11 @@ mod v2 {
   use crate::metadata::Metadata;
   use crate::LazyLoadableEszip;
 
+  use super::MigrateOptions;
+
   pub async fn try_migrate_v1_1_v2(
     v1_1_eszip: &mut LazyLoadableEszip,
+    options: Option<&MigrateOptions>,
   ) -> Result<LazyLoadableEszip, anyhow::Error> {
     // In v2, almost everything is managed in the Metadata struct. This reduces
     // the effort required to serialize/deserialize.
@@ -441,9 +461,39 @@ mod v2 {
       })
       .transpose()?;
 
+    let serialized_workspace_resolver_raw = if let Some(import_map_path) =
+      options.and_then(|it| it.maybe_import_map_path.as_ref())
+    {
+      let mut result = None;
+      let import_map_url = ModuleSpecifier::parse(import_map_path.as_str())?;
+      if let Some(import_map_module) =
+        v1_1_eszip.ensure_import_map(import_map_url.as_str())
+      {
+        if let Some(source) = import_map_module.source().await {
+          let source = String::from_utf8_lossy(&source);
+          let import_map =
+            import_map::parse_from_json(import_map_url.clone(), &source)?;
+          let resolver = SerializedWorkspaceResolver {
+            import_map: Some(SerializedWorkspaceResolverImportMap {
+              specifier: import_map_url.to_string(),
+              json: import_map.import_map.to_json(),
+            }),
+            ..Default::default()
+          };
+          result = Some(
+            serde_json::to_vec(&resolver)
+              .with_context(|| "failed to serialize workspace resolver")?,
+          );
+        }
+      }
+      result
+    } else {
+      None
+    };
+
     let metadata = Metadata {
       entrypoint,
-      serialized_workspace_resolver_raw: None,
+      serialized_workspace_resolver_raw,
       npmrc_scopes,
       static_asset_specifiers,
       virtual_dir,
@@ -567,7 +617,7 @@ mod test {
     let eszip = payload_to_eszip(EszipPayloadKind::VecKind(buf))
       .await
       .unwrap();
-    let migrated = try_migrate_if_needed(eszip).await.unwrap();
+    let migrated = try_migrate_if_needed(eszip, None).await.unwrap();
 
     let vfs_data = migrated
       .ensure_module(VFS_ESZIP_KEY)

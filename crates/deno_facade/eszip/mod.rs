@@ -1087,10 +1087,13 @@ pub async fn extract_eszip(payload: ExtractEszipPayload) -> bool {
     }
   };
 
-  let mut eszip = match migrate::try_migrate_if_needed(eszip).await {
+  let mut eszip = match migrate::try_migrate_if_needed(eszip, None).await {
     Ok(v) => v,
-    Err(_old) => {
-      log::error!("eszip migration failed (give up extract job)");
+    Err(err) => {
+      log::error!(
+        "{:#}",
+        err.context("eszip migration failed (give up extract job)")
+      );
       return false;
     }
   };

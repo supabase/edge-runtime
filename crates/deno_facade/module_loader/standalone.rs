@@ -5,7 +5,6 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use anyhow::anyhow;
-use anyhow::bail;
 use anyhow::Context;
 use base64::Engine;
 use deno::args::CacheSetting;
@@ -84,6 +83,7 @@ use tracing::instrument;
 use crate::eszip::vfs::load_npm_vfs;
 use crate::metadata::Metadata;
 use crate::migrate;
+use crate::migrate::MigrateOptions;
 use crate::payload_to_eszip;
 use crate::permissions::RuntimePermissionDescriptorParser;
 use crate::EszipPayloadKind;
@@ -821,17 +821,13 @@ pub async fn create_module_loader_for_standalone_from_eszip_kind(
   eszip_payload_kind: EszipPayloadKind,
   permissions_options: PermissionsOptions,
   include_source_map: bool,
+  options: Option<MigrateOptions>,
 ) -> Result<RuntimeProviders, AnyError> {
-  let eszip = match migrate::try_migrate_if_needed(
+  let eszip = migrate::try_migrate_if_needed(
     payload_to_eszip(eszip_payload_kind).await?,
+    options,
   )
-  .await
-  {
-    Ok(v) => v,
-    Err(_old) => {
-      bail!("eszip migration failed");
-    }
-  };
+  .await?;
 
   create_module_loader_for_eszip(eszip, permissions_options, include_source_map)
     .await

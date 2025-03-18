@@ -22,40 +22,49 @@ if (filename === void 0) {
   process.exit(1);
 }
 
+const filenames = [];
 try {
   if (fs.lstatSync(filename).isDirectory()) {
-    console.error(`${filename} is a directory`);
-    process.exit(1);
+    const names = fs.readdirSync(filename);
+    for (const name of names) {
+      filenames.push(path.join(filename, name));
+    }
+  } else {
+    filenames.push(filename);
   }
 } catch (ex) {
   console.error(`could not read file from given path: ${ex.toString()}`);
   process.exit(1);
 }
 
-if (command === "compress") {
-  /** @type {Uint8Array} */
-  const buf = fs.readFileSync(filename);
+for (const filename of filenames) {
+  if (command === "compress") {
+    /** @type {Uint8Array} */
+    const buf = fs.readFileSync(filename);
 
-  const ezbr = new TextEncoder().encode("EZBR");
-  const compBuf = zlib.brotliCompressSync(buf);
+    const ezbr = new TextEncoder().encode("EZBR");
+    const compBuf = zlib.brotliCompressSync(buf);
 
-  fs.writeFileSync(`${filename}.out`, ezbr);
-  fs.appendFileSync(`${filename}.out`, compBuf);
-} else if (command === "decompress") {
-  /** @type {Uint8Array} */
-  let buf = fs.readFileSync(filename);
+    fs.writeFileSync(`${filename}.out`, ezbr);
+    fs.appendFileSync(`${filename}.out`, compBuf);
+  } else if (command === "decompress") {
+    /** @type {Uint8Array} */
+    let buf = fs.readFileSync(filename);
 
-  if (buf.length >= 4 && new TextDecoder().decode(buf.slice(0, 4)) === "EZBR") {
-    buf = buf.slice(4);
+    if (
+      buf.length >= 4 && new TextDecoder().decode(buf.slice(0, 4)) === "EZBR"
+    ) {
+      buf = buf.slice(4);
+    } else {
+      console.error("malformed data");
+      continue;
+    }
+
+    fs.writeFileSync(`${filename}.out`, zlib.brotliDecompressSync(buf));
   } else {
-    console.error("malformed data");
+    console.error(`invalid command: ${command}`);
     process.exit(1);
   }
 
-  fs.writeFileSync(`${filename}.out`, zlib.brotliDecompressSync(buf));
-} else {
-  console.error(`invalid command: ${command}`);
-  process.exit(1);
+  console.log(`written in ${filename}.out`);
 }
-
-console.log(`written in ${filename}.out`);

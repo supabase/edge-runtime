@@ -77,26 +77,26 @@ jobs:
         run: ./scripts/install_onnx.sh ${{ env.ONNXRUNTIME_VERSION }} linux x64 /tmp/onnxruntime
 
       - name: Prepare test eszip binaries
-        # if: |
-        #   github.actor != 'dependabot[bot]' &&
-        #   (
-        #     github.event_name != 'pull_request'
-        #     || github.event.pull_request.head.repo.full_name == github.repository
-        #   )
+        if: |
+          github.actor != 'dependabot[bot]' &&
+          (
+            github.event_name != 'pull_request'
+            || github.event.pull_request.head.repo.full_name == github.repository
+          )
         uses: actions/checkout@v4
         with:
           repository: ${{ env.ESZIP_TESTDATA_REPO }}
           path: ./edge-runtime-test-eszip
           token: ${{ secrets.EDGE_RUNTIME_ORG_TOKEN }}
-      - run: |
+      - if: |
+          github.actor != 'dependabot[bot]' &&
+          (
+            github.event_name != 'pull_request'
+            || github.event.pull_request.head.repo.full_name == github.repository
+          )
+        run: |
           mkdir -p crates/base/tests/fixture/testdata
           mv ./edge-runtime-test-eszip/testdata/* crates/base/tests/fixture/testdata
-        # if: |
-        #   github.actor != 'dependabot[bot]' &&
-        #   (
-        #     github.event_name != 'pull_request'
-        #     || github.event.pull_request.head.repo.full_name == github.repository
-        #   )
 
       - name: Install Supabase Storage S3 credentials for testing
         if: |

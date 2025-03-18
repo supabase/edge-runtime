@@ -18,6 +18,7 @@ use base::worker::pool::WorkerPoolPolicy;
 use base::CacheSetting;
 use base::InspectorOption;
 use base::WorkerKind;
+use deno::ConfigMode;
 use deno::DenoOptionsBuilder;
 use deno_facade::extract_from_file;
 use deno_facade::generate_binary_eszip;
@@ -269,6 +270,8 @@ fn main() -> Result<ExitCode, anyhow::Error> {
       Some(("bundle", sub_matches)) => {
         let output_path =
           sub_matches.get_one::<String>("output").cloned().unwrap();
+        let import_map_path =
+          sub_matches.get_one::<String>("import-map").cloned();
         let static_patterns =
           if let Some(val_ref) = sub_matches.get_many::<String>("static") {
             val_ref.map(|s| s.as_str()).collect::<Vec<&str>>()
@@ -311,11 +314,18 @@ fn main() -> Result<ExitCode, anyhow::Error> {
         emitter_factory.set_permissions_options(Some(
           base::get_default_permissions(WorkerKind::MainWorker),
         ));
-        emitter_factory.set_deno_options(
-          DenoOptionsBuilder::new()
-            .entrypoint(entrypoint_script_path.clone())
-            .build()?,
-        );
+
+        let mut builder =
+          DenoOptionsBuilder::new().entrypoint(entrypoint_script_path.clone());
+
+        if let Some(path) = import_map_path {
+          let path = PathBuf::from(path);
+          if !path.exists() || !path.is_file() {
+            bail!("import map path is incorrect");
+          }
+          builder.set_config(Some(ConfigMode::Path(path)));
+        }
+        emitter_factory.set_deno_options(builder.build()?);
 
         let mut metadata = Metadata::default();
         let eszip = generate_binary_eszip(

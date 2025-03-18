@@ -302,6 +302,9 @@ fn get_bundle_command() -> Command {
         .action(ArgAction::Append),
     )
     .arg(
+      arg!(--"import-map" <Path>).help("(DEPRECATED) Path to import map file"),
+    )
+    .arg(
       arg!(--"checksum" <KIND>)
         .env("EDGE_RUNTIME_BUNDLE_CHECKSUM")
         .help("Hash function to use when checksum the contents")

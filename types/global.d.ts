@@ -95,6 +95,10 @@ declare namespace EdgeRuntime {
         constructor(key: string);
 
         fetch(request: Request, options?: UserWorkerFetchOptions): Promise<Response>;
+        dispose(): void;
+
+        get active(): boolean;
+
         static create(opts: UserWorkerCreateOptions): Promise<UserWorker>;
     }
 
@@ -105,7 +109,10 @@ declare namespace EdgeRuntime {
     export function systemMemoryInfo(): MemInfo;
     export function raiseSegfault(): void;
 
-    export { UserWorker as userWorkers };
+    export {
+        type UserWorker,
+        UserWorker as userWorkers,
+    };
 }
 
 declare namespace Supabase {

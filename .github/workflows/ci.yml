@@ -99,7 +99,6 @@ jobs:
           mkdir -p crates/base/tests/fixture/testdata
           ./scripts/esbr.cjs decompress ./edge-runtime-test-eszip/testdata
           mv ./edge-runtime-test-eszip/testdata/*.out crates/base/tests/fixture/testdata
-          ls crates/base/tests/fixture/testdata
 
       - name: Install Supabase Storage S3 credentials for testing
         if: |

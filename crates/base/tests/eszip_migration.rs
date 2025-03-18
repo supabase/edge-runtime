@@ -67,7 +67,7 @@ async fn test_eszip_migration() {
   if failed > 0 {
     panic!("{msg}");
   } else {
-    println!("{msg}");
+    eprintln!("{msg}");
   }
 }
 

@@ -1,10 +1,14 @@
-use log::{error, warn};
+use std::borrow::Cow;
+
+use anyhow::anyhow;
+use deno_core::error::AnyError;
+use log::warn;
 
 use crate::{errors::EszipError, LazyLoadableEszip};
 
 pub async fn try_migrate_if_needed(
     mut eszip: LazyLoadableEszip,
-) -> Result<LazyLoadableEszip, LazyLoadableEszip> {
+) -> Result<LazyLoadableEszip, AnyError> {
     if let Err(err) = eszip.ensure_version().await {
         match err.downcast_ref::<EszipError>() {
             Some(err) => {
@@ -23,31 +27,25 @@ pub async fn try_migrate_if_needed(
                 }
 
                 let result = match err {
-                    EszipError::UnsupportedVersion { expected, found } => {
-                        match (expected, found.as_deref()) {
-                            (&b"1.1", None) => 'scope: {
-                                cont!(v1, 'scope, v0::try_migrate_v0_v1(&mut eszip).await);
-                                v1_1::try_migrate_v1_v1_1(&mut v1).await
-                            }
-                            (&b"1.1", Some(b"1")) => v1_1::try_migrate_v1_v1_1(&mut eszip).await,
-                            _ => unreachable!(),
+                    EszipError::UnsupportedVersion { found, .. } => match found.as_deref() {
+                        None => 'scope: {
+                            cont!(v1, 'scope, v0::try_migrate_v0_v1(&mut eszip).await);
+                            v1_1::try_migrate_v1_v1_1(&mut v1).await
                         }
-                    }
+                        Some(b"1") => v1_1::try_migrate_v1_v1_1(&mut eszip).await,
+                        found => Err(anyhow!(
+                            "migration is not supported for this version: {}",
+                            found
+                                .map(String::from_utf8_lossy)
+                                .unwrap_or(Cow::Borrowed("unknown"))
+                        )),
+                    },
                 };
 
-                match result {
-                    Ok(migrated) => Ok(migrated),
-                    Err(err) => {
-                        error!("{:?}", err);
-                        Err(eszip)
-                    }
-                }
+                result
             }
 
-            None => {
-                error!("failed to migrate (found unexpected error)");
-                Err(eszip)
-            }
+            None => Err(anyhow!("failed to migrate (found unexpected error)")),
         }
     } else {
         Ok(eszip)

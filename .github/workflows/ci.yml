@@ -14,6 +14,7 @@ env:
   RUSTUP_MAX_RETRIES: 10
   ORT_DYLIB_PATH: /tmp/onnxruntime/lib/libonnxruntime.so
   RUST_LOG: sb_event_worker=trace
+  ESZIP_TESTDATA_REPO: supabase/edge-runtime-test-eszip
 
 jobs:
   cargo-fmt:
@@ -71,8 +72,32 @@ jobs:
       - name: Install ONNX Runtime Library
         run: ./scripts/install_onnx.sh ${{ env.ONNXRUNTIME_VERSION }} linux x64 /tmp/onnxruntime
 
-      - name: Install S3 credentials for testing
-        if: | 
+      - name: Prepare test eszip binaries
+        if: |
+          github.actor != 'dependabot[bot]' &&
+          (
+            github.event_name != 'pull_request'
+            || github.event.pull_request.head.repo.full_name == github.repository
+          )
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.ESZIP_TESTDATA_REPO }}
+          path: ./edge-runtime-test-eszip
+          token: ${{ secrets.EDGE_RUNTIME_ORG_TOKEN }}
+      - name: Decompress test eszip binaries
+        if: |
+          github.actor != 'dependabot[bot]' &&
+          (
+            github.event_name != 'pull_request'
+            || github.event.pull_request.head.repo.full_name == github.repository
+          )
+        run: |
+          mkdir -p crates/base/tests/fixture/testdata
+          ./scripts/esbr.cjs decompress ./edge-runtime-test-eszip/testdata
+          mv ./edge-runtime-test-eszip/testdata/*.out crates/base/tests/fixture/testdata
+
+      - name: Install Supabase Storage S3 credentials for testing
+        if: |
           github.actor != 'dependabot[bot]' &&
           (
             github.event_name != 'pull_request'

@@ -1,7 +1,7 @@
 use crate::metadata::Metadata;
 use crate::standalone::standalone_module_loader::{EmbeddedModuleLoader, SharedModuleLoaderState};
 use crate::RuntimeProviders;
-use anyhow::{bail, Context};
+use anyhow::Context;
 use deno_config::workspace::{PackageJsonDepResolution, WorkspaceResolver};
 use deno_core::error::AnyError;
 use deno_core::url::Url;
@@ -260,15 +260,7 @@ where
     P: AsRef<Path>,
 {
     let eszip =
-        match eszip_migrate::try_migrate_if_needed(payload_to_eszip(eszip_payload_kind).await?)
-            .await
-        {
-            Ok(v) => v,
-            Err(_old) => {
-                bail!("eszip migration failed");
-            }
-        };
-
+        eszip_migrate::try_migrate_if_needed(payload_to_eszip(eszip_payload_kind).await?).await?;
     let maybe_import_map = 'scope: {
         if maybe_import_map.is_some() {
             break 'scope maybe_import_map;

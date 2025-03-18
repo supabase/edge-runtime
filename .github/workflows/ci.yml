@@ -88,7 +88,8 @@ jobs:
           repository: ${{ env.ESZIP_TESTDATA_REPO }}
           path: ./edge-runtime-test-eszip
           token: ${{ secrets.EDGE_RUNTIME_ORG_TOKEN }}
-      - if: |
+      - name: Decompress test eszip binaries
+        if: |
           github.actor != 'dependabot[bot]' &&
           (
             github.event_name != 'pull_request'
@@ -96,7 +97,7 @@ jobs:
           )
         run: |
           mkdir -p crates/base/tests/fixture/testdata
-          ls -1 ./edge-runtime-test-eszip/testdata | xargs -I {} ./scripts/esbr.cjs decompress ./edge-runtime-test-eszip/testdata/{}
+          ./scripts/esbr.cjs decompress ./edge-runtime-test-eszip/testdata
           mv ./edge-runtime-test-eszip/testdata/*.out crates/base/tests/fixture/testdata
           ls crates/base/tests/fixture/testdata
 

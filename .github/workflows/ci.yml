@@ -88,7 +88,9 @@ jobs:
           repository: ${{ env.ESZIP_TESTDATA_REPO }}
           path: ./edge-runtime-test-eszip
           token: ${{ secrets.EDGE_RUNTIME_ORG_TOKEN }}
-      - run: mv ./edge-runtime-test-eszip/testdata ./crates/base/tests/fixture
+      - run: |
+          mkdir -p crates/base/tests/fixture/testdata
+          mv ./edge-runtime-test-eszip/testdata/* crates/base/tests/fixture/testdata
         # if: |
         #   github.actor != 'dependabot[bot]' &&
         #   (

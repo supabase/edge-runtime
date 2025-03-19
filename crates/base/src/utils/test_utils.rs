@@ -251,6 +251,7 @@ impl TestBedBuilder {
           worker_pool_tx,
           shared_metric_src: None,
           event_worker_metric_src: None,
+          context: None,
         }),
         static_patterns: vec![],
 

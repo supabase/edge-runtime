@@ -80,6 +80,7 @@ tokio-rustls = "0.25.0"
 winapi = { workspace = true, features = ["knownfolders", "mswsock", "objbase", "shlobj", "tlhelp32", "winbase", "winerror", "winsock2"] }
 
 [dev-dependencies]
+eszip_trait.workspace = true
 serial_test.workspace = true
 tokio-util = { workspace = true, features = ["rt", "compat"] }
 tracing-subscriber = { workspace = true, features = ["env-filter", "tracing-log"] }

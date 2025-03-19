@@ -219,6 +219,7 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
         worker_pool_tx,
         shared_metric_src: None,
         event_worker_metric_src: None,
+        context: None,
       }),
       static_patterns: vec![],
 
@@ -376,6 +377,7 @@ async fn test_main_worker_boot_error() {
         worker_pool_tx,
         shared_metric_src: None,
         event_worker_metric_src: None,
+        context: None,
       }),
       static_patterns: vec![],
 
@@ -497,6 +499,7 @@ async fn test_main_worker_user_worker_mod_evaluate_exception() {
         worker_pool_tx,
         shared_metric_src: None,
         event_worker_metric_src: None,
+        context: None,
       }),
       static_patterns: vec![],
 

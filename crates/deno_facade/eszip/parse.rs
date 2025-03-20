@@ -1,4 +1,4 @@
-// Below is roughly originated from eszip@0.72.2/src/v2.rs
+// Below is roughly originated from eszip@fix-pub-vis-0-80-1/src/v2.rs
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -10,6 +10,7 @@ use eszip::v2::EszipNpmPackageIndex;
 use eszip::v2::EszipV2Module;
 use eszip::v2::EszipV2Modules;
 use eszip::v2::EszipV2SourceSlot;
+use eszip::v2::EszipVersion;
 use eszip::v2::Options;
 use eszip::v2::Section;
 use eszip::EszipV2;
@@ -20,22 +21,28 @@ use futures::AsyncRead;
 use futures::AsyncReadExt;
 use hashlink::LinkedHashMap;
 
-const ESZIP_V2_MAGIC: &[u8; 8] = b"ESZIP_V2";
-const ESZIP_V2_2_MAGIC: &[u8; 8] = b"ESZIP2.2";
-
 pub async fn parse_v2_header<R: AsyncRead + Unpin>(
-  mut reader: &mut BufReader<R>,
+  reader: &mut BufReader<R>,
 ) -> Result<EszipV2, ParseError> {
   let mut magic = [0u8; 8];
   reader.read_exact(&mut magic).await?;
 
-  if !EszipV2::has_magic(&magic) {
+  let Some(version) = EszipVersion::from_magic(&magic) else {
     return Err(ParseError::InvalidV2);
-  }
+  };
 
-  let supports_npm = magic != *ESZIP_V2_MAGIC;
-  let supports_options = magic == *ESZIP_V2_2_MAGIC;
-  let mut options = Options::default_for_version(&magic);
+  parse_v2_header_inner(version, reader).await
+}
+
+// parse_with_version
+async fn parse_v2_header_inner<R: AsyncRead + Unpin>(
+  version: EszipVersion,
+  mut reader: &mut BufReader<R>,
+) -> Result<EszipV2, ParseError> {
+  let supports_npm = version != EszipVersion::V2;
+  let supports_options = version >= EszipVersion::V2_2;
+
+  let mut options = Options::default_for_version(version);
 
   if supports_options {
     let mut pre_options = options;
@@ -82,8 +89,8 @@ pub async fn parse_v2_header<R: AsyncRead + Unpin>(
     }
   }
 
-  let header = Section::read(&mut reader, options).await?;
-  if !header.is_checksum_valid() {
+  let modules_header = Section::read(&mut reader, options).await?;
+  if !modules_header.is_checksum_valid() {
     return Err(ParseError::InvalidV2HeaderHash);
   }
 
@@ -97,16 +104,16 @@ pub async fn parse_v2_header<R: AsyncRead + Unpin>(
   // error.
   macro_rules! read {
     ($n:expr, $err:expr) => {{
-      if read + $n > header.content_len() {
+      if read + $n > modules_header.content_len() {
         return Err(ParseError::InvalidV2Header($err));
       }
       let start = read;
       read += $n;
-      &header.content()[start..read]
+      &modules_header.content()[start..read]
     }};
   }
 
-  while read < header.content_len() {
+  while read < modules_header.content_len() {
     let specifier_len =
       u32::from_be_bytes(read!(4, "specifier len").try_into().unwrap())
         as usize;
@@ -130,6 +137,7 @@ pub async fn parse_v2_header<R: AsyncRead + Unpin>(
           1 => ModuleKind::Json,
           2 => ModuleKind::Jsonc,
           3 => ModuleKind::OpaqueData,
+          4 => ModuleKind::Wasm,
           n => return Err(ParseError::InvalidV2ModuleKind(n, read)),
         };
         let source = if source_offset == 0 && source_len == 0 {

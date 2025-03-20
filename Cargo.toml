@@ -202,7 +202,7 @@ windows-sys = { version = "0.59.0", features = ["Win32_Foundation", "Win32_Media
 [patch.crates-io]
 # If the PR is merged upstream, remove the line below.
 deno_core = { git = "https://github.com/supabase/deno_core", branch = "324-supabase" }
-eszip = { git = "https://github.com/supabase/eszip", branch = "fix-pub-vis-0-80-0" }
+eszip = { git = "https://github.com/supabase/eszip", branch = "fix-pub-vis-0-80-1" }
 
 [profile.dind]
 inherits = "dev"

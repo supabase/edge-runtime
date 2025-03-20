@@ -3794,6 +3794,25 @@ async fn test_should_be_able_to_trigger_early_drop_with_mem() {
   unreachable!("test failed");
 }
 
+#[tokio::test]
+#[serial]
+async fn test_eszip_wasm_import() {
+  integration_test!(
+    "./test_cases/main",
+    NON_SECURE_PORT,
+    "eszip-wasm",
+    None,
+    None,
+    None,
+    (|resp| async {
+      let resp = resp.unwrap();
+      assert_eq!(resp.status().as_u16(), 200);
+      assert_eq!(resp.text().await.unwrap().as_str(), "meow");
+    }),
+    TerminationToken::new()
+  );
+}
+
 #[derive(Deserialize)]
 struct ErrorResponsePayload {
   msg: String,

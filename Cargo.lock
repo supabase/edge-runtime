@@ -3107,7 +3107,7 @@ checksum = "d817e038c30374a4bcb22f94d0a8a0e216958d4c3dcde369b1439fec4bdda6e6"
 [[package]]
 name = "eszip"
 version = "0.80.0"
-source = "git+https://github.com/supabase/eszip?branch=fix-pub-vis-0-80-0#9953b150866155760bc38bd38ff03665be312da3"
+source = "git+https://github.com/supabase/eszip?branch=fix-pub-vis-0-80-1#45d5a22e8629170a6cb7d3c25d1e676c084a126f"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3122,7 +3122,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "thiserror 1.0.62",
+ "thiserror 2.0.8",
  "url",
  "xxhash-rust",
 ]

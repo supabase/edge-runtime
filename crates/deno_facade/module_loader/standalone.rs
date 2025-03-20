@@ -404,6 +404,16 @@ impl ModuleLoader for EmbeddedModuleLoader {
           type_error(format!("Module not found: {}", original_specifier))
         })?;
 
+        if module.inner.kind == ModuleKind::Wasm {
+          return Ok(deno_core::ModuleSource::new_with_redirect(
+            ModuleType::Wasm,
+            ModuleSourceCode::Bytes(code.into()),
+            &original_specifier,
+            &module.specifier,
+            None,
+          ));
+        }
+
         let code = arc_u8_to_arc_str(code)
           .map_err(|_| type_error("Module source is not utf-8"))?;
 
@@ -467,7 +477,7 @@ impl ModuleLoader for EmbeddedModuleLoader {
               ModuleKind::Jsonc => {
                 return Err(type_error("jsonc modules not supported"))
               }
-              ModuleKind::OpaqueData => {
+              ModuleKind::OpaqueData | ModuleKind::Wasm => {
                 unreachable!();
               }
             },

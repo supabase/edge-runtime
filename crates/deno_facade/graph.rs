@@ -38,6 +38,7 @@ pub async fn create_eszip_from_graph_raw(
   eszip::EszipV2::from_graph(eszip::FromGraphOptions {
     graph,
     parser,
+    module_kind_resolver: Default::default(),
     transpile_options,
     emit_options,
     relative_file_base,

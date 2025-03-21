@@ -1328,10 +1328,12 @@ where
                     if accumulated_cpu_time_ns >= threshold_ns {
                         beforeunload_cpu_threshold.store(None);
 
-                        if let Err(err) = MaybeDenoRuntime::DenoRuntime(&mut this)
-                            .dispatch_beforeunload_event(WillTerminateReason::CPU)
-                        {
-                            return Poll::Ready(Err(err));
+                        if !state.is_terminated() {
+                            if let Err(err) = MaybeDenoRuntime::DenoRuntime(&mut this)
+                                .dispatch_beforeunload_event(WillTerminateReason::CPU)
+                            {
+                                return Poll::Ready(Err(err));
+                            }
                         }
                     }
                 }
@@ -1351,7 +1353,7 @@ where
                     if total_malloced_bytes >= threshold_bytes {
                         beforeunload_mem_threshold.store(None);
 
-                        if !mem_state.is_exceeded() {
+                        if !state.is_terminated() && !mem_state.is_exceeded() {
                             if let Err(err) = MaybeDenoRuntime::DenoRuntime(&mut this)
                                 .dispatch_beforeunload_event(WillTerminateReason::Memory)
                             {

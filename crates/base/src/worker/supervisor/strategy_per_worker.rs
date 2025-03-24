@@ -223,6 +223,7 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
   });
 
   let terminate_fn = {
+    let state = state.runtime.clone();
     let thread_safe_handle = thread_safe_handle.clone();
     move |should_terminate: bool| {
       let data_ptr_mut = Box::into_raw(Box::new(V8HandleTerminationData {
@@ -230,6 +231,9 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
         isolate_memory_usage_tx: Some(isolate_memory_usage_tx),
       }));
 
+      if should_terminate {
+        state.terminated.raise();
+      }
       if !thread_safe_handle.request_interrupt(
         v8_handle_termination,
         data_ptr_mut as *mut std::ffi::c_void,

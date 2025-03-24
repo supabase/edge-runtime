@@ -62,6 +62,7 @@ Deno.serve((req: Request) => {
     const envVars = Object.keys(envVarsObj).map((k) => [k, envVarsObj[k]]);
     const context = {
       sourceMap: req.headers.get("x-context-source-map") == "true",
+      useReadSyncFileAPI: req.headers.get("x-use-read-sync-file-api") == "true",
     };
 
     return await EdgeRuntime.userWorkers.create({

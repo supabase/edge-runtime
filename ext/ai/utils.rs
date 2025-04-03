@@ -82,69 +82,69 @@ pub async fn fetch_and_cache_from_url(
 
   let span = info_span!("download", filepath = %filepath.to_string_lossy());
   async move {
-        if is_filepath_exists && is_checksum_valid {
-            info!("binary already exists, skipping download");
-            Ok(filepath.clone())
-        } else {
-            info!("downloading binary");
+    if is_filepath_exists && is_checksum_valid {
+      info!("binary already exists, skipping download");
+      Ok(filepath.clone())
+    } else {
+      info!("downloading binary");
 
-            if is_filepath_exists {
-                let _ = tokio::fs::remove_file(&filepath).await;
-            }
+      if is_filepath_exists {
+        let _ = tokio::fs::remove_file(&filepath).await;
+      }
 
-            use reqwest::*;
+      use reqwest::*;
 
-            let resp = Client::builder()
-                .http1_only()
-                .build()
-                .context("failed to create http client")?
-                .get(url.clone())
-                .send()
-                .await
-                .context("failed to download")?;
+      let resp = Client::builder()
+        .http1_only()
+        .build()
+        .context("failed to create http client")?
+        .get(url.clone())
+        .send()
+        .await
+        .context("failed to download")?;
 
-            let file = tokio::fs::File::create(&filepath)
-                .await
-                .context("failed to create file")?;
+      let file = tokio::fs::File::create(&filepath)
+        .await
+        .context("failed to create file")?;
 
-            let mut stream = resp.bytes_stream();
-            let mut writer = tokio::io::BufWriter::new(file);
-            let mut hasher = AllowStdIo::new(Xxh3::new()).compat_write();
-            let mut written = 0;
+      let mut stream = resp.bytes_stream();
+      let mut writer = tokio::io::BufWriter::new(file);
+      let mut hasher = AllowStdIo::new(Xxh3::new()).compat_write();
+      let mut written = 0;
 
-            while let Some(chunk) = stream.next().await {
-                let chunk = chunk.context("failed to get chunks")?;
+      while let Some(chunk) = stream.next().await {
+        let chunk = chunk.context("failed to get chunks")?;
 
-                written += tokio::io::copy(&mut chunk.as_ref(), &mut writer)
-                    .await
-                    .context("failed to store chunks to file")?;
+        written += tokio::io::copy(&mut chunk.as_ref(), &mut writer)
+          .await
+          .context("failed to store chunks to file")?;
 
-                let _ = tokio::io::copy(&mut chunk.as_ref(), &mut hasher)
-                    .await
-                    .context("failed to calculate checksum")?;
+        let _ = tokio::io::copy(&mut chunk.as_ref(), &mut hasher)
+          .await
+          .context("failed to calculate checksum")?;
 
-                trace!(bytes_written = written);
-            }
+        trace!(bytes_written = written);
+      }
 
-            let checksum_str = {
-                let hasher = hasher.into_inner().into_inner();
-                faster_hex::hex_string(&hasher.finish().to_be_bytes())
-            };
+      let checksum_str = {
+        let hasher = hasher.into_inner().into_inner();
+        faster_hex::hex_string(&hasher.finish().to_be_bytes())
+      };
 
-            info!({ bytes_written = written, checksum = &checksum_str }, "done");
+      info!({ bytes_written = written, checksum = &checksum_str }, "done");
 
-            let mut checksum_file = tokio::fs::File::create(&checksum_path)
-                .await
-                .context("failed to create checksum file")?;
+      let mut checksum_file = tokio::fs::File::create(&checksum_path)
+        .await
+        .context("failed to create checksum file")?;
 
-            let _ = checksum_file
-                .write(checksum_str.as_bytes())
-                .await
-                .context("failed to write checksum to file system")?;
+      let _ = checksum_file
+        .write(checksum_str.as_bytes())
+        .await
+        .context("failed to write checksum to file system")?;
 
-            Ok(filepath)
-        }
+      Ok(filepath)
     }
-    .instrument(span)
-    .await
+  }
+  .instrument(span)
+  .await
 }

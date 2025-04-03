@@ -103,17 +103,6 @@ pub async fn fetch_and_cache_from_url(
                 .await
                 .context("failed to download")?;
 
-            let len = resp
-                .headers()
-                .get(header::CONTENT_LENGTH)
-                .map(|it| it.to_str().map_err(AnyError::new))
-                .transpose()?
-                .map(|it| it.parse::<usize>().map_err(AnyError::new))
-                .transpose()?
-                .context("invalid Content-Length header")?;
-
-            debug!(total_bytes = len);
-
             let file = tokio::fs::File::create(&filepath)
                 .await
                 .context("failed to create file")?;
@@ -142,23 +131,18 @@ pub async fn fetch_and_cache_from_url(
                 faster_hex::hex_string(&hasher.finish().to_be_bytes())
             };
 
-            if written == len as u64 {
-                info!({ bytes_written = written, checksum = &checksum_str }, "done");
+            info!({ bytes_written = written, checksum = &checksum_str }, "done");
 
-                let mut checksum_file = tokio::fs::File::create(&checksum_path)
-                    .await
-                    .context("failed to create checksum file")?;
+            let mut checksum_file = tokio::fs::File::create(&checksum_path)
+                .await
+                .context("failed to create checksum file")?;
 
-                let _ = checksum_file
-                    .write(checksum_str.as_bytes())
-                    .await
-                    .context("failed to write checksum to file system")?;
+            let _ = checksum_file
+                .write(checksum_str.as_bytes())
+                .await
+                .context("failed to write checksum to file system")?;
 
-                Ok(filepath)
-            } else {
-                error!({ expected = len, got = written }, "bytes mismatch");
-                bail!("error copying data to file: expected {len} length, but got {written}");
-            }
+            Ok(filepath)
         }
     }
     .instrument(span)

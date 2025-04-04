@@ -1,7 +1,6 @@
 use std::hash::Hasher;
 use std::path::PathBuf;
 
-use anyhow::bail;
 use anyhow::Context;
 use deno_core::error::AnyError;
 use futures::io::AllowStdIo;
@@ -9,8 +8,6 @@ use futures::StreamExt;
 use reqwest::Url;
 use tokio::io::AsyncWriteExt;
 use tokio_util::compat::FuturesAsyncWriteCompatExt;
-use tracing::debug;
-use tracing::error;
 use tracing::info;
 use tracing::info_span;
 use tracing::instrument;
@@ -82,85 +79,69 @@ pub async fn fetch_and_cache_from_url(
 
   let span = info_span!("download", filepath = %filepath.to_string_lossy());
   async move {
-        if is_filepath_exists && is_checksum_valid {
-            info!("binary already exists, skipping download");
-            Ok(filepath.clone())
-        } else {
-            info!("downloading binary");
+    if is_filepath_exists && is_checksum_valid {
+      info!("binary already exists, skipping download");
+      Ok(filepath.clone())
+    } else {
+      info!("downloading binary");
 
-            if is_filepath_exists {
-                let _ = tokio::fs::remove_file(&filepath).await;
-            }
+      if is_filepath_exists {
+        let _ = tokio::fs::remove_file(&filepath).await;
+      }
 
-            use reqwest::*;
+      use reqwest::*;
 
-            let resp = Client::builder()
-                .http1_only()
-                .build()
-                .context("failed to create http client")?
-                .get(url.clone())
-                .send()
-                .await
-                .context("failed to download")?;
+      let resp = Client::builder()
+        .http1_only()
+        .build()
+        .context("failed to create http client")?
+        .get(url.clone())
+        .send()
+        .await
+        .context("failed to download")?;
 
-            let len = resp
-                .headers()
-                .get(header::CONTENT_LENGTH)
-                .map(|it| it.to_str().map_err(AnyError::new))
-                .transpose()?
-                .map(|it| it.parse::<usize>().map_err(AnyError::new))
-                .transpose()?
-                .context("invalid Content-Length header")?;
+      let file = tokio::fs::File::create(&filepath)
+        .await
+        .context("failed to create file")?;
 
-            debug!(total_bytes = len);
+      let mut stream = resp.bytes_stream();
+      let mut writer = tokio::io::BufWriter::new(file);
+      let mut hasher = AllowStdIo::new(Xxh3::new()).compat_write();
+      let mut written = 0;
 
-            let file = tokio::fs::File::create(&filepath)
-                .await
-                .context("failed to create file")?;
+      while let Some(chunk) = stream.next().await {
+        let chunk = chunk.context("failed to get chunks")?;
 
-            let mut stream = resp.bytes_stream();
-            let mut writer = tokio::io::BufWriter::new(file);
-            let mut hasher = AllowStdIo::new(Xxh3::new()).compat_write();
-            let mut written = 0;
+        written += tokio::io::copy(&mut chunk.as_ref(), &mut writer)
+          .await
+          .context("failed to store chunks to file")?;
 
-            while let Some(chunk) = stream.next().await {
-                let chunk = chunk.context("failed to get chunks")?;
+        let _ = tokio::io::copy(&mut chunk.as_ref(), &mut hasher)
+          .await
+          .context("failed to calculate checksum")?;
 
-                written += tokio::io::copy(&mut chunk.as_ref(), &mut writer)
-                    .await
-                    .context("failed to store chunks to file")?;
+        trace!(bytes_written = written);
+      }
 
-                let _ = tokio::io::copy(&mut chunk.as_ref(), &mut hasher)
-                    .await
-                    .context("failed to calculate checksum")?;
+      let checksum_str = {
+        let hasher = hasher.into_inner().into_inner();
+        faster_hex::hex_string(&hasher.finish().to_be_bytes())
+      };
 
-                trace!(bytes_written = written);
-            }
+      info!({ bytes_written = written, checksum = &checksum_str }, "done");
 
-            let checksum_str = {
-                let hasher = hasher.into_inner().into_inner();
-                faster_hex::hex_string(&hasher.finish().to_be_bytes())
-            };
+      let mut checksum_file = tokio::fs::File::create(&checksum_path)
+        .await
+        .context("failed to create checksum file")?;
 
-            if written == len as u64 {
-                info!({ bytes_written = written, checksum = &checksum_str }, "done");
+      let _ = checksum_file
+        .write(checksum_str.as_bytes())
+        .await
+        .context("failed to write checksum to file system")?;
 
-                let mut checksum_file = tokio::fs::File::create(&checksum_path)
-                    .await
-                    .context("failed to create checksum file")?;
-
-                let _ = checksum_file
-                    .write(checksum_str.as_bytes())
-                    .await
-                    .context("failed to write checksum to file system")?;
-
-                Ok(filepath)
-            } else {
-                error!({ expected = len, got = written }, "bytes mismatch");
-                bail!("error copying data to file: expected {len} length, but got {written}");
-            }
-        }
+      Ok(filepath)
     }
-    .instrument(span)
-    .await
+  }
+  .instrument(span)
+  .await
 }

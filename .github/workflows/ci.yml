@@ -8,6 +8,9 @@ on:
       - develop
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 env:
   CARGO_INCREMENTAL: 0
   CARGO_NET_RETRY: 10
@@ -74,7 +77,7 @@ jobs:
           envFile: '.env'
 
       - name: Install ONNX Runtime Library
-        run: ./scripts/install_onnx.sh ${{ env.ONNXRUNTIME_VERSION }} linux x64 /tmp/onnxruntime
+        run: ./scripts/install_onnx.sh "${{ env.ONNXRUNTIME_VERSION }}" linux x64 /tmp/onnxruntime
 
       - name: Prepare test eszip binaries
         if: |

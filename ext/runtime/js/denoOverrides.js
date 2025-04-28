@@ -93,6 +93,7 @@ const ioVars = {
   stdout: io.stdout,
   stderr: io.stderr,
   stdin: io.stdin,
+  SeekMode: io.SeekMode,
 };
 
 const denoOverrides = {
@@ -111,6 +112,7 @@ const denoOverrides = {
   errors: errors,
   refTimer: timers.refTimer,
   unrefTimer: timers.unrefTimer,
+
   isatty: (_arg) => false,
   ...ioVars,
   ...fsVars,

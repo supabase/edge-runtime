@@ -684,6 +684,12 @@ globalThis.bootstrapSBEdge = (opts, ctx) => {
       apisToBeOverridden["readTextFileSync"] = true;
     }
 
+    if (ctx?.fileAPIs && ctx.fileAPIs instanceof Array) {
+      for (const api of ctx.fileAPIs) {
+        apisToBeOverridden[api] = true;
+      }
+    }
+
     const apiNames = ObjectKeys(apisToBeOverridden);
 
     for (const name of apiNames) {

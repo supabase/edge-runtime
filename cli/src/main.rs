@@ -272,12 +272,26 @@ fn main() -> Result<ExitCode, anyhow::Error> {
           sub_matches.get_one::<String>("output").cloned().unwrap();
         let import_map_path =
           sub_matches.get_one::<String>("import-map").cloned();
+        let decorator = sub_matches.get_one::<String>("decorator").cloned();
         let static_patterns =
           if let Some(val_ref) = sub_matches.get_many::<String>("static") {
             val_ref.map(|s| s.as_str()).collect::<Vec<&str>>()
           } else {
             vec![]
           };
+
+        if import_map_path.is_some() {
+          warn!(concat!(
+            "Specifying import_map through flags is no longer supported. ",
+            "Please use deno.json instead."
+          ))
+        }
+        if decorator.is_some() {
+          warn!(concat!(
+            "Specifying decorator through flags is no longer supported. ",
+            "Please use deno.json instead."
+          ))
+        }
 
         let entrypoint_script_path = sub_matches
           .get_one::<String>("entrypoint")

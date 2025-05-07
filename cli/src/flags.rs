@@ -305,6 +305,14 @@ fn get_bundle_command() -> Command {
       arg!(--"import-map" <Path>).help("(DEPRECATED) Path to import map file"),
     )
     .arg(
+      arg!(--"decorator" <TYPE>)
+        .help(concat!(
+          "(DEPRECATED) Type of decorator to use on the main worker and event worker. ",
+          "If not specified, the decorator feature is disabled."
+        ))
+        .value_parser(["tc39", "typescript", "typescript_with_metadata"]),
+    )
+    .arg(
       arg!(--"checksum" <KIND>)
         .env("EDGE_RUNTIME_BUNDLE_CHECKSUM")
         .help("Hash function to use when checksum the contents")

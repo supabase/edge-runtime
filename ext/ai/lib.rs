@@ -52,11 +52,12 @@ deno_core::extension!(
   esm = [
     dir "js",
     "ai.js",
-    "util/event_stream_parser.mjs",
-    "util/event_source_stream.mjs",
     "onnxruntime/onnx.js",
     "onnxruntime/cache_adapter.js",
     "llm/llm_session.ts",
+    "llm/utils/json_parser.ts",
+    "llm/utils/event_stream_parser.mjs",
+    "llm/utils/event_source_stream.mjs",
   ]
 );
 

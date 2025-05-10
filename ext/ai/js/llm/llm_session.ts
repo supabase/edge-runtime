@@ -1,3 +1,5 @@
+import { OllamaLLMSession } from './providers/ollama.ts';
+
 // @ts-ignore deno_core environment
 const core = globalThis.Deno.core;
 
@@ -28,6 +30,12 @@ export interface ILLMProvider {
   getText(prompt: string, signal: AbortSignal): Promise<any>;
 }
 
+export const providers = {
+  'ollama': OllamaLLMSession,
+} satisfies Record<string, new (opts: ILLMProviderOptions) => ILLMProvider>;
+
+export type LLMProviderName = keyof typeof providers;
+
 export class LLMSession {
   #inner: ILLMProvider;
 
@@ -35,7 +43,7 @@ export class LLMSession {
     this.#inner = provider;
   }
 
-  static fromProvider(name: string, opts: ILLMProviderOptions) {
+  static fromProvider(name: LLMProviderName, opts: ILLMProviderOptions) {
     const ProviderType = providers[name];
     if (!ProviderType) throw new Error('invalid provider');
 
@@ -64,4 +72,3 @@ export class LLMSession {
     return this.#inner.getText(opts.prompt, signal);
   }
 }
-

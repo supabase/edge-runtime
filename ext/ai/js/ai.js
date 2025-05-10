@@ -1,5 +1,6 @@
 import 'ext:ai/onnxruntime/onnx.js';
 import { parseJSON, parseJSONOverEventStream } from './llm/utils/json_parser.ts';
+import { LLMSession } from './llm/llm_session.ts';
 
 const core = globalThis.Deno.core;
 
@@ -13,10 +14,10 @@ class Session {
     this.model = model;
     this.is_ext_inference_api = false;
 
-    if (model === "gte-small") {
+    if (model === 'gte-small') {
       this.init = core.ops.op_ai_init_model(model);
     } else {
-      this.inferenceAPIHost = core.ops.op_get_env("AI_INFERENCE_API_HOST");
+      this.inferenceAPIHost = core.ops.op_get_env('AI_INFERENCE_API_HOST');
       this.is_ext_inference_api = !!this.inferenceAPIHost; // only enable external inference API if env variable is set
     }
   }
@@ -26,16 +27,30 @@ class Session {
     if (this.is_ext_inference_api) {
       const stream = opts.stream ?? false;
 
+      /** @type {'ollama' | 'openaicompatible'} */
+      const mode = opts.mode ?? 'ollama';
+
+      if (mode === 'ollama') {
+        // Using the new LLMSession API
+        const llmSession = LLMSession.fromProvider('ollama', {
+          inferenceAPIHost: this.inferenceAPIHost,
+          model: this.model,
+        });
+
+        return await llmSession.run({
+          prompt,
+          stream,
+          signal: opts.signal,
+          timeout: opts.timeout,
+        });
+      }
+
       // default timeout 60s
-      const timeout = typeof opts.timeout === "number" ? opts.timeout : 60;
+      const timeout = typeof opts.timeout === 'number' ? opts.timeout : 60;
       const timeoutMs = timeout * 1000;
 
-      /** @type {'ollama' | 'openaicompatible'} */
-      const mode = opts.mode ?? "ollama";
-
       switch (mode) {
-        case "ollama":
-        case "openaicompatible":
+        case 'openaicompatible':
           break;
 
         default:
@@ -48,15 +63,15 @@ class Session {
 
       const signal = AbortSignal.any(signals);
 
-      const path = mode === "ollama" ? "/api/generate" : "/v1/chat/completions";
-      const body = mode === "ollama" ? { prompt } : prompt;
+      const path = '/v1/chat/completions';
+      const body = prompt;
 
       const res = await fetch(
         new URL(path, this.inferenceAPIHost),
         {
-          method: "POST",
+          method: 'POST',
           headers: {
-            "Content-Type": "application/json",
+            'Content-Type': 'application/json',
           },
           body: JSON.stringify({
             model: this.model,
@@ -74,20 +89,16 @@ class Session {
       }
 
       if (!res.body) {
-        throw new Error("Missing body");
+        throw new Error('Missing body');
       }
 
-      const parseGenFn = mode === "ollama"
-        ? parseJSON
-        : stream === true
-        ? parseJSONOverEventStream
-        : parseJSON;
+      const parseGenFn = stream === true ? parseJSONOverEventStream : parseJSON;
       const itr = parseGenFn(res.body, signal);
 
       if (stream) {
         return (async function* () {
           for await (const message of itr) {
-            if ("error" in message) {
+            if ('error' in message) {
               if (message.error instanceof Error) {
                 throw message.error;
               } else {
@@ -98,20 +109,12 @@ class Session {
             yield message;
 
             switch (mode) {
-              case "ollama": {
-                if (message.done) {
-                  return;
-                }
-
-                break;
-              }
-
-              case "openaicompatible": {
+              case 'openaicompatible': {
                 const finishReason = message.choices[0].finish_reason;
 
                 if (finishReason) {
-                  if (finishReason !== "stop") {
-                    throw new Error("Expected a completed response.");
+                  if (finishReason !== 'stop') {
+                    throw new Error('Expected a completed response.');
                   }
 
                   return;
@@ -121,18 +124,18 @@ class Session {
               }
 
               default:
-                throw new Error("unreachable");
+                throw new Error('unreachable');
             }
           }
 
           throw new Error(
-            "Did not receive done or success response in stream.",
+            'Did not receive done or success response in stream.',
           );
         })();
       } else {
         const message = await itr.next();
 
-        if (message.value && "error" in message.value) {
+        if (message.value && 'error' in message.value) {
           const error = message.value.error;
 
           if (error instanceof Error) {
@@ -142,12 +145,10 @@ class Session {
           }
         }
 
-        const finish = mode === "ollama"
-          ? message.value.done
-          : message.value.choices[0].finish_reason === "stop";
+        const finish = message.value.choices[0].finish_reason === 'stop';
 
         if (finish !== true) {
-          throw new Error("Expected a completed response.");
+          throw new Error('Expected a completed response.');
         }
 
         return message.value;
@@ -172,8 +173,7 @@ class Session {
 }
 
 const MAIN_WORKER_API = {
-  tryCleanupUnusedSession: () =>
-    /* async */ core.ops.op_ai_try_cleanup_unused_session(),
+  tryCleanupUnusedSession: () => /* async */ core.ops.op_ai_try_cleanup_unused_session(),
 };
 
 const USER_WORKER_API = {

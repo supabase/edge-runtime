@@ -1,4 +1,5 @@
 import { OllamaLLMSession } from './providers/ollama.ts';
+import { OpenAILLMSession } from './providers/openai.ts';
 
 // @ts-ignore deno_core environment
 const core = globalThis.Deno.core;
@@ -20,18 +21,25 @@ export type LLMRunInput = {
 };
 
 export interface ILLMProviderOptions {
-  inferenceAPIHost: string;
   model: string;
+  inferenceAPIHost: string;
+}
+
+export interface ILLMProviderInput {
+  prompt: string | object;
+  signal: AbortSignal;
 }
 
 export interface ILLMProvider {
   // TODO:(kallebysantos) remove 'any'
-  getStream(prompt: string, signal: AbortSignal): Promise<AsyncIterable<any>>;
-  getText(prompt: string, signal: AbortSignal): Promise<any>;
+  // TODO: (kallebysantos) standardised output format
+  getStream(input: ILLMProviderInput): Promise<AsyncIterable<any>>;
+  getText(input: ILLMProviderInput): Promise<any>;
 }
 
 export const providers = {
   'ollama': OllamaLLMSession,
+  'openaicompatible': OpenAILLMSession,
 } satisfies Record<string, new (opts: ILLMProviderOptions) => ILLMProvider>;
 
 export type LLMProviderName = keyof typeof providers;
@@ -65,10 +73,11 @@ export class LLMSession {
       .filter((it) => it instanceof AbortSignal);
     const signal = AbortSignal.any(abortSignals);
 
+    const llmInput: ILLMProviderInput = { prompt: opts.prompt, signal };
     if (isStream) {
-      return this.#inner.getStream(opts.prompt, signal);
+      return this.#inner.getStream(llmInput);
     }
 
-    return this.#inner.getText(opts.prompt, signal);
+    return this.#inner.getText(llmInput);
   }
 }

@@ -1,6 +1,5 @@
 import 'ext:ai/onnxruntime/onnx.js';
-import { parseJSON, parseJSONOverEventStream } from './llm/utils/json_parser.ts';
-import { LLMSession } from './llm/llm_session.ts';
+import { LLMSession, providers } from './llm/llm_session.ts';
 
 const core = globalThis.Deno.core;
 
@@ -9,11 +8,15 @@ class Session {
   init;
   is_ext_inference_api;
   inferenceAPIHost;
+  extraOpts;
 
-  constructor(model) {
+  // TODO:(kallebysantos) get 'provider' type here and use type checking to suggest Inputs when run
+  constructor(model, opts = {}) {
     this.model = model;
     this.is_ext_inference_api = false;
+    this.extraOpts = opts;
 
+    // TODO:(kallebysantos) do we still need gte-small?
     if (model === 'gte-small') {
       this.init = core.ops.op_ai_init_model(model);
     } else {
@@ -28,131 +31,25 @@ class Session {
       const stream = opts.stream ?? false;
 
       /** @type {'ollama' | 'openaicompatible'} */
+      // TODO:(kallebysantos) get mode from 'new' and apply type checking based on that
       const mode = opts.mode ?? 'ollama';
 
-      if (mode === 'ollama') {
-        // Using the new LLMSession API
-        const llmSession = LLMSession.fromProvider('ollama', {
-          inferenceAPIHost: this.inferenceAPIHost,
-          model: this.model,
-        });
-
-        return await llmSession.run({
-          prompt,
-          stream,
-          signal: opts.signal,
-          timeout: opts.timeout,
-        });
+      if (!Object.keys(providers).includes(mode)) {
+        throw new TypeError(`invalid mode: ${mode}`);
       }
 
-      // default timeout 60s
-      const timeout = typeof opts.timeout === 'number' ? opts.timeout : 60;
-      const timeoutMs = timeout * 1000;
+      const llmSession = LLMSession.fromProvider(mode, {
+        inferenceAPIHost: this.inferenceAPIHost,
+        model: this.model,
+        ...this.extraOpts, // allows custom provider initialization like 'apiKey'
+      });
 
-      switch (mode) {
-        case 'openaicompatible':
-          break;
-
-        default:
-          throw new TypeError(`invalid mode: ${mode}`);
-      }
-
-      const timeoutSignal = AbortSignal.timeout(timeoutMs);
-      const signals = [opts.signal, timeoutSignal]
-        .filter((it) => it instanceof AbortSignal);
-
-      const signal = AbortSignal.any(signals);
-
-      const path = '/v1/chat/completions';
-      const body = prompt;
-
-      const res = await fetch(
-        new URL(path, this.inferenceAPIHost),
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: this.model,
-            stream,
-            ...body,
-          }),
-        },
-        { signal },
-      );
-
-      if (!res.ok) {
-        throw new Error(
-          `Failed to fetch inference API host. Status ${res.status}: ${res.statusText}`,
-        );
-      }
-
-      if (!res.body) {
-        throw new Error('Missing body');
-      }
-
-      const parseGenFn = stream === true ? parseJSONOverEventStream : parseJSON;
-      const itr = parseGenFn(res.body, signal);
-
-      if (stream) {
-        return (async function* () {
-          for await (const message of itr) {
-            if ('error' in message) {
-              if (message.error instanceof Error) {
-                throw message.error;
-              } else {
-                throw new Error(message.error);
-              }
-            }
-
-            yield message;
-
-            switch (mode) {
-              case 'openaicompatible': {
-                const finishReason = message.choices[0].finish_reason;
-
-                if (finishReason) {
-                  if (finishReason !== 'stop') {
-                    throw new Error('Expected a completed response.');
-                  }
-
-                  return;
-                }
-
-                break;
-              }
-
-              default:
-                throw new Error('unreachable');
-            }
-          }
-
-          throw new Error(
-            'Did not receive done or success response in stream.',
-          );
-        })();
-      } else {
-        const message = await itr.next();
-
-        if (message.value && 'error' in message.value) {
-          const error = message.value.error;
-
-          if (error instanceof Error) {
-            throw error;
-          } else {
-            throw new Error(error);
-          }
-        }
-
-        const finish = message.value.choices[0].finish_reason === 'stop';
-
-        if (finish !== true) {
-          throw new Error('Expected a completed response.');
-        }
-
-        return message.value;
-      }
+      return await llmSession.run({
+        prompt,
+        stream,
+        signal: opts.signal,
+        timeout: opts.timeout,
+      });
     }
 
     if (this.init) {

@@ -1,7 +1,10 @@
-import { ILLMProvider, ILLMProviderOptions } from '../llm_session.ts';
+import { ILLMProvider, ILLMProviderInput, ILLMProviderOptions } from '../llm_session.ts';
 import { parseJSON } from '../utils/json_parser.ts';
 
 export type OllamaProviderOptions = ILLMProviderOptions;
+export type OllamaProviderInput = ILLMProviderInput & {
+  prompt: string;
+};
 
 export type OllamaMessage = {
   model: string;
@@ -26,10 +29,13 @@ export class OllamaLLMSession implements ILLMProvider {
 
   // ref: https://github.com/ollama/ollama-js/blob/6a4bfe3ab033f611639dfe4249bdd6b9b19c7256/src/utils.ts#L26
   async getStream(
-    prompt: string,
-    signal: AbortSignal,
+    { prompt, signal }: OllamaProviderInput,
   ): Promise<AsyncIterable<OllamaMessage>> {
-    const generator = await this.generate(prompt, signal, true);
+    const generator = await this.generate(
+      prompt,
+      signal,
+      true,
+    ) as AsyncGenerator<OllamaMessage>;
 
     const stream = async function* () {
       for await (const message of generator) {
@@ -55,22 +61,10 @@ export class OllamaLLMSession implements ILLMProvider {
     return stream();
   }
 
-  async getText(prompt: string, signal: AbortSignal): Promise<OllamaMessage> {
-    const generator = await this.generate(prompt, signal);
-
-    const message = await generator.next();
-
-    if (message.value && 'error' in message.value) {
-      const error = message.value.error;
-
-      if (error instanceof Error) {
-        throw error;
-      } else {
-        throw new Error(error);
-      }
-    }
-
-    const response = message.value;
+  async getText(
+    { prompt, signal }: OllamaProviderInput,
+  ): Promise<OllamaMessage> {
+    const response = await this.generate(prompt, signal) as OllamaMessage;
 
     if (!response?.done) {
       throw new Error('Expected a completed response.');
@@ -110,6 +104,12 @@ export class OllamaLLMSession implements ILLMProvider {
       throw new Error('Missing body');
     }
 
-    return parseJSON<OllamaMessage>(res.body, signal);
+    if (stream) {
+      return parseJSON<OllamaMessage>(res.body, signal);
+    }
+
+    const result: OllamaMessage = await res.json();
+
+    return result;
   }
 }

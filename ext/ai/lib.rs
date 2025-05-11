@@ -56,6 +56,7 @@ deno_core::extension!(
     "onnxruntime/cache_adapter.js",
     "llm/llm_session.ts",
     "llm/providers/ollama.ts",
+    "llm/providers/openai.ts",
     "llm/utils/json_parser.ts",
     "llm/utils/event_stream_parser.mjs",
     "llm/utils/event_source_stream.mjs",

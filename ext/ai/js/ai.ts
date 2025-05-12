@@ -34,15 +34,23 @@ export type EmbeddingInputOptions = {
   normalize?: boolean;
 };
 
-export type SessionInputOptions<T extends SessionType> = T extends
-  LLMProviderName ? LLMInputOptions
-  : EmbeddingInputOptions;
+export type SessionInputOptions<T extends SessionType> = T extends "gte-small"
+  ? EmbeddingInputOptions
+  : T extends LLMProviderName ? LLMInputOptions
+  : never;
+
+export type SessionOutput<T extends SessionType, O> = T extends "gte-small"
+  ? number[]
+  : T extends LLMProviderName
+    ? O extends { stream: true }
+      ? AsyncGenerator<LLMProviderInstance<T>["output"]>
+    : LLMProviderInstance<T>["output"]
+  : never;
 
 export class Session<T extends SessionType> {
   #model?: string;
   #init?: Promise<void>;
 
-  // TODO:(kallebysantos) get 'provider' type here and use type checking to suggest Inputs when run
   constructor(
     public readonly type: T,
     public readonly options?: SessionOptions<T>,
@@ -77,7 +85,10 @@ export class Session<T extends SessionType> {
   }
 
   //  /** @param {string | object} prompt Either a String (ollama) or an OpenAI chat completion body object (openaicompatible): https://platform.openai.com/docs/api-reference/chat/create */
-  async run(input: SessionInput<T>, options: SessionInputOptions<T>) {
+  async run<O extends SessionInputOptions<T>>(
+    input: SessionInput<T>,
+    options: O,
+  ): Promise<SessionOutput<T, O>> {
     if (this.isLLMType()) {
       const opts = options as LLMInputOptions;
       const stream = opts.stream ?? false;
@@ -93,7 +104,7 @@ export class Session<T extends SessionType> {
         stream,
         signal: opts.signal,
         timeout: opts.timeout,
-      });
+      }) as SessionOutput<T, typeof options>;
     }
 
     if (this.#init) {

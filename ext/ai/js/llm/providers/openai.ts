@@ -3,6 +3,7 @@ import {
   ILLMProviderInput,
   ILLMProviderMeta,
   ILLMProviderOptions,
+  ILLMProviderOutput,
 } from "../llm_session.ts";
 import { parseJSONOverEventStream } from "../utils/json_parser.ts";
 
@@ -97,11 +98,11 @@ export type OpenAIResponse = {
 export type OpenAICompatibleInput = Omit<OpenAIRequest, "stream" | "model">;
 
 export type OpenAIProviderInput = ILLMProviderInput<OpenAICompatibleInput>;
+export type OpenAIProviderOutput = ILLMProviderOutput<OpenAIResponse>;
 
 export class OpenAILLMSession implements ILLMProvider, ILLMProviderMeta {
   input!: OpenAIProviderInput;
-  // TODO:(kallebysantos) add output types
-  output: unknown;
+  output!: OpenAIProviderOutput;
   options: OpenAIProviderOptions;
 
   constructor(opts: OpenAIProviderOptions) {
@@ -111,13 +112,14 @@ export class OpenAILLMSession implements ILLMProvider, ILLMProviderMeta {
   async getStream(
     prompt: OpenAIProviderInput,
     signal: AbortSignal,
-  ): Promise<AsyncIterable<OpenAIResponse>> {
+  ): Promise<AsyncIterable<OpenAIProviderOutput>> {
     const generator = await this.generate(
       prompt,
       signal,
       true,
     ) as AsyncGenerator<any>; // TODO:(kallebysantos) remove any
 
+    const parser = this.parse;
     const stream = async function* () {
       for await (const message of generator) {
         // TODO:(kallebysantos) Simplify duplicated code for stream error checking
@@ -129,7 +131,7 @@ export class OpenAILLMSession implements ILLMProvider, ILLMProviderMeta {
           }
         }
 
-        yield message;
+        yield parser(message);
         const finishReason = message.choices[0].finish_reason;
 
         if (finishReason) {
@@ -152,7 +154,7 @@ export class OpenAILLMSession implements ILLMProvider, ILLMProviderMeta {
   async getText(
     prompt: OpenAIProviderInput,
     signal: AbortSignal,
-  ): Promise<OpenAIResponse> {
+  ): Promise<OpenAIProviderOutput> {
     const response = await this.generate(
       prompt,
       signal,
@@ -164,9 +166,23 @@ export class OpenAILLMSession implements ILLMProvider, ILLMProviderMeta {
       throw new Error("Expected a completed response.");
     }
 
-    return response;
+    return this.parse(response);
   }
 
+  private parse(message: OpenAIResponse): OpenAIProviderOutput {
+    const { usage } = message;
+
+    return {
+      value: message.choices.at(0)?.message.content ?? undefined,
+      inner: message,
+      usage: {
+        // Usage maybe 'null' while streaming, but the final message will include it
+        inputTokens: usage?.prompt_tokens ?? 0,
+        outputTokens: usage?.completion_tokens ?? 0,
+        totalTokens: usage?.total_tokens ?? 0,
+      },
+    };
+  }
   private async generate(
     input: OpenAICompatibleInput,
     signal: AbortSignal,

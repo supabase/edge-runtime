@@ -3,11 +3,13 @@ import {
   ILLMProviderInput,
   ILLMProviderMeta,
   ILLMProviderOptions,
-} from '../llm_session.ts';
-import { parseJSON } from '../utils/json_parser.ts';
+  ILLMProviderOutput,
+} from "../llm_session.ts";
+import { parseJSON } from "../utils/json_parser.ts";
 
 export type OllamaProviderOptions = ILLMProviderOptions;
 export type OllamaProviderInput = ILLMProviderInput<string>;
+export type OllamaProviderOutput = ILLMProviderOutput<OllamaMessage>;
 
 export type OllamaMessage = {
   model: string;
@@ -25,7 +27,7 @@ export type OllamaMessage = {
 
 export class OllamaLLMSession implements ILLMProvider, ILLMProviderMeta {
   input!: OllamaProviderInput;
-  output!: unknown;
+  output!: OllamaProviderOutput;
   options: OllamaProviderOptions;
 
   constructor(opts: OllamaProviderOptions) {
@@ -36,16 +38,18 @@ export class OllamaLLMSession implements ILLMProvider, ILLMProviderMeta {
   async getStream(
     prompt: OllamaProviderInput,
     signal: AbortSignal,
-  ): Promise<AsyncIterable<OllamaMessage>> {
+  ): Promise<AsyncIterable<OllamaProviderOutput>> {
     const generator = await this.generate(
       prompt,
       signal,
       true,
     ) as AsyncGenerator<OllamaMessage>;
 
+    const parser = this.parse;
+
     const stream = async function* () {
       for await (const message of generator) {
-        if ('error' in message) {
+        if ("error" in message) {
           if (message.error instanceof Error) {
             throw message.error;
           } else {
@@ -53,14 +57,15 @@ export class OllamaLLMSession implements ILLMProvider, ILLMProviderMeta {
           }
         }
 
-        yield message;
+        yield parser(message);
+
         if (message.done) {
           return;
         }
       }
 
       throw new Error(
-        'Did not receive done or success response in stream.',
+        "Did not receive done or success response in stream.",
       );
     };
 
@@ -70,14 +75,28 @@ export class OllamaLLMSession implements ILLMProvider, ILLMProviderMeta {
   async getText(
     prompt: OllamaProviderInput,
     signal: AbortSignal,
-  ): Promise<OllamaMessage> {
+  ): Promise<OllamaProviderOutput> {
     const response = await this.generate(prompt, signal) as OllamaMessage;
 
     if (!response?.done) {
-      throw new Error('Expected a completed response.');
+      throw new Error("Expected a completed response.");
     }
 
-    return response;
+    return this.parse(response);
+  }
+
+  private parse(message: OllamaMessage): OllamaProviderOutput {
+    const { response, prompt_eval_count, eval_count } = message;
+
+    return {
+      value: response,
+      inner: message,
+      usage: {
+        inputTokens: prompt_eval_count,
+        outputTokens: eval_count,
+        totalTokens: prompt_eval_count + eval_count,
+      },
+    };
   }
 
   private async generate(
@@ -86,11 +105,11 @@ export class OllamaLLMSession implements ILLMProvider, ILLMProviderMeta {
     stream: boolean = false,
   ) {
     const res = await fetch(
-      new URL('/api/generate', this.options.baseURL),
+      new URL("/api/generate", this.options.baseURL),
       {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({
           model: this.options.model,
@@ -108,7 +127,7 @@ export class OllamaLLMSession implements ILLMProvider, ILLMProviderMeta {
     }
 
     if (!res.body) {
-      throw new Error('Missing body');
+      throw new Error("Missing body");
     }
 
     if (stream) {

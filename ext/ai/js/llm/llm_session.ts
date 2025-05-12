@@ -34,14 +34,27 @@ export interface ILLMProviderOptions {
 export type ILLMProviderInput<T = string | object> = T extends string ? string
   : T;
 
+export interface ILLMProviderOutput<T = object> {
+  value?: string;
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+  };
+  inner: T;
+}
+
 export interface ILLMProvider {
   // TODO:(kallebysantos) remove 'any'
   // TODO: (kallebysantos) standardised output format
   getStream(
     input: ILLMProviderInput,
     signal: AbortSignal,
-  ): Promise<AsyncIterable<any>>;
-  getText(input: ILLMProviderInput, signal: AbortSignal): Promise<any>;
+  ): Promise<AsyncIterable<ILLMProviderOutput>>;
+  getText(
+    input: ILLMProviderInput,
+    signal: AbortSignal,
+  ): Promise<ILLMProviderOutput>;
 }
 
 export const providers = {
@@ -92,7 +105,7 @@ export class LLMSession {
   run(
     input: ILLMProviderInput,
     opts: LLMSessionRunInputOptions,
-  ): Promise<AsyncIterable<any>> | Promise<any> {
+  ): Promise<AsyncIterable<ILLMProviderOutput>> | Promise<ILLMProviderOutput> {
     const isStream = opts.stream ?? false;
 
     const timeoutSeconds = typeof opts.timeout === "number" ? opts.timeout : 60;

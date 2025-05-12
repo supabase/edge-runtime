@@ -1,5 +1,5 @@
-import { OllamaLLMSession } from './providers/ollama.ts';
-import { OpenAILLMSession } from './providers/openai.ts';
+import { OllamaLLMSession } from "./providers/ollama.ts";
+import { OpenAILLMSession } from "./providers/openai.ts";
 
 // @ts-ignore deno_core environment
 const core = globalThis.Deno.core;
@@ -20,29 +20,58 @@ export type LLMRunInput = {
   signal?: AbortSignal;
 };
 
-export interface ILLMProviderOptions {
-  model: string;
-  inferenceAPIHost: string;
+export interface ILLMProviderMeta {
+  input: ILLMProviderInput;
+  output: unknown;
+  options: ILLMProviderOptions;
 }
 
-export interface ILLMProviderInput {
-  prompt: string | object;
-  signal: AbortSignal;
+export interface ILLMProviderOptions {
+  model: string;
+  baseURL?: string;
 }
+
+export type ILLMProviderInput<T = string | object> = T extends string ? string
+  : T;
 
 export interface ILLMProvider {
   // TODO:(kallebysantos) remove 'any'
   // TODO: (kallebysantos) standardised output format
-  getStream(input: ILLMProviderInput): Promise<AsyncIterable<any>>;
-  getText(input: ILLMProviderInput): Promise<any>;
+  getStream(
+    input: ILLMProviderInput,
+    signal: AbortSignal,
+  ): Promise<AsyncIterable<any>>;
+  getText(input: ILLMProviderInput, signal: AbortSignal): Promise<any>;
 }
 
 export const providers = {
-  'ollama': OllamaLLMSession,
-  'openaicompatible': OpenAILLMSession,
-} satisfies Record<string, new (opts: ILLMProviderOptions) => ILLMProvider>;
+  "ollama": OllamaLLMSession,
+  "openaicompatible": OpenAILLMSession,
+} satisfies Record<
+  string,
+  new (opts: ILLMProviderOptions) => ILLMProvider & ILLMProviderMeta
+>;
 
 export type LLMProviderName = keyof typeof providers;
+
+export type LLMProviderClass<T extends LLMProviderName> = (typeof providers)[T];
+export type LLMProviderInstance<T extends LLMProviderName> = InstanceType<
+  LLMProviderClass<T>
+>;
+
+export type LLMSessionRunInputOptions = {
+  /**
+   * Stream response from model. Applies only for LLMs like `mistral` (default: false)
+   */
+  stream?: boolean;
+
+  /**
+   * Automatically abort the request to the model after specified time (in seconds). Applies only for LLMs like `mistral` (default: 60)
+   */
+  timeout?: number;
+
+  signal?: AbortSignal;
+};
 
 export class LLMSession {
   #inner: ILLMProvider;
@@ -53,7 +82,7 @@ export class LLMSession {
 
   static fromProvider(name: LLMProviderName, opts: ILLMProviderOptions) {
     const ProviderType = providers[name];
-    if (!ProviderType) throw new Error('invalid provider');
+    if (!ProviderType) throw new Error("invalid provider");
 
     const provider = new ProviderType(opts);
 
@@ -61,11 +90,12 @@ export class LLMSession {
   }
 
   run(
-    opts: LLMRunInput,
+    input: ILLMProviderInput,
+    opts: LLMSessionRunInputOptions,
   ): Promise<AsyncIterable<any>> | Promise<any> {
     const isStream = opts.stream ?? false;
 
-    const timeoutSeconds = typeof opts.timeout === 'number' ? opts.timeout : 60;
+    const timeoutSeconds = typeof opts.timeout === "number" ? opts.timeout : 60;
     const timeoutMs = timeoutSeconds * 1000;
 
     const timeoutSignal = AbortSignal.timeout(timeoutMs);
@@ -73,11 +103,10 @@ export class LLMSession {
       .filter((it) => it instanceof AbortSignal);
     const signal = AbortSignal.any(abortSignals);
 
-    const llmInput: ILLMProviderInput = { prompt: opts.prompt, signal };
     if (isStream) {
-      return this.#inner.getStream(llmInput);
+      return this.#inner.getStream(input, signal);
     }
 
-    return this.#inner.getText(llmInput);
+    return this.#inner.getText(input, signal);
   }
 }

@@ -48,10 +48,10 @@ deno_core::extension!(
     op_ai_ort_init_session,
     op_ai_ort_run_session,
   ],
-  esm_entry_point = "ext:ai/ai.js",
+  esm_entry_point = "ext:ai/ai.ts",
   esm = [
     dir "js",
-    "ai.js",
+    "ai.ts",
     "onnxruntime/onnx.js",
     "onnxruntime/cache_adapter.js",
     "llm/llm_session.ts",

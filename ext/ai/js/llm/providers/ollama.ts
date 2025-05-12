@@ -1,10 +1,13 @@
-import { ILLMProvider, ILLMProviderInput, ILLMProviderOptions } from '../llm_session.ts';
+import {
+  ILLMProvider,
+  ILLMProviderInput,
+  ILLMProviderMeta,
+  ILLMProviderOptions,
+} from '../llm_session.ts';
 import { parseJSON } from '../utils/json_parser.ts';
 
 export type OllamaProviderOptions = ILLMProviderOptions;
-export type OllamaProviderInput = ILLMProviderInput & {
-  prompt: string;
-};
+export type OllamaProviderInput = ILLMProviderInput<string>;
 
 export type OllamaMessage = {
   model: string;
@@ -20,16 +23,19 @@ export type OllamaMessage = {
   eval_duration: number;
 };
 
-export class OllamaLLMSession implements ILLMProvider {
-  opts: OllamaProviderOptions;
+export class OllamaLLMSession implements ILLMProvider, ILLMProviderMeta {
+  input!: OllamaProviderInput;
+  output!: unknown;
+  options: OllamaProviderOptions;
 
   constructor(opts: OllamaProviderOptions) {
-    this.opts = opts;
+    this.options = opts;
   }
 
   // ref: https://github.com/ollama/ollama-js/blob/6a4bfe3ab033f611639dfe4249bdd6b9b19c7256/src/utils.ts#L26
   async getStream(
-    { prompt, signal }: OllamaProviderInput,
+    prompt: OllamaProviderInput,
+    signal: AbortSignal,
   ): Promise<AsyncIterable<OllamaMessage>> {
     const generator = await this.generate(
       prompt,
@@ -62,7 +68,8 @@ export class OllamaLLMSession implements ILLMProvider {
   }
 
   async getText(
-    { prompt, signal }: OllamaProviderInput,
+    prompt: OllamaProviderInput,
+    signal: AbortSignal,
   ): Promise<OllamaMessage> {
     const response = await this.generate(prompt, signal) as OllamaMessage;
 
@@ -79,14 +86,14 @@ export class OllamaLLMSession implements ILLMProvider {
     stream: boolean = false,
   ) {
     const res = await fetch(
-      new URL('/api/generate', this.opts.inferenceAPIHost),
+      new URL('/api/generate', this.options.baseURL),
       {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: this.opts.model,
+          model: this.options.model,
           stream,
           prompt,
         }),

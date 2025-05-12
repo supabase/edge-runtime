@@ -1,6 +1,6 @@
 import { core, primordials } from "ext:core/mod.js";
 
-import { MAIN_WORKER_API, USER_WORKER_API } from "ext:ai/ai.js";
+import { MAIN_WORKER_API, USER_WORKER_API } from "ext:ai/ai.ts";
 import { SUPABASE_USER_WORKERS } from "ext:user_workers/user_workers.js";
 import { applySupabaseTag } from "ext:runtime/http.js";
 import { waitUntil } from "ext:runtime/async_hook.js";

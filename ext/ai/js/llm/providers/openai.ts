@@ -1,5 +1,10 @@
-import { ILLMProvider, ILLMProviderInput, ILLMProviderOptions } from '../llm_session.ts';
-import { parseJSONOverEventStream } from '../utils/json_parser.ts';
+import {
+  ILLMProvider,
+  ILLMProviderInput,
+  ILLMProviderMeta,
+  ILLMProviderOptions,
+} from "../llm_session.ts";
+import { parseJSONOverEventStream } from "../utils/json_parser.ts";
 
 export type OpenAIProviderOptions = ILLMProviderOptions & {
   apiKey?: string;
@@ -9,7 +14,7 @@ export type OpenAIProviderOptions = ILLMProviderOptions & {
 export type OpenAIRequest = {
   model: string;
   messages: {
-    role: 'system' | 'user' | 'assistant' | 'tool';
+    role: "system" | "user" | "assistant" | "tool";
     content: string;
     name?: string;
     tool_call_id?: string;
@@ -29,68 +34,83 @@ export type OpenAIRequest = {
   logit_bias?: { [token: string]: number };
   user?: string;
   tools?: {
-    type: 'function';
+    type: "function";
     function: {
       name: string;
       description?: string;
       parameters: any; // Can be refined based on your function definition
     };
   }[];
-  tool_choice?: 'none' | 'auto' | {
-    type: 'function';
+  tool_choice?: "none" | "auto" | {
+    type: "function";
     function: { name: string };
   };
 };
 
-export type OpenAIResponse = {
-  id: string;
-  object: 'chat.completion';
-  created: number;
-  model: string;
-  system_fingerprint?: string;
-  choices: {
-    index: number;
-    message: {
-      role: 'assistant' | 'user' | 'system' | 'tool';
-      content: string | null;
-      function_call?: {
-        name: string;
-        arguments: string;
-      };
-      tool_calls?: {
-        id: string;
-        type: 'function';
-        function: {
-          name: string;
-          arguments: string;
-        };
-      }[];
-    };
-    finish_reason: 'stop' | 'length' | 'tool_calls' | 'content_filter' | null;
-  }[];
-  usage?: {
-    prompt_tokens: number;
-    completion_tokens: number;
-    total_tokens: number;
+export type OpenAIResponseUsage = {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  prompt_tokens_details: {
+    cached_tokens: 0;
+    audio_tokens: 0;
+  };
+  completion_tokens_details: {
+    reasoning_tokens: 0;
+    audio_tokens: 0;
+    accepted_prediction_tokens: 0;
+    rejected_prediction_tokens: 0;
   };
 };
 
-export type OpenAIInput = Omit<OpenAIRequest, 'stream' | 'model'>;
-
-export type OpenAIProviderInput = Omit<ILLMProviderInput, 'prompt'> & {
-  // Use Open AI defs
-  prompt: OpenAIInput;
+export type OpenAIResponseChoice = {
+  index: number;
+  message: {
+    role: "assistant" | "user" | "system" | "tool";
+    content: string | null;
+    function_call?: {
+      name: string;
+      arguments: string;
+    };
+    tool_calls?: {
+      id: string;
+      type: "function";
+      function: {
+        name: string;
+        arguments: string;
+      };
+    }[];
+  };
+  finish_reason: "stop" | "length" | "tool_calls" | "content_filter" | null;
 };
 
-export class OpenAILLMSession implements ILLMProvider {
-  opts: OpenAIProviderOptions;
+export type OpenAIResponse = {
+  id: string;
+  object: "chat.completion";
+  created: number;
+  model: string;
+  system_fingerprint?: string;
+  choices: OpenAIResponseChoice[];
+  usage?: OpenAIResponseUsage;
+};
+
+export type OpenAICompatibleInput = Omit<OpenAIRequest, "stream" | "model">;
+
+export type OpenAIProviderInput = ILLMProviderInput<OpenAICompatibleInput>;
+
+export class OpenAILLMSession implements ILLMProvider, ILLMProviderMeta {
+  input!: OpenAIProviderInput;
+  // TODO:(kallebysantos) add output types
+  output: unknown;
+  options: OpenAIProviderOptions;
 
   constructor(opts: OpenAIProviderOptions) {
-    this.opts = opts;
+    this.options = opts;
   }
 
   async getStream(
-    { prompt, signal }: OpenAIProviderInput,
+    prompt: OpenAIProviderInput,
+    signal: AbortSignal,
   ): Promise<AsyncIterable<OpenAIResponse>> {
     const generator = await this.generate(
       prompt,
@@ -101,7 +121,7 @@ export class OpenAILLMSession implements ILLMProvider {
     const stream = async function* () {
       for await (const message of generator) {
         // TODO:(kallebysantos) Simplify duplicated code for stream error checking
-        if ('error' in message) {
+        if ("error" in message) {
           if (message.error instanceof Error) {
             throw message.error;
           } else {
@@ -113,8 +133,8 @@ export class OpenAILLMSession implements ILLMProvider {
         const finishReason = message.choices[0].finish_reason;
 
         if (finishReason) {
-          if (finishReason !== 'stop') {
-            throw new Error('Expected a completed response.');
+          if (finishReason !== "stop") {
+            throw new Error("Expected a completed response.");
           }
 
           return;
@@ -122,7 +142,7 @@ export class OpenAILLMSession implements ILLMProvider {
       }
 
       throw new Error(
-        'Did not receive done or success response in stream.',
+        "Did not receive done or success response in stream.",
       );
     };
 
@@ -130,7 +150,8 @@ export class OpenAILLMSession implements ILLMProvider {
   }
 
   async getText(
-    { prompt, signal }: OpenAIProviderInput,
+    prompt: OpenAIProviderInput,
+    signal: AbortSignal,
   ): Promise<OpenAIResponse> {
     const response = await this.generate(
       prompt,
@@ -139,30 +160,30 @@ export class OpenAILLMSession implements ILLMProvider {
 
     const finishReason = response.choices[0].finish_reason;
 
-    if (finishReason !== 'stop') {
-      throw new Error('Expected a completed response.');
+    if (finishReason !== "stop") {
+      throw new Error("Expected a completed response.");
     }
 
     return response;
   }
 
   private async generate(
-    input: OpenAIInput,
+    input: OpenAICompatibleInput,
     signal: AbortSignal,
     stream: boolean = false,
   ) {
     const res = await fetch(
-      new URL('/v1/chat/completions', this.opts.inferenceAPIHost),
+      new URL("/v1/chat/completions", this.options.baseURL),
       {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.opts.apiKey}`,
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${this.options.apiKey}`,
         },
         body: JSON.stringify(
           {
             ...input,
-            model: this.opts.model,
+            model: this.options.model,
             stream,
           } satisfies OpenAIRequest,
         ),
@@ -177,7 +198,7 @@ export class OpenAILLMSession implements ILLMProvider {
     }
 
     if (!res.body) {
-      throw new Error('Missing body');
+      throw new Error("Missing body");
     }
 
     if (stream) {

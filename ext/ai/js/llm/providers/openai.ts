@@ -11,10 +11,13 @@ export type OpenAIProviderOptions = ILLMProviderOptions & {
   apiKey?: string;
 };
 
+// NOTE:(kallebysantos) we define all types here for better development as well avoid `"npm:openai"` import
 // TODO:(kallebysantos) need to double check theses AI generated types
 export type OpenAIRequest = {
   model: string;
   messages: {
+    // NOTE:(kallebysantos) using role as union type is great for intellisense suggestions
+    // but at same time it forces users to `{} satisfies Supabase.ai.OpenAICompatibleInput`
     role: "system" | "user" | "assistant" | "tool";
     content: string;
     name?: string;
@@ -39,7 +42,7 @@ export type OpenAIRequest = {
     function: {
       name: string;
       description?: string;
-      parameters: any; // Can be refined based on your function definition
+      parameters: unknown;
     };
   }[];
   tool_choice?: "none" | "auto" | {
@@ -53,14 +56,14 @@ export type OpenAIResponseUsage = {
   completion_tokens: number;
   total_tokens: number;
   prompt_tokens_details: {
-    cached_tokens: 0;
-    audio_tokens: 0;
+    cached_tokens: number;
+    audio_tokens: number;
   };
   completion_tokens_details: {
-    reasoning_tokens: 0;
-    audio_tokens: 0;
-    accepted_prediction_tokens: 0;
-    rejected_prediction_tokens: 0;
+    reasoning_tokens: number;
+    audio_tokens: number;
+    accepted_prediction_tokens: number;
+    rejected_prediction_tokens: number;
   };
 };
 
@@ -117,12 +120,12 @@ export class OpenAILLMSession implements ILLMProvider, ILLMProviderMeta {
       prompt,
       signal,
       true,
-    ) as AsyncGenerator<any>; // TODO:(kallebysantos) remove any
+    ) as AsyncGenerator<OpenAIResponse>;
 
+    // NOTE:(kallebysantos) we need to clone the lambda parser to avoid `this` conflicts inside the local function*
     const parser = this.parse;
     const stream = async function* () {
       for await (const message of generator) {
-        // TODO:(kallebysantos) Simplify duplicated code for stream error checking
         if ("error" in message) {
           if (message.error instanceof Error) {
             throw message.error;
@@ -176,7 +179,7 @@ export class OpenAILLMSession implements ILLMProvider, ILLMProviderMeta {
       value: message.choices.at(0)?.message.content ?? undefined,
       inner: message,
       usage: {
-        // Usage maybe 'null' while streaming, but the final message will include it
+        // NOTE:(kallebysantos) usage maybe 'null' while streaming, but the final message will include it
         inputTokens: usage?.prompt_tokens ?? 0,
         outputTokens: usage?.completion_tokens ?? 0,
         totalTokens: usage?.total_tokens ?? 0,
@@ -218,7 +221,7 @@ export class OpenAILLMSession implements ILLMProvider, ILLMProviderMeta {
     }
 
     if (stream) {
-      return parseJSONOverEventStream(res.body, signal);
+      return parseJSONOverEventStream<OpenAIResponse>(res.body, signal);
     }
 
     const result: OpenAIResponse = await res.json();

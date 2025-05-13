@@ -84,7 +84,6 @@ export class Session<T extends SessionType> {
     }
   }
 
-  //  /** @param {string | object} prompt Either a String (ollama) or an OpenAI chat completion body object (openaicompatible): https://platform.openai.com/docs/api-reference/chat/create */
   async run<O extends SessionInputOptions<T>>(
     input: SessionInput<T>,
     options: O,
@@ -117,7 +116,6 @@ export class Session<T extends SessionType> {
     const normalize = opts.normalize ?? true;
 
     const result = await core.ops.op_ai_run_model(
-      // @ts-ignore
       this.#model,
       prompt,
       mean_pool,

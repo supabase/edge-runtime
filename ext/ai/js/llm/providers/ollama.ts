@@ -45,8 +45,8 @@ export class OllamaLLMSession implements ILLMProvider, ILLMProviderMeta {
       true,
     ) as AsyncGenerator<OllamaMessage>;
 
+    // NOTE:(kallebysantos) we need to clone the lambda parser to avoid `this` conflicts inside the local function*
     const parser = this.parse;
-
     const stream = async function* () {
       for await (const message of generator) {
         if ("error" in message) {

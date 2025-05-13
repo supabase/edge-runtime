@@ -1,9 +1,6 @@
 import { OllamaLLMSession } from "./providers/ollama.ts";
 import { OpenAILLMSession } from "./providers/openai.ts";
 
-// @ts-ignore deno_core environment
-const core = globalThis.Deno.core;
-
 export type LLMRunInput = {
   /**
    * Stream response from model. Applies only for LLMs like `mistral` (default: false)
@@ -45,8 +42,6 @@ export interface ILLMProviderOutput<T = object> {
 }
 
 export interface ILLMProvider {
-  // TODO:(kallebysantos) remove 'any'
-  // TODO: (kallebysantos) standardised output format
   getStream(
     input: ILLMProviderInput,
     signal: AbortSignal,

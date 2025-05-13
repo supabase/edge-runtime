@@ -31,6 +31,9 @@ export type OpenAIRequest = {
   top_p?: number;
   n?: number;
   stream?: boolean;
+  stream_options: {
+    include_usage: boolean;
+  };
   stop?: string | string[];
   max_tokens?: number;
   presence_penalty?: number;
@@ -69,7 +72,7 @@ export type OpenAIResponseUsage = {
 
 export type OpenAIResponseChoice = {
   index: number;
-  message: {
+  message?: {
     role: "assistant" | "user" | "system" | "tool";
     content: string | null;
     function_call?: {
@@ -85,6 +88,9 @@ export type OpenAIResponseChoice = {
       };
     }[];
   };
+  delta?: {
+    content: string | null;
+  };
   finish_reason: "stop" | "length" | "tool_calls" | "content_filter" | null;
 };
 
@@ -98,7 +104,10 @@ export type OpenAIResponse = {
   usage?: OpenAIResponseUsage;
 };
 
-export type OpenAICompatibleInput = Omit<OpenAIRequest, "stream" | "model">;
+export type OpenAICompatibleInput = Omit<
+  OpenAIRequest,
+  "stream" | "stream_options" | "model"
+>;
 
 export type OpenAIProviderInput = ILLMProviderInput<OpenAICompatibleInput>;
 export type OpenAIProviderOutput = ILLMProviderOutput<OpenAIResponse>;
@@ -126,23 +135,25 @@ export class OpenAILLMSession implements ILLMProvider, ILLMProviderMeta {
     const parser = this.parse;
     const stream = async function* () {
       for await (const message of generator) {
+        // NOTE:(kallebysantos) while streaming the final message will not include 'finish_reason'
+        // Instead a '[DONE]' value will be returned to close the stream
+        if ("done" in message && message.done) {
+          return;
+        }
+
         if ("error" in message) {
           if (message.error instanceof Error) {
             throw message.error;
-          } else {
-            throw new Error(message.error as string);
           }
+
+          throw new Error(message.error as string);
         }
 
         yield parser(message);
-        const finishReason = message.choices[0].finish_reason;
 
-        if (finishReason) {
-          if (finishReason !== "stop") {
-            throw new Error("Expected a completed response.");
-          }
-
-          return;
+        const finish_reason = message.choices.at(0)?.finish_reason;
+        if (finish_reason && finish_reason !== "stop") {
+          throw new Error("Expected a completed response.");
         }
       }
 
@@ -172,12 +183,14 @@ export class OpenAILLMSession implements ILLMProvider, ILLMProviderMeta {
     return this.parse(response);
   }
 
-  private parse(message: OpenAIResponse): OpenAIProviderOutput {
-    const { usage } = message;
+  private parse(response: OpenAIResponse): OpenAIProviderOutput {
+    const { usage } = response;
+    const choice = response.choices.at(0);
 
     return {
-      value: message.choices.at(0)?.message.content ?? undefined,
-      inner: message,
+      // NOTE:(kallebysantos) while streaming the 'delta'  field will be used instead of 'message'
+      value: choice?.message?.content ?? choice?.delta?.content ?? undefined,
+      inner: response,
       usage: {
         // NOTE:(kallebysantos) usage maybe 'null' while streaming, but the final message will include it
         inputTokens: usage?.prompt_tokens ?? 0,
@@ -204,6 +217,9 @@ export class OpenAILLMSession implements ILLMProvider, ILLMProviderMeta {
             ...input,
             model: this.options.model,
             stream,
+            stream_options: {
+              include_usage: true,
+            },
           } satisfies OpenAIRequest,
         ),
         signal,

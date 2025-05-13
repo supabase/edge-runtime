@@ -71,6 +71,7 @@ export async function* parseJSONOverEventStream<T extends object>(
       const { done, value } = await reader.read();
 
       if (done) {
+        yield { done };
         break;
       }
 

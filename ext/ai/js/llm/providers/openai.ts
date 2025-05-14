@@ -120,7 +120,7 @@ export type OpenAIProviderError = ILLMProviderError<object>;
 
 export class OpenAILLMSession implements ILLMProvider, ILLMProviderMeta {
   input!: OpenAIProviderInput;
-  output!: OpenAIProviderOutput;
+  output!: ILLMProviderOutput<OpenAIResponse>;
   error!: OpenAIProviderError;
   options: OpenAIProviderOptions;
 

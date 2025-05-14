@@ -33,7 +33,7 @@ export type OllamaMessage = {
 
 export class OllamaLLMSession implements ILLMProvider, ILLMProviderMeta {
   input!: OllamaProviderInput;
-  output!: OllamaProviderOutput;
+  output!: ILLMProviderOutput<OllamaMessage>;
   error!: OllamaProviderError;
   options: OllamaProviderOptions;
 

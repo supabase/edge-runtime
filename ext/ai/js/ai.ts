@@ -10,6 +10,9 @@ import {
 // @ts-ignore deno_core environment
 const core = globalThis.Deno.core;
 
+// TODO: extract to utils file
+export type Result<T, E> = [T, undefined] | [undefined, E];
+
 // NOTE:(kallebysantos) do we still need gte-small? Or maybe add another type 'embeddings' with custom model opt.
 export type SessionType = LLMProviderName | "gte-small";
 
@@ -46,6 +49,16 @@ export type SessionOutput<T extends SessionType, O> = T extends "gte-small"
       ? AsyncGenerator<LLMProviderInstance<T>["output"]>
     : LLMProviderInstance<T>["output"]
   : never;
+
+export type SessionError<T = object | string> = {
+  message: string;
+  inner: T;
+};
+
+export type SessionOutputError<T extends SessionType> = T extends "gte-small"
+  ? SessionError<Error>
+  : T extends LLMProviderName ? SessionError<LLMProviderInstance<T>["error"]>
+  : any;
 
 export class Session<T extends SessionType> {
   #model?: string;
@@ -87,42 +100,58 @@ export class Session<T extends SessionType> {
   async run<O extends SessionInputOptions<T>>(
     input: SessionInput<T>,
     options: O,
-  ): Promise<SessionOutput<T, O>> {
-    if (this.isLLMType()) {
-      const opts = options as LLMInputOptions;
-      const stream = opts.stream ?? false;
+  ): Promise<
+    [SessionOutput<T, O>, undefined] | [undefined, SessionOutputError<T>]
+  > {
+    try {
+      if (this.isLLMType()) {
+        const opts = options as LLMInputOptions;
+        const stream = opts.stream ?? false;
 
-      const llmSession = LLMSession.fromProvider(this.type, {
-        // safety: We did check `options` during construction
-        baseURL: this.options!.baseURL,
-        model: this.options!.model,
-        ...this.options, // allows custom provider initialization like 'apiKey'
-      });
+        const llmSession = LLMSession.fromProvider(this.type, {
+          // safety: We did check `options` during construction
+          baseURL: this.options!.baseURL,
+          model: this.options!.model,
+          ...this.options, // allows custom provider initialization like 'apiKey'
+        });
 
-      return await llmSession.run(input, {
-        stream,
-        signal: opts.signal,
-        timeout: opts.timeout,
-      }) as SessionOutput<T, typeof options>;
+        const [output, error] = await llmSession.run(input, {
+          stream,
+          signal: opts.signal,
+          timeout: opts.timeout,
+        });
+        if (error) {
+          return [undefined, error as SessionOutputError<T>];
+        }
+
+        return [output as SessionOutput<T, typeof options>, undefined];
+      }
+
+      if (this.#init) {
+        await this.#init;
+      }
+
+      const opts = options as EmbeddingInputOptions;
+
+      const mean_pool = opts.mean_pool ?? true;
+      const normalize = opts.normalize ?? true;
+
+      const result = await core.ops.op_ai_run_model(
+        this.#model,
+        prompt,
+        mean_pool,
+        normalize,
+      ) as SessionOutput<T, typeof options>;
+
+      return [result, undefined];
+    } catch (e: any) {
+      const error = (e instanceof Error) ? e : new Error(e);
+
+      return [
+        undefined,
+        { inner: error, message: error.message } as SessionOutputError<T>,
+      ];
     }
-
-    if (this.#init) {
-      await this.#init;
-    }
-
-    const opts = options as EmbeddingInputOptions;
-
-    const mean_pool = opts.mean_pool ?? true;
-    const normalize = opts.normalize ?? true;
-
-    const result = await core.ops.op_ai_run_model(
-      this.#model,
-      prompt,
-      mean_pool,
-      normalize,
-    );
-
-    return result;
   }
 
   private isEmbeddingType(

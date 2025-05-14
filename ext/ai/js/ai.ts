@@ -46,7 +46,12 @@ export type SessionOutput<T extends SessionType, O> = T extends "gte-small"
   ? number[]
   : T extends LLMProviderName
     ? O extends { stream: true }
-      ? AsyncGenerator<LLMProviderInstance<T>["output"]>
+      ? AsyncGenerator<
+        Result<
+          LLMProviderInstance<T>["output"],
+          LLMProviderInstance<T>["error"]
+        >
+      >
     : LLMProviderInstance<T>["output"]
   : never;
 

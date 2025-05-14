@@ -1,5 +1,7 @@
+import { Result } from "../../ai.ts";
 import {
   ILLMProvider,
+  ILLMProviderError,
   ILLMProviderInput,
   ILLMProviderMeta,
   ILLMProviderOptions,
@@ -9,7 +11,11 @@ import { parseJSON } from "../utils/json_parser.ts";
 
 export type OllamaProviderOptions = ILLMProviderOptions;
 export type OllamaProviderInput = ILLMProviderInput<string>;
-export type OllamaProviderOutput = ILLMProviderOutput<OllamaMessage>;
+export type OllamaProviderOutput = Result<
+  ILLMProviderOutput<OllamaMessage>,
+  OllamaProviderError
+>;
+export type OllamaProviderError = ILLMProviderError<object>;
 
 export type OllamaMessage = {
   model: string;
@@ -28,6 +34,7 @@ export type OllamaMessage = {
 export class OllamaLLMSession implements ILLMProvider, ILLMProviderMeta {
   input!: OllamaProviderInput;
   output!: OllamaProviderOutput;
+  error!: OllamaProviderError;
   options: OllamaProviderOptions;
 
   constructor(opts: OllamaProviderOptions) {
@@ -38,26 +45,41 @@ export class OllamaLLMSession implements ILLMProvider, ILLMProviderMeta {
   async getStream(
     prompt: OllamaProviderInput,
     signal: AbortSignal,
-  ): Promise<AsyncIterable<OllamaProviderOutput>> {
-    const generator = await this.generate(
+  ): Promise<
+    Result<AsyncIterable<OllamaProviderOutput>, OllamaProviderError>
+  > {
+    const [generator, error] = await this.generate(
       prompt,
       signal,
       true,
-    ) as AsyncGenerator<OllamaMessage>;
+    ) as Result<AsyncGenerator<OllamaMessage>, OllamaProviderError>;
+
+    if (error) {
+      return [undefined, error];
+    }
 
     // NOTE:(kallebysantos) we need to clone the lambda parser to avoid `this` conflicts inside the local function*
     const parser = this.parse;
     const stream = async function* () {
       for await (const message of generator) {
         if ("error" in message) {
-          if (message.error instanceof Error) {
-            throw message.error;
-          } else {
-            throw new Error(message.error as string);
-          }
+          const error = (message.error instanceof Error)
+            ? message.error
+            : new Error(message.error as string);
+
+          yield [
+            undefined,
+            {
+              inner: {
+                error,
+                currentValue: null,
+              },
+              message: "An unknown error was streamed from the provider.",
+            } satisfies OllamaProviderError,
+          ];
         }
 
-        yield parser(message);
+        yield [parser(message), undefined];
 
         if (message.done) {
           return;
@@ -69,32 +91,52 @@ export class OllamaLLMSession implements ILLMProvider, ILLMProviderMeta {
       );
     };
 
-    return stream();
+    return [
+      stream() as AsyncIterable<OllamaProviderOutput>,
+      undefined,
+    ];
   }
 
   async getText(
     prompt: OllamaProviderInput,
     signal: AbortSignal,
   ): Promise<OllamaProviderOutput> {
-    const response = await this.generate(prompt, signal) as OllamaMessage;
+    const [generation, generationError] = await this.generate(
+      prompt,
+      signal,
+    ) as Result<OllamaMessage, OllamaProviderError>;
 
-    if (!response?.done) {
-      throw new Error("Expected a completed response.");
+    if (generationError) {
+      return [undefined, generationError];
     }
 
-    return this.parse(response);
+    if (!generation?.done) {
+      return [undefined, {
+        inner: {
+          error: new Error("Expected a completed response."),
+          currentValue: generation,
+        },
+        message:
+          `Response could not be completed successfully. Expected 'done'`,
+      }];
+    }
+
+    return [this.parse(generation), undefined];
   }
 
-  private parse(message: OllamaMessage): OllamaProviderOutput {
+  private parse(message: OllamaMessage): ILLMProviderOutput<OllamaMessage> {
     const { response, prompt_eval_count, eval_count } = message;
+
+    const inputTokens = isNaN(prompt_eval_count) ? 0 : prompt_eval_count;
+    const outputTokens = isNaN(eval_count) ? 0 : eval_count;
 
     return {
       value: response,
       inner: message,
       usage: {
-        inputTokens: prompt_eval_count,
-        outputTokens: eval_count,
-        totalTokens: prompt_eval_count + eval_count,
+        inputTokens,
+        outputTokens,
+        totalTokens: inputTokens + outputTokens,
       },
     };
   }
@@ -103,7 +145,9 @@ export class OllamaLLMSession implements ILLMProvider, ILLMProviderMeta {
     prompt: string,
     signal: AbortSignal,
     stream: boolean = false,
-  ) {
+  ): Promise<
+    Result<AsyncGenerator<OllamaMessage> | OllamaMessage, OllamaProviderError>
+  > {
     const res = await fetch(
       new URL("/api/generate", this.options.baseURL),
       {
@@ -120,22 +164,44 @@ export class OllamaLLMSession implements ILLMProvider, ILLMProviderMeta {
       },
     );
 
-    if (!res.ok) {
-      throw new Error(
-        `Failed to fetch inference API host. Status ${res.status}: ${res.statusText}`,
-      );
-    }
+    // try to extract the json error otherwise return any text content from the response
+    if (!res.ok || !res.body) {
+      const errorMsg =
+        `Failed to fetch inference API host '${this.options.baseURL}'. Status ${res.status}: ${res.statusText}`;
 
-    if (!res.body) {
-      throw new Error("Missing body");
+      if (!res.body) {
+        const error = {
+          inner: new Error("Missing response body."),
+          message: errorMsg,
+        } satisfies OllamaProviderError;
+
+        return [undefined, error];
+      }
+
+      // safe to extract response body cause it was checked above
+      try {
+        const error = {
+          inner: await res.json(),
+          message: errorMsg,
+        } satisfies OllamaProviderError;
+
+        return [undefined, error];
+      } catch (_) {
+        const error = {
+          inner: new Error(await res.text()),
+          message: errorMsg,
+        } satisfies OllamaProviderError;
+
+        return [undefined, error];
+      }
     }
 
     if (stream) {
-      return parseJSON<OllamaMessage>(res.body, signal);
+      const stream = parseJSON<OllamaMessage>(res.body, signal);
+      return [stream as AsyncGenerator<OllamaMessage>, undefined];
     }
 
     const result: OllamaMessage = await res.json();
-
-    return result;
+    return [result, undefined];
   }
 }

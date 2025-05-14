@@ -1,5 +1,7 @@
+import { Result } from "../../ai.ts";
 import {
   ILLMProvider,
+  ILLMProviderError,
   ILLMProviderInput,
   ILLMProviderMeta,
   ILLMProviderOptions,
@@ -110,11 +112,16 @@ export type OpenAICompatibleInput = Omit<
 >;
 
 export type OpenAIProviderInput = ILLMProviderInput<OpenAICompatibleInput>;
-export type OpenAIProviderOutput = ILLMProviderOutput<OpenAIResponse>;
+export type OpenAIProviderOutput = Result<
+  ILLMProviderOutput<OpenAIResponse>,
+  OpenAIProviderError
+>;
+export type OpenAIProviderError = ILLMProviderError<object>;
 
 export class OpenAILLMSession implements ILLMProvider, ILLMProviderMeta {
   input!: OpenAIProviderInput;
   output!: OpenAIProviderOutput;
+  error!: OpenAIProviderError;
   options: OpenAIProviderOptions;
 
   constructor(opts: OpenAIProviderOptions) {
@@ -124,12 +131,18 @@ export class OpenAILLMSession implements ILLMProvider, ILLMProviderMeta {
   async getStream(
     prompt: OpenAIProviderInput,
     signal: AbortSignal,
-  ): Promise<AsyncIterable<OpenAIProviderOutput>> {
-    const generator = await this.generate(
+  ): Promise<
+    Result<AsyncIterable<OpenAIProviderOutput>, OpenAIProviderError>
+  > {
+    const [generator, error] = await this.generate(
       prompt,
       signal,
       true,
-    ) as AsyncGenerator<OpenAIResponse>;
+    ) as Result<AsyncGenerator<OpenAIResponse>, OpenAIProviderError>;
+
+    if (error) {
+      return [undefined, error];
+    }
 
     // NOTE:(kallebysantos) we need to clone the lambda parser to avoid `this` conflicts inside the local function*
     const parser = this.parse;
@@ -142,18 +155,34 @@ export class OpenAILLMSession implements ILLMProvider, ILLMProviderMeta {
         }
 
         if ("error" in message) {
-          if (message.error instanceof Error) {
-            throw message.error;
-          }
+          const error = (message.error instanceof Error)
+            ? message.error
+            : new Error(message.error as string);
 
-          throw new Error(message.error as string);
+          yield [
+            undefined,
+            {
+              inner: {
+                error,
+                currentValue: null,
+              },
+              message: "An unknown error was streamed from the provider.",
+            } satisfies OpenAIProviderError,
+          ];
         }
 
-        yield parser(message);
+        yield [parser(message), undefined];
 
-        const finish_reason = message.choices.at(0)?.finish_reason;
-        if (finish_reason && finish_reason !== "stop") {
-          throw new Error("Expected a completed response.");
+        const finishReason = message.choices.at(0)?.finish_reason;
+        if (finishReason && finishReason !== "stop") {
+          yield [undefined, {
+            inner: {
+              error: new Error("Expected a completed response."),
+              currentValue: message,
+            },
+            message:
+              `Response could not be completed successfully. Expected 'stop' finish reason got '${finishReason}'`,
+          }];
         }
       }
 
@@ -162,28 +191,42 @@ export class OpenAILLMSession implements ILLMProvider, ILLMProviderMeta {
       );
     };
 
-    return stream();
+    return [
+      stream() as AsyncIterable<OpenAIProviderOutput>,
+      undefined,
+    ];
   }
 
   async getText(
     prompt: OpenAIProviderInput,
     signal: AbortSignal,
   ): Promise<OpenAIProviderOutput> {
-    const response = await this.generate(
+    const [generation, generationError] = await this.generate(
       prompt,
       signal,
-    ) as OpenAIResponse;
+    ) as Result<OpenAIResponse, OpenAIProviderError>;
 
-    const finishReason = response.choices[0].finish_reason;
-
-    if (finishReason !== "stop") {
-      throw new Error("Expected a completed response.");
+    if (generationError) {
+      return [undefined, generationError];
     }
 
-    return this.parse(response);
+    const finishReason = generation.choices[0].finish_reason;
+
+    if (finishReason !== "stop") {
+      return [undefined, {
+        inner: {
+          error: new Error("Expected a completed response."),
+          currentValue: generation,
+        },
+        message:
+          `Response could not be completed successfully. Expected 'stop' finish reason got '${finishReason}'`,
+      }];
+    }
+
+    return [this.parse(generation), undefined];
   }
 
-  private parse(response: OpenAIResponse): OpenAIProviderOutput {
+  private parse(response: OpenAIResponse): ILLMProviderOutput<OpenAIResponse> {
     const { usage } = response;
     const choice = response.choices.at(0);
 
@@ -199,11 +242,14 @@ export class OpenAILLMSession implements ILLMProvider, ILLMProviderMeta {
       },
     };
   }
+
   private async generate(
     input: OpenAICompatibleInput,
     signal: AbortSignal,
     stream: boolean = false,
-  ) {
+  ): Promise<
+    Result<AsyncGenerator<OpenAIResponse> | OpenAIResponse, OpenAIProviderError>
+  > {
     const res = await fetch(
       new URL("/v1/chat/completions", this.options.baseURL),
       {
@@ -226,22 +272,44 @@ export class OpenAILLMSession implements ILLMProvider, ILLMProviderMeta {
       },
     );
 
-    if (!res.ok) {
-      throw new Error(
-        `Failed to fetch inference API host. Status ${res.status}: ${res.statusText}`,
-      );
-    }
+    // try to extract the json error otherwise return any text content from the response
+    if (!res.ok || !res.body) {
+      const errorMsg =
+        `Failed to fetch inference API host '${this.options.baseURL}'. Status ${res.status}: ${res.statusText}`;
 
-    if (!res.body) {
-      throw new Error("Missing body");
+      if (!res.body) {
+        const error = {
+          inner: new Error("Missing response body."),
+          message: errorMsg,
+        } satisfies OpenAIProviderError;
+
+        return [undefined, error];
+      }
+
+      // safe to extract response body cause it was checked above
+      try {
+        const error = {
+          inner: await res.json(),
+          message: errorMsg,
+        } satisfies OpenAIProviderError;
+
+        return [undefined, error];
+      } catch (_) {
+        const error = {
+          inner: new Error(await res.text()),
+          message: errorMsg,
+        } satisfies OpenAIProviderError;
+
+        return [undefined, error];
+      }
     }
 
     if (stream) {
-      return parseJSONOverEventStream<OpenAIResponse>(res.body, signal);
+      const stream = parseJSONOverEventStream<OpenAIResponse>(res.body, signal);
+      return [stream as AsyncGenerator<OpenAIResponse>, undefined];
     }
 
     const result: OpenAIResponse = await res.json();
-
-    return result;
+    return [result, undefined];
   }
 }

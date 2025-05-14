@@ -1,3 +1,4 @@
+import { Result, SessionError } from "../ai.ts";
 import { OllamaLLMSession } from "./providers/ollama.ts";
 import { OpenAILLMSession } from "./providers/openai.ts";
 
@@ -20,6 +21,7 @@ export type LLMRunInput = {
 export interface ILLMProviderMeta {
   input: ILLMProviderInput;
   output: unknown;
+  error: unknown;
   options: ILLMProviderOptions;
 }
 
@@ -41,15 +43,23 @@ export interface ILLMProviderOutput<T = object> {
   inner: T;
 }
 
+export interface ILLMProviderError<T = object> extends SessionError<T> {
+}
+
 export interface ILLMProvider {
   getStream(
     input: ILLMProviderInput,
     signal: AbortSignal,
-  ): Promise<AsyncIterable<ILLMProviderOutput>>;
+  ): Promise<
+    Result<
+      AsyncIterable<Result<ILLMProviderOutput, ILLMProviderError>>,
+      ILLMProviderError
+    >
+  >;
   getText(
     input: ILLMProviderInput,
     signal: AbortSignal,
-  ): Promise<ILLMProviderOutput>;
+  ): Promise<Result<ILLMProviderOutput, ILLMProviderError>>;
 }
 
 export const providers = {
@@ -81,6 +91,10 @@ export type LLMSessionRunInputOptions = {
   signal?: AbortSignal;
 };
 
+export type LLMSessionOutput =
+  | AsyncIterable<Result<ILLMProviderOutput, ILLMProviderError>>
+  | ILLMProviderOutput;
+
 export class LLMSession {
   #inner: ILLMProvider;
 
@@ -97,10 +111,10 @@ export class LLMSession {
     return new LLMSession(provider);
   }
 
-  run(
+  async run(
     input: ILLMProviderInput,
     opts: LLMSessionRunInputOptions,
-  ): Promise<AsyncIterable<ILLMProviderOutput>> | Promise<ILLMProviderOutput> {
+  ): Promise<Result<LLMSessionOutput, ILLMProviderError>> {
     const isStream = opts.stream ?? false;
 
     const timeoutSeconds = typeof opts.timeout === "number" ? opts.timeout : 60;
@@ -112,7 +126,15 @@ export class LLMSession {
     const signal = AbortSignal.any(abortSignals);
 
     if (isStream) {
-      return this.#inner.getStream(input, signal);
+      const [stream, getStreamError] = await this.#inner.getStream(
+        input,
+        signal,
+      );
+      if (getStreamError) {
+        return [undefined, getStreamError];
+      }
+
+      return [stream, undefined];
     }
 
     return this.#inner.getText(input, signal);

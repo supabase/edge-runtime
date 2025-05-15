@@ -6,12 +6,12 @@ import {
   assertLessOrEqual,
   assertStringIncludes,
   assertThrows,
-} from 'jsr:@std/assert';
+} from "jsr:@std/assert";
 
-const session = new Supabase.ai.Session('gte-small');
+const session = new Supabase.ai.Session("gte-small");
 
 assertThrows(() => {
-  const _ = new Supabase.ai.Session('gte-small_wrong_name');
+  const _ = new Supabase.ai.Session("gte-small_wrong_name");
 }, "invalid 'Session' type");
 
 function dotProduct(a: number[], b: number[]) {
@@ -27,14 +27,13 @@ export default {
   async fetch() {
     // Generate embedding
     // @ts-ignore unkwnow type
-    const [meow, meowError] = await session.run('meow') as [
+    const [meow, meowError] = await session.run("meow") as [
       number[],
       undefined,
     ];
-    console.log('cat', meow, meowError);
 
     // @ts-ignore unkwnow type
-    const [love, loveError] = await session.run('I love cats', {
+    const [love, loveError] = await session.run("I love cats", {
       mean_pool: true,
       normalize: true,
     }) as [number[], undefined];
@@ -51,7 +50,7 @@ export default {
     // "Invalid input should result in error value"
     {
       const [notCat, notCatError] = await session.run({
-        bad_input: { 'not a cat': 'let fail' },
+        bad_input: { "not a cat": "let fail" },
       }) as [undefined, { message: string; inner: Error }];
 
       assertEquals(notCat, undefined);
@@ -60,7 +59,7 @@ export default {
       assertIsError(notCatError.inner);
       assertStringIncludes(
         notCatError.message,
-        'must provide a valid prompt value',
+        "must provide a valid prompt value",
       );
     }
 

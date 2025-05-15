@@ -280,6 +280,10 @@ async fn run_gte(
   mean_pool: bool,
   normalize: bool,
 ) -> Result<Vec<f32>, Error> {
+  if prompt.is_empty() {
+    bail!("must provide a valid prompt value, got 'empty'")
+  }
+
   let req_tx;
   {
     let op_state = state.borrow();

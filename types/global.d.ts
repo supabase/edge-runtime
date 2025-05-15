@@ -184,6 +184,6 @@ declare namespace Supabase {
 
 declare namespace Deno {
   export namespace errors {
-    class WorkerRequestCancelled extends Error { }
+    class WorkerRequestCancelled extends Error {}
   }
 }

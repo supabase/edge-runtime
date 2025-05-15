@@ -44,9 +44,7 @@ export type SessionInputOptions<T extends SessionType> = T extends "gte-small"
 
 export type SessionOutput<T extends SessionType, O> = T extends "gte-small"
   ? number[]
-  : T extends LLMProviderName
-    ? O extends { stream: true }
-      ? AsyncGenerator<
+  : T extends LLMProviderName ? O extends { stream: true } ? AsyncGenerator<
         Result<
           LLMProviderInstance<T>["output"],
           LLMProviderInstance<T>["error"]
@@ -104,7 +102,7 @@ export class Session<T extends SessionType> {
 
   async run<O extends SessionInputOptions<T>>(
     input: SessionInput<T>,
-    options: O,
+    options?: O,
   ): Promise<
     [SessionOutput<T, O>, undefined] | [undefined, SessionOutputError<T>]
   > {
@@ -136,14 +134,14 @@ export class Session<T extends SessionType> {
         await this.#init;
       }
 
-      const opts = options as EmbeddingInputOptions;
+      const opts = options as EmbeddingInputOptions | undefined;
 
-      const mean_pool = opts.mean_pool ?? true;
-      const normalize = opts.normalize ?? true;
+      const mean_pool = opts?.mean_pool ?? true;
+      const normalize = opts?.normalize ?? true;
 
       const result = await core.ops.op_ai_run_model(
         this.#model,
-        prompt,
+        input,
         mean_pool,
         normalize,
       ) as SessionOutput<T, typeof options>;

@@ -73,6 +73,29 @@ const output = await pipe("This embed will be generated from rust land", {
 });
 ```
 
+### Self-Hosting
+
+**Caching filepath**:
+The `EXT_AI_CACHE_DIR` environment variable can be use to set a custom cache path
+
+**Memory clean up**:
+For Self-Hosting users an extra method is available for `main/index.ts` scope and should be used to clean up unused sessions, consider adding it into your main entrypoint file:
+
+```typescript
+// cleanup unused sessions every 30s
+setInterval(async () => {
+    try {
+        const cleanupCount = await EdgeRuntime.ai.tryCleanupUnusedSession();
+        if (cleanupCount == 0) {
+            return;
+        }
+        console.log('EdgeRuntime.ai.tryCleanupUnusedSession', cleanupCount);
+    } catch (e) {
+        console.error(e.toString());
+    }
+}, 30 * 1000);
+```
+
 </details>
 
 <details>

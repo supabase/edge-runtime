@@ -1,6 +1,7 @@
-# Deno Node.js compatibility
+# Supabase Node.js compatibility module
 
-This module is meant to have a compatibility layer for the
+This crate is part of the Supabase Edge Runtime stack and implements a
+compatibility layer for the
 [Node.js standard library](https://nodejs.org/docs/latest/api/).
 
 **Warning**: Any function of this module should not be referred anywhere in the
@@ -59,7 +60,7 @@ Deno standard library as it's a compatibility module.
 - [x] worker_threads
 - [ ] zlib
 
-* [x] node globals _partly_
+- [x] node globals _partly_
 
 ### Deprecated
 

@@ -32,6 +32,17 @@ The edge runtime can be divided into two runtimes with different purposes.
   - Limits are required to be set such as: Memory and Timeouts.
   - Has access to environment variables explictly allowed by the main runtime.
 
+### Edge Runtime in Deep
+
+#### Conceptual
+
+- [EdgeRuntime Base](/crates/base/README.md): Overalls about how EdgeRuntime is based on Deno.
+
+#### Extension Modules
+
+- [AI](/ext/ai/README.md): Implements AI related features.
+- [NodeJs](/ext/node/README.md) & [NodeJs Polyfills](/ext/node/polyfills/README.md): Implements the NodeJs compatibility layer.
+
 ## Developers
 
 To learn how to build / test Edge Runtime, visit [DEVELOPERS.md](DEVELOPERS.md)

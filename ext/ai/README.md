@@ -16,17 +16,15 @@ features for the `Supabase.ai` namespace.
 `Supabase.ai` uses [onnxruntime](https://onnxruntime.ai/) as internal model
 execution engine, backend by [ort pyke](https://ort.pyke.io/) rust bindings.
 
-Following there's specific documentation for both "lands":
-
 <details>
-  <summary>Javascript/Frontend</summary>
+  <summary>Javascript docs</summary>
 
 The **onnxruntime** API is available from `globalThis` and shares similar specs of [onnxruntime-common](https://github.com/microsoft/onnxruntime/tree/main/js/common).
 
 The available items are:
 
-- `Tensor`: represent a basic tensor with specified dimensions and data type. -- "The AI input/output"
-- `InferenceSession`: represent the inner model session. -- "The AI model itself"
+- `Tensor`: Represent a basic tensor with specified dimensions and data type. -- "The AI input/output"
+- `InferenceSession`: Represent the inner model session. -- "The AI model itself"
 
 ### Usage
 
@@ -53,7 +51,7 @@ console.log(last_hidden_state);
 
 ### Third party libs
 
-Originaly this backend was created to implicit integrate with [transformers.js](https://github.com/huggingface/transformers.js/). This way users can still consuming a high-level lib at same time they benefits of all Supabase's Model Execution Engine features, like model optimization and caching. For further information pleas check the [PR #436](https://github.com/supabase/edge-runtime/pull/436)
+Originaly this backend was created to implicit integrate with [transformers.js](https://github.com/huggingface/transformers.js/). This way users can still consuming a high-level lib at same time they benefits of all Supabase's Model Execution Engine features, like model optimization and caching. For further information please check the [PR #436](https://github.com/supabase/edge-runtime/pull/436)
 
 > [!WARNING]
 > At this moment users need to explicit target `device: 'auto'` to enable the platform compatibility.
@@ -98,10 +96,11 @@ setInterval(async () => {
 
 </details>
 
-<details>
-  <summary>Rust/Backend</summary>
-</details>
+## The `Session` class
 
-onnxruntime:
+Prior versions has [introduced](https://supabase.com/blog/ai-inference-now-available-in-supabase-edge-functions) the `Session` class as alternative to `transformers.js` for *gte-small* model and then was used to provide a [LLM interface](https://supabase.com/docs/guides/functions/ai-models?queryGroups=platform&platform=ollama#using-large-language-models-llm) for Ollama and some other providers.
 
-the Session class:
+Since the **Model Execution Engine** was created the `Session` class now can focus on LLM interface while the `Session('gte-small')` is for compatibility purposes only.
+
+> [!WARNING]
+> Docs for Session class will end here - There's a open [PR #539](https://github.com/supabase/edge-runtime/pull/539) that may change a lot of things for it.

@@ -16,19 +16,17 @@ features for the `Supabase.ai` namespace.
 `Supabase.ai` uses [onnxruntime](https://onnxruntime.ai/) as internal model
 execution engine, backend by [ort pyke](https://ort.pyke.io/) rust bindings.
 
-<details>
-  <summary>Javascript docs</summary>
-
 The **onnxruntime** API is available from `globalThis` and shares similar specs of [onnxruntime-common](https://github.com/microsoft/onnxruntime/tree/main/js/common).
 
 The available items are:
 
-- `Tensor`: Represent a basic tensor with specified dimensions and data type. -- "The AI input/output"
-- `InferenceSession`: Represent the inner model session. -- "The AI model itself"
+- `Tensor`: Represent a basic tensor with specified dimensions and data type. - "The AI input/output"
+- `InferenceSession`: Represent the inner model session. - "The AI model itself"
 
-### Usage
+<details>
+<summary>Usage</summary>
 
-It can be used from the exported `globalThis[Symbol.for("onnxruntime")]` --
+It can be used from the exported `globalThis[Symbol.for("onnxruntime")]` -
 but manipulating it directly is not trivial, so in the future you may use the [Inference API #501](https://github.com/supabase/edge-runtime/pull/501) for a more user friendly API.
 
 ```typescript
@@ -48,6 +46,8 @@ const inputs = {
 const { last_hidden_state } = await session.run(inputs);
 console.log(last_hidden_state);
 ```
+
+</details>
 
 ### Third party libs
 
@@ -93,8 +93,6 @@ setInterval(async () => {
     }
 }, 30 * 1000);
 ```
-
-</details>
 
 ## The `Session` class
 

@@ -51,7 +51,8 @@ console.log(last_hidden_state);
 
 ### Third party libs
 
-Originaly this backend was created to implicit integrate with [transformers.js](https://github.com/huggingface/transformers.js/). This way users can still consuming a high-level lib at same time they benefits of all Supabase's Model Execution Engine features, like model optimization and caching. For further information please check the [PR #436](https://github.com/supabase/edge-runtime/pull/436)
+Originaly this backend was created to implicit integrate with [transformers.js](https://github.com/huggingface/transformers.js/). This way users can still consuming a high-level lib at same time they benefits of all Supabase's Model Execution Engine features, like model optimization and caching.
+For further information please check the [PR #436](https://github.com/supabase/edge-runtime/pull/436) as well the [tests folder](/crates/base/test_cases/ai-ort-rust-backend/transformers-js)
 
 > [!WARNING]
 > At this moment users need to explicit target `device: 'auto'` to enable the platform compatibility.

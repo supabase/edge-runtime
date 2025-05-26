@@ -15,7 +15,13 @@ Options**
 
 ## Architecture
 
-![Sequence diagram of Edge Runtime request flow](assets/edge-runtime-diagram.svg?raw=true)
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="/assets/edge-runtime-diagram-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="/assets/edge-runtime-diagram.svg">
+    <img alt="Sequence diagram of Edge Runtime request flow" src="/assets/edge-runtime-diagram.svg" width="350" style="max-width: 100%;">
+  </picture>
+</p>
 
 The edge runtime can be divided into two runtimes with different purposes.
 

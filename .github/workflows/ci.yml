@@ -2,6 +2,11 @@ name: CI
 
 on:
   pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
   push:
     branches:
       - main
@@ -22,6 +27,7 @@ env:
 
 jobs:
   cargo-fmt:
+    if: github.event.pull_request.draft == false
     name: 'fmt'
     runs-on: ubuntu-latest
     steps:
@@ -33,6 +39,7 @@ jobs:
       - run: deno run --allow-write --allow-read --allow-run --allow-net ./scripts/format.js --check
 
   cargo-clippy:
+    if: github.event.pull_request.draft == false
     name: 'cargo clippy'
     runs-on: ubuntu-latest
     steps:
@@ -46,6 +53,7 @@ jobs:
       - run: ./scripts/clippy.sh
 
   cargo-test:
+    if: github.event.pull_request.draft == false
     name: 'cargo test'
     runs-on: ubuntu-latest
     steps:

@@ -19,7 +19,7 @@ Options**
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="/assets/edge-runtime-diagram-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="/assets/edge-runtime-diagram.svg">
-    <img alt="Sequence diagram of Edge Runtime request flow" src="/assets/edge-runtime-diagram.svg" width="350" style="max-width: 100%;">
+    <img alt="Sequence diagram of Edge Runtime request flow" src="/assets/edge-runtime-diagram.svg" style="max-width: 100%;">
   </picture>
 </p>
 

@@ -314,6 +314,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-scoped"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4042078ea593edffc452eef14e99fdb2b120caa4ad9618bcdeabc4a023b98740"
+dependencies = [
+ "futures",
+ "pin-project",
+ "tokio",
+]
+
+[[package]]
 name = "async-stream"
 version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -849,6 +860,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arc-swap",
+ "async-scoped",
  "async-trait",
  "async-tungstenite",
  "base_mem_check",
@@ -1026,7 +1038,7 @@ dependencies = [
  "bitflags 2.6.0",
  "cexpr",
  "clang-sys",
- "itertools 0.12.1",
+ "itertools 0.11.0",
  "log",
  "prettyplease",
  "proc-macro2",
@@ -1730,7 +1742,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b28bfe653d79bd16c77f659305b195b82bb5ce0c0eb2a4846b82ddbd77586813"
 dependencies = [
  "bitflags 2.6.0",
- "libloading 0.8.1",
+ "libloading 0.7.4",
  "winapi",
 ]
 
@@ -2569,12 +2581,12 @@ dependencies = [
 [[package]]
 name = "deno_unsync"
 version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d774fd83f26b24f0805a6ab8b26834a0d06ceac0db517b769b1e4633c96a2057"
+source = "git+https://github.com/nyannyacha/deno_unsync?branch=meow#94ae159367e32460c3d71675e3f141380d5ea23b"
 dependencies = [
  "futures",
  "parking_lot",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]
@@ -6203,7 +6215,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "157c5a9d7ea5c2ed2d9fb8f495b64759f7816c7eaea54ba3978f0d63000162e3"
 dependencies = [
  "anyhow",
- "itertools 0.12.1",
+ "itertools 0.11.0",
  "proc-macro2",
  "quote",
  "syn 2.0.90",
@@ -8900,9 +8912,8 @@ dependencies = [
 
 [[package]]
 name = "v8"
-version = "130.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2ee0be58935708fa4d7efb970c6cf9f2d9511d24ee24246481a65b6ee167348d"
+version = "130.0.7"
+source = "git+https://github.com/nyannyacha/rusty_v8?tag=v130.0.7#57d783ad71294f2677394e2aaf2db1ae162c16d0"
 dependencies = [
  "bindgen",
  "bitflags 2.6.0",
@@ -9169,7 +9180,7 @@ dependencies = [
  "js-sys",
  "khronos-egl",
  "libc",
- "libloading 0.8.1",
+ "libloading 0.7.4",
  "log",
  "metal",
  "naga",

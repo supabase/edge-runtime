@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::collections::VecDeque;
 use std::path::Path;
 use std::path::PathBuf;
@@ -16,7 +17,6 @@ use fs::virtual_fs::VfsEntry;
 use fs::virtual_fs::VfsRoot;
 use fs::virtual_fs::VirtualDirectory;
 use fs::VfsOpts;
-use indexmap::IndexMap;
 
 pub fn load_npm_vfs(
   eszip: Arc<dyn AsyncEszipDataRead + 'static>,
@@ -90,7 +90,7 @@ where
         builder.with_root_dir(|root_dir| {
           root_dir.name = "node_modules".to_string();
           let mut new_entries = Vec::with_capacity(root_dir.entries.len());
-          let mut localhost_entries = IndexMap::new();
+          let mut localhost_entries = BTreeMap::new();
           for entry in std::mem::take(&mut root_dir.entries) {
             match entry {
               VfsEntry::Dir(dir) => {
@@ -113,7 +113,7 @@ where
           }
           new_entries.push(VfsEntry::Dir(VirtualDirectory {
             name: "localhost".to_string(),
-            entries: localhost_entries.into_iter().map(|(_, v)| v).collect(),
+            entries: localhost_entries.into_values().collect(),
           }));
           // needs to be sorted by name
           new_entries.sort_by(|a, b| a.name().cmp(b.name()));

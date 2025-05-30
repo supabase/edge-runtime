@@ -87,8 +87,8 @@ impl WorkerDriver for Managed {
             )
           } else {
             error!(
-              "runtime has escaped from the event loop unexpectedly: {}",
-              err_string.as_str()
+              "runtime has escaped from the event loop unexpectedly: {:#}",
+              err
             );
 
             Ok(WorkerEvents::UncaughtException(UncaughtExceptionEvent {
@@ -124,13 +124,10 @@ impl WorkerDriver for Managed {
       }
     };
 
-    let (waker, thread_safe_handle) = {
-      let js_runtime = &mut runtime.js_runtime;
-      (
-        js_runtime.op_state().borrow().waker.clone(),
-        js_runtime.v8_isolate().thread_safe_handle(),
-      )
-    };
+    let (waker, thread_safe_handle) = (
+      runtime.waker.clone(),
+      runtime.js_runtime.v8_isolate().thread_safe_handle(),
+    );
 
     let wait_fut = async move {
       termination_token.inbound.cancelled().await;

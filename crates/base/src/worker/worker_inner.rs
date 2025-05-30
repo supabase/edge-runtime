@@ -1,8 +1,5 @@
-use crate::inspector_server::Inspector;
-use crate::runtime::DenoRuntime;
-use crate::server::ServerFlags;
-use crate::worker::utils::get_event_metadata;
-use crate::worker::utils::send_event_if_event_worker_available;
+use std::future::ready;
+use std::sync::Arc;
 
 use anyhow::Error;
 use base_rt::error::CloneableError;
@@ -24,8 +21,6 @@ use ext_workers::context::WorkerRequestMsg;
 use futures_util::FutureExt;
 use log::debug;
 use log::error;
-use std::future::ready;
-use std::sync::Arc;
 use tokio::io;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
@@ -34,6 +29,12 @@ use tokio_util::sync::CancellationToken;
 use tracing::debug_span;
 use tracing::Instrument;
 use uuid::Uuid;
+
+use crate::inspector_server::Inspector;
+use crate::runtime::DenoRuntime;
+use crate::server::ServerFlags;
+use crate::worker::utils::get_event_metadata;
+use crate::worker::utils::send_event_if_event_worker_available;
 
 use super::driver::WorkerDriver;
 use super::driver::WorkerDriverImpl;
@@ -206,6 +207,7 @@ impl std::ops::Deref for Worker {
 impl Worker {
   pub fn start(
     self,
+    eager_module_init: bool,
     booter_signal: oneshot::Sender<
       Result<(MetricSource, CancellationToken), Error>,
     >,
@@ -224,11 +226,24 @@ impl Worker {
 
     let rt = imp.runtime_handle();
     let worker_fut = async move {
-      let permit = DenoRuntime::acquire().await;
-      let new_runtime = match DenoRuntime::new(self).await {
+      // let permit = DenoRuntime::acquire().await;
+      let new_runtime = 'scope: {
+        match DenoRuntime::new(self).await {
+          Ok(mut v) => {
+            if eager_module_init {
+              if let Err(err) = v.init_main_module().await {
+                break 'scope Err(err);
+              }
+            }
+            Ok(v)
+          }
+          Err(err) => Err(err),
+        }
+      };
+      let mut new_runtime = match new_runtime {
         Ok(v) => v,
         Err(err) => {
-          drop(permit);
+          // drop(permit);
 
           let err = CloneableError::from(err.context("worker boot error"));
           let _ = booter_signal.send(Err(err.clone().into()));
@@ -237,22 +252,22 @@ impl Worker {
         }
       };
 
-      let mut runtime = scopeguard::guard(new_runtime, |mut runtime| unsafe {
-        runtime.js_runtime.v8_isolate().enter();
-      });
+      // let mut runtime = scopeguard::guard(new_runtime, |mut runtime| unsafe {
+      //   runtime.js_runtime.v8_isolate().enter();
+      // });
 
-      unsafe {
-        runtime.js_runtime.v8_isolate().exit();
-      }
+      // unsafe {
+      //   runtime.js_runtime.v8_isolate().exit();
+      // }
 
-      drop(permit);
+      // drop(permit);
 
       let metric_src = {
         let metric_src =
-          WorkerMetricSource::from_js_runtime(&mut runtime.js_runtime);
+          WorkerMetricSource::from_js_runtime(&mut new_runtime.js_runtime);
 
-        if let Some(opts) = runtime.conf.as_main_worker().cloned() {
-          let state = runtime.js_runtime.op_state();
+        if let Some(opts) = new_runtime.conf.as_main_worker().cloned() {
+          let state = new_runtime.js_runtime.op_state();
           let mut state_mut = state.borrow_mut();
           let metric_src = RuntimeMetricSource::new(
             metric_src.clone(),
@@ -269,8 +284,9 @@ impl Worker {
         }
       };
 
-      let _ = booter_signal.send(Ok((metric_src, runtime.drop_token.clone())));
-      let supervise_fut = match imp.clone().supervise(&mut runtime) {
+      let _ =
+        booter_signal.send(Ok((metric_src, new_runtime.drop_token.clone())));
+      let supervise_fut = match imp.clone().supervise(&mut new_runtime) {
         Some(v) => v.boxed(),
         None if worker_kind.is_user_worker() => return None,
         None => ready(Ok(())).boxed(),
@@ -287,7 +303,7 @@ impl Worker {
         }
       });
 
-      let result = imp.on_created(&mut runtime).await;
+      let result = imp.on_created(&mut new_runtime).await;
       let maybe_uncaught_exception_event = match result.as_ref() {
         Ok(WorkerEvents::UncaughtException(ev)) => Some(ev.clone()),
         Err(err) => Some(UncaughtExceptionEvent {
@@ -302,44 +318,53 @@ impl Worker {
         exit.set(WorkerExitStatus::WithUncaughtException(ev)).await;
       }
 
-      drop(runtime);
+      drop(new_runtime);
       let _ = supervise_fut.await;
 
       Some(result)
     };
 
-    let worker_fut = async move {
-      let Some(result) = worker_fut.await else {
-        return;
-      };
+    let worker_fut = {
+      let event_metadata = event_metadata.clone();
+      async move {
+        let Some(result) = worker_fut.await else {
+          return;
+        };
 
-      match result {
-        Ok(event) => {
-          match event {
-            WorkerEvents::Shutdown(ShutdownEvent { cpu_time_used, .. })
-            | WorkerEvents::UncaughtException(UncaughtExceptionEvent {
-              cpu_time_used,
-              ..
-            }) => {
-              debug!("CPU time used: {:?}ms", cpu_time_used);
-            }
+        match result {
+          Ok(event) => {
+            match event {
+              WorkerEvents::Shutdown(ShutdownEvent {
+                cpu_time_used, ..
+              })
+              | WorkerEvents::UncaughtException(UncaughtExceptionEvent {
+                cpu_time_used,
+                ..
+              }) => {
+                debug!("CPU time used: {:?}ms", cpu_time_used);
+              }
 
-            _ => {}
-          };
+              _ => {}
+            };
 
-          send_event_if_event_worker_available(
-            events_msg_tx.as_ref(),
-            event,
-            event_metadata.clone(),
-          );
-        }
+            send_event_if_event_worker_available(
+              events_msg_tx.as_ref(),
+              event,
+              event_metadata,
+            );
+          }
 
-        Err(err) => error!("unexpected worker error {}", err),
-      };
+          Err(err) => error!("unexpected worker error {}", err),
+        };
+      }
     }
-    .instrument(
-      debug_span!("worker", name = worker_name.as_str(), kind = %worker_kind),
-    );
+    .instrument(debug_span!(
+      "worker",
+      id = worker_name.as_str(),
+      kind = %worker_kind,
+      thread = ?std::thread::current().id(),
+      metadata = ?event_metadata
+    ));
 
     drop(rt.spawn_pinned({
       let worker_fut = unsafe { MaskFutureAsSend::new(worker_fut) };

@@ -4,18 +4,18 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
-#[cfg(debug_assertions)]
-use std::thread::ThreadId;
-
 use deno_core::unsync::sync::AtomicFlag;
 use ext_event_worker::events::ShutdownReason;
 use ext_runtime::PromiseMetrics;
 use ext_workers::context::Timing;
 use ext_workers::context::TimingStatus;
 use ext_workers::context::UserWorkerMsgs;
+use ext_workers::context::UserWorkerRuntimeOpts;
 use log::error;
 use log::info;
+use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
+use tracing::Instrument;
 
 use crate::runtime::RuntimeState;
 use crate::runtime::WillTerminateReason;
@@ -40,6 +40,7 @@ struct State {
   is_worker_entered: bool,
   is_wall_clock_limit_disabled: bool,
   is_wall_clock_beforeunload_armed: bool,
+  is_cpu_time_limit_disabled: bool,
   is_cpu_time_soft_limit_reached: bool,
   is_mem_half_reached: bool,
   is_waiting_for_termination: bool,
@@ -115,8 +116,6 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
     promise_metrics,
     timing,
     mut memory_limit_rx,
-    cpu_timer,
-    cpu_timer_param,
     cpu_usage_metrics_rx,
     pool_msg_tx,
     isolate_memory_usage_tx,
@@ -135,17 +134,18 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
     req: (_, mut req_end_rx),
   } = timing.unwrap_or_default();
 
-  let (cpu_timer, mut cpu_alarms_rx) = cpu_timer.unzip();
-  let (soft_limit_ms, hard_limit_ms) = cpu_timer_param.limits();
-
-  #[cfg(debug_assertions)]
-  let mut current_thread_id = Option::<ThreadId>::None;
-
-  let wall_clock_limit_ms = runtime_opts.worker_timeout_ms;
+  let UserWorkerRuntimeOpts {
+    worker_timeout_ms,
+    cpu_time_soft_limit_ms,
+    cpu_time_hard_limit_ms,
+    ..
+  } = runtime_opts;
 
   let mut complete_reason = None::<ShutdownReason>;
   let mut state = State {
-    is_wall_clock_limit_disabled: wall_clock_limit_ms == 0,
+    is_wall_clock_limit_disabled: worker_timeout_ms == 0,
+    is_cpu_time_limit_disabled: cpu_time_soft_limit_ms == 0
+      && cpu_time_hard_limit_ms == 0,
     is_retired: is_retired.clone(),
     req_demand: demand,
     runtime: runtime_state,
@@ -155,14 +155,15 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
 
   let mut cpu_usage_metrics_rx = cpu_usage_metrics_rx.unwrap();
   let mut cpu_usage_ms = 0i64;
+  let mut cpu_timer_rx = None::<mpsc::UnboundedReceiver<()>>;
 
-  let wall_clock_limit_ms = if wall_clock_limit_ms < 2 {
+  let wall_clock_limit_ms = if worker_timeout_ms < 2 {
     2
   } else {
-    wall_clock_limit_ms
+    worker_timeout_ms
   };
 
-  let wall_clock_duration = Duration::from_millis(wall_clock_limit_ms);
+  let wall_clock_duration = Duration::from_millis(worker_timeout_ms);
 
   // Split wall clock duration into 2 intervals.
   // At the first interval, we will send a msg to retire the worker.
@@ -203,13 +204,13 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
       let data_ptr_mut =
         Box::into_raw(Box::new(V8HandleEarlyDropData { token }));
 
-      if !thread_safe_handle.request_interrupt(
+      if thread_safe_handle.request_interrupt(
         v8_handle_early_drop_beforeunload,
         data_ptr_mut as *mut std::ffi::c_void,
       ) {
-        unsafe { Box::from_raw(data_ptr_mut) }.token.cancel();
-      } else {
         waker.wake();
+      } else {
+        unsafe { Box::from_raw(data_ptr_mut) }.token.cancel();
       }
     }
   });
@@ -225,6 +226,7 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
   let terminate_fn = {
     let state = state.runtime.clone();
     let thread_safe_handle = thread_safe_handle.clone();
+    let waker = waker.clone();
     move |should_terminate: bool| {
       let data_ptr_mut = Box::into_raw(Box::new(V8HandleTerminationData {
         should_terminate,
@@ -234,10 +236,12 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
       if should_terminate {
         state.terminated.raise();
       }
-      if !thread_safe_handle.request_interrupt(
+      if thread_safe_handle.request_interrupt(
         v8_handle_termination,
         data_ptr_mut as *mut std::ffi::c_void,
       ) {
+        waker.wake();
+      } else {
         drop(unsafe { Box::from_raw(data_ptr_mut) });
       }
     }
@@ -289,20 +293,20 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
 
       Some(metrics) = cpu_usage_metrics_rx.recv() => {
         match metrics {
-          CPUUsageMetrics::Enter(_thread_id) => {
-            // INVARIANT: Thread ID MUST equal with previously captured Thread
-            // ID.
-            #[cfg(debug_assertions)]
-            {
-              assert!(current_thread_id.unwrap_or(_thread_id) == _thread_id);
-              current_thread_id = Some(_thread_id);
-            }
-
+          CPUUsageMetrics::Enter(_thread_id, timer) => {
             state.worker_enter();
+            error!("cpu enter: {:?}, {:?}", _thread_id, std::thread::current());
 
-            if !cpu_timer_param.is_disabled() {
-              if let Some(Err(err)) = cpu_timer.as_ref().map(|it| it.reset()) {
-                error!("can't reset cpu timer: {}", err);
+            if !state.is_cpu_time_limit_disabled {
+              cpu_timer_rx = Some(timer.set_channel().in_current_span().await);
+
+              if let Err(err) = timer.reset({
+                // TODO(Nyannyacha): Once a CPU budget-based scheduler is
+                // implemented, uncomment this line.
+                // cpu_budget(&runtime_opts)
+                runtime_opts.cpu_time_soft_limit_ms
+              }, cpu_time_hard_limit_ms) {
+                error!("can't reset cpu timer: {}, {:?}", err, std::thread::current());
               }
             }
           }
@@ -312,11 +316,11 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
 
             cpu_usage_ms = accumulated / 1_000_000;
 
-            if !cpu_timer_param.is_disabled() {
-              if cpu_usage_ms >= hard_limit_ms as i64 {
+            if !state.is_cpu_time_limit_disabled {
+              if cpu_usage_ms >= cpu_time_hard_limit_ms as i64 {
                 error!("CPU time hard limit reached: isolate: {:?}", key);
                 complete_reason = Some(ShutdownReason::CPUTime);
-              } else if cpu_usage_ms >= soft_limit_ms as i64
+              } else if cpu_usage_ms >= cpu_time_soft_limit_ms as i64
                   && !state.is_cpu_time_soft_limit_reached
               {
                 early_retire_fn();
@@ -341,7 +345,13 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
         }
       }
 
-      Some(_) = wait_cpu_alarm(cpu_alarms_rx.as_mut()) => {
+      Some(_) = async {
+        if cpu_timer_rx.is_some() {
+          wait_cpu_alarm(cpu_timer_rx.as_mut()).await
+        } else {
+          pending::<_>().await
+        }
+      } => {
         if state.is_worker_entered {
           if !state.is_cpu_time_soft_limit_reached {
             early_retire_fn();
@@ -412,7 +422,7 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
       }
 
       _ = &mut wall_clock_beforeunload_alert,
-          if !state.is_wall_clock_limit_disabled && !state.is_wall_clock_beforeunload_armed
+        if !state.is_wall_clock_limit_disabled && !state.is_wall_clock_beforeunload_armed
       => {
         let data_ptr_mut = Box::into_raw(Box::new(V8HandleBeforeunloadData {
           reason: WillTerminateReason::WallClock

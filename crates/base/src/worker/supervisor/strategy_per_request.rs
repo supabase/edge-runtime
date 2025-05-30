@@ -2,14 +2,15 @@ use std::future::pending;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-#[cfg(debug_assertions)]
-use std::thread::ThreadId;
-
+use cpu_timer::CPUTimer;
 use ext_event_worker::events::ShutdownReason;
 use ext_workers::context::Timing;
 use ext_workers::context::TimingStatus;
 use ext_workers::context::UserWorkerMsgs;
+use ext_workers::context::UserWorkerRuntimeOpts;
+use tokio::sync::mpsc;
 use tokio::time::Instant;
+use tracing::Instrument;
 
 use crate::runtime::WillTerminateReason;
 use crate::worker::supervisor::create_wall_clock_beforeunload_alert;
@@ -33,8 +34,6 @@ pub async fn supervise(
     key,
     runtime_opts,
     timing,
-    cpu_timer,
-    cpu_timer_param,
     cpu_usage_metrics_rx,
     mut memory_limit_rx,
     pool_msg_tx,
@@ -55,9 +54,6 @@ pub async fn supervise(
     ..
   } = timing.unwrap_or_default();
 
-  let (cpu_timer, mut cpu_alarms_rx) = cpu_timer.unzip();
-  let (_, hard_limit_ms) = cpu_timer_param.limits();
-
   let _guard = scopeguard::guard(is_retired, |v| {
     v.raise();
 
@@ -68,27 +64,34 @@ pub async fn supervise(
     }
   });
 
-  #[cfg(debug_assertions)]
-  let mut current_thread_id = Option::<ThreadId>::None;
+  let mut cpu_timer = Option::<CPUTimer>::None;
 
-  let wall_clock_limit_ms = runtime_opts.worker_timeout_ms;
+  let UserWorkerRuntimeOpts {
+    worker_timeout_ms,
+    cpu_time_soft_limit_ms,
+    cpu_time_hard_limit_ms,
+    ..
+  } = runtime_opts;
 
-  let is_wall_clock_limit_disabled = wall_clock_limit_ms == 0;
+  let is_wall_clock_limit_disabled = worker_timeout_ms == 0;
+  let is_cpu_time_limit_disabled =
+    cpu_time_soft_limit_ms == 0 && cpu_time_hard_limit_ms == 0;
   let mut is_worker_entered = false;
   let mut is_wall_clock_beforeunload_armed = false;
 
   let mut cpu_usage_metrics_rx = cpu_usage_metrics_rx.unwrap();
   let mut cpu_usage_ms = 0i64;
   let mut cpu_usage_accumulated_ms = 0i64;
+  let mut cpu_timer_rx = None::<mpsc::UnboundedReceiver<()>>;
 
   let mut complete_reason = None::<ShutdownReason>;
   let mut req_ack_count = 0usize;
   let mut req_start_ack = false;
 
-  let wall_clock_limit_ms = if wall_clock_limit_ms < 1 {
+  let wall_clock_limit_ms = if worker_timeout_ms < 1 {
     1
   } else {
-    wall_clock_limit_ms
+    worker_timeout_ms
   };
 
   let wall_clock_duration = Duration::from_millis(wall_clock_limit_ms);
@@ -97,6 +100,14 @@ pub async fn supervise(
     wall_clock_limit_ms,
     flags.beforeunload_wall_clock_pct,
   );
+
+  let reset_cpu_timer_fn = |cpu_timer: Option<&CPUTimer>| {
+    if let Some(Err(err)) =
+      cpu_timer.map(|it| it.reset(cpu_time_hard_limit_ms, 0))
+    {
+      log::error!("can't reset cpu timer: {}", err);
+    }
+  };
 
   tokio::pin!(wall_clock_duration_alert);
   tokio::pin!(wall_clock_beforeunload_alert);
@@ -118,22 +129,14 @@ pub async fn supervise(
 
       Some(metrics) = cpu_usage_metrics_rx.recv() => {
         match metrics {
-          CPUUsageMetrics::Enter(_thread_id) => {
-            // INVARIANT: Thread ID MUST equal with previously captured Thread
-            // ID.
-            #[cfg(debug_assertions)]
-            {
-              assert!(current_thread_id.unwrap_or(_thread_id) == _thread_id);
-              current_thread_id = Some(_thread_id);
-            }
-
+          CPUUsageMetrics::Enter(_thread_id, timer) => {
             assert!(!is_worker_entered);
             is_worker_entered = true;
 
-            if !cpu_timer_param.is_disabled() {
-              if let Some(Err(err)) = cpu_timer.as_ref().map(|it| it.reset()) {
-                log::error!("can't reset cpu timer: {}", err);
-              }
+            if !is_cpu_time_limit_disabled {
+              cpu_timer_rx = Some(timer.set_channel().in_current_span().await);
+              cpu_timer = Some(timer);
+              reset_cpu_timer_fn(cpu_timer.as_ref());
             }
           }
 
@@ -144,21 +147,27 @@ pub async fn supervise(
             cpu_usage_ms += diff / 1_000_000;
             cpu_usage_accumulated_ms = accumulated / 1_000_000;
 
-            if !cpu_timer_param.is_disabled() {
-              if cpu_usage_ms >= hard_limit_ms as i64 {
+            if !is_cpu_time_limit_disabled {
+              if cpu_usage_ms >= cpu_time_hard_limit_ms as i64 {
                 log::error!("CPU time limit reached: isolate: {:?}", key);
                 complete_reason = Some(ShutdownReason::CPUTime);
               }
 
-              if let Some(Err(err)) = cpu_timer.as_ref().map(|it| it.reset()) {
-                log::error!("can't reset cpu timer: {}", err);
-              }
+              reset_cpu_timer_fn(cpu_timer.as_ref());
             }
+
+            cpu_timer = None;
           }
         }
       }
 
-      Some(_) = wait_cpu_alarm(cpu_alarms_rx.as_mut()) => {
+      Some(_) = async {
+        if cpu_timer_rx.is_some() {
+          wait_cpu_alarm(cpu_timer_rx.as_mut()).await
+        } else {
+          pending::<_>().await
+        }
+      } => {
         if is_worker_entered && req_start_ack {
           log::error!("CPU time limit reached: isolate: {:?}", key);
           complete_reason = Some(ShutdownReason::CPUTime);
@@ -171,12 +180,7 @@ pub async fn supervise(
         assert!(!req_start_ack, "supervisor has seen request start signal twice");
 
         notify.notify_one();
-
-        if let Some(cpu_timer) = cpu_timer.as_ref() {
-          if let Err(ex) = cpu_timer.reset() {
-            log::error!("cannot reset the cpu timer: {}", ex);
-          }
-        }
+        reset_cpu_timer_fn(cpu_timer.as_ref());
 
         cpu_usage_ms = 0;
         req_start_ack = true;
@@ -209,18 +213,18 @@ pub async fn supervise(
       }
 
       _ = &mut wall_clock_beforeunload_alert,
-          if !is_wall_clock_limit_disabled && !is_wall_clock_beforeunload_armed
+        if !is_wall_clock_limit_disabled && !is_wall_clock_beforeunload_armed
       => {
         let data_ptr_mut = Box::into_raw(Box::new(V8HandleBeforeunloadData {
             reason: WillTerminateReason::WallClock
         }));
 
         if thread_safe_handle
-            .request_interrupt(v8_handle_beforeunload, data_ptr_mut as *mut _)
+          .request_interrupt(v8_handle_beforeunload, data_ptr_mut as *mut _)
         {
-            waker.wake();
+          waker.wake();
         } else {
-            drop(unsafe { Box::from_raw(data_ptr_mut)});
+          drop(unsafe { Box::from_raw(data_ptr_mut)});
         }
 
         is_wall_clock_beforeunload_armed = true;
@@ -254,9 +258,11 @@ pub async fn supervise(
           isolate_memory_usage_tx: Some(isolate_memory_usage_tx),
         }));
 
-        if !thread_safe_handle
+        if thread_safe_handle
           .request_interrupt(v8_handle_termination, data_ptr_mut as *mut _)
         {
+          waker.wake();
+        } else {
           drop(unsafe { Box::from_raw(data_ptr_mut) });
         }
 

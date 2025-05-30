@@ -8,7 +8,7 @@ import { upload } from "../utils";
 
 export const options: Options = {
   scenarios: {
-    simple: {
+    transformerFillMask: {
       executor: "constant-vus",
       vus: 12,
       duration: "3m",
@@ -18,7 +18,7 @@ export const options: Options = {
 
 export function setup() {
   return {
-    url: upload(open("../functions/simple.ts")),
+    url: upload(open("../functions/transformer-fill-mask.ts")),
   };
 }
 

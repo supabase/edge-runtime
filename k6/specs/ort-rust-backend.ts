@@ -17,14 +17,15 @@ import { check, fail } from "k6";
 import { Options } from "k6/options";
 
 import { target } from "../config";
+import { upload } from "../utils";
+import { MSG_CANCELED } from "../constants";
 
 /** @ts-ignore */
 import { randomIntBetween } from "https://jslib.k6.io/k6-utils/1.2.0/index.js";
-import { MSG_CANCELED } from "../constants";
 
 export const options: Options = {
   scenarios: {
-    simple: {
+    ortRustBackend: {
       executor: "constant-vus",
       vus: 12,
       duration: "3m",
@@ -37,16 +38,22 @@ const GENERATORS = import("../generators");
 export async function setup() {
   const pkg = await GENERATORS;
   return {
+    url: upload(open("../functions/ort-rust-backend.ts")),
     words: pkg.makeText(1000),
   };
 }
 
-export default function ort_rust_backend(data: { words: string[] }) {
+type Data = {
+  url: string;
+  words: string[];
+};
+
+export default function (data: Data) {
   const wordIdx = randomIntBetween(0, data.words.length - 1);
 
   console.debug(`WORD[${wordIdx}]: ${data.words[wordIdx]}`);
   const res = http.post(
-    `${target}/k6-ort-rust-backend`,
+    `${target}${data.url}`,
     JSON.stringify({
       "text_for_embedding": data.words[wordIdx],
     }),

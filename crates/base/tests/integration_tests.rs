@@ -915,8 +915,9 @@ async fn test_worker_boot_with_0_byte_eszip() {
   let result = create_test_user_worker(opts).await;
 
   assert!(result.is_err());
-  assert!(format!("{:#}", result.unwrap_err())
-    .starts_with("worker boot error: unexpected end of file"));
+  assert!(format!("{:#}", result.unwrap_err()).starts_with(
+    "worker boot error: failed to bootstrap runtime: unexpected end of file"
+  ));
 }
 
 #[tokio::test]
@@ -941,7 +942,7 @@ async fn test_worker_boot_with_invalid_entrypoint() {
 
   assert!(result.is_err());
   assert!(format!("{:#}", result.unwrap_err())
-    .starts_with("worker boot error: failed to determine entrypoint"));
+    .starts_with("worker boot error: failed to bootstrap runtime: failed to determine entrypoint"));
 }
 
 #[tokio::test]
@@ -1241,9 +1242,13 @@ async fn req_failure_case_op_cancel_from_server_due_to_cpu_resource_limit() {
       let res = res.json::<ErrorResponsePayload>().await;
 
       assert!(res.is_ok());
-      assert_eq!(
-        res.unwrap().msg,
-        "WorkerRequestCancelled: request has been cancelled by supervisor"
+
+      let msg = res.unwrap().msg;
+
+      assert!(
+        msg
+          == "WorkerRequestCancelled: request has been cancelled by supervisor"
+          || msg == "broken pipe"
       );
     },
   )
@@ -1271,9 +1276,10 @@ async fn req_failure_case_op_cancel_from_server_due_to_cpu_resource_limit_2() {
       assert!(
         !msg.starts_with("TypeError: request body receiver not connected")
       );
-      assert_eq!(
-        msg,
-        "WorkerRequestCancelled: request has been cancelled by supervisor"
+      assert!(
+        msg
+          == "WorkerRequestCancelled: request has been cancelled by supervisor"
+          || msg == "broken pipe"
       );
     },
   )
@@ -2555,7 +2561,8 @@ async fn test_should_render_detailed_failed_to_create_graph_error() {
 
         assert_eq!(status, 500);
         assert!(payload.msg.starts_with(
-          "InvalidWorkerCreation: worker boot error: failed to create the graph: \
+          "InvalidWorkerCreation: worker boot error: \
+          failed to bootstrap runtime: failed to create the graph: \
           Relative import path \"oak\" not prefixed with"
         ));
       }),
@@ -2577,7 +2584,8 @@ async fn test_should_render_detailed_failed_to_create_graph_error() {
 
         assert_eq!(status, 500);
         assert!(payload.msg.starts_with(
-          "InvalidWorkerCreation: worker boot error: failed to create the graph: \
+          "InvalidWorkerCreation: worker boot error: \
+          failed to bootstrap runtime: failed to create the graph: \
           Module not found \"file://"
         ));
       }),

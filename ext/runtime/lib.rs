@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use base_mem_check::WorkerHeapStatistics;
 use base_rt::DropToken;
+use base_rt::RuntimeState;
 use deno_core::error::AnyError;
 use deno_core::op2;
 use deno_core::v8;
@@ -270,6 +271,11 @@ fn op_is_terminal(state: &mut OpState, rid: u32) -> Result<bool, AnyError> {
 }*/
 
 #[op2(fast)]
+fn op_is_runtime_init(state: &mut OpState) -> bool {
+  state.borrow::<Arc<RuntimeState>>().is_init()
+}
+
+#[op2(fast)]
 fn op_stdin_set_raw(
   _state: &mut OpState,
   _is_raw: bool,
@@ -439,6 +445,7 @@ deno_core::extension!(
   runtime,
   ops = [
     // op_is_terminal,
+    op_is_runtime_init,
     op_stdin_set_raw,
     op_console_size,
     op_read_line_prompt,

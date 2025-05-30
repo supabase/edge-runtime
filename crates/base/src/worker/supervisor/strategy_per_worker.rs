@@ -4,6 +4,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
+use base_rt::RuntimeState;
 use deno_core::unsync::sync::AtomicFlag;
 use ext_event_worker::events::ShutdownReason;
 use ext_runtime::PromiseMetrics;
@@ -17,7 +18,6 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 
-use crate::runtime::RuntimeState;
 use crate::runtime::WillTerminateReason;
 use crate::worker::supervisor::create_wall_clock_beforeunload_alert;
 use crate::worker::supervisor::v8_handle_beforeunload;

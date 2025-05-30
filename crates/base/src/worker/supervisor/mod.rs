@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use anyhow::anyhow;
 use base_mem_check::MemCheckState;
+use base_rt::RuntimeState;
 use cpu_timer::CPUTimer;
 use deno_core::v8;
 use deno_core::InspectorSessionKind;
@@ -31,7 +32,6 @@ use super::pool::SupervisorPolicy;
 use super::termination_token::TerminationToken;
 
 use crate::runtime::DenoRuntime;
-use crate::runtime::RuntimeState;
 use crate::server::ServerFlags;
 use crate::utils::units::percentage_value;
 

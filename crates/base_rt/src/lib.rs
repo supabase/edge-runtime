@@ -18,7 +18,11 @@ use tracing::debug;
 use tracing::debug_span;
 use tracing::Instrument;
 
+mod runtime_state;
+
 pub mod error;
+
+pub use runtime_state::RuntimeState;
 
 pub const DEFAULT_PRIMARY_WORKER_POOL_SIZE: usize = 2;
 pub const DEFAULT_USER_WORKER_POOL_SIZE: usize = 1;

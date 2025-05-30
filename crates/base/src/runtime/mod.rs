@@ -23,6 +23,7 @@ use base_rt::get_current_cpu_time_ns;
 use base_rt::BlockingScopeCPUUsage;
 use base_rt::DenoRuntimeDropToken;
 use base_rt::DropToken;
+use base_rt::RuntimeState;
 use cooked_waker::IntoWaker;
 use cooked_waker::WakeRef;
 use cpu_timer::CPUTimer;
@@ -51,7 +52,6 @@ use deno_cache::SqliteBackedCache;
 use deno_core::error::AnyError;
 use deno_core::error::JsError;
 use deno_core::serde_json;
-use deno_core::unsync::sync::AtomicFlag;
 use deno_core::url::Url;
 use deno_core::v8;
 use deno_core::v8::GCCallbackFlags;
@@ -296,33 +296,6 @@ pub enum WillTerminateReason {
   WallClock,
   EarlyDrop,
   Termination,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct RuntimeState {
-  pub evaluating_mod: Arc<AtomicFlag>,
-  pub event_loop_completed: Arc<AtomicFlag>,
-  pub terminated: Arc<AtomicFlag>,
-  pub found_inspector_session: Arc<AtomicFlag>,
-  pub mem_reached_half: Arc<AtomicFlag>,
-}
-
-impl RuntimeState {
-  pub fn is_evaluating_mod(&self) -> bool {
-    self.evaluating_mod.is_raised()
-  }
-
-  pub fn is_event_loop_completed(&self) -> bool {
-    self.event_loop_completed.is_raised()
-  }
-
-  pub fn is_terminated(&self) -> bool {
-    self.terminated.is_raised()
-  }
-
-  pub fn is_found_inspector_session(&self) -> bool {
-    self.found_inspector_session.is_raised()
-  }
 }
 
 #[derive(Debug)]
@@ -1312,7 +1285,11 @@ where
 
       spawn_blocking_non_send(|| {
         let _wall = deno_core::unsync::set_wall().drop_guard();
+        let init = scopeguard::guard(self.runtime_state.init.clone(), |v| {
+          v.lower();
+        });
 
+        init.raise();
         handle.block_on(
           #[allow(clippy::async_yields_async)]
           async {
@@ -3323,7 +3300,6 @@ mod test {
     impl GetRuntimeContext for Ctx {
       fn get_extra_context() -> impl Serialize {
         serde_json::json!({
-          "useReadSyncFileAPI": true,
           "shouldBootstrapMockFnThrowError": true,
         })
       }
@@ -3333,7 +3309,10 @@ mod test {
       "./test_cases/user-worker-san-check",
       None,
       None,
-      &["./test_cases/user-worker-san-check/.blocklisted"],
+      &[
+        "./test_cases/user-worker-san-check/.blocklisted",
+        "./test_cases/user-worker-san-check/.whitelisted",
+      ],
     )
     .set_context::<Ctx>()
     .build()

@@ -531,79 +531,87 @@ impl WorkerPool {
         let cancel = worker.cancel.clone();
         let (req_start_tx, req_end_tx) = profile.timing_tx_pair.clone();
 
-        profile.status.demand.fetch_add(1, Ordering::Release);
+        if profile.status.is_retired.is_raised() {
+          if res_tx
+            .send(Err(anyhow!(WorkerError::WorkerAlreadyRetired)))
+            .is_err()
+          {
+            error!("main worker receiver dropped");
+          }
+        } else {
+          profile.status.demand.fetch_add(1, Ordering::Release);
 
-        // Create a closure to handle the request and send the response
-        let request_handler = async move {
-          if !policy.is_per_worker() {
-            if cancel.is_cancelled() {
-              bail!(exit
-                .error()
-                .await
-                .unwrap_or(anyhow!(WorkerError::RequestCancelledBySupervisor)))
-            }
+          // Create a closure to handle the request and send the response
+          let request_handler = async move {
+            if !policy.is_per_worker() {
+              if cancel.is_cancelled() {
+                bail!(exit.error().await.unwrap_or(anyhow!(
+                  WorkerError::RequestCancelledBySupervisor
+                )))
+              }
 
-            let fence = Arc::new(Notify::const_new());
+              let fence = Arc::new(Notify::const_new());
 
-            if let Err(ex) = req_start_tx.send(fence.clone()) {
-              // NOTE(Nyannyacha): The only way to be trapped in this branch is
-              // if the supervisor associated with the isolate has been
-              // terminated for some reason, such as a wall-clock timeout.
-              //
-              // It can be expected enough if many isolates are created at once
-              // due to requests rapidly increasing.
-              //
-              // To prevent this, we must give a wall-clock time limit enough to
-              // each supervisor.
-              error!("failed to notify the fence to the supervisor");
-              return Err(ex).with_context(|| {
-                "failed to notify the fence to the supervisor"
-              });
-            }
+              if let Err(ex) = req_start_tx.send(fence.clone()) {
+                // NOTE(Nyannyacha): The only way to be trapped in this branch
+                // is if the supervisor associated with the isolate has been
+                // terminated for some reason, such as a wall-clock timeout.
+                //
+                // It can be expected enough if many isolates are created at
+                // once due to requests rapidly increasing.
+                //
+                // To prevent this, we must give a wall-clock time limit enough
+                // to each supervisor.
+                error!("failed to notify the fence to the supervisor");
+                return Err(ex).with_context(|| {
+                  "failed to notify the fence to the supervisor"
+                });
+              }
 
-            tokio::select! {
-              _ = fence.notified() => {}
-              _ = cancel.cancelled() => {
-                bail!(
-                  exit
-                    .error()
-                    .await
-                    .unwrap_or(
-                      anyhow!(WorkerError::RequestCancelledBySupervisor)
-                    )
-                )
+              tokio::select! {
+                _ = fence.notified() => {}
+                _ = cancel.cancelled() => {
+                  bail!(
+                    exit
+                      .error()
+                      .await
+                      .unwrap_or(
+                        anyhow!(WorkerError::RequestCancelledBySupervisor)
+                      )
+                  )
+                }
               }
             }
-          }
 
-          let result = send_user_worker_request(
-            profile.worker_request_msg_tx,
-            req,
-            cancel,
-            exit,
-            conn_token,
-          )
-          .await;
+            let result = send_user_worker_request(
+              profile.worker_request_msg_tx,
+              req,
+              cancel,
+              exit,
+              conn_token,
+            )
+            .await;
 
-          match result {
-            Ok(req) => Ok((req, req_end_tx)),
-            Err(err) => {
-              let _ = req_end_tx.send(());
-              error!(
-                "failed to send request to user worker: {}",
-                err.to_string()
-              );
-              Err(err)
+            match result {
+              Ok(req) => Ok((req, req_end_tx)),
+              Err(err) => {
+                let _ = req_end_tx.send(());
+                error!(
+                  "failed to send request to user worker: {}",
+                  err.to_string()
+                );
+                Err(err)
+              }
             }
-          }
-        };
+          };
 
-        // Spawn the closure as an async task
-        tokio::task::spawn(async move {
-          if res_tx.send(request_handler.await).is_err() {
-            error!("main worker receiver dropped")
-          }
-        });
+          // Spawn the closure as an async task
+          tokio::task::spawn(async move {
+            if res_tx.send(request_handler.await).is_err() {
+              error!("main worker receiver dropped")
+            }
+          });
+        }
 
         Ok(())
       }

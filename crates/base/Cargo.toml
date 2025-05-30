@@ -70,6 +70,7 @@ urlencoding.workspace = true
 uuid.workspace = true
 
 arc-swap = "1.7"
+async-scoped = { version = "0.9", features = ["use-tokio"] }
 cooked-waker = "5"
 flume = "0.11.0"
 strum = { version = "0.25", features = ["derive"] }

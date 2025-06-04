@@ -102,8 +102,6 @@ use serde::Serialize;
 use strum::IntoStaticStr;
 use tokio::runtime::Handle;
 use tokio::sync::mpsc;
-use tokio::sync::OwnedSemaphorePermit;
-use tokio::sync::Semaphore;
 use tokio::time::interval;
 use tokio_util::sync::CancellationToken;
 use tracing::debug;
@@ -157,15 +155,6 @@ pub static SHOULD_USE_VERBOSE_DEPRECATED_API_WARNING: OnceCell<bool> =
 pub static SHOULD_INCLUDE_MALLOCED_MEMORY_ON_MEMCHECK: OnceCell<bool> =
   OnceCell::new();
 pub static MAYBE_DENO_VERSION: OnceCell<String> = OnceCell::new();
-
-thread_local! {
-  // NOTE: Suppose we have met `.await` points while initializing a
-  // DenoRuntime. In that case, the current v8 isolate's thread-local state
-  // can be corrupted by a task initializing another DenoRuntime, so we must
-  // prevent this with a Semaphore.
-
-  static RUNTIME_CREATION_SEM: Arc<Semaphore> = Arc::new(Semaphore::new(1));
-}
 
 #[ctor]
 fn init_v8_platform() {
@@ -457,16 +446,6 @@ impl<RuntimeContext> Drop for DenoRuntime<RuntimeContext> {
     }
 
     self.drop_token.cancel();
-  }
-}
-
-impl DenoRuntime<DefaultRuntimeContext> {
-  pub async fn acquire() -> OwnedSemaphorePermit {
-    RUNTIME_CREATION_SEM
-      .with(|v| v.clone())
-      .acquire_owned()
-      .await
-      .unwrap()
   }
 }
 
@@ -1489,22 +1468,8 @@ where
 
     let state = self.runtime_state.clone();
     let mem_check_state = is_user_worker.then(|| self.mem_check.clone());
-    // let mut poll_sem = None::<PollSemaphore>;
 
     poll_fn(move |cx| {
-      // if poll_sem.is_none() {
-      //   poll_sem =
-      //     Some(RUNTIME_CREATION_SEM.with(|v| PollSemaphore::new(v.clone())));
-      // }
-
-      // let Poll::Ready(Some(_permit)) =
-      //   poll_sem.as_mut().unwrap().poll_acquire(cx)
-      // else {
-      //   return Poll::Pending;
-      // };
-
-      // poll_sem = None;
-
       let waker = cx.waker();
       let woked = global_waker.take().is_none();
 

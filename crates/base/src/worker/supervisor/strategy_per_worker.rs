@@ -295,7 +295,6 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
         match metrics {
           CPUUsageMetrics::Enter(_thread_id, timer) => {
             state.worker_enter();
-            error!("cpu enter: {:?}, {:?}", _thread_id, std::thread::current());
 
             if !state.is_cpu_time_limit_disabled {
               cpu_timer_rx = Some(timer.set_channel().in_current_span().await);

@@ -226,7 +226,6 @@ impl Worker {
 
     let rt = imp.runtime_handle();
     let worker_fut = async move {
-      // let permit = DenoRuntime::acquire().await;
       let new_runtime = 'scope: {
         match DenoRuntime::new(self).await {
           Ok(mut v) => {
@@ -243,24 +242,12 @@ impl Worker {
       let mut new_runtime = match new_runtime {
         Ok(v) => v,
         Err(err) => {
-          // drop(permit);
-
           let err = CloneableError::from(err.context("worker boot error"));
           let _ = booter_signal.send(Err(err.clone().into()));
 
           return Some(imp.on_boot_error(err.into()).await);
         }
       };
-
-      // let mut runtime = scopeguard::guard(new_runtime, |mut runtime| unsafe {
-      //   runtime.js_runtime.v8_isolate().enter();
-      // });
-
-      // unsafe {
-      //   runtime.js_runtime.v8_isolate().exit();
-      // }
-
-      // drop(permit);
 
       let metric_src = {
         let metric_src =

@@ -80,25 +80,16 @@ pub struct CPUTimer {}
 
 impl CPUTimer {
   #[cfg(not(target_os = "linux"))]
-  pub fn get_or_init(_: u64) -> Result<Self, Error> {
+  pub fn new(_: u64) -> Result<Self, Error> {
     log::error!("CPU timer: not enabled (need Linux)");
     Ok(Self {})
   }
 
   #[cfg(target_os = "linux")]
-  pub fn get_or_init() -> Result<Self, Error> {
-    use std::cell::RefCell;
+  pub fn new() -> Result<Self, Error> {
     use std::sync::atomic::Ordering;
 
     use linux::*;
-
-    thread_local! {
-        static TIMER: RefCell<Option<CPUTimer>> = RefCell::new(Option::default());
-    }
-
-    if let Some(timer) = TIMER.with_borrow(|v| v.clone()) {
-      return Ok(timer);
-    }
 
     let id = TIMER_COUNTER.fetch_add(1, Ordering::SeqCst);
     let mut tid = TimerId(std::ptr::null_mut());
@@ -135,10 +126,6 @@ impl CPUTimer {
       .send(SignalMsg::Add((id, this.clone())))
       .unwrap();
 
-    TIMER.with_borrow_mut(|v| {
-      assert!(v.replace(this.clone()).is_none());
-    });
-
     Ok(this)
   }
 
@@ -159,12 +146,8 @@ impl CPUTimer {
   pub fn reset(&self, initial_expiry: u64, interval: u64) -> Result<(), Error> {
     use anyhow::Context;
     use linux::*;
-    use log::error;
 
-    error!("try get lock: {:?}", std::thread::current());
     let timer = self.timer.try_lock().context("failed to get the lock")?;
-
-    error!("get lock: {:?}", std::thread::current());
 
     let initial_expiry_secs = initial_expiry / 1000;
     let initial_expiry_msecs = initial_expiry % 1000;
@@ -182,11 +165,8 @@ impl CPUTimer {
       libc::timer_settime(timer.tid.0, 0, &tmspec, std::ptr::null_mut())
     } < 0
     {
-      error!("leave lock: {:?}", std::thread::current());
       bail!(std::io::Error::last_os_error())
     }
-
-    error!("leave lock: {:?}", std::thread::current());
 
     Ok(())
   }
@@ -264,22 +244,22 @@ fn register_sigalrm() {
             Some(msg) = sig_msg_rx.recv() => {
               match msg {
                 SignalMsg::Alarm(ref timer_id) => {
-                    if let Some(cpu_timer) = registry.get(timer_id) {
-                      if let Some(tx) = (*cpu_timer.cpu_alarm_val.cpu_alarms_tx.lock().await).clone() {
-                        if tx.send(()).is_err() {
-                            debug!("failed to send cpu alarm to the provided channel");
-                        }
+                  if let Some(cpu_timer) = registry.get(timer_id) {
+                    if let Some(tx) = (*cpu_timer.cpu_alarm_val.cpu_alarms_tx.lock().await).clone() {
+                      if tx.send(()).is_err() {
+                          debug!("failed to send cpu alarm to the provided channel");
+                      }
                     }
-                    } else {
-                      // NOTE: Unix signals are being delivered asynchronously,
-                      // and there are no guarantees to cancel the signal after
-                      // a timer has been deleted, and after a signal is
-                      // received, there may no longer be a target to accept it.
-                      error!(
-                        "can't find the cpu alarm signal matched with the received timer id: {}",
-                        *timer_id
-                      );
-                    }
+                  } else {
+                    // NOTE: Unix signals are being delivered asynchronously,
+                    // and there are no guarantees to cancel the signal after
+                    // a timer has been deleted, and after a signal is
+                    // received, there may no longer be a target to accept it.
+                    error!(
+                      "can't find the cpu alarm signal matched with the received timer id: {}",
+                      *timer_id
+                    );
+                  }
                 }
 
                 SignalMsg::Add((timer_id, cpu_timer)) => {

@@ -2076,15 +2076,43 @@ fn get_cpu_metrics_guard<'l>(
     return scopeguard::guard((), Box::new(|_| {}));
   };
 
+  #[derive(Clone)]
+  struct CurrentCPUTimer {
+    thread_id: std::thread::ThreadId,
+    timer: CPUTimer,
+  }
+
   let current_thread_id = std::thread::current().id();
   let send_cpu_metrics_fn = move |metric: CPUUsageMetrics| {
     let _ = cpu_usage_metrics_tx.send(metric);
   };
 
-  send_cpu_metrics_fn(CPUUsageMetrics::Enter(
-    current_thread_id,
-    CPUTimer::get_or_init().unwrap(),
-  ));
+  let mut state = op_state.borrow_mut();
+  let cpu_timer = if state.has::<CurrentCPUTimer>() {
+    let current_cpu_timer = state.borrow::<CurrentCPUTimer>();
+    if current_cpu_timer.thread_id != current_thread_id {
+      state.take::<CurrentCPUTimer>();
+      None
+    } else {
+      Some(current_cpu_timer.timer.clone())
+    }
+  } else {
+    None
+  };
+  let cpu_timer = if let Some(timer) = cpu_timer {
+    timer
+  } else {
+    let cpu_timer = CurrentCPUTimer {
+      thread_id: current_thread_id,
+      timer: CPUTimer::new().unwrap(),
+    };
+
+    state.put(cpu_timer.clone());
+    cpu_timer.timer
+  };
+
+  drop(state);
+  send_cpu_metrics_fn(CPUUsageMetrics::Enter(current_thread_id, cpu_timer));
 
   let current_cpu_time_ns = get_current_cpu_time_ns().unwrap();
 

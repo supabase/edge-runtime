@@ -133,7 +133,7 @@ http-body-util = "0.1.2"
 http_v02 = { package = "http", version = "0.2.9" }
 httparse = "1.8.0"
 hyper = { version = "1.4.1", features = ["full"] }
-hyper-util = { version = "=0.1.7", features = ["tokio", "server", "server-auto"] }
+hyper-util = { version = "=0.1.10", features = ["tokio", "server", "server-auto"] }
 hyper_v014 = { package = "hyper", version = "0.14.26", features = ["runtime", "http1"] }
 indexmap = { version = "2", features = ["serde"] }
 lazy-regex = "3"

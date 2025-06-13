@@ -51,7 +51,7 @@ deno_cache = "0.114.0"
 deno_canvas = "0.51.0"
 deno_console = "0.182.0"
 deno_crypto = "0.196.0"
-deno_fetch = "0.206.0"
+deno_fetch = "0.207.0"
 deno_fs = { version = "0.92.0", features = ["sync_fs"] }
 deno_http = "0.180.0"
 deno_io = "0.92.0"

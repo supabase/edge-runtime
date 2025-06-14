@@ -20,7 +20,6 @@ ext_node.workspace = true
 ext_runtime.workspace = true
 
 anyhow.workspace = true
-async-trait.workspace = true
 base64.workspace = true
 eszip = { workspace = true, features = ["xxhash3"] }
 futures.workspace = true
@@ -29,7 +28,6 @@ glob.workspace = true
 import_map.workspace = true
 indexmap.workspace = true
 log.workspace = true
-monch.workspace = true
 once_cell.workspace = true
 regex.workspace = true
 rkyv = { workspace = true, features = ["validation"] }
@@ -41,9 +39,7 @@ tracing.workspace = true
 url.workspace = true
 urlencoding.workspace = true
 
-dashmap = "5.5.3"
 hashlink = "0.8"
-pathdiff = "0.2"
 
 [dev-dependencies]
 enum-as-inner.workspace = true

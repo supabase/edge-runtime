@@ -10,7 +10,6 @@ path = "lib.rs"
 
 [dependencies]
 deno.workspace = true
-deno_config.workspace = true
 deno_core.workspace = true
 
 deno_facade.workspace = true
@@ -23,7 +22,6 @@ ext_runtime.workspace = true
 anyhow.workspace = true
 bytes.workspace = true
 enum-as-inner.workspace = true
-futures-util.workspace = true
 hyper_v014.workspace = true
 log.workspace = true
 once_cell.workspace = true

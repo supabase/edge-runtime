@@ -11,7 +11,5 @@ path = "lib.rs"
 [dependencies]
 deno_core.workspace = true
 
-ext_runtime.workspace = true
-
 libc.workspace = true
 serde.workspace = true

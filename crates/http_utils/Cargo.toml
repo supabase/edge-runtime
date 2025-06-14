@@ -7,8 +7,6 @@ license.workspace = true
 
 [dependencies]
 bytes.workspace = true
-futures-util.workspace = true
 http_v02.workspace = true
 hyper_v014 = { workspace = true, features = ["full"] }
 tokio.workspace = true
-tokio-util = { workspace = true, features = ["rt"] }

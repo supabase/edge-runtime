@@ -16,7 +16,6 @@ deno_core.workspace = true
 deno_fetch.workspace = true
 deno_fs.workspace = true
 deno_io.workspace = true
-deno_media_type.workspace = true
 deno_net.workspace = true
 deno_package_json.workspace = true
 deno_path_util.workspace = true
@@ -25,7 +24,6 @@ deno_permissions.workspace = true
 node_resolver.workspace = true
 
 aes.workspace = true
-async-trait.workspace = true
 base64.workspace = true
 brotli.workspace = true
 bytes.workspace = true
@@ -40,8 +38,6 @@ http.workspace = true
 http-body-util.workspace = true
 hyper.workspace = true
 hyper-util.workspace = true
-indexmap.workspace = true
-lazy-regex.workspace = true
 libc.workspace = true
 libz-sys.workspace = true
 num-bigint.workspace = true
@@ -50,14 +46,12 @@ p224.workspace = true
 p256.workspace = true
 p384.workspace = true
 rand.workspace = true
-regex.workspace = true
 ring.workspace = true
 rsa.workspace = true
 sec1.workspace = true
 serde.workspace = true
 sha1.workspace = true
 sha2.workspace = true
-signature.workspace = true
 spki.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
@@ -87,7 +81,6 @@ memchr = "2.7.4"
 num-bigint-dig = "0.8.2"
 num-integer = "0.1.45"
 num-traits = "0.2.14"
-path-clean = "=0.1.0"
 pbkdf2 = "0.12.1"
 pin-project-lite = "0.2.13"
 pkcs8 = { version = "0.10.2", features = ["std", "pkcs5", "encryption"] }
@@ -96,7 +89,6 @@ scrypt = "0.11.0"
 sha3 = { version = "0.10.8", features = ["oid"] }
 simd-json = "0.14.0"
 sm3 = "0.4.2"
-stable_deref_trait = "1.2.0"
 tokio-eld = "0.2"
 x25519-dalek = { version = "2.0.0", features = ["static_secrets"] }
 x509-parser = "0.15.0"

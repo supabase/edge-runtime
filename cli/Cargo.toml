@@ -10,16 +10,12 @@ path = "src/main.rs"
 
 [dependencies]
 deno.workspace = true
-deno_core.workspace = true
 
 deno_facade.workspace = true
-
-ext_event_worker = { workspace = true, optional = true, features = ["tracing"] }
 
 anyhow.workspace = true
 base.workspace = true
 clap.workspace = true
-glob.workspace = true
 log.workspace = true
 once_cell.workspace = true
 tokio.workspace = true
@@ -28,4 +24,4 @@ tracing-subscriber = { workspace = true, optional = true }
 env_logger = "=0.10.0"
 
 [features]
-tracing = ["dep:tracing-subscriber", "dep:ext_event_worker"]
+tracing = ["dep:tracing-subscriber"]

@@ -1662,23 +1662,6 @@ where
     )
   }
 
-  // fn get_v8_tls_guard<'l>(
-  //   &'l mut self,
-  // ) -> scopeguard::ScopeGuard<
-  //   &'l mut DenoRuntime<RuntimeContext>,
-  //   impl FnOnce(&'l mut DenoRuntime<RuntimeContext>) + 'l,
-  // > {
-  //   let mut guard = scopeguard::guard(self, |v| unsafe {
-  //     v.js_runtime.v8_isolate().exit();
-  //   });
-
-  //   unsafe {
-  //     guard.js_runtime.v8_isolate().enter();
-  //   }
-
-  //   guard
-  // }
-
   fn get_v8_termination_guard<'l>(
     &'l mut self,
   ) -> scopeguard::ScopeGuard<

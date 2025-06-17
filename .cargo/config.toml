@@ -1,5 +1,5 @@
 [env]
-RUSTY_V8_MIRROR = "https://github.com/nyannyacha/rusty_v8/releases/download"
+RUSTY_V8_MIRROR = "https://github.com/supabase/rusty_v8/releases/download"
 # https://supabase.com/docs/guides/functions/limits
 SUPABASE_RESOURCE_LIMIT_MEM_MB = "256"
 SUPABASE_RESOURCE_LIMIT_LOW_MEM_MULTIPLIER = "5"

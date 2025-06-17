@@ -200,11 +200,10 @@ winapi = "=0.3.9"
 windows-sys = { version = "0.59.0", features = ["Win32_Foundation", "Win32_Media", "Win32_Storage_FileSystem"] }
 
 [patch.crates-io]
-# If the PR is merged upstream, remove the line below.
 deno_core = { git = "https://github.com/supabase/deno_core", branch = "324-supabase" }
-deno_unsync = { git = "https://github.com/nyannyacha/deno_unsync", branch = "meow" }
 eszip = { git = "https://github.com/supabase/eszip", branch = "fix-pub-vis-0-80-1" }
-v8 = { git = "https://github.com/nyannyacha/rusty_v8", tag = "v130.0.7" }
+v8 = { git = "https://github.com/supabase/rusty_v8", tag = "v130.0.7" }
+deno_unsync = { path = "./vendor/deno_unsync" }
 
 [profile.dind]
 inherits = "dev"

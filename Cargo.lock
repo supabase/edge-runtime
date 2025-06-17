@@ -2581,7 +2581,6 @@ dependencies = [
 [[package]]
 name = "deno_unsync"
 version = "0.4.2"
-source = "git+https://github.com/nyannyacha/deno_unsync?branch=meow#94ae159367e32460c3d71675e3f141380d5ea23b"
 dependencies = [
  "futures",
  "parking_lot",
@@ -8913,7 +8912,7 @@ dependencies = [
 [[package]]
 name = "v8"
 version = "130.0.7"
-source = "git+https://github.com/nyannyacha/rusty_v8?tag=v130.0.7#57d783ad71294f2677394e2aaf2db1ae162c16d0"
+source = "git+https://github.com/supabase/rusty_v8?tag=v130.0.7#57d783ad71294f2677394e2aaf2db1ae162c16d0"
 dependencies = [
  "bindgen",
  "bitflags 2.6.0",

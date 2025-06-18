@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use anyhow::anyhow;
 use base_mem_check::MemCheckState;
-use cpu_timer::CPUAlarmVal;
+use base_rt::RuntimeState;
 use cpu_timer::CPUTimer;
 use deno_core::v8;
 use deno_core::InspectorSessionKind;
@@ -32,7 +32,6 @@ use super::pool::SupervisorPolicy;
 use super::termination_token::TerminationToken;
 
 use crate::runtime::DenoRuntime;
-use crate::runtime::RuntimeState;
 use crate::server::ServerFlags;
 use crate::utils::units::percentage_value;
 
@@ -49,58 +48,6 @@ pub struct IsolateMemoryStats {
   pub external_memory: usize,
 }
 
-#[derive(Clone, Copy)]
-pub struct CPUTimerParam {
-  soft_limit_ms: u64,
-  hard_limit_ms: u64,
-}
-
-impl CPUTimerParam {
-  pub fn new(soft_limit_ms: u64, hard_limit_ms: u64) -> Self {
-    Self {
-      soft_limit_ms,
-      hard_limit_ms,
-    }
-  }
-
-  pub fn get_cpu_timer(
-    &self,
-    policy: SupervisorPolicy,
-  ) -> Option<(CPUTimer, UnboundedReceiver<()>)> {
-    let (cpu_alarms_tx, cpu_alarms_rx) = mpsc::unbounded_channel::<()>();
-
-    if self.is_disabled() {
-      return None;
-    }
-
-    Some((
-      CPUTimer::start(
-        if policy.is_per_worker() {
-          self.soft_limit_ms
-        } else {
-          self.hard_limit_ms
-        },
-        if policy.is_per_request() {
-          0
-        } else {
-          self.hard_limit_ms
-        },
-        CPUAlarmVal { cpu_alarms_tx },
-      )
-      .ok()?,
-      cpu_alarms_rx,
-    ))
-  }
-
-  pub fn limits(&self) -> (u64, u64) {
-    (self.soft_limit_ms, self.hard_limit_ms)
-  }
-
-  pub fn is_disabled(&self) -> bool {
-    self.soft_limit_ms == 0 && self.hard_limit_ms == 0
-  }
-}
-
 pub struct Tokens {
   pub termination: Option<TerminationToken>,
   pub supervise: CancellationToken,
@@ -109,9 +56,7 @@ pub struct Tokens {
 pub struct Arguments {
   pub key: Uuid,
   pub runtime_opts: UserWorkerRuntimeOpts,
-  pub cpu_timer: Option<(CPUTimer, mpsc::UnboundedReceiver<()>)>,
   pub cpu_usage_metrics_rx: Option<mpsc::UnboundedReceiver<CPUUsageMetrics>>,
-  pub cpu_timer_param: CPUTimerParam,
   pub supervisor_policy: SupervisorPolicy,
   pub runtime_state: Arc<RuntimeState>,
   pub promise_metrics: PromiseMetrics,
@@ -132,8 +77,20 @@ pub struct CPUUsage {
 
 #[derive(EnumAsInner)]
 pub enum CPUUsageMetrics {
-  Enter(std::thread::ThreadId),
+  Enter(std::thread::ThreadId, CPUTimer),
   Leave(CPUUsage),
+}
+
+#[inline]
+#[allow(unused)]
+fn cpu_budget(conf: &UserWorkerRuntimeOpts) -> u64 {
+  conf
+    .cpu_time_max_budget_per_task_ms
+    .unwrap_or(if cfg!(debug_assertions) {
+      conf.cpu_time_soft_limit_ms
+    } else {
+      1
+    })
 }
 
 async fn wait_cpu_alarm(
@@ -173,15 +130,12 @@ pub fn create_supervisor(
   timing: Option<Timing>,
   termination_token: Option<TerminationToken>,
   flags: Arc<ServerFlags>,
-) -> Result<(Option<CPUTimer>, CancellationToken), anyhow::Error> {
+) -> Result<CancellationToken, anyhow::Error> {
   let (memory_limit_tx, memory_limit_rx) = mpsc::unbounded_channel();
-  let (waker, thread_safe_handle) = {
-    let js_runtime = &mut runtime.js_runtime;
-    (
-      js_runtime.op_state().borrow().waker.clone(),
-      js_runtime.v8_isolate().thread_safe_handle(),
-    )
-  };
+  let (waker, thread_safe_handle) = (
+    runtime.waker.clone(),
+    runtime.js_runtime.v8_isolate().thread_safe_handle(),
+  );
 
   // we assert supervisor is only run for user workers
   let conf = runtime.conf.as_user_worker().unwrap().clone();
@@ -212,9 +166,9 @@ pub fn create_supervisor(
 
     if memory_limit_tx.send(()).is_err() {
       log::error!(
-                "failed to send memory limit reached notification(isolate may already be terminating): isolate: {:?}, kind: {}",
-                key, kind
-            );
+        "failed to send memory limit reached notification(isolate may already be terminating): isolate: {:?}, kind: {}",
+        key, kind
+      );
     }
   };
 
@@ -237,19 +191,8 @@ pub fn create_supervisor(
     }
   });
 
-  // Note: CPU timer must be started in the same thread as the worker runtime
-
-  let cpu_timer_param = CPUTimerParam::new(
-    conf.cpu_time_soft_limit_ms,
-    conf.cpu_time_hard_limit_ms,
-  );
-
-  let (maybe_cpu_timer, maybe_cpu_alarms_rx) =
-    cpu_timer_param.get_cpu_timer(policy).unzip();
-
   drop({
     let _rt_guard = base_rt::SUPERVISOR_RT.enter();
-    let maybe_cpu_timer_inner = maybe_cpu_timer.clone();
     let supervise_cancel_token_inner = supervise_cancel_token.clone();
     let runtime_state = runtime.runtime_state.clone();
     let promise_metrics = runtime.promise_metrics();
@@ -261,9 +204,7 @@ pub fn create_supervisor(
       let args = Arguments {
         key,
         runtime_opts: conf.clone(),
-        cpu_timer: maybe_cpu_timer_inner.zip(maybe_cpu_alarms_rx),
         cpu_usage_metrics_rx,
-        cpu_timer_param,
         supervisor_policy: policy,
         runtime_state,
         promise_metrics,
@@ -443,5 +384,5 @@ pub fn create_supervisor(
     })
   });
 
-  Ok((maybe_cpu_timer, supervise_cancel_token))
+  Ok(supervise_cancel_token)
 }

@@ -21,7 +21,8 @@
     ".git",
     "target",
     "crates/base/test_cases/invalid_imports",
-    "crates/base/test_cases/ai-ort-rust-backend/**/__snapshot__"
+    "crates/base/test_cases/ai-ort-rust-backend/**/__snapshot__",
+    "vendor/**"
   ],
   "plugins": [
     "https://plugins.dprint.dev/typescript-0.93.2.wasm",

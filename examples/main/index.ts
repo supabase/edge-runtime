@@ -2,6 +2,7 @@
 import { STATUS_CODE } from "https://deno.land/std/http/status.ts";
 
 import { handleRegistryRequest } from "./registry/mod.ts";
+import { join } from "jsr:@std/path@^1.0";
 
 console.log("main function started");
 console.log(Deno.version);
@@ -9,6 +10,20 @@ console.log(Deno.version);
 addEventListener("beforeunload", () => {
   console.log("main worker exiting");
 });
+
+addEventListener("unhandledrejection", (ev) => {
+  console.log(ev);
+  ev.preventDefault();
+});
+
+// (async () => {
+//   try {
+//     const session = new Supabase.ai.Session("gte-small");
+//     await session.init;
+//   } catch (e) {
+//     console.error("failed to init gte-small session in main worker", e);
+//   }
+// })();
 
 // log system memory usage every 30s
 // setInterval(() => console.log(EdgeRuntime.systemMemoryInfo()), 30 * 1000);
@@ -88,21 +103,50 @@ Deno.serve(async (req: Request) => {
     return await handleRegistryRequest(REGISTRY_PREFIX, req);
   }
 
-  const path_parts = pathname.split("/");
-  const service_name = path_parts[1];
+  if (req.method === "PUT" && pathname === "/_internal/upload") {
+    try {
+      const content = await req.text();
+      const dir = await Deno.makeTempDir();
+      const path = join(dir, "index.ts");
 
-  if (!service_name || service_name === "") {
-    const error = { msg: "missing function name in request" };
-    return new Response(
-      JSON.stringify(error),
-      {
+      await Deno.writeTextFile(path, content);
+      return Response.json({
+        path: dir,
+      });
+    } catch (err) {
+      return Response.json(err, {
         status: STATUS_CODE.BadRequest,
-        headers: { "Content-Type": "application/json" },
-      },
-    );
+      });
+    }
   }
 
-  const servicePath = `./examples/${service_name}`;
+  let servicePath = pathname;
+  if (!pathname.startsWith("/tmp/")) {
+    const path_parts = pathname.split("/");
+    const service_name = path_parts[1];
+
+    if (!service_name || service_name === "") {
+      const error = { msg: "missing function name in request" };
+      return new Response(
+        JSON.stringify(error),
+        {
+          status: STATUS_CODE.BadRequest,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    }
+
+    servicePath = `./examples/${service_name}`;
+  } else {
+    try {
+      servicePath = await Deno.realPath(servicePath);
+    } catch (err) {
+      return Response.json(err, {
+        status: STATUS_CODE.BadRequest,
+      });
+    }
+  }
+
   // console.error(`serving the request with ${servicePath}`);
 
   const createWorker = async () => {
@@ -138,6 +182,9 @@ Deno.serve(async (req: Request) => {
       cpuTimeSoftLimitMs,
       cpuTimeHardLimitMs,
       staticPatterns,
+      context: {
+        useReadSyncFileAPI: true,
+      },
       // maybeEszip,
       // maybeEntrypoint,
       // maybeModuleCode,
@@ -158,8 +205,9 @@ Deno.serve(async (req: Request) => {
 
       return await worker.fetch(req, { signal });
     } catch (e) {
-      console.error(e);
-
+      if (e instanceof Deno.errors.WorkerAlreadyRetired) {
+        return await callWorker();
+      }
       if (e instanceof Deno.errors.WorkerRequestCancelled) {
         headers.append("Connection", "close");
 

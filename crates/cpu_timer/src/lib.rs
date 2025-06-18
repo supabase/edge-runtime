@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use anyhow::Error;
 use tokio::sync::mpsc;
+use tokio::sync::Mutex;
 
 #[cfg(target_os = "linux")]
 mod linux {
@@ -39,16 +40,14 @@ mod linux {
 }
 
 #[repr(C)]
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct CPUAlarmVal {
-  pub cpu_alarms_tx: mpsc::UnboundedSender<()>,
+  pub cpu_alarms_tx: Arc<Mutex<Option<mpsc::UnboundedSender<()>>>>,
 }
 
 #[cfg(target_os = "linux")]
 struct CPUTimerVal {
   tid: linux::TimerId,
-  initial_expiry: u64,
-  interval: u64,
 }
 
 #[cfg(target_os = "linux")]
@@ -80,20 +79,22 @@ impl Drop for CPUTimer {
 pub struct CPUTimer {}
 
 impl CPUTimer {
+  #[cfg(not(target_os = "linux"))]
+  pub fn new(_: u64) -> Result<Self, Error> {
+    log::error!("CPU timer: not enabled (need Linux)");
+    Ok(Self {})
+  }
+
   #[cfg(target_os = "linux")]
-  pub fn start(
-    initial_expiry: u64,
-    interval: u64,
-    cpu_alarm_val: CPUAlarmVal,
-  ) -> Result<Self, Error> {
+  pub fn new() -> Result<Self, Error> {
     use std::sync::atomic::Ordering;
 
     use linux::*;
 
     let id = TIMER_COUNTER.fetch_add(1, Ordering::SeqCst);
-    let mut timerid = TimerId(std::ptr::null_mut());
+    let mut tid = TimerId(std::ptr::null_mut());
     let mut sigev: libc::sigevent = unsafe { std::mem::zeroed() };
-    let cpu_alarm_val = Arc::new(cpu_alarm_val);
+    let cpu_alarm_val = Arc::default();
 
     sigev.sigev_notify = libc::SIGEV_SIGNAL;
     sigev.sigev_signo = libc::SIGALRM;
@@ -106,7 +107,7 @@ impl CPUTimer {
       libc::timer_create(
         libc::CLOCK_THREAD_CPUTIME_ID,
         &mut sigev as *mut libc::sigevent,
-        &mut timerid.0 as *mut *mut libc::c_void,
+        &mut tid.0 as *mut *mut libc::c_void,
       )
     } < 0
     {
@@ -115,38 +116,43 @@ impl CPUTimer {
 
     let this = Self {
       id,
-      timer: Arc::new(Mutex::new(CPUTimerVal {
-        tid: timerid,
-        initial_expiry,
-        interval,
-      })),
+      timer: Arc::new(Mutex::new(CPUTimerVal { tid })),
       cpu_alarm_val,
     };
 
-    Ok({
-      this.reset()?;
+    linux::SIG_MSG_CHAN
+      .0
+      .clone()
+      .send(SignalMsg::Add((id, this.clone())))
+      .unwrap();
 
-      linux::SIG_MSG_CHAN
-        .0
-        .clone()
-        .send(SignalMsg::Add((id, this.clone())))
-        .unwrap();
+    Ok(this)
+  }
 
-      this
-    })
+  pub async fn set_channel(&self) -> mpsc::UnboundedReceiver<()> {
+    let (tx, rx) = mpsc::unbounded_channel();
+    let mut val = self.cpu_alarm_val.cpu_alarms_tx.lock().await;
+
+    *val = Some(tx);
+    rx
+  }
+
+  #[cfg(not(target_os = "linux"))]
+  pub fn reset(&self, _: u64, _: u64) -> Result<(), Error> {
+    Ok(())
   }
 
   #[cfg(target_os = "linux")]
-  pub fn reset(&self) -> Result<(), Error> {
+  pub fn reset(&self, initial_expiry: u64, interval: u64) -> Result<(), Error> {
     use anyhow::Context;
     use linux::*;
 
     let timer = self.timer.try_lock().context("failed to get the lock")?;
 
-    let initial_expiry_secs = timer.initial_expiry / 1000;
-    let initial_expiry_msecs = timer.initial_expiry % 1000;
-    let interval_secs = timer.interval / 1000;
-    let interval_msecs = timer.interval % 1000;
+    let initial_expiry_secs = initial_expiry / 1000;
+    let initial_expiry_msecs = initial_expiry % 1000;
+    let interval_secs = interval / 1000;
+    let interval_msecs = interval % 1000;
     let mut tmspec: libc::itimerspec = unsafe { std::mem::zeroed() };
 
     tmspec.it_value.tv_sec = initial_expiry_secs as i64;
@@ -238,22 +244,22 @@ fn register_sigalrm() {
             Some(msg) = sig_msg_rx.recv() => {
               match msg {
                 SignalMsg::Alarm(ref timer_id) => {
-                    if let Some(cpu_timer) = registry.get(timer_id) {
-                      let tx = cpu_timer.cpu_alarm_val.cpu_alarms_tx.clone();
-
+                  if let Some(cpu_timer) = registry.get(timer_id) {
+                    if let Some(tx) = (*cpu_timer.cpu_alarm_val.cpu_alarms_tx.lock().await).clone() {
                       if tx.send(()).is_err() {
-                        debug!("failed to send cpu alarm to the provided channel");
+                          debug!("failed to send cpu alarm to the provided channel");
                       }
-                    } else {
-                      // NOTE: Unix signals are being delivered asynchronously,
-                      // and there are no guarantees to cancel the signal after
-                      // a timer has been deleted, and after a signal is
-                      // received, there may no longer be a target to accept it.
-                      error!(
-                        "can't find the cpu alarm signal matched with the received timer id: {}",
-                        *timer_id
-                      );
                     }
+                  } else {
+                    // NOTE: Unix signals are being delivered asynchronously,
+                    // and there are no guarantees to cancel the signal after
+                    // a timer has been deleted, and after a signal is
+                    // received, there may no longer be a target to accept it.
+                    error!(
+                      "can't find the cpu alarm signal matched with the received timer id: {}",
+                      *timer_id
+                    );
+                  }
                 }
 
                 SignalMsg::Add((timer_id, cpu_timer)) => {

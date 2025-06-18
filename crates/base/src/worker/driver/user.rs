@@ -149,7 +149,7 @@ impl WorkerDriver for User {
     debug!(use_s3_fs = s3_fs.is_some());
 
     let (cpu_tx, cpu_rx) = mpsc::unbounded_channel();
-    let Ok((maybe_timer, cancel_token)) = create_supervisor(
+    let Ok(cancel_token) = create_supervisor(
       inner.worker_key.unwrap_or(Uuid::nil()),
       runtime,
       inner.supervisor_policy,
@@ -167,7 +167,6 @@ impl WorkerDriver for User {
     *cpu_usage_metrics_tx = Some(cpu_tx);
 
     async move {
-      let _cpu_timer = maybe_timer;
       let _guard = cancel_token.drop_guard();
 
       if let Some(fs) = s3_fs.take() {

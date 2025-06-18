@@ -147,14 +147,14 @@ pub async fn op_net_accept(
     let mut op_state = state.borrow_mut();
 
     (
-            op_state
-                .try_take::<mpsc::UnboundedReceiver<(io::DuplexStream, Option<CancellationToken>)>>(
-                ),
-            op_state
-                .try_borrow::<DenoRuntimeDropToken>()
-                .cloned()
-                .unwrap(),
-        )
+      op_state
+        .try_take::<mpsc::UnboundedReceiver<(io::DuplexStream, Option<CancellationToken>)>>(
+        ),
+      op_state
+        .try_borrow::<DenoRuntimeDropToken>()
+        .cloned()
+        .unwrap(),
+      )
   };
 
   let Some(rx) = rx else {
@@ -166,8 +166,8 @@ pub async fn op_net_accept(
     move |value| {
       let mut op_state = state.borrow_mut();
       op_state.put::<mpsc::UnboundedReceiver<(io::DuplexStream, Option<CancellationToken>)>>(
-                value,
-            );
+        value,
+      );
     }
   });
 

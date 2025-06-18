@@ -83,6 +83,7 @@ where
   let (pool_msg_tx, mut pool_msg_rx) = mpsc::unbounded_channel();
   let worker_surface = WorkerSurfaceBuilder::new()
     .termination_token(termination_token.clone())
+    .eager_module_init(true)
     .init_opts(WorkerContextInitOpts {
       service_path: PathBuf::from("meow"),
       no_module_cache: false,

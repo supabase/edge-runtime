@@ -577,6 +577,9 @@ pub async fn op_user_worker_fetch_send(
         Some(err @ WorkerError::RequestCancelledBySupervisor) => {
           return Err(custom_error("WorkerRequestCancelled", err.to_string()));
         }
+        Some(err @ WorkerError::WorkerAlreadyRetired) => {
+          return Err(custom_error("WorkerAlreadyRetired", err.to_string()));
+        }
 
         None => {
           return Err(custom_error("InvalidWorkerResponse", err.to_string()));

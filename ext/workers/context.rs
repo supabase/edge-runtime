@@ -74,6 +74,7 @@ pub struct UserWorkerRuntimeOpts {
   /// Wall clock limit
   pub worker_timeout_ms: u64,
 
+  pub cpu_time_max_budget_per_task_ms: Option<u64>,
   pub cpu_time_soft_limit_ms: u64,
   pub cpu_time_hard_limit_ms: u64,
 
@@ -108,6 +109,11 @@ impl Default for UserWorkerRuntimeOpts {
         .parse()
         .unwrap(),
 
+      cpu_time_max_budget_per_task_ms: if cfg!(debug_assertions) {
+        Some(100)
+      } else {
+        Some(1)
+      },
       cpu_time_soft_limit_ms: env!("SUPABASE_RESOURCE_LIMIT_CPU_SOFT_MS")
         .parse()
         .unwrap(),

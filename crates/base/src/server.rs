@@ -11,6 +11,8 @@ use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Context;
 use anyhow::Error;
+use deno_core::serde_json;
+use deno_core::serde_json::json;
 use either::Either;
 use either::Either::Left;
 use either::Either::Right;
@@ -230,21 +232,24 @@ impl Service<Request<Body>> for WorkerService {
           )
         }
 
-        Err(e) => {
+        Err(err) => {
           error!(
             "request failed (uri: {:?} reason: {:?})",
             req_uri.to_string(),
-            e
+            err
           );
 
-          // FIXME: add an error body
-          Response::builder()
-            .status(http_v02::StatusCode::INTERNAL_SERVER_ERROR)
-            .body(Body::wrap_stream(CancelOnDrop {
-              inner: Body::empty(),
-              cancel: Some(cancel),
-            }))
-            .unwrap()
+          let msg = err.message().to_string();
+          let msg = err.into_cause().map(|it| it.to_string()).unwrap_or(msg);
+          let bytes = serde_json::to_vec(&json!({ "msg": msg }));
+          let builder = Response::builder()
+            .status(http_v02::StatusCode::INTERNAL_SERVER_ERROR);
+
+          match bytes {
+            Ok(v) => builder.body(Body::from(v)),
+            Err(err) => builder.body(Body::from(err.to_string())),
+          }
+          .unwrap()
         }
       };
 

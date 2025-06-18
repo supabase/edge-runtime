@@ -17,14 +17,15 @@ import { check, fail } from "k6";
 import { Options } from "k6/options";
 
 import { target } from "../config";
+import { MSG_CANCELED } from "../constants";
+import { upload } from "../utils";
 
 /** @ts-ignore */
 import { randomIntBetween } from "https://jslib.k6.io/k6-utils/1.2.0/index.js";
-import { MSG_CANCELED } from "../constants";
 
 export const options: Options = {
   scenarios: {
-    simple: {
+    gteSmall: {
       executor: "constant-vus",
       vus: 12,
       duration: "3m",
@@ -37,16 +38,22 @@ const GENERATORS = import("../generators");
 export async function setup() {
   const pkg = await GENERATORS;
   return {
+    url: upload(open("../functions/gte-small.ts")),
     words: pkg.makeText(1000),
   };
 }
 
-export default function gte(data: { words: string[] }) {
+type Data = {
+  url: string;
+  words: string[];
+};
+
+export default function (data: Data) {
   const wordIdx = randomIntBetween(0, data.words.length - 1);
 
   console.debug(`WORD[${wordIdx}]: ${data.words[wordIdx]}`);
   const res = http.post(
-    `${target}/k6-gte`,
+    `${target}${data.url}`,
     JSON.stringify({
       "text_for_embedding": data.words[wordIdx],
     }),

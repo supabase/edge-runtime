@@ -263,6 +263,7 @@ pub struct WorkerSurfaceBuilder {
   termination_token: Option<TerminationToken>,
   inspector: Option<Inspector>,
   worker_builder_hook: Option<WorkerBuilderHook>,
+  eager_module_init: bool,
 }
 
 impl Default for WorkerSurfaceBuilder {
@@ -280,6 +281,7 @@ impl WorkerSurfaceBuilder {
       termination_token: None,
       inspector: None,
       worker_builder_hook: None,
+      eager_module_init: false,
     }
   }
 
@@ -316,6 +318,11 @@ impl WorkerSurfaceBuilder {
     F: FnOnce(&mut WorkerBuilder) -> Result<(), anyhow::Error> + Send + 'static,
   {
     self.worker_builder_hook = Some(Box::new(value) as _);
+    self
+  }
+
+  pub fn eager_module_init(mut self, value: bool) -> Self {
+    self.eager_module_init = value;
     self
   }
 
@@ -361,6 +368,11 @@ impl WorkerSurfaceBuilder {
     self
   }
 
+  pub fn set_eager_module_init(&mut self, value: bool) -> &mut Self {
+    self.eager_module_init = value;
+    self
+  }
+
   pub async fn build(self) -> Result<WorkerSurface, anyhow::Error> {
     let Self {
       init_opts,
@@ -369,6 +381,7 @@ impl WorkerSurfaceBuilder {
       termination_token,
       inspector,
       worker_builder_hook,
+      eager_module_init,
     } = self;
 
     let (worker_boot_result_tx, worker_boot_result_rx) = oneshot::channel::<
@@ -396,7 +409,7 @@ impl WorkerSurfaceBuilder {
     let cx = worker.cx.clone();
     let network_sender = worker.imp.network_sender().await;
 
-    worker.start(worker_boot_result_tx, exit.clone());
+    worker.start(eager_module_init, worker_boot_result_tx, exit.clone());
 
     // create an async task waiting for requests for worker
     let (worker_req_tx, mut worker_req_rx) =

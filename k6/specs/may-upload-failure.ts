@@ -5,6 +5,7 @@ import { Options } from "k6/options";
 
 import { target } from "../config";
 import { MSG_CANCELED } from "../constants";
+import { upload } from "../utils";
 
 /** @ts-ignore */
 import { randomIntBetween } from "https://jslib.k6.io/k6-utils/1.2.0/index.js";
@@ -36,9 +37,19 @@ export const options: Options = {
   ],
 };
 
-export default function () {
+export function setup() {
+  return {
+    url: upload(open("../functions/may-upload-failure.ts")),
+  };
+}
+
+type Data = {
+  url: string;
+};
+
+export default function (data: Data) {
   const res = http.post(
-    `${target}/oak-file-upload`,
+    `${target}${data.url}`,
     {
       "file": dummyFile,
     },

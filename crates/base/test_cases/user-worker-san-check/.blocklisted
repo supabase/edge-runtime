@@ -23,18 +23,12 @@ link
 linkSync
 lstat
 lstatSync
-makeTempDirSync
 makeTempFile
 makeTempFileSync
-mkdirSync
-openSync
-readDirSync
 readLink
 readLinkSync
-removeSync
 rename
 renameSync
-statSync
 symlink
 symlinkSync
 truncate
@@ -43,8 +37,6 @@ umask
 utime
 utimeSync
 watchFs
-writeFileSync
-writeTextFileSync
 chdir
 dlopen
 cron

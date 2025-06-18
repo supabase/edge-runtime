@@ -10,7 +10,6 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::RwLock;
 use std::task::Poll;
-use std::thread::ThreadId;
 use std::time::Duration;
 
 use anyhow::anyhow;
@@ -24,8 +23,10 @@ use base_rt::get_current_cpu_time_ns;
 use base_rt::BlockingScopeCPUUsage;
 use base_rt::DenoRuntimeDropToken;
 use base_rt::DropToken;
+use base_rt::RuntimeState;
 use cooked_waker::IntoWaker;
 use cooked_waker::WakeRef;
+use cpu_timer::CPUTimer;
 use ctor::ctor;
 use deno::args::CacheSetting;
 use deno::deno_crypto;
@@ -51,13 +52,13 @@ use deno_cache::SqliteBackedCache;
 use deno_core::error::AnyError;
 use deno_core::error::JsError;
 use deno_core::serde_json;
-use deno_core::unsync::sync::AtomicFlag;
 use deno_core::url::Url;
 use deno_core::v8;
 use deno_core::v8::GCCallbackFlags;
 use deno_core::v8::GCType;
 use deno_core::v8::HeapStatistics;
 use deno_core::v8::Isolate;
+use deno_core::v8::Locker;
 use deno_core::JsRuntime;
 use deno_core::ModuleId;
 use deno_core::ModuleLoader;
@@ -74,6 +75,7 @@ use deno_facade::module_loader::RuntimeProviders;
 use deno_facade::EmitterFactory;
 use deno_facade::EszipPayloadKind;
 use deno_facade::Metadata;
+use either::Either;
 use ext_event_worker::events::EventMetadata;
 use ext_event_worker::events::WorkerEventWithMetadata;
 use ext_runtime::cert::ValueRootCertStoreProvider;
@@ -98,17 +100,15 @@ use permissions::get_default_permissions;
 use scopeguard::ScopeGuard;
 use serde::Serialize;
 use strum::IntoStaticStr;
+use tokio::runtime::Handle;
 use tokio::sync::mpsc;
-use tokio::sync::OwnedSemaphorePermit;
-use tokio::sync::Semaphore;
 use tokio::time::interval;
 use tokio_util::sync::CancellationToken;
-use tokio_util::sync::PollSemaphore;
 use tracing::debug;
-use tracing::debug_span;
 use tracing::instrument;
 use tracing::trace;
 use tracing::Instrument;
+use tracing::Span;
 
 use crate::inspector_server::Inspector;
 use crate::snapshot;
@@ -122,6 +122,7 @@ use crate::worker::DuplexStreamEntry;
 use crate::worker::Worker;
 
 mod ops;
+mod unsync;
 
 pub mod permissions;
 
@@ -154,15 +155,6 @@ pub static SHOULD_USE_VERBOSE_DEPRECATED_API_WARNING: OnceCell<bool> =
 pub static SHOULD_INCLUDE_MALLOCED_MEMORY_ON_MEMCHECK: OnceCell<bool> =
   OnceCell::new();
 pub static MAYBE_DENO_VERSION: OnceCell<String> = OnceCell::new();
-
-thread_local! {
-  // NOTE: Suppose we have met `.await` points while initializing a
-  // DenoRuntime. In that case, the current v8 isolate's thread-local state
-  // can be corrupted by a task initializing another DenoRuntime, so we must
-  // prevent this with a Semaphore.
-
-  static RUNTIME_CREATION_SEM: Arc<Semaphore> = Arc::new(Semaphore::new(1));
-}
 
 #[ctor]
 fn init_v8_platform() {
@@ -306,33 +298,6 @@ pub enum WillTerminateReason {
   Termination,
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct RuntimeState {
-  pub evaluating_mod: Arc<AtomicFlag>,
-  pub event_loop_completed: Arc<AtomicFlag>,
-  pub terminated: Arc<AtomicFlag>,
-  pub found_inspector_session: Arc<AtomicFlag>,
-  pub mem_reached_half: Arc<AtomicFlag>,
-}
-
-impl RuntimeState {
-  pub fn is_evaluating_mod(&self) -> bool {
-    self.evaluating_mod.is_raised()
-  }
-
-  pub fn is_event_loop_completed(&self) -> bool {
-    self.event_loop_completed.is_raised()
-  }
-
-  pub fn is_terminated(&self) -> bool {
-    self.terminated.is_raised()
-  }
-
-  pub fn is_found_inspector_session(&self) -> bool {
-    self.found_inspector_session.is_raised()
-  }
-}
-
 #[derive(Debug)]
 pub struct RunOptions {
   wait_termination_request_token: bool,
@@ -412,12 +377,15 @@ pub struct DenoRuntime<RuntimeContext = DefaultRuntimeContext> {
   pub conf: WorkerRuntimeOpts,
   pub s3_fs: Option<S3Fs>,
 
-  main_module_id: ModuleId,
+  entrypoint: Option<Entrypoint>,
+  main_module_url: Url,
+  main_module_id: Option<ModuleId>,
+
   worker: Worker,
   promise_metrics: PromiseMetrics,
 
   mem_check: Arc<MemCheck>,
-  waker: Arc<AtomicWaker>,
+  pub waker: Arc<AtomicWaker>,
 
   beforeunload_mem_threshold: Arc<ArcSwapOption<u64>>,
   beforeunload_cpu_threshold: Arc<ArcSwapOption<u64>>,
@@ -434,6 +402,18 @@ impl<RuntimeContext> Drop for DenoRuntime<RuntimeContext> {
       );
     }
 
+    self.assert_isolate_not_locked();
+    let isolate = self.js_runtime.v8_isolate();
+    let locker = unsafe {
+      Locker::new(std::mem::transmute::<&mut Isolate, &mut Isolate>(isolate))
+    };
+
+    isolate.set_slot(locker);
+
+    {
+      let _scope = self.js_runtime.handle_scope();
+    }
+
     unsafe {
       ManuallyDrop::drop(&mut self.js_runtime);
     }
@@ -442,14 +422,16 @@ impl<RuntimeContext> Drop for DenoRuntime<RuntimeContext> {
   }
 }
 
-impl DenoRuntime<DefaultRuntimeContext> {
-  pub async fn acquire() -> OwnedSemaphorePermit {
-    RUNTIME_CREATION_SEM
-      .with(|v| v.clone())
-      .acquire_owned()
-      .await
-      .unwrap()
+impl<RuntimeContext> DenoRuntime<RuntimeContext> {
+  #[inline]
+  fn assert_isolate_not_locked(&mut self) {
+    assert_isolate_not_locked(self.js_runtime.v8_isolate());
   }
+}
+
+#[inline]
+fn assert_isolate_not_locked(isolate: &v8::Isolate) {
+  assert!(!Locker::is_locked(isolate));
 }
 
 impl<RuntimeContext> DenoRuntime<RuntimeContext>
@@ -478,18 +460,12 @@ where
       ..
     } = init_opts.unwrap();
 
-    let base_dir_path =
-      std::env::current_dir().map(|p| p.join(&service_path))?;
-
-    // TODO(Nyannyacha): Make sure `service_path` is an absolute path first.
-
     let drop_token = CancellationToken::default();
+    let is_user_worker = conf.is_user_worker();
+    let is_some_entry_point = maybe_entrypoint.is_some();
     let termination_request_token = CancellationToken::default();
     let promise_metrics = PromiseMetrics::default();
     let runtime_state = Arc::<RuntimeState>::default();
-
-    let is_user_worker = conf.is_user_worker();
-    let is_some_entry_point = maybe_entrypoint.is_some();
 
     let maybe_user_conf = conf.as_user_worker();
     let context = conf.context().cloned().unwrap_or_default();
@@ -498,547 +474,645 @@ where
       .and_then(|it| it.permissions.clone())
       .unwrap_or_else(|| get_default_permissions(conf.to_worker_kind()));
 
-    let eszip = if let Some(eszip_payload) = maybe_eszip {
-      eszip_payload
-    } else {
-      let Ok(base_dir_url) = Url::from_directory_path(&base_dir_path) else {
-        bail!(
-          "malformed base directory: {}",
-          base_dir_path.to_string_lossy()
-        );
-      };
+    struct Bootstrap {
+      js_runtime: JsRuntime,
+      mem_check: Arc<MemCheck>,
+      has_inspector: bool,
+      main_module_url: Url,
+      entrypoint: Option<Entrypoint>,
+      context: Option<serde_json::Map<String, serde_json::Value>>,
+      s3_fs: Option<S3Fs>,
+      beforeunload_cpu_threshold: ArcSwapOption<u64>,
+      beforeunload_mem_threshold: ArcSwapOption<u64>,
+    }
 
-      let mut main_module_url = None;
-      let only_module_code = maybe_module_code.is_some()
-        && maybe_eszip.is_none()
-        && !is_some_entry_point;
+    let bootstrap_fn = || {
+      async {
+        // TODO(Nyannyacha): Make sure `service_path` is an absolute path first.
+        let base_dir_path =
+          std::env::current_dir().map(|p| p.join(&service_path))?;
 
-      if only_module_code {
-        main_module_url = None;
-      } else {
-        static POTENTIAL_EXTS: &[&str] = &["ts", "tsx", "js", "mjs", "jsx"];
-
-        let mut found = false;
-        for ext in POTENTIAL_EXTS.iter() {
-          let url = base_dir_url.join(format!("index.{}", ext).as_str())?;
-          if url.to_file_path().unwrap().exists() {
-            found = true;
-            main_module_url = Some(url);
-            break;
-          }
-        }
-        if !is_some_entry_point && !found {
-          main_module_url = Some(base_dir_url.clone());
-        }
-      }
-      if is_some_entry_point {
-        main_module_url = Some(Url::parse(&maybe_entrypoint.clone().unwrap())?);
-      }
-
-      let mut emitter_factory = EmitterFactory::new();
-
-      let cache_strategy = if no_module_cache {
-        CacheSetting::ReloadAll
-      } else {
-        CacheSetting::Use
-      };
-
-      emitter_factory
-        .set_permissions_options(Some(permissions_options.clone()));
-
-      emitter_factory.set_file_fetcher_allow_remote(
-        maybe_user_conf
-          .map(|it| it.allow_remote_modules)
-          .unwrap_or(true),
-      );
-      emitter_factory.set_cache_strategy(Some(cache_strategy));
-
-      let maybe_code = if only_module_code {
-        maybe_module_code
-      } else {
-        None
-      };
-
-      let mut builder = DenoOptionsBuilder::new();
-
-      if let Some(module_url) = main_module_url.as_ref() {
-        builder.set_entrypoint(Some(module_url.to_file_path().unwrap()));
-      }
-      emitter_factory.set_deno_options(builder.build()?);
-
-      let deno_options = emitter_factory.deno_options()?;
-      if !is_some_entry_point
-        && main_module_url.is_some_and(|it| it == base_dir_url)
-        && deno_options
-          .workspace()
-          .root_pkg_json()
-          .and_then(|it| it.main(deno_package_json::NodeModuleKind::Cjs))
-          .is_none()
-      {
-        bail!("could not find an appropriate entrypoint");
-      }
-      let mut metadata = Metadata::default();
-      let eszip = generate_binary_eszip(
-        &mut metadata,
-        Arc::new(emitter_factory),
-        maybe_code,
-        // here we don't want to add extra cost, so we won't use a checksum
-        None,
-        Some(static_patterns.iter().map(|s| s.as_str()).collect()),
-      )
-      .await?;
-
-      EszipPayloadKind::Eszip(eszip)
-    };
-
-    let root_cert_store_provider = get_root_cert_store_provider()?;
-    let stdio = if is_user_worker {
-      let stdio_pipe = deno_io::StdioPipe::file(
-        tokio::fs::File::create("/dev/null").await?.into_std().await,
-      );
-
-      deno_io::Stdio {
-        stdin: stdio_pipe.clone(),
-        stdout: stdio_pipe.clone(),
-        stderr: stdio_pipe,
-      }
-    } else {
-      Default::default()
-    };
-
-    let has_inspector = worker.inspector.is_some();
-    let need_source_map = context
-      .get("sourceMap")
-      .and_then(serde_json::Value::as_bool)
-      .unwrap_or_default();
-    let maybe_import_map_path = context
-      .get("importMapPath")
-      .and_then(|it| it.as_str())
-      .map(str::to_string);
-
-    let rt_provider = create_module_loader_for_standalone_from_eszip_kind(
-      eszip,
-      permissions_options,
-      has_inspector || need_source_map,
-      Some(MigrateOptions {
-        maybe_import_map_path,
-      }),
-    )
-    .await?;
-
-    let RuntimeProviders {
-      module_loader,
-      node_services,
-      npm_snapshot,
-      permissions,
-      metadata,
-      static_files,
-      vfs,
-      vfs_path,
-      base_url,
-    } = rt_provider;
-
-    let entrypoint = metadata.entrypoint.as_ref();
-    let main_module_url = match entrypoint {
-      Some(Entrypoint::Key(key)) => base_url.join(key)?,
-      Some(Entrypoint::ModuleCode(_)) | None => Url::parse(
-        maybe_entrypoint
-          .as_ref()
-          .with_context(|| "could not find entrypoint key")?,
-      )?,
-    };
-
-    let build_file_system_fn = |base_fs: Arc<dyn deno_fs::FileSystem>| -> Result<
-      (Arc<dyn deno_fs::FileSystem>, Option<S3Fs>),
-      AnyError,
-    > {
-      let tmp_fs = TmpFs::try_from(maybe_tmp_fs_config.unwrap_or_default())?;
-      let tmp_fs_actual_path = tmp_fs.actual_path().to_path_buf();
-      let fs = PrefixFs::new("/tmp", tmp_fs.clone(), Some(base_fs))
-        .tmp_dir("/tmp")
-        .add_fs(tmp_fs_actual_path, tmp_fs);
-
-      Ok(
-        if let Some(s3_fs) = maybe_s3_fs_config.map(S3Fs::new).transpose()? {
-          (Arc::new(fs.add_fs("/s3", s3_fs.clone())), Some(s3_fs))
+        let eszip = if let Some(eszip_payload) = maybe_eszip {
+          eszip_payload
         } else {
-          (Arc::new(fs), None)
-        },
-      )
-    };
+          let Ok(base_dir_url) = Url::from_directory_path(&base_dir_path)
+          else {
+            bail!(
+              "malformed base directory: {}",
+              base_dir_path.to_string_lossy()
+            );
+          };
 
-    let (fs, maybe_s3_fs) = build_file_system_fn(if is_user_worker {
-      Arc::new(StaticFs::new(
-        static_files,
-        if matches!(entrypoint, Some(Entrypoint::ModuleCode(_)) | None)
-          && maybe_entrypoint.is_some()
-        {
-          // it is eszip from before v2
-          base_url
-            .to_file_path()
-            .map_err(|_| anyhow!("failed to resolve base url"))?
-        } else {
-          main_module_url
-            .to_file_path()
-            .map_err(|_| {
-              anyhow!("failed to resolve base dir using main module url")
-            })
-            .and_then(|it| {
-              it.parent()
-                .map(Path::to_path_buf)
-                .with_context(|| "failed to determine parent directory")
-            })?
-        },
-        vfs_path,
-        vfs,
-        npm_snapshot,
-      ))
-    } else {
-      Arc::new(DenoCompileFileSystem::from_rc(vfs))
-    })?;
+          let mut main_module_url = None;
+          let only_module_code = maybe_module_code.is_some()
+            && maybe_eszip.is_none()
+            && !is_some_entry_point;
 
-    let extensions = vec![
-      deno_telemetry::deno_telemetry::init_ops(),
-      deno_webidl::deno_webidl::init_ops(),
-      deno_console::deno_console::init_ops(),
-      deno_url::deno_url::init_ops(),
-      deno_web::deno_web::init_ops::<PermissionsContainer>(
-        Arc::new(deno_web::BlobStore::default()),
-        None,
-      ),
-      deno_webgpu::deno_webgpu::init_ops(),
-      deno_canvas::deno_canvas::init_ops(),
-      deno_fetch::deno_fetch::init_ops::<PermissionsContainer>(
-        deno_fetch::Options {
-          user_agent: SUPABASE_UA.clone(),
-          root_cert_store_provider: Some(root_cert_store_provider.clone()),
-          ..Default::default()
-        },
-      ),
-      deno_websocket::deno_websocket::init_ops::<PermissionsContainer>(
-        SUPABASE_UA.clone(),
-        Some(root_cert_store_provider.clone()),
-        None,
-      ),
-      // TODO: support providing a custom seed for crypto
-      deno_crypto::deno_crypto::init_ops(None),
-      deno_broadcast_channel::deno_broadcast_channel::init_ops(
-        deno_broadcast_channel::InMemoryBroadcastChannel::default(),
-      ),
-      deno_net::deno_net::init_ops::<PermissionsContainer>(
-        Some(root_cert_store_provider),
-        None,
-      ),
-      deno_tls::deno_tls::init_ops(),
-      deno_http::deno_http::init_ops::<DefaultHttpPropertyExtractor>(
-        deno_http::Options::default(),
-      ),
-      deno_io::deno_io::init_ops(Some(stdio)),
-      deno_fs::deno_fs::init_ops::<PermissionsContainer>(fs.clone()),
-      ext_ai::ai::init_ops(),
-      ext_env::env::init_ops(),
-      ext_os::os::init_ops(),
-      ext_workers::user_workers::init_ops(),
-      ext_event_worker::user_event_worker::init_ops(),
-      ext_event_worker::js_interceptors::js_interceptors::init_ops(),
-      ext_runtime::runtime_bootstrap::init_ops::<PermissionsContainer>(Some(
-        main_module_url.clone(),
-      )),
-      ext_runtime::runtime_net::init_ops(),
-      ext_runtime::runtime_http::init_ops(),
-      ext_runtime::runtime_http_start::init_ops(),
-      // NOTE(AndresP): Order is matters. Otherwise, it will lead to hard
-      // errors such as SIGBUS depending on the platform.
-      ext_node::deno_node::init_ops::<PermissionsContainer>(
-        Some(node_services),
-        fs,
-      ),
-      deno_cache::deno_cache::init_ops::<SqliteBackedCache>(None),
-      deno::runtime::ops::permissions::deno_permissions::init_ops(),
-      ops::permissions::base_runtime_permissions::init_ops_and_esm(permissions),
-      ext_runtime::runtime::init_ops(),
-    ];
+          if only_module_code {
+            main_module_url = None;
+          } else {
+            static POTENTIAL_EXTS: &[&str] = &["ts", "tsx", "js", "mjs", "jsx"];
 
-    let mut create_params = None;
-    let mut mem_check = MemCheck::default();
-
-    let beforeunload_cpu_threshold = ArcSwapOption::<u64>::from_pointee(None);
-    let beforeunload_mem_threshold = ArcSwapOption::<u64>::from_pointee(None);
-
-    if conf.is_user_worker() {
-      let conf = maybe_user_conf.unwrap();
-      let memory_limit_bytes = mib_to_bytes(conf.memory_limit_mb) as usize;
-
-      beforeunload_mem_threshold.store(
-        flags
-          .beforeunload_memory_pct
-          .and_then(|it| percentage_value(memory_limit_bytes as u64, it))
-          .map(Arc::new),
-      );
-
-      if conf.cpu_time_hard_limit_ms > 0 {
-        beforeunload_cpu_threshold.store(
-          flags
-            .beforeunload_cpu_pct
-            .and_then(|it| percentage_value(conf.cpu_time_hard_limit_ms, it))
-            .map(Arc::new),
-        );
-      }
-
-      let allocator = CustomAllocator::new(memory_limit_bytes);
-
-      allocator.set_waker(mem_check.waker.clone());
-
-      mem_check.limit = Some(memory_limit_bytes);
-      create_params = Some(
-        v8::CreateParams::default()
-          .heap_limits(mib_to_bytes(0) as usize, memory_limit_bytes)
-          .array_buffer_allocator(allocator.into_v8_allocator()),
-      )
-    };
-
-    let mem_check = Arc::new(mem_check);
-    let runtime_options = RuntimeOptions {
-      extensions,
-      is_main: true,
-      inspector: has_inspector,
-      create_params,
-      get_error_class_fn: Some(&deno::errors::get_error_class_name),
-      shared_array_buffer_store: None,
-      compiled_wasm_module_store: None,
-      startup_snapshot: snapshot::snapshot(),
-      module_loader: Some(module_loader),
-      import_meta_resolve_callback: Some(Box::new(
-        import_meta_resolve_callback,
-      )),
-      ..Default::default()
-    };
-
-    let mut js_runtime = JsRuntime::new(runtime_options);
-
-    let dispatch_fns = {
-      let context = js_runtime.main_context();
-      let scope = &mut js_runtime.handle_scope();
-      let context_local = v8::Local::new(scope, context);
-      let global_obj = context_local.global(scope);
-      let bootstrap_str =
-        v8::String::new_external_onebyte_static(scope, b"bootstrap").unwrap();
-      let bootstrap_ns = global_obj
-        .get(scope, bootstrap_str.into())
-        .unwrap()
-        .to_object(scope)
-        .unwrap();
-
-      macro_rules! get_global {
-        ($name:expr) => {{
-          let dispatch_fn_str =
-            v8::String::new_external_onebyte_static(scope, $name).unwrap();
-          let dispatch_fn = v8::Local::<v8::Function>::try_from(
-            bootstrap_ns.get(scope, dispatch_fn_str.into()).unwrap(),
-          )
-          .unwrap();
-          v8::Global::new(scope, dispatch_fn)
-        }};
-      }
-
-      DispatchEventFunctions {
-        dispatch_load_event_fn_global: get_global!(b"dispatchLoadEvent"),
-        dispatch_beforeunload_event_fn_global: get_global!(
-          b"dispatchBeforeUnloadEvent"
-        ),
-        dispatch_unload_event_fn_global: get_global!(b"dispatchUnloadEvent"),
-        dispatch_drain_event_fn_global: get_global!(b"dispatchDrainEvent"),
-      }
-    };
-
-    {
-      let main_context = js_runtime.main_context();
-      let op_state = js_runtime.op_state();
-      let mut op_state = op_state.borrow_mut();
-
-      op_state.put(dispatch_fns);
-      op_state.put(promise_metrics.clone());
-      op_state.put(runtime_state.clone());
-      op_state.put(GlobalMainContext(main_context));
-    }
-
-    {
-      let op_state_rc = js_runtime.op_state();
-      let mut op_state = op_state_rc.borrow_mut();
-
-      // NOTE(Andreespirela): We do this because "NODE_DEBUG" is trying to be
-      // read during initialization, But we need the gotham state to be
-      // up-to-date.
-      op_state.put(ext_env::EnvVars::default());
-    }
-
-    if let Some(inspector) = worker.inspector.as_ref() {
-      inspector.server.register_inspector(
-        main_module_url.to_string(),
-        &mut js_runtime,
-        inspector.should_wait_for_session(),
-      );
-    }
-
-    if is_user_worker {
-      js_runtime.v8_isolate().add_gc_prologue_callback(
-        mem_check_gc_prologue_callback_fn,
-        Arc::as_ptr(&mem_check) as *mut _,
-        GCType::ALL,
-      );
-
-      js_runtime
-        .op_state()
-        .borrow_mut()
-        .put(MemCheckWaker::from(mem_check.waker.clone()));
-    }
-
-    // Bootstrapping stage
-    let (runtime_context, extra_context, bootstrap_fn) = {
-      let runtime_context =
-        serde_json::json!(RuntimeContext::get_runtime_context(
-          &conf,
-          has_inspector,
-          option_env!("GIT_V_TAG"),
-        ));
-
-      let tokens = {
-        let op_state = js_runtime.op_state();
-        let resource_table = &mut op_state.borrow_mut().resource_table;
-        serde_json::json!({
-            "terminationRequestToken":
-              resource_table
-                .add(DropToken(termination_request_token.clone()))
-        })
-      };
-
-      let extra_context = {
-        let mut extra_context =
-          serde_json::json!(RuntimeContext::get_extra_context());
-
-        json::merge_object(
-          &mut extra_context,
-          &serde_json::Value::Object(context),
-        );
-        json::merge_object(&mut extra_context, &tokens);
-
-        extra_context
-      };
-
-      let context = js_runtime.main_context();
-      let scope = &mut js_runtime.handle_scope();
-      let context_local = v8::Local::new(scope, context);
-      let global_obj = context_local.global(scope);
-      let bootstrap_str =
-        v8::String::new_external_onebyte_static(scope, b"bootstrapSBEdge")
-          .unwrap();
-      let bootstrap_fn = v8::Local::<v8::Function>::try_from(
-        global_obj.get(scope, bootstrap_str.into()).unwrap(),
-      )
-      .unwrap();
-
-      let runtime_context_local =
-        deno_core::serde_v8::to_v8(scope, runtime_context)
-          .context("failed to convert to v8 value")?;
-      let runtime_context_global =
-        v8::Global::new(scope, runtime_context_local);
-      let extra_context_local =
-        deno_core::serde_v8::to_v8(scope, extra_context)
-          .context("failed to convert to v8 value")?;
-      let extra_context_global = v8::Global::new(scope, extra_context_local);
-      let bootstrap_fn_global = v8::Global::new(scope, bootstrap_fn);
-
-      (
-        runtime_context_global,
-        extra_context_global,
-        bootstrap_fn_global,
-      )
-    };
-
-    js_runtime
-      .call_with_args(&bootstrap_fn, &[runtime_context, extra_context])
-      .now_or_never()
-      .transpose()
-      .context("failed to execute bootstrap script")?;
-
-    {
-      // run inside a closure, so op_state_rc is released
-      let op_state_rc = js_runtime.op_state();
-      let mut op_state = op_state_rc.borrow_mut();
-
-      let mut env_vars = env_vars.clone();
-
-      if let Some(opts) = conf.as_events_worker_mut() {
-        op_state.put::<mpsc::UnboundedReceiver<WorkerEventWithMetadata>>(
-          opts.events_msg_rx.take().unwrap(),
-        );
-      }
-
-      if conf.is_main_worker() || conf.is_user_worker() {
-        op_state.put::<HashMap<usize, CancellationToken>>(HashMap::new());
-      }
-
-      if conf.is_user_worker() {
-        let conf = conf.as_user_worker().unwrap();
-
-        // set execution id for user workers
-        env_vars.insert(
-          "SB_EXECUTION_ID".to_string(),
-          conf.key.map_or("".to_string(), |k| k.to_string()),
-        );
-
-        if let Some(events_msg_tx) = conf.events_msg_tx.clone() {
-          op_state.put::<mpsc::UnboundedSender<WorkerEventWithMetadata>>(
-            events_msg_tx,
-          );
-          op_state.put::<EventMetadata>(EventMetadata {
-            service_path: conf.service_path.clone(),
-            execution_id: conf.key,
-          });
-        }
-      }
-
-      op_state.put(ext_env::EnvVars(env_vars));
-      op_state.put(DenoRuntimeDropToken(DropToken(drop_token.clone())));
-    }
-
-    let main_module_id = {
-      match entrypoint {
-        Some(Entrypoint::Key(_)) | None => {
-          js_runtime.load_main_es_module(&main_module_url).await?
-        }
-        Some(Entrypoint::ModuleCode(module_code)) => {
-          js_runtime
-            .load_main_es_module_from_code(
-              &main_module_url,
-              module_code.to_string(),
-            )
-            .await?
-        }
-      }
-    };
-
-    if is_user_worker {
-      drop(base_rt::SUPERVISOR_RT.spawn({
-        let drop_token = drop_token.clone();
-        let waker = mem_check.waker.clone();
-
-        async move {
-          // TODO(Nyannyacha): Should we introduce exponential backoff?
-          let mut int = interval(*ALLOC_CHECK_DUR);
-          loop {
-            tokio::select! {
-              _ = int.tick() => {
-                waker.wake();
-              }
-
-              _ = drop_token.cancelled() => {
+            let mut found = false;
+            for ext in POTENTIAL_EXTS.iter() {
+              let url = base_dir_url.join(format!("index.{}", ext).as_str())?;
+              if url.to_file_path().unwrap().exists() {
+                found = true;
+                main_module_url = Some(url);
                 break;
               }
             }
+            if !is_some_entry_point && !found {
+              main_module_url = Some(base_dir_url.clone());
+            }
           }
+          if is_some_entry_point {
+            main_module_url =
+              Some(Url::parse(&maybe_entrypoint.clone().unwrap())?);
+          }
+
+          let mut emitter_factory = EmitterFactory::new();
+
+          let cache_strategy = if no_module_cache {
+            CacheSetting::ReloadAll
+          } else {
+            CacheSetting::Use
+          };
+
+          emitter_factory
+            .set_permissions_options(Some(permissions_options.clone()));
+
+          emitter_factory.set_file_fetcher_allow_remote(
+            maybe_user_conf
+              .map(|it| it.allow_remote_modules)
+              .unwrap_or(true),
+          );
+          emitter_factory.set_cache_strategy(Some(cache_strategy));
+
+          let maybe_code = if only_module_code {
+            maybe_module_code
+          } else {
+            None
+          };
+
+          let mut builder = DenoOptionsBuilder::new();
+
+          if let Some(module_url) = main_module_url.as_ref() {
+            builder.set_entrypoint(Some(module_url.to_file_path().unwrap()));
+          }
+          emitter_factory.set_deno_options(builder.build()?);
+
+          let deno_options = emitter_factory.deno_options()?;
+          if !is_some_entry_point
+            && main_module_url.is_some_and(|it| it == base_dir_url)
+            && deno_options
+              .workspace()
+              .root_pkg_json()
+              .and_then(|it| it.main(deno_package_json::NodeModuleKind::Cjs))
+              .is_none()
+          {
+            bail!("could not find an appropriate entrypoint");
+          }
+          let mut metadata = Metadata::default();
+          let eszip = generate_binary_eszip(
+            &mut metadata,
+            Arc::new(emitter_factory),
+            maybe_code,
+            // here we don't want to add extra cost, so we won't use a checksum
+            None,
+            Some(static_patterns.iter().map(|s| s.as_str()).collect()),
+          )
+          .await?;
+
+          EszipPayloadKind::Eszip(eszip)
+        };
+
+        let root_cert_store_provider = get_root_cert_store_provider()?;
+        let stdio = if is_user_worker {
+          let stdio_pipe = deno_io::StdioPipe::file(
+            tokio::fs::File::create("/dev/null").await?.into_std().await,
+          );
+
+          deno_io::Stdio {
+            stdin: stdio_pipe.clone(),
+            stdout: stdio_pipe.clone(),
+            stderr: stdio_pipe,
+          }
+        } else {
+          Default::default()
+        };
+
+        let has_inspector = worker.inspector.is_some();
+        let need_source_map = context
+          .get("sourceMap")
+          .and_then(serde_json::Value::as_bool)
+          .unwrap_or_default();
+        let maybe_import_map_path = context
+          .get("importMapPath")
+          .and_then(|it| it.as_str())
+          .map(str::to_string);
+
+        let rt_provider = create_module_loader_for_standalone_from_eszip_kind(
+          eszip,
+          permissions_options,
+          has_inspector || need_source_map,
+          Some(MigrateOptions {
+            maybe_import_map_path,
+          }),
+        )
+        .await?;
+
+        let RuntimeProviders {
+          module_loader,
+          node_services,
+          npm_snapshot,
+          permissions,
+          metadata,
+          static_files,
+          vfs,
+          vfs_path,
+          base_url,
+        } = rt_provider;
+
+        let entrypoint = metadata.entrypoint.clone();
+        let main_module_url = match entrypoint.as_ref() {
+          Some(Entrypoint::Key(key)) => base_url.join(key)?,
+          Some(Entrypoint::ModuleCode(_)) | None => Url::parse(
+            maybe_entrypoint
+              .as_ref()
+              .with_context(|| "could not find entrypoint key")?,
+          )?,
+        };
+
+        let build_file_system_fn = |base_fs: Arc<dyn deno_fs::FileSystem>| -> Result<
+          (Arc<dyn deno_fs::FileSystem>, Option<S3Fs>),
+          AnyError,
+        > {
+          let tmp_fs =
+            TmpFs::try_from(maybe_tmp_fs_config.unwrap_or_default())?;
+          let tmp_fs_actual_path = tmp_fs.actual_path().to_path_buf();
+          let fs = PrefixFs::new("/tmp", tmp_fs.clone(), Some(base_fs))
+            .tmp_dir("/tmp")
+            .add_fs(tmp_fs_actual_path, tmp_fs);
+
+          Ok(
+            if let Some(s3_fs) =
+              maybe_s3_fs_config.map(S3Fs::new).transpose()?
+            {
+              (Arc::new(fs.add_fs("/s3", s3_fs.clone())), Some(s3_fs))
+            } else {
+              (Arc::new(fs), None)
+            },
+          )
+        };
+
+        let (fs, s3_fs) = build_file_system_fn(if is_user_worker {
+          Arc::new(StaticFs::new(
+            static_files,
+            if matches!(entrypoint, Some(Entrypoint::ModuleCode(_)) | None)
+              && maybe_entrypoint.is_some()
+            {
+              // it is eszip from before v2
+              base_url
+                .to_file_path()
+                .map_err(|_| anyhow!("failed to resolve base url"))?
+            } else {
+              main_module_url
+                .to_file_path()
+                .map_err(|_| {
+                  anyhow!("failed to resolve base dir using main module url")
+                })
+                .and_then(|it| {
+                  it.parent()
+                    .map(Path::to_path_buf)
+                    .with_context(|| "failed to determine parent directory")
+                })?
+            },
+            vfs_path,
+            vfs,
+            npm_snapshot,
+          ))
+        } else {
+          Arc::new(DenoCompileFileSystem::from_rc(vfs))
+        })?;
+
+        let extensions = vec![
+          deno_telemetry::deno_telemetry::init_ops(),
+          deno_webidl::deno_webidl::init_ops(),
+          deno_console::deno_console::init_ops(),
+          deno_url::deno_url::init_ops(),
+          deno_web::deno_web::init_ops::<PermissionsContainer>(
+            Arc::new(deno_web::BlobStore::default()),
+            None,
+          ),
+          deno_webgpu::deno_webgpu::init_ops(),
+          deno_canvas::deno_canvas::init_ops(),
+          deno_fetch::deno_fetch::init_ops::<PermissionsContainer>(
+            deno_fetch::Options {
+              user_agent: SUPABASE_UA.clone(),
+              root_cert_store_provider: Some(root_cert_store_provider.clone()),
+              ..Default::default()
+            },
+          ),
+          deno_websocket::deno_websocket::init_ops::<PermissionsContainer>(
+            SUPABASE_UA.clone(),
+            Some(root_cert_store_provider.clone()),
+            None,
+          ),
+          // TODO: support providing a custom seed for crypto
+          deno_crypto::deno_crypto::init_ops(None),
+          deno_broadcast_channel::deno_broadcast_channel::init_ops(
+            deno_broadcast_channel::InMemoryBroadcastChannel::default(),
+          ),
+          deno_net::deno_net::init_ops::<PermissionsContainer>(
+            Some(root_cert_store_provider),
+            None,
+          ),
+          deno_tls::deno_tls::init_ops(),
+          deno_http::deno_http::init_ops::<DefaultHttpPropertyExtractor>(
+            deno_http::Options::default(),
+          ),
+          deno_io::deno_io::init_ops(Some(stdio)),
+          deno_fs::deno_fs::init_ops::<PermissionsContainer>(fs.clone()),
+          ext_ai::ai::init_ops(),
+          ext_env::env::init_ops(),
+          ext_os::os::init_ops(),
+          ext_workers::user_workers::init_ops(),
+          ext_event_worker::user_event_worker::init_ops(),
+          ext_event_worker::js_interceptors::js_interceptors::init_ops(),
+          ext_runtime::runtime_bootstrap::init_ops::<PermissionsContainer>(
+            Some(main_module_url.clone()),
+          ),
+          ext_runtime::runtime_net::init_ops(),
+          ext_runtime::runtime_http::init_ops(),
+          ext_runtime::runtime_http_start::init_ops(),
+          // NOTE(AndresP): Order is matters. Otherwise, it will lead to hard
+          // errors such as SIGBUS depending on the platform.
+          ext_node::deno_node::init_ops::<PermissionsContainer>(
+            Some(node_services),
+            fs,
+          ),
+          deno_cache::deno_cache::init_ops::<SqliteBackedCache>(None),
+          deno::runtime::ops::permissions::deno_permissions::init_ops(),
+          ops::permissions::base_runtime_permissions::init_ops_and_esm(
+            permissions,
+          ),
+          ext_runtime::runtime::init_ops(),
+        ];
+
+        let mut create_params = None;
+        let mut mem_check = MemCheck::default();
+
+        let beforeunload_cpu_threshold =
+          ArcSwapOption::<u64>::from_pointee(None);
+        let beforeunload_mem_threshold =
+          ArcSwapOption::<u64>::from_pointee(None);
+
+        if conf.is_user_worker() {
+          let conf = maybe_user_conf.unwrap();
+          let memory_limit_bytes = mib_to_bytes(conf.memory_limit_mb) as usize;
+
+          beforeunload_mem_threshold.store(
+            flags
+              .beforeunload_memory_pct
+              .and_then(|it| percentage_value(memory_limit_bytes as u64, it))
+              .map(Arc::new),
+          );
+
+          if conf.cpu_time_hard_limit_ms > 0 {
+            beforeunload_cpu_threshold.store(
+              flags
+                .beforeunload_cpu_pct
+                .and_then(|it| {
+                  percentage_value(conf.cpu_time_hard_limit_ms, it)
+                })
+                .map(Arc::new),
+            );
+          }
+
+          let allocator = CustomAllocator::new(memory_limit_bytes);
+
+          allocator.set_waker(mem_check.waker.clone());
+
+          mem_check.limit = Some(memory_limit_bytes);
+          create_params = Some(
+            v8::CreateParams::default()
+              .heap_limits(mib_to_bytes(0) as usize, memory_limit_bytes)
+              .array_buffer_allocator(allocator.into_v8_allocator()),
+          )
+        };
+
+        let mem_check = Arc::new(mem_check);
+        let runtime_options = RuntimeOptions {
+          extensions,
+          is_main: true,
+          inspector: has_inspector,
+          create_params,
+          get_error_class_fn: Some(&deno::errors::get_error_class_name),
+          shared_array_buffer_store: None,
+          compiled_wasm_module_store: None,
+          startup_snapshot: snapshot::snapshot(),
+          module_loader: Some(module_loader),
+          import_meta_resolve_callback: Some(Box::new(
+            import_meta_resolve_callback,
+          )),
+          ..Default::default()
+        };
+
+        let mut js_runtime = JsRuntime::new(runtime_options);
+
+        let dispatch_fns = {
+          let context = js_runtime.main_context();
+          let scope = &mut js_runtime.handle_scope();
+          let context_local = v8::Local::new(scope, context);
+          let global_obj = context_local.global(scope);
+          let bootstrap_str =
+            v8::String::new_external_onebyte_static(scope, b"bootstrap")
+              .unwrap();
+          let bootstrap_ns = global_obj
+            .get(scope, bootstrap_str.into())
+            .unwrap()
+            .to_object(scope)
+            .unwrap();
+
+          macro_rules! get_global {
+            ($name:expr) => {{
+              let dispatch_fn_str =
+                v8::String::new_external_onebyte_static(scope, $name).unwrap();
+              let dispatch_fn = v8::Local::<v8::Function>::try_from(
+                bootstrap_ns.get(scope, dispatch_fn_str.into()).unwrap(),
+              )
+              .unwrap();
+              v8::Global::new(scope, dispatch_fn)
+            }};
+          }
+
+          DispatchEventFunctions {
+            dispatch_load_event_fn_global: get_global!(b"dispatchLoadEvent"),
+            dispatch_beforeunload_event_fn_global: get_global!(
+              b"dispatchBeforeUnloadEvent"
+            ),
+            dispatch_unload_event_fn_global: get_global!(
+              b"dispatchUnloadEvent"
+            ),
+            dispatch_drain_event_fn_global: get_global!(b"dispatchDrainEvent"),
+          }
+        };
+
+        {
+          let main_context = js_runtime.main_context();
+          let op_state = js_runtime.op_state();
+          let mut op_state = op_state.borrow_mut();
+
+          op_state.put(dispatch_fns);
+          op_state.put(promise_metrics.clone());
+          op_state.put(runtime_state.clone());
+          op_state.put(GlobalMainContext(main_context));
         }
-      }));
+
+        {
+          let op_state_rc = js_runtime.op_state();
+          let mut op_state = op_state_rc.borrow_mut();
+
+          // NOTE(Andreespirela): We do this because "NODE_DEBUG" is trying to be
+          // read during initialization, But we need the gotham state to be
+          // up-to-date.
+          op_state.put(ext_env::EnvVars::default());
+        }
+
+        if let Some(inspector) = worker.inspector.as_ref() {
+          inspector.server.register_inspector(
+            main_module_url.to_string(),
+            &mut js_runtime,
+            inspector.should_wait_for_session(),
+          );
+        }
+
+        if is_user_worker {
+          js_runtime.v8_isolate().add_gc_prologue_callback(
+            mem_check_gc_prologue_callback_fn,
+            Arc::as_ptr(&mem_check) as *mut _,
+            GCType::ALL,
+          );
+
+          js_runtime
+            .op_state()
+            .borrow_mut()
+            .put(MemCheckWaker::from(mem_check.waker.clone()));
+        }
+
+        Ok(Bootstrap {
+          js_runtime,
+          mem_check,
+          has_inspector,
+          main_module_url,
+          entrypoint,
+          context: Some(context),
+          s3_fs,
+          beforeunload_cpu_threshold,
+          beforeunload_mem_threshold,
+        })
+      }
+      .in_current_span()
+    };
+
+    let span = Span::current();
+    let handle = Handle::current();
+    let bootstrap_ret = unsafe {
+      spawn_blocking_non_send(|| -> Result<Bootstrap, Error> {
+        let mut bootstrap = handle.block_on(bootstrap_fn())?;
+        let _span = span.entered();
+
+        debug!("bootstrap");
+
+        bootstrap.js_runtime.v8_isolate().dispose_scope_root();
+        bootstrap.js_runtime.v8_isolate().exit();
+
+        {
+          assert_isolate_not_locked(bootstrap.js_runtime.v8_isolate());
+          let mut locker = bootstrap.js_runtime.with_locker();
+
+          // Bootstrapping stage
+          let (runtime_context, extra_context, bootstrap_fn) = {
+            let runtime_context =
+              serde_json::json!(RuntimeContext::get_runtime_context(
+                &conf,
+                bootstrap.has_inspector,
+                option_env!("GIT_V_TAG"),
+              ));
+
+            let tokens = {
+              let op_state = locker.op_state();
+              let resource_table = &mut op_state.borrow_mut().resource_table;
+              serde_json::json!({
+                  "terminationRequestToken":
+                    resource_table
+                      .add(DropToken(termination_request_token.clone()))
+              })
+            };
+
+            let extra_context = {
+              let mut extra_context =
+                serde_json::json!(RuntimeContext::get_extra_context());
+
+              json::merge_object(
+                &mut extra_context,
+                &serde_json::Value::Object(
+                  bootstrap.context.take().unwrap_or_default(),
+                ),
+              );
+              json::merge_object(&mut extra_context, &tokens);
+
+              extra_context
+            };
+
+            let context = locker.main_context();
+            let scope = &mut locker.handle_scope();
+            let context_local = v8::Local::new(scope, context);
+            let global_obj = context_local.global(scope);
+            let bootstrap_str = v8::String::new_external_onebyte_static(
+              scope,
+              b"bootstrapSBEdge",
+            )
+            .unwrap();
+            let bootstrap_fn = v8::Local::<v8::Function>::try_from(
+              global_obj.get(scope, bootstrap_str.into()).unwrap(),
+            )
+            .unwrap();
+
+            let runtime_context_local =
+              deno_core::serde_v8::to_v8(scope, runtime_context)
+                .context("failed to convert to v8 value")?;
+            let runtime_context_global =
+              v8::Global::new(scope, runtime_context_local);
+            let extra_context_local =
+              deno_core::serde_v8::to_v8(scope, extra_context)
+                .context("failed to convert to v8 value")?;
+            let extra_context_global =
+              v8::Global::new(scope, extra_context_local);
+            let bootstrap_fn_global = v8::Global::new(scope, bootstrap_fn);
+
+            (
+              runtime_context_global,
+              extra_context_global,
+              bootstrap_fn_global,
+            )
+          };
+
+          locker
+            .call_with_args(&bootstrap_fn, &[runtime_context, extra_context])
+            .now_or_never()
+            .transpose()
+            .context("failed to execute bootstrap script")?;
+        }
+
+        // from this moment on, using `v8::Locker` is enforced.
+        Ok(bootstrap)
+      })
+    }
+    .await;
+
+    let Bootstrap {
+      mut js_runtime,
+      mem_check,
+      main_module_url,
+      entrypoint,
+      s3_fs,
+      beforeunload_cpu_threshold,
+      beforeunload_mem_threshold,
+      ..
+    } = match bootstrap_ret {
+      Ok(Ok(v)) => v,
+      Ok(Err(err)) => {
+        return Err(err.context("failed to bootstrap runtime"));
+      }
+      Err(err) => {
+        return Err(err).context("failed to bootstrap runtime");
+      }
+    };
+
+    let span = Span::current();
+    let post_task_ret = unsafe {
+      spawn_blocking_non_send(|| {
+        let _span = span.entered();
+
+        debug!("bootstrap post task");
+
+        {
+          assert_isolate_not_locked(js_runtime.v8_isolate());
+          let mut locker = js_runtime.with_locker();
+
+          // run inside a closure, so op_state_rc is released
+          let op_state_rc = locker.op_state();
+          let mut op_state = op_state_rc.borrow_mut();
+
+          let mut env_vars = env_vars.clone();
+
+          if let Some(opts) = conf.as_events_worker_mut() {
+            op_state.put::<mpsc::UnboundedReceiver<WorkerEventWithMetadata>>(
+              opts.events_msg_rx.take().unwrap(),
+            );
+          }
+
+          if conf.is_main_worker() || conf.is_user_worker() {
+            op_state.put::<HashMap<usize, CancellationToken>>(HashMap::new());
+          }
+
+          if conf.is_user_worker() {
+            let conf = conf.as_user_worker().unwrap();
+
+            // set execution id for user workers
+            env_vars.insert(
+              "SB_EXECUTION_ID".to_string(),
+              conf.key.map_or("".to_string(), |k| k.to_string()),
+            );
+
+            if let Some(events_msg_tx) = conf.events_msg_tx.clone() {
+              op_state.put::<mpsc::UnboundedSender<WorkerEventWithMetadata>>(
+                events_msg_tx,
+              );
+              op_state.put::<EventMetadata>(EventMetadata {
+                service_path: conf.service_path.clone(),
+                execution_id: conf.key,
+              });
+            }
+          }
+
+          op_state.put(ext_env::EnvVars(env_vars));
+          op_state.put(DenoRuntimeDropToken(DropToken(drop_token.clone())));
+        }
+
+        if is_user_worker {
+          drop(base_rt::SUPERVISOR_RT.spawn({
+            let drop_token = drop_token.clone();
+            let waker = mem_check.waker.clone();
+
+            async move {
+              // TODO(Nyannyacha): Should we introduce exponential backoff?
+              let mut int = interval(*ALLOC_CHECK_DUR);
+              loop {
+                tokio::select! {
+                  _ = int.tick() => {
+                    waker.wake();
+                  }
+
+                  _ = drop_token.cancelled() => {
+                    break;
+                  }
+                }
+              }
+            }
+          }));
+        }
+      })
+    }
+    .await;
+
+    match post_task_ret {
+      Ok(_) => {}
+      Err(err) => {
+        return Err(err).context("failed to bootstrap runtime");
+      }
     }
 
     Ok(Self {
@@ -1049,9 +1123,12 @@ where
       termination_request_token,
 
       conf,
-      s3_fs: maybe_s3_fs,
+      s3_fs,
 
-      main_module_id,
+      entrypoint,
+      main_module_url,
+      main_module_id: None,
+
       worker,
       promise_metrics,
 
@@ -1065,7 +1142,60 @@ where
     })
   }
 
+  pub(crate) async fn init_main_module(&mut self) -> Result<(), Error> {
+    if self.main_module_id.is_some() {
+      return Ok(());
+    }
+
+    let span = Span::current();
+    let handle = Handle::current();
+    let ret = unsafe {
+      spawn_blocking_non_send(|| {
+        handle.block_on(
+          async {
+            debug!("initialize main module");
+
+            self.assert_isolate_not_locked();
+            let mut locker = self.with_locker();
+
+            let entrypoint = locker.entrypoint.take();
+            let url = locker.main_module_url.clone();
+
+            match entrypoint {
+              Some(Entrypoint::Key(_)) | None => {
+                locker.js_runtime.load_main_es_module(&url).await
+              }
+              Some(Entrypoint::ModuleCode(module_code)) => {
+                locker
+                  .js_runtime
+                  .load_main_es_module_from_code(&url, module_code.to_string())
+                  .await
+              }
+            }
+          }
+          .instrument(span),
+        )
+      })
+    }
+    .await;
+
+    let id = match ret {
+      Ok(Ok(v)) => v,
+      Ok(Err(err)) => {
+        return Err(err);
+      }
+      Err(err) => {
+        return Err(err).context("failed to load the module");
+      }
+    };
+
+    self.main_module_id = Some(id);
+    Ok(())
+  }
+
   pub async fn run(&mut self, options: RunOptions) -> (Result<(), Error>, i64) {
+    self.assert_isolate_not_locked();
+
     let RunOptions {
       wait_termination_request_token,
       duplex_stream_rx,
@@ -1091,65 +1221,105 @@ where
         v.raise();
       });
 
-    // NOTE: This is unnecessary on the LIFO task scheduler that can't steal the
-    // task from the other threads.
-    let current_thread_id = std::thread::current().id();
     let mut accumulated_cpu_time_ns = 0i64;
-
-    let span = debug_span!("runtime", thread_id = ?current_thread_id);
-    let inspector = self.inspector();
-    let mut mod_result_rx = unsafe {
-      self.js_runtime.v8_isolate().enter();
-
-      if inspector.is_some() {
-        let state = self.runtime_state.clone();
-        let mut this = scopeguard::guard_on_unwind(&mut *self, {
-          |this| {
-            this.js_runtime.v8_isolate().exit();
-            state.terminated.raise();
-          }
-        });
-
-        {
-          let _guard =
-            scopeguard::guard(state.found_inspector_session.clone(), |v| {
-              v.raise();
-            });
-
-          // XXX(Nyannyacha): Suppose the user skips this function by passing
-          // the `--inspect` argument. In that case, the runtime may terminate
-          // before the inspector session is connected if the function doesn't
-          // have a long execution time. Should we wait for an inspector session
-          // to connect with the V8?
-          this.wait_for_inspector_session();
-        }
-
-        if this.termination_request_token.is_cancelled() {
-          this.js_runtime.v8_isolate().exit();
-          state.terminated.raise();
-          return (Ok(()), 0i64);
-        }
-      }
-
-      let mut js_runtime = scopeguard::guard(&mut self.js_runtime, |it| {
-        it.v8_isolate().exit();
-      });
-
-      with_cpu_metrics_guard(
-        current_thread_id,
-        js_runtime.op_state(),
-        &maybe_cpu_usage_metrics_tx,
-        &mut accumulated_cpu_time_ns,
-        || js_runtime.mod_evaluate(self.main_module_id),
-      )
-    }
-    .instrument(span.clone());
 
     macro_rules! get_accumulated_cpu_time_ms {
       () => {
         accumulated_cpu_time_ns / 1_000_000
       };
     }
+
+    let inspector = self.inspector();
+    let mod_fut_ret = unsafe {
+      if let Err(err) = self.init_main_module().await {
+        return (Err(err), 0i64);
+      }
+
+      if inspector.is_some() {
+        let ret = spawn_blocking_non_send(|| {
+          let state = self.runtime_state.clone();
+          let _guard = scopeguard::guard_on_unwind((), |_| {
+            state.terminated.raise();
+          });
+
+          self.assert_isolate_not_locked();
+          let mut locker = self.with_locker();
+
+          {
+            let _guard =
+              scopeguard::guard(state.found_inspector_session.clone(), |v| {
+                v.raise();
+              });
+
+            // XXX(Nyannyacha): Suppose the user skips this function by passing
+            // the `--inspect` argument. In that case, the runtime may terminate
+            // before the inspector session is connected if the function doesn't
+            // have a long execution time. Should we wait for an inspector session
+            // to connect with the V8?
+            locker.wait_for_inspector_session();
+          }
+
+          if locker.termination_request_token.is_cancelled() {
+            state.terminated.raise();
+            return false;
+          }
+
+          true
+        })
+        .await
+        .map_err(Error::from);
+
+        match ret {
+          Ok(true) => {}
+          Ok(false) => return (Ok(()), 0i64),
+          Err(err) => return (Err(err), 0i64),
+        }
+      }
+
+      let Some(main_module_id) = self.main_module_id else {
+        return (Err(anyhow!("failed to get main module id")), 0);
+      };
+
+      let span = Span::current();
+      let handle = Handle::current();
+
+      spawn_blocking_non_send(|| {
+        let _wall = deno_core::unsync::set_wall().drop_guard();
+        let init = scopeguard::guard(self.runtime_state.init.clone(), |v| {
+          v.lower();
+        });
+
+        init.raise();
+        handle.block_on(
+          #[allow(clippy::async_yields_async)]
+          async {
+            self.assert_isolate_not_locked();
+            let mut locker = self.with_locker();
+
+            let op_state = locker.js_runtime.op_state();
+
+            with_cpu_metrics_guard(
+              op_state,
+              &maybe_cpu_usage_metrics_tx,
+              &mut accumulated_cpu_time_ns,
+              || locker.js_runtime.mod_evaluate(main_module_id),
+            )
+          }
+          .instrument(span),
+        )
+      })
+      .await
+    };
+
+    let mut mod_ret_rx = match mod_fut_ret {
+      Ok(v) => v,
+      Err(err) => {
+        return (
+          Err(err).context("failed to load the module"),
+          get_accumulated_cpu_time_ms!(),
+        );
+      }
+    };
 
     {
       let evaluating_mod =
@@ -1159,21 +1329,18 @@ where
 
       evaluating_mod.raise();
 
-      let event_loop_fut = self
-        .run_event_loop(
-          current_thread_id,
-          wait_termination_request_token,
-          &maybe_cpu_usage_metrics_tx,
-          &mut accumulated_cpu_time_ns,
-        )
-        .instrument(span.clone());
+      let event_loop_fut = self.run_event_loop(
+        wait_termination_request_token,
+        &maybe_cpu_usage_metrics_tx,
+        &mut accumulated_cpu_time_ns,
+      );
 
       let mod_result = tokio::select! {
-        // Not using biased mode leads to non-determinism for relatively simple
-        // programs.
+        // Not using biased mode leads to non-determinism for relatively
+        // simple programs.
         biased;
 
-        maybe_mod_result = &mut mod_result_rx => {
+        maybe_mod_result = &mut mod_ret_rx => {
           debug!("received module evaluate {:#?}", maybe_mod_result);
           maybe_mod_result
         }
@@ -1187,7 +1354,7 @@ where
               )
             )
           } else {
-            mod_result_rx.await
+            mod_ret_rx.await
           }
         }
       };
@@ -1201,17 +1368,19 @@ where
         return (Ok(()), get_accumulated_cpu_time_ms!());
       }
 
-      let mut this = self.get_v8_tls_guard();
+      {
+        self.assert_isolate_not_locked();
+        let mut locker = unsafe { self.with_locker() };
 
-      if !this.termination_request_token.is_cancelled() {
-        if let Err(err) = with_cpu_metrics_guard(
-          current_thread_id,
-          this.js_runtime.op_state(),
-          &maybe_cpu_usage_metrics_tx,
-          &mut accumulated_cpu_time_ns,
-          || MaybeDenoRuntime::DenoRuntime(*this).dispatch_load_event(),
-        ) {
-          return (Err(err), get_accumulated_cpu_time_ms!());
+        if !locker.termination_request_token.is_cancelled() {
+          if let Err(err) = with_cpu_metrics_guard(
+            locker.js_runtime.op_state(),
+            &maybe_cpu_usage_metrics_tx,
+            &mut accumulated_cpu_time_ns,
+            || MaybeDenoRuntime::DenoRuntime(*locker).dispatch_load_event(),
+          ) {
+            return (Err(err), get_accumulated_cpu_time_ms!());
+          }
         }
       }
     }
@@ -1220,12 +1389,10 @@ where
 
     if let Err(err) = self
       .run_event_loop(
-        current_thread_id,
         wait_termination_request_token,
         &maybe_cpu_usage_metrics_tx,
         &mut accumulated_cpu_time_ns,
       )
-      .instrument(span)
       .await
     {
       return (
@@ -1235,15 +1402,15 @@ where
     }
 
     if !self.conf.is_user_worker() {
-      let mut this = self.get_v8_tls_guard();
-      let mut this = this.get_v8_termination_guard();
+      self.assert_isolate_not_locked();
+      let mut locker = unsafe { self.with_locker() };
+      let mut locker = locker.get_v8_termination_guard();
 
       if let Err(err) = with_cpu_metrics_guard(
-        current_thread_id,
-        this.js_runtime.op_state(),
+        locker.js_runtime.op_state(),
         &maybe_cpu_usage_metrics_tx,
         &mut accumulated_cpu_time_ns,
-        || MaybeDenoRuntime::DenoRuntime(&mut this).dispatch_unload_event(),
+        || MaybeDenoRuntime::DenoRuntime(&mut locker).dispatch_unload_event(),
       ) {
         return (Err(err), get_accumulated_cpu_time_ms!());
       }
@@ -1257,7 +1424,6 @@ where
 
   fn run_event_loop<'l>(
     &'l mut self,
-    #[allow(unused_variables)] current_thread_id: ThreadId,
     wait_termination_request_token: bool,
     maybe_cpu_usage_metrics_tx: &'l Option<
       mpsc::UnboundedSender<CPUUsageMetrics>,
@@ -1279,39 +1445,29 @@ where
 
     let state = self.runtime_state.clone();
     let mem_check_state = is_user_worker.then(|| self.mem_check.clone());
-    let mut poll_sem = None::<PollSemaphore>;
 
     poll_fn(move |cx| {
-      if poll_sem.is_none() {
-        poll_sem =
-          Some(RUNTIME_CREATION_SEM.with(|v| PollSemaphore::new(v.clone())));
-      }
-
-      let Poll::Ready(Some(_permit)) =
-        poll_sem.as_mut().unwrap().poll_acquire(cx)
-      else {
-        return Poll::Pending;
-      };
-
-      poll_sem = None;
-
-      // INVARIANT: Only can steal current task by other threads when LIFO task
-      // scheduler heuristic disabled. Turning off the heuristic is unstable
-      // now, so it's not considered.
-      #[cfg(debug_assertions)]
-      assert_eq!(current_thread_id, std::thread::current().id());
-
       let waker = cx.waker();
       let woked = global_waker.take().is_none();
-      let thread_id = std::thread::current().id();
 
       global_waker.register(waker);
 
-      let mut this = self.get_v8_tls_guard();
+      let mut this = {
+        self.assert_isolate_not_locked();
+        unsafe { self.with_locker() }
+      };
+
+      if woked {
+        extern "C" fn dummy(_: &mut v8::Isolate, _: *mut std::ffi::c_void) {}
+        this
+          .js_runtime
+          .v8_isolate()
+          .thread_safe_handle()
+          .request_interrupt(dummy, std::ptr::null_mut());
+      }
 
       let js_runtime = &mut this.js_runtime;
       let cpu_metrics_guard = get_cpu_metrics_guard(
-        thread_id,
         js_runtime.op_state(),
         maybe_cpu_usage_metrics_tx,
         accumulated_cpu_time_ns,
@@ -1414,6 +1570,10 @@ where
         && poll_result.is_pending()
         && termination_request_fut.poll_unpin(cx).is_ready()
       {
+        if state.is_evaluating_mod() {
+          return Poll::Ready(Err(anyhow!("execution terminated")));
+        }
+
         return Poll::Ready(Ok(()));
       }
 
@@ -1502,23 +1662,6 @@ where
     )
   }
 
-  fn get_v8_tls_guard<'l>(
-    &'l mut self,
-  ) -> scopeguard::ScopeGuard<
-    &'l mut DenoRuntime<RuntimeContext>,
-    impl FnOnce(&'l mut DenoRuntime<RuntimeContext>) + 'l,
-  > {
-    let mut guard = scopeguard::guard(self, |v| unsafe {
-      v.js_runtime.v8_isolate().exit();
-    });
-
-    unsafe {
-      guard.js_runtime.v8_isolate().enter();
-    }
-
-    guard
-  }
-
   fn get_v8_termination_guard<'l>(
     &'l mut self,
   ) -> scopeguard::ScopeGuard<
@@ -1546,13 +1689,85 @@ where
   }
 }
 
+trait JsRuntimeLockerGuard {
+  fn js_runtime(&mut self) -> &mut JsRuntime;
+
+  unsafe fn with_locker<'l>(
+    &'l mut self,
+  ) -> scopeguard::ScopeGuard<&'l mut Self, impl FnOnce(&'l mut Self) + 'l> {
+    let js_runtime = self.js_runtime();
+    let locker =
+      Locker::new(std::mem::transmute::<&mut Isolate, &mut Isolate>(
+        js_runtime.v8_isolate(),
+      ));
+
+    scopeguard::guard(self, move |_| {
+      drop(locker);
+    })
+  }
+}
+
+impl<C> JsRuntimeLockerGuard for DenoRuntime<C> {
+  fn js_runtime(&mut self) -> &mut JsRuntime {
+    &mut self.js_runtime
+  }
+}
+
+impl JsRuntimeLockerGuard for JsRuntime {
+  fn js_runtime(&mut self) -> &mut JsRuntime {
+    self
+  }
+}
+
+async unsafe fn spawn_blocking_non_send<F, R>(
+  non_send_fn: F,
+) -> Result<R, tokio::task::JoinError>
+where
+  F: FnOnce() -> R,
+  R: 'static,
+{
+  let span = Span::current();
+  let disguised_fn = unsync::MaskValueAsSend { value: non_send_fn };
+  let (mut scope, ..) = async_scoped::TokioScope::scope(|s| {
+    s.spawn_blocking(move || {
+      let _span = span.entered();
+
+      debug!(current_thread = ?std::thread::current().id());
+
+      unsync::MaskValueAsSend {
+        value: disguised_fn.into_inner()(),
+      }
+    });
+  });
+
+  assert_eq!(scope.len(), 1);
+  let stream = {
+    let stream = scope.collect().await;
+
+    drop(scope);
+    stream
+  };
+
+  let mut iter = stream
+    .into_iter()
+    .map(|it| it.map(unsync::MaskValueAsSend::into_inner));
+
+  let ret = iter.next();
+  assert!(iter.next().is_none());
+
+  match ret {
+    Some(v) => v,
+    None => unreachable!("scope.len() == 1"),
+  }
+}
+
 type TerminateExecutionIfCancelledReturnType =
   ScopeGuard<CancellationToken, Box<dyn FnOnce(CancellationToken)>>;
 
 #[allow(dead_code)]
 struct Scope<'s> {
   context: v8::Local<'s, v8::Context>,
-  scope: v8::CallbackScope<'s, ()>,
+  scope: Either<v8::HandleScope<'s, v8::Context>, v8::CallbackScope<'s, ()>>,
 }
 
 impl<'s> Scope<'s> {
@@ -1560,7 +1775,15 @@ impl<'s> Scope<'s> {
     &'l mut self,
   ) -> v8::ContextScope<'l, v8::HandleScope<'s>> {
     let context = self.context;
-    v8::ContextScope::new(&mut self.scope, context)
+    v8::ContextScope::new(
+      self
+        .scope
+        .as_mut()
+        .map_left(|it| &mut **it)
+        .map_right(|it| &mut **it)
+        .into_inner(),
+      context,
+    )
   }
 }
 
@@ -1611,19 +1834,31 @@ where
 
     let mut scope = unsafe {
       match self {
-        Self::DenoRuntime(v) => {
-          v8::CallbackScope::new(v.js_runtime.v8_isolate())
+        MaybeDenoRuntime::DenoRuntime(v) => {
+          Either::Left(v8::HandleScope::with_context(
+            v.js_runtime.v8_isolate(),
+            context.0.clone(),
+          ))
         }
-        Self::Isolate(v) => v8::CallbackScope::new(&mut **v),
-        Self::IsolateWithCancellationToken(v) => {
-          v8::CallbackScope::new(&mut **v)
+        MaybeDenoRuntime::Isolate(v) => {
+          Either::Right(v8::CallbackScope::new(&mut **v))
+        }
+        MaybeDenoRuntime::IsolateWithCancellationToken(v) => {
+          Either::Right(v8::CallbackScope::new(&mut **v))
         }
       }
     };
 
-    let context = context.to_local_context(&mut scope);
+    let handle_scope = scope
+      .as_mut()
+      .map_left(|it| &mut **it)
+      .map_right(|it| &mut **it)
+      .into_inner();
 
-    Scope { context, scope }
+    Scope {
+      context: context.to_local_context(handle_scope),
+      scope,
+    }
   }
 
   #[allow(unused)]
@@ -1771,7 +2006,6 @@ pub fn import_meta_resolve_callback(
 }
 
 fn with_cpu_metrics_guard<'l, F, R>(
-  thread_id: ThreadId,
   op_state: Rc<RefCell<OpState>>,
   maybe_cpu_usage_metrics_tx: &'l Option<
     mpsc::UnboundedSender<CPUUsageMetrics>,
@@ -1783,7 +2017,6 @@ where
   F: FnOnce() -> R,
 {
   let _cpu_metrics_guard = get_cpu_metrics_guard(
-    thread_id,
     op_state,
     maybe_cpu_usage_metrics_tx,
     accumulated_cpu_time_ns,
@@ -1793,48 +2026,84 @@ where
 }
 
 fn get_cpu_metrics_guard<'l>(
-  thread_id: ThreadId,
   op_state: Rc<RefCell<OpState>>,
   maybe_cpu_usage_metrics_tx: &'l Option<
     mpsc::UnboundedSender<CPUUsageMetrics>,
   >,
   accumulated_cpu_time_ns: &'l mut i64,
-) -> scopeguard::ScopeGuard<(), impl FnOnce(()) + 'l> {
-  let send_cpu_metrics_fn = move |metric: CPUUsageMetrics| {
-    if let Some(cpu_metric_tx) = maybe_cpu_usage_metrics_tx.as_ref() {
-      let _ = cpu_metric_tx.send(metric);
-    }
+) -> scopeguard::ScopeGuard<(), Box<dyn FnOnce(()) + 'l>> {
+  let Some(cpu_usage_metrics_tx) = maybe_cpu_usage_metrics_tx.as_ref() else {
+    return scopeguard::guard((), Box::new(|_| {}));
   };
 
-  send_cpu_metrics_fn(CPUUsageMetrics::Enter(thread_id));
+  #[derive(Clone)]
+  struct CurrentCPUTimer {
+    thread_id: std::thread::ThreadId,
+    timer: CPUTimer,
+  }
+
+  let current_thread_id = std::thread::current().id();
+  let send_cpu_metrics_fn = move |metric: CPUUsageMetrics| {
+    let _ = cpu_usage_metrics_tx.send(metric);
+  };
+
+  let mut state = op_state.borrow_mut();
+  let cpu_timer = if state.has::<CurrentCPUTimer>() {
+    let current_cpu_timer = state.borrow::<CurrentCPUTimer>();
+    if current_cpu_timer.thread_id != current_thread_id {
+      state.take::<CurrentCPUTimer>();
+      None
+    } else {
+      Some(current_cpu_timer.timer.clone())
+    }
+  } else {
+    None
+  };
+  let cpu_timer = if let Some(timer) = cpu_timer {
+    timer
+  } else {
+    let cpu_timer = CurrentCPUTimer {
+      thread_id: current_thread_id,
+      timer: CPUTimer::new().unwrap(),
+    };
+
+    state.put(cpu_timer.clone());
+    cpu_timer.timer
+  };
+
+  drop(state);
+  send_cpu_metrics_fn(CPUUsageMetrics::Enter(current_thread_id, cpu_timer));
 
   let current_cpu_time_ns = get_current_cpu_time_ns().unwrap();
 
-  scopeguard::guard((), move |_| {
-    debug_assert_eq!(thread_id, std::thread::current().id());
+  scopeguard::guard(
+    (),
+    Box::new(move |_| {
+      debug_assert_eq!(current_thread_id, std::thread::current().id());
 
-    let cpu_time_after_drop_ns =
-      get_current_cpu_time_ns().unwrap_or(current_cpu_time_ns);
-    let blocking_cpu_time_ns =
-      BlockingScopeCPUUsage::get_cpu_usage_ns_and_reset(
-        &mut op_state.borrow_mut(),
+      let cpu_time_after_drop_ns =
+        get_current_cpu_time_ns().unwrap_or(current_cpu_time_ns);
+      let blocking_cpu_time_ns =
+        BlockingScopeCPUUsage::get_cpu_usage_ns_and_reset(
+          &mut op_state.borrow_mut(),
+        );
+
+      let diff_cpu_time_ns = cpu_time_after_drop_ns - current_cpu_time_ns;
+
+      *accumulated_cpu_time_ns += diff_cpu_time_ns;
+      *accumulated_cpu_time_ns += blocking_cpu_time_ns;
+
+      send_cpu_metrics_fn(CPUUsageMetrics::Leave(CPUUsage {
+        accumulated: *accumulated_cpu_time_ns,
+        diff: diff_cpu_time_ns,
+      }));
+
+      debug!(
+        accumulated_cpu_time_ms = *accumulated_cpu_time_ns / 1_000_000,
+        blocking_cpu_time_ms = blocking_cpu_time_ns / 1_000_000,
       );
-
-    let diff_cpu_time_ns = cpu_time_after_drop_ns - current_cpu_time_ns;
-
-    *accumulated_cpu_time_ns += diff_cpu_time_ns;
-    *accumulated_cpu_time_ns += blocking_cpu_time_ns;
-
-    send_cpu_metrics_fn(CPUUsageMetrics::Leave(CPUUsage {
-      accumulated: *accumulated_cpu_time_ns,
-      diff: diff_cpu_time_ns,
-    }));
-
-    debug!(
-      accumulated_cpu_time_ms = *accumulated_cpu_time_ns / 1_000_000,
-      blocking_cpu_time_ms = blocking_cpu_time_ns / 1_000_000,
-    );
-  })
+    }),
+  )
 }
 
 fn terminate_execution_if_cancelled(
@@ -1995,6 +2264,7 @@ mod test {
   use tokio::time::timeout;
 
   use crate::runtime::DenoRuntime;
+  use crate::runtime::JsRuntimeLockerGuard;
   use crate::worker::DuplexStreamEntry;
   use crate::worker::WorkerBuilder;
 
@@ -2279,13 +2549,20 @@ mod test {
     .await;
 
     let mut rt = runtime.unwrap();
-    let main_mod_ev = rt.js_runtime.mod_evaluate(rt.main_module_id);
-    let _ = rt
+    let main_module_id = rt
+      .init_main_module()
+      .await
+      .map(|_| rt.main_module_id.unwrap())
+      .unwrap();
+
+    let mut locker = unsafe { rt.with_locker() };
+    let main_mod_ev = locker.js_runtime.mod_evaluate(main_module_id);
+    let _ = locker
       .js_runtime
       .run_event_loop(PollEventLoopOptions::default())
       .await;
 
-    let read_is_even_global = rt
+    let read_is_even_global = locker
       .js_runtime
       .execute_script(
         "<anon>",
@@ -2298,7 +2575,7 @@ mod test {
       )
       .unwrap();
     let read_is_even =
-      rt.to_value_mut::<serde_json::Value>(&read_is_even_global);
+      locker.to_value_mut::<serde_json::Value>(&read_is_even_global);
     assert_eq!(read_is_even.unwrap().to_string(), "false");
     std::mem::drop(main_mod_ev);
   }
@@ -2359,13 +2636,20 @@ mod test {
     .await;
 
     let mut rt = runtime.unwrap();
-    let main_mod_ev = rt.js_runtime.mod_evaluate(rt.main_module_id);
-    let _ = rt
+    let main_module_id = rt
+      .init_main_module()
+      .await
+      .map(|_| rt.main_module_id.unwrap())
+      .unwrap();
+
+    let mut locker = unsafe { rt.with_locker() };
+    let main_mod_ev = locker.js_runtime.mod_evaluate(main_module_id);
+    let _ = locker
       .js_runtime
       .run_event_loop(PollEventLoopOptions::default())
       .await;
 
-    let read_is_even_global = rt
+    let read_is_even_global = locker
       .js_runtime
       .execute_script(
         "<anon>",
@@ -2378,7 +2662,7 @@ mod test {
       )
       .unwrap();
     let read_is_even =
-      rt.to_value_mut::<serde_json::Value>(&read_is_even_global);
+      locker.to_value_mut::<serde_json::Value>(&read_is_even_global);
     assert_eq!(read_is_even.unwrap().to_string(), "true");
     std::mem::drop(main_mod_ev);
   }
@@ -2390,7 +2674,8 @@ mod test {
     let mut runtime = RuntimeBuilder::new().build().await;
 
     {
-      let scope = &mut runtime.js_runtime.handle_scope();
+      let mut locker = unsafe { runtime.with_locker() };
+      let scope = &mut locker.js_runtime.handle_scope();
       let context = scope.get_current_context();
       let inner_scope = &mut v8::ContextScope::new(scope, context);
       let global = context.global(inner_scope);
@@ -2417,7 +2702,8 @@ mod test {
       .await;
 
     {
-      let scope = &mut runtime.js_runtime.handle_scope();
+      let mut locker = unsafe { runtime.with_locker() };
+      let scope = &mut locker.js_runtime.handle_scope();
       let context = scope.get_current_context();
       let inner_scope = &mut v8::ContextScope::new(scope, context);
       let global = context.global(inner_scope);
@@ -2461,7 +2747,8 @@ mod test {
       .build()
       .await;
 
-    let global_value_deno_read_file_script = main_rt
+    let mut locker = unsafe { main_rt.with_locker() };
+    let global_value_deno_read_file_script = locker
       .js_runtime
       .execute_script(
         "<anon>",
@@ -2474,7 +2761,7 @@ mod test {
       )
       .unwrap();
 
-    let fs_read_result = main_rt
+    let fs_read_result = locker
       .to_value_mut::<serde_json::Value>(&global_value_deno_read_file_script);
     assert_eq!(
       fs_read_result.unwrap().as_str().unwrap(),
@@ -2490,14 +2777,20 @@ mod test {
       .set_path("./test_cases/jsx-preact")
       .build()
       .await;
+    let main_module_id = main_rt
+      .init_main_module()
+      .await
+      .map(|_| main_rt.main_module_id.unwrap())
+      .unwrap();
 
-    let _main_mod_ev = main_rt.js_runtime.mod_evaluate(main_rt.main_module_id);
-    let _ = main_rt
+    let mut locker = unsafe { main_rt.with_locker() };
+    let _main_mod_ev = locker.js_runtime.mod_evaluate(main_module_id);
+    let _ = locker
       .js_runtime
       .run_event_loop(PollEventLoopOptions::default())
       .await;
 
-    let global_value_deno_read_file_script = main_rt
+    let global_value_deno_read_file_script = locker
       .js_runtime
       .execute_script(
         "<anon>",
@@ -2510,7 +2803,7 @@ mod test {
       )
       .unwrap();
 
-    let jsx_read_result = main_rt
+    let jsx_read_result = locker
       .to_value_mut::<serde_json::Value>(&global_value_deno_read_file_script);
     assert_eq!(
       jsx_read_result.unwrap().to_string(),
@@ -2555,7 +2848,8 @@ mod test {
       .build()
       .await;
 
-    let user_rt_execute_scripts = user_rt
+    let mut locker = unsafe { user_rt.with_locker() };
+    let user_rt_execute_scripts = locker
       .js_runtime
       .execute_script(
         "<anon>",
@@ -2565,7 +2859,7 @@ mod test {
         ),
       )
       .unwrap();
-    let serde_deno_env = user_rt
+    let serde_deno_env = locker
       .to_value_mut::<serde_json::Value>(&user_rt_execute_scripts)
       .unwrap();
 
@@ -2585,7 +2879,8 @@ mod test {
       .build()
       .await;
 
-    let user_rt_execute_scripts = user_rt
+    let mut locker = unsafe { user_rt.with_locker() };
+    let user_rt_execute_scripts =locker
       .js_runtime
       .execute_script(
         "<anon>",
@@ -2610,7 +2905,7 @@ mod test {
         ),
       )
       .unwrap();
-    let serde_deno_env = user_rt
+    let serde_deno_env = locker
       .to_value_mut::<serde_json::Value>(&user_rt_execute_scripts)
       .unwrap();
     assert_eq!(serde_deno_env.get("gid").unwrap().as_i64().unwrap(), 1000);
@@ -2681,7 +2976,7 @@ mod test {
     assert!(deno_consle_size_map.contains_key("rows"));
     assert!(deno_consle_size_map.contains_key("columns"));
 
-    let user_rt_execute_scripts = user_rt.js_runtime.execute_script(
+    let user_rt_execute_scripts = locker.js_runtime.execute_script(
       "<anon>",
       ModuleCodeString::from(
         r#"
@@ -2710,7 +3005,9 @@ mod test {
       .build()
       .await;
 
-    let err = main_rt
+    let mut main_locker = unsafe { main_rt.with_locker() };
+    let mut user_locker = unsafe { user_rt.with_locker() };
+    let err = main_locker
       .js_runtime
       .execute_script(
         "<anon>",
@@ -2728,7 +3025,7 @@ mod test {
       .to_string()
       .contains("NotSupported: The operation is not supported"));
 
-    let main_deno_env_get_supa_test = main_rt
+    let main_deno_env_get_supa_test = main_locker
       .js_runtime
       .execute_script(
         "<anon>",
@@ -2741,13 +3038,13 @@ mod test {
         ),
       )
       .unwrap();
-    let serde_deno_env =
-      main_rt.to_value_mut::<serde_json::Value>(&main_deno_env_get_supa_test);
+    let serde_deno_env = main_locker
+      .to_value_mut::<serde_json::Value>(&main_deno_env_get_supa_test);
     assert_eq!(serde_deno_env.unwrap().as_str().unwrap(), "Supa_Value");
 
     // User does not have this env variable because it was not provided
     // During the runtime creation
-    let user_deno_env_get_supa_test = user_rt
+    let user_deno_env_get_supa_test = user_locker
       .js_runtime
       .execute_script(
         "<anon>",
@@ -2760,8 +3057,8 @@ mod test {
         ),
       )
       .unwrap();
-    let user_serde_deno_env =
-      user_rt.to_value_mut::<serde_json::Value>(&user_deno_env_get_supa_test);
+    let user_serde_deno_env = user_locker
+      .to_value_mut::<serde_json::Value>(&user_deno_env_get_supa_test);
     assert!(user_serde_deno_env.unwrap().is_null());
   }
 
@@ -2883,7 +3180,7 @@ mod test {
     .build()
     .await;
 
-    let waker = user_rt.js_runtime.op_state().borrow().waker.clone();
+    let waker = user_rt.waker.clone();
     let handle = user_rt.js_runtime.v8_isolate().thread_safe_handle();
 
     user_rt.add_memory_limit_callback(move |_| {
@@ -2986,7 +3283,6 @@ mod test {
     impl GetRuntimeContext for Ctx {
       fn get_extra_context() -> impl Serialize {
         serde_json::json!({
-          "useReadSyncFileAPI": true,
           "shouldBootstrapMockFnThrowError": true,
         })
       }
@@ -2996,7 +3292,10 @@ mod test {
       "./test_cases/user-worker-san-check",
       None,
       None,
-      &["./test_cases/user-worker-san-check/.blocklisted"],
+      &[
+        "./test_cases/user-worker-san-check/.blocklisted",
+        "./test_cases/user-worker-san-check/.whitelisted",
+      ],
     )
     .set_context::<Ctx>()
     .build()

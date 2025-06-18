@@ -1,5 +1,6 @@
 use std::fs::File;
 use std::io::Write;
+use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -79,9 +80,12 @@ fn main() -> Result<ExitCode, anyhow::Error> {
     let exit_code = match matches.subcommand() {
       Some(("start", sub_matches)) => {
         let ip = sub_matches.get_one::<String>("ip").cloned().unwrap();
+        let ip = IpAddr::from_str(&ip)
+          .context("failed to parse the IP address to bind the server")?;
+
         let port = sub_matches.get_one::<u16>("port").copied().unwrap();
-        let addr = SocketAddr::from_str(&format!("{ip}:{port}"))
-          .context("failed to parse the address to bind the server")?;
+
+        let addr = SocketAddr::new(ip, port);
 
         let maybe_tls =
           if let Some(port) = sub_matches.get_one::<u16>("tls").copied() {

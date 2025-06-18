@@ -115,6 +115,10 @@ impl DenoOptions {
     self.builder.unstable_detect_cjs.unwrap_or_default()
   }
 
+  pub fn unstable_sloppy_imports(&self) -> bool {
+    self.workspace().has_unstable("sloppy-imports")
+  }
+
   fn byonm_enabled(&self) -> bool {
     self.node_modules_dir().ok().flatten() == Some(NodeModulesDirMode::Manual)
   }

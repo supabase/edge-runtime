@@ -47,6 +47,8 @@ use deno::resolver::CliDenoResolverFs;
 use deno::resolver::CliNpmReqResolver;
 use deno::resolver::CliResolver;
 use deno::resolver::CliResolverOptions;
+use deno::resolver::CliSloppyImportsResolver;
+use deno::resolver::SloppyImportsCachedFs;
 use deno::util::fs::canonicalize_path_maybe_not_exists;
 use deno::DenoOptions;
 use deno::PermissionsContainer;
@@ -115,6 +117,7 @@ pub struct EmitterFactory {
   resolved_npm_rc: Deferred<Arc<ResolvedNpmRc>>,
   resolver: Deferred<Arc<CliResolver>>,
   root_permissions_container: Deferred<PermissionsContainer>,
+  sloppy_imports_resolver: Deferred<Option<Arc<CliSloppyImportsResolver>>>,
   workspace_resolver: Deferred<Arc<WorkspaceResolver>>,
 
   cache_strategy: Option<CacheSetting>,
@@ -154,6 +157,7 @@ impl EmitterFactory {
       resolved_npm_rc: Default::default(),
       resolver: Default::default(),
       root_permissions_container: Default::default(),
+      sloppy_imports_resolver: Default::default(),
       workspace_resolver: Default::default(),
 
       cache_strategy: None,
@@ -404,7 +408,7 @@ impl EmitterFactory {
             node_resolver: self.node_resolver().await?.clone(),
             npm_req_resolver: self.npm_req_resolver().await?.clone(),
           }),
-          sloppy_imports_resolver: None,
+          sloppy_imports_resolver: self.sloppy_imports_resolver()?.cloned(),
           workspace_resolver: self.workspace_resolver()?.clone(),
           is_byonm: options.use_byonm(),
           maybe_vendor_dir: options.vendor_dir_path(),
@@ -502,6 +506,21 @@ impl EmitterFactory {
         Permissions::from_options(desc_parser.as_ref(), options)?;
       Ok(PermissionsContainer::new(desc_parser, permissions))
     })
+  }
+
+  pub fn sloppy_imports_resolver(
+    &self,
+  ) -> Result<Option<&Arc<CliSloppyImportsResolver>>, AnyError> {
+    self
+      .sloppy_imports_resolver
+      .get_or_try_init(|| {
+        Ok(self.deno_options()?.unstable_sloppy_imports().then(|| {
+          Arc::new(CliSloppyImportsResolver::new(SloppyImportsCachedFs::new(
+            self.fs().clone(),
+          )))
+        }))
+      })
+      .map(|maybe| maybe.as_ref())
   }
 
   pub fn workspace_resolver(

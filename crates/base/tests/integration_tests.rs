@@ -226,6 +226,7 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
 
       maybe_s3_fs_config: None,
       maybe_tmp_fs_config: None,
+      maybe_otel_config: None,
     })
     .termination_token(main_termination_token.clone())
     .build()
@@ -384,6 +385,7 @@ async fn test_main_worker_boot_error() {
 
       maybe_s3_fs_config: None,
       maybe_tmp_fs_config: None,
+      maybe_otel_config: None,
     })
     .termination_token(main_termination_token.clone())
     .build()
@@ -506,6 +508,7 @@ async fn test_main_worker_user_worker_mod_evaluate_exception() {
 
       maybe_s3_fs_config: None,
       maybe_tmp_fs_config: None,
+      maybe_otel_config: None,
     })
     .termination_token(main_termination_token.clone())
     .build()
@@ -883,6 +886,7 @@ async fn test_worker_boot_invalid_imports() {
 
     maybe_s3_fs_config: None,
     maybe_tmp_fs_config: None,
+    maybe_otel_config: None,
   };
 
   let result = create_test_user_worker(opts).await;
@@ -910,6 +914,7 @@ async fn test_worker_boot_with_0_byte_eszip() {
 
     maybe_s3_fs_config: None,
     maybe_tmp_fs_config: None,
+    maybe_otel_config: None,
   };
 
   let result = create_test_user_worker(opts).await;
@@ -936,6 +941,7 @@ async fn test_worker_boot_with_invalid_entrypoint() {
 
     maybe_s3_fs_config: None,
     maybe_tmp_fs_config: None,
+    maybe_otel_config: None,
   };
 
   let result = create_test_user_worker(opts).await;

@@ -19,6 +19,8 @@ use base::worker::pool::WorkerPoolPolicy;
 use base::CacheSetting;
 use base::InspectorOption;
 use base::WorkerKind;
+use deno::deno_telemetry;
+use deno::deno_telemetry::OtelConfig;
 use deno::ConfigMode;
 use deno::DenoOptionsBuilder;
 use deno_facade::extract_from_file;
@@ -79,6 +81,11 @@ fn main() -> Result<ExitCode, anyhow::Error> {
     #[allow(clippy::arc_with_non_send_sync)]
     let exit_code = match matches.subcommand() {
       Some(("start", sub_matches)) => {
+        deno_telemetry::init(
+          deno::versions::otel_runtime_config(),
+          &OtelConfig::default(),
+        )?;
+
         let ip = sub_matches.get_one::<String>("ip").cloned().unwrap();
         let ip = IpAddr::from_str(&ip)
           .context("failed to parse the IP address to bind the server")?;

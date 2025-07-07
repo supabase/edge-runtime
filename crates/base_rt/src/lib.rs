@@ -198,3 +198,6 @@ impl BlockingScopeCPUUsageMetricExt for &mut OpState {
 
 #[derive(Debug, Clone)]
 pub struct RuntimeWaker(pub Arc<AtomicWaker>);
+
+#[derive(Debug, Clone)]
+pub struct RuntimeOtelAttribute(pub opentelemetry::Value);

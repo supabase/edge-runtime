@@ -4,6 +4,11 @@ import {
   writableStreamForRid,
 } from "ext:deno_web/06_streams.js";
 import { getSupabaseTag } from "ext:runtime/http.js";
+import {
+  builtinTracer,
+  enterSpan,
+  TRACING_ENABLED,
+} from "ext:deno_telemetry/telemetry.ts";
 
 const ops = core.ops;
 
@@ -141,9 +146,29 @@ class UserWorker {
       throw new TypeError("service path must be defined");
     }
 
-    const key = await op_user_worker_create(readyOptions);
-
-    return new UserWorker(key);
+    let span;
+    if (TRACING_ENABLED) {
+      span = builtinTracer().startSpan("edge_runtime.user_worker.create");
+      enterSpan(span);
+    }
+    try {
+      const [key, reused] = await op_user_worker_create(readyOptions);
+      if (TRACING_ENABLED) {
+        span.setAttribute("worker.id", key);
+        span.setAttribute("worker.reused", reused);
+      }
+      return new UserWorker(key);
+    } catch (err) {
+      if (TRACING_ENABLED) {
+        try {
+          span.setStatus(2, JSON.stringify(err));
+        } catch {
+          span.setStatus(2, "unknown");
+        }
+      }
+    } finally {
+      span?.end();
+    }
   }
 
   static async tryCleanupIdleWorkers(timeoutMs) {

@@ -11,6 +11,8 @@ use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Context;
 use anyhow::Error;
+use deno::deno_telemetry::OtelConfig;
+use deno::deno_telemetry::OtelConsoleConfig;
 use deno_core::serde_json;
 use deno_core::serde_json::json;
 use either::Either;
@@ -399,7 +401,13 @@ impl Server {
         .set_server_flags(Some(Left(flags.clone())))
         .set_termination_token(Some(termination_tokens.event.clone().unwrap()));
 
-      builder.set_entrypoint(maybe_event_entrypoint.as_deref());
+      builder
+        .set_entrypoint(maybe_event_entrypoint.as_deref())
+        .set_otel_config(Some(OtelConfig {
+          tracing_enabled: true,
+          console: OtelConsoleConfig::Capture,
+          ..Default::default()
+        }));
 
       Some(builder.build().await?)
     } else {
@@ -442,7 +450,12 @@ impl Server {
         .set_shared_metric_source(Some(shared_metric_src.clone()))
         .set_event_worker_metric_source(
           event_worker_surface.as_ref().map(|it| it.metric.clone()),
-        );
+        )
+        .set_otel_config(Some(OtelConfig {
+          tracing_enabled: true,
+          console: OtelConsoleConfig::Capture,
+          ..Default::default()
+        }));
 
       builder.build().await?
     };

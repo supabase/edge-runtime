@@ -23,6 +23,7 @@ use base_rt::get_current_cpu_time_ns;
 use base_rt::BlockingScopeCPUUsage;
 use base_rt::DenoRuntimeDropToken;
 use base_rt::DropToken;
+use base_rt::RuntimeOtelAttribute;
 use base_rt::RuntimeState;
 use base_rt::RuntimeWaker;
 use cooked_waker::IntoWaker;
@@ -39,6 +40,7 @@ use deno::deno_io;
 use deno::deno_net;
 use deno::deno_package_json;
 use deno::deno_telemetry;
+use deno::deno_telemetry::OtelConfig;
 use deno::deno_tls;
 use deno::deno_tls::deno_native_certs::load_native_certs;
 use deno::deno_tls::rustls::RootCertStore;
@@ -240,6 +242,7 @@ pub trait GetRuntimeContext {
     use_inspector: bool,
     migrated: bool,
     version: Option<&str>,
+    otel_config: Option<OtelConfig>,
   ) -> impl Serialize {
     serde_json::json!({
       "target": env!("TARGET"),
@@ -265,7 +268,8 @@ pub trait GetRuntimeContext {
             .get()
             .copied()
             .unwrap_or_default()
-      }
+      },
+      "otel": otel_config.unwrap_or_default().as_v8(),
     })
   }
 
@@ -1019,6 +1023,7 @@ where
                 has_inspector,
                 migrated,
                 option_env!("GIT_V_TAG"),
+                maybe_otel_config,
               ));
 
             let tokens = {
@@ -1139,12 +1144,12 @@ where
 
           if conf.is_user_worker() {
             let conf = conf.as_user_worker().unwrap();
+            let key = conf.key.map_or("".to_string(), |k| k.to_string());
 
             // set execution id for user workers
-            env_vars.insert(
-              "SB_EXECUTION_ID".to_string(),
-              conf.key.map_or("".to_string(), |k| k.to_string()),
-            );
+            env_vars.insert("SB_EXECUTION_ID".to_string(), key.clone());
+
+            op_state.put(RuntimeOtelAttribute(key.into()));
 
             if let Some(events_msg_tx) = conf.events_msg_tx.clone() {
               op_state.put::<mpsc::UnboundedSender<WorkerEventWithMetadata>>(
@@ -1155,6 +1160,10 @@ where
                 execution_id: conf.key,
               });
             }
+          } else {
+            op_state.put(RuntimeOtelAttribute(
+              conf.to_worker_kind().to_string().into(),
+            ));
           }
 
           op_state.put(ext_env::EnvVars(env_vars));
@@ -2451,6 +2460,7 @@ mod test {
 
             maybe_s3_fs_config: s3_fs_config,
             maybe_tmp_fs_config: tmp_fs_config,
+            maybe_otel_config: None,
           },
           Arc::default(),
         )
@@ -2554,6 +2564,7 @@ mod test {
 
           maybe_s3_fs_config: None,
           maybe_tmp_fs_config: None,
+          maybe_otel_config: None,
         },
         Arc::default(),
       )
@@ -2619,6 +2630,7 @@ mod test {
 
           maybe_s3_fs_config: None,
           maybe_tmp_fs_config: None,
+          maybe_otel_config: None,
         },
         Arc::default(),
       )
@@ -2706,6 +2718,7 @@ mod test {
 
           maybe_s3_fs_config: None,
           maybe_tmp_fs_config: None,
+          maybe_otel_config: None,
         },
         Arc::default(),
       )

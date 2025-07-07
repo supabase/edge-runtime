@@ -8,11 +8,26 @@ import {
 } from "ext:deno_fetch/23_response.js";
 import { upgradeWebSocket } from "ext:deno_http/02_websocket.ts";
 import { HttpConn } from "ext:runtime/01_http.js";
+import {
+  builtinTracer,
+  enterSpan,
+  TRACING_ENABLED,
+} from "ext:deno_telemetry/telemetry.ts";
+import {
+  updateSpanFromRequest,
+  updateSpanFromResponse,
+} from "ext:deno_telemetry/util.ts";
 
 const ops = core.ops;
 
-const { BadResourcePrototype, internalRidSymbol } = core;
-const { ObjectPrototypeIsPrototypeOf } = primordials;
+const {
+  BadResourcePrototype,
+  internalRidSymbol,
+  getAsyncContext,
+  setAsyncContext,
+} = core;
+const { ObjectPrototypeIsPrototypeOf, SafePromisePrototypeFinally } =
+  primordials;
 
 const HttpConnPrototypeNextRequest = HttpConn.prototype.nextRequest;
 const HttpConnPrototypeClose = HttpConn.prototype.close;
@@ -100,6 +115,7 @@ function serve(args1, args2) {
   };
 
   const listener = Deno.listen(options);
+  const context = getAsyncContext();
 
   if (typeof args1 === "function") {
     options["handler"] = args1;
@@ -133,7 +149,7 @@ function serve(args1, args2) {
         // the case of h2.
         //
         // [1]: https://deno.land/std@0.131.0/http/server.ts?source=#L338
-        respond(requestEvent, currentHttpConn, options).then(() => {
+        respond(requestEvent, currentHttpConn, options, context).then(() => {
           ACTIVE_REQUESTS--;
         });
       }
@@ -195,61 +211,105 @@ function serve(args1, args2) {
   };
 }
 
-async function respond(requestEvent, httpConn, options) {
-  /** @type {Response} */
-  let response;
-  try {
-    response = await options["handler"](requestEvent.request, {
-      remoteAddr: {
-        port: options.port,
-        hostname: options.hostname,
-        transport: options.transport,
-      },
-    });
-  } catch (error) {
-    if (options["onError"] !== void 0) {
-      /** @throwable */
-      response = await options["onError"](error);
-    } else {
-      console.error(error);
-      response = internalServerError();
-    }
-  }
-
-  if (response === internals.RAW_UPGRADE_RESPONSE_SENTINEL) {
-    const { fenceRid } = getSupabaseTag(requestEvent.request);
-
-    if (fenceRid === void 0) {
-      throw TypeError("Cannot find a fence for upgrading response");
-    }
-
-    setTimeout(async () => {
-      const {
-        status,
-        headers,
-      } = await ops.op_http_upgrade_raw2_fence(fenceRid);
-
-      try {
-        await requestEvent.respondWith(
-          new Response(null, {
-            headers,
-            status,
-          }),
-        );
-      } catch (error) {
-        console.error(error);
-        closeHttpConn(httpConn);
-      }
-    });
-  } else {
+async function respond(requestEvent, httpConn, options, context) {
+  const mapped = async function (requestEvent, httpConn, options, span) {
+    /** @type {Response} */
+    let response;
     try {
-      // send the response
-      await requestEvent.respondWith(response);
-    } catch {
-      // respondWith() fails when the connection has already been closed,
-      // or there is some other error with responding on this connection
-      // that prompts us to close it and open a new connection.
-      return closeHttpConn(httpConn);
+      if (span) {
+        updateSpanFromRequest(span, requestEvent.request);
+      }
+
+      response = await options["handler"](requestEvent.request, {
+        remoteAddr: {
+          port: options.port,
+          hostname: options.hostname,
+          transport: options.transport,
+        },
+      });
+    } catch (error) {
+      if (options["onError"] !== void 0) {
+        /** @throwable */
+        response = await options["onError"](error);
+      } else {
+        console.error(error);
+        response = internalServerError();
+      }
+    }
+
+    if (span) {
+      updateSpanFromResponse(span, response);
+    }
+
+    if (response === internals.RAW_UPGRADE_RESPONSE_SENTINEL) {
+      const { fenceRid } = getSupabaseTag(requestEvent.request);
+
+      if (fenceRid === void 0) {
+        throw TypeError("Cannot find a fence for upgrading response");
+      }
+
+      setTimeout(async () => {
+        const {
+          status,
+          headers,
+        } = await ops.op_http_upgrade_raw2_fence(fenceRid);
+
+        try {
+          await requestEvent.respondWith(
+            new Response(null, {
+              headers,
+              status,
+            }),
+          );
+        } catch (error) {
+          console.error(error);
+          closeHttpConn(httpConn);
+        }
+      });
+    } else {
+      try {
+        // send the response
+        await requestEvent.respondWith(response);
+      } catch {
+        // respondWith() fails when the connection has already been closed,
+        // or there is some other error with responding on this connection
+        // that prompts us to close it and open a new connection.
+        return closeHttpConn(httpConn);
+      }
+    }
+  };
+
+  if (TRACING_ENABLED) {
+    const oldContext = getAsyncContext();
+    setAsyncContext(context);
+    const span = builtinTracer().startSpan("deno.serve", { kind: 1 });
+    try {
+      enterSpan(span);
+      return SafePromisePrototypeFinally(
+        mapped(
+          requestEvent,
+          httpConn,
+          options,
+          span,
+        ),
+        () => span.end(),
+      );
+    } finally {
+      // equiv to exitSpan.
+      setAsyncContext(oldContext);
+    }
+  } else {
+    const oldContext = getAsyncContext();
+    setAsyncContext(context);
+    try {
+      return mapped(
+        requestEvent,
+        httpConn,
+        options,
+        undefined,
+      );
+    } finally {
+      setAsyncContext(oldContext);
     }
   }
 }

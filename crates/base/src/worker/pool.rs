@@ -290,6 +290,7 @@ impl WorkerPool {
       if tx
         .send(Ok(CreateUserWorkerResult {
           key: *active_worker_uuid,
+          reused: true,
         }))
         .is_err()
       {
@@ -398,6 +399,7 @@ impl WorkerPool {
             maybe_s3_fs_config,
             maybe_tmp_fs_config,
             static_patterns,
+            maybe_otel_config: otel_config,
             ..
           } = worker_options;
 
@@ -416,6 +418,7 @@ impl WorkerPool {
 
                 maybe_s3_fs_config,
                 maybe_tmp_fs_config,
+                maybe_otel_config: otel_config,
               },
               tx,
             ))
@@ -471,7 +474,8 @@ impl WorkerPool {
 
       builder
         .set_termination_token(termination_token.clone())
-        .set_inspector(inspector);
+        .set_inspector(inspector)
+        .set_eager_module_init(true);
 
       match builder.build().await {
         Ok(surface) => {
@@ -492,7 +496,13 @@ impl WorkerPool {
           {
             error!("user worker msgs receiver dropped")
           }
-          if tx.send(Ok(CreateUserWorkerResult { key: uuid })).is_err() {
+          if tx
+            .send(Ok(CreateUserWorkerResult {
+              key: uuid,
+              reused: false,
+            }))
+            .is_err()
+          {
             error!("main worker receiver dropped")
           };
         }

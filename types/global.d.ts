@@ -20,6 +20,13 @@ type S3FsConfig = any;
 // deno-lint-ignore no-explicit-any
 type TmpFsConfig = any;
 
+type OtelConsoleConfig = "Ignore" | "Capture" | "Replace";
+type OtelConfig = {
+  tracing_enabled?: boolean;
+  metrics_enabled?: boolean;
+  console?: OtelConsoleConfig;
+};
+
 interface UserWorkerFetchOptions {
   signal?: AbortSignal;
 }
@@ -77,6 +84,7 @@ interface UserWorkerCreateOptions {
 
   s3FsConfig?: S3FsConfig | null;
   tmpFsConfig?: TmpFsConfig | null;
+  otelConfig?: OtelConfig | null;
 
   context?: UserWorkerCreateContext | null;
 }

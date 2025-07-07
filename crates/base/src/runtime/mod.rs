@@ -475,6 +475,7 @@ where
       static_patterns,
       maybe_s3_fs_config,
       maybe_tmp_fs_config,
+      maybe_otel_config,
       ..
     } = init_opts.unwrap();
 

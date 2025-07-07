@@ -373,6 +373,21 @@ impl RunOptionsBuilder {
   }
 }
 
+fn cleanup_js_runtime(runtime: &mut JsRuntime) {
+  let isolate = runtime.v8_isolate();
+
+  assert_isolate_not_locked(isolate);
+  let locker = unsafe {
+    Locker::new(std::mem::transmute::<&mut Isolate, &mut Isolate>(isolate))
+  };
+
+  isolate.set_slot(locker);
+
+  {
+    let _scope = runtime.handle_scope();
+  }
+}
+
 pub struct DenoRuntime<RuntimeContext = DefaultRuntimeContext> {
   pub runtime_state: Arc<RuntimeState>,
   pub js_runtime: ManuallyDrop<JsRuntime>,
@@ -408,17 +423,7 @@ impl<RuntimeContext> Drop for DenoRuntime<RuntimeContext> {
       );
     }
 
-    self.assert_isolate_not_locked();
-    let isolate = self.js_runtime.v8_isolate();
-    let locker = unsafe {
-      Locker::new(std::mem::transmute::<&mut Isolate, &mut Isolate>(isolate))
-    };
-
-    isolate.set_slot(locker);
-
-    {
-      let _scope = self.js_runtime.handle_scope();
-    }
+    cleanup_js_runtime(&mut self.js_runtime);
 
     unsafe {
       ManuallyDrop::drop(&mut self.js_runtime);
@@ -967,6 +972,12 @@ where
         bootstrap.js_runtime.v8_isolate().dispose_scope_root();
         bootstrap.js_runtime.v8_isolate().exit();
 
+        let has_inspector = bootstrap.has_inspector;
+        let context = bootstrap.context.take().unwrap_or_default();
+        let mut bootstrap = scopeguard::guard(bootstrap, |mut it| {
+          cleanup_js_runtime(&mut it.js_runtime);
+        });
+
         {
           assert_isolate_not_locked(bootstrap.js_runtime.v8_isolate());
           let mut locker = bootstrap.js_runtime.with_locker();
@@ -976,7 +987,7 @@ where
             let runtime_context =
               serde_json::json!(RuntimeContext::get_runtime_context(
                 &conf,
-                bootstrap.has_inspector,
+                has_inspector,
                 option_env!("GIT_V_TAG"),
               ));
 
@@ -996,9 +1007,7 @@ where
 
               json::merge_object(
                 &mut extra_context,
-                &serde_json::Value::Object(
-                  bootstrap.context.take().unwrap_or_default(),
-                ),
+                &serde_json::Value::Object(context),
               );
               json::merge_object(&mut extra_context, &tokens);
 
@@ -1046,7 +1055,7 @@ where
         }
 
         // from this moment on, using `v8::Locker` is enforced.
-        Ok(bootstrap)
+        Ok(ScopeGuard::into_inner(bootstrap))
       })
     }
     .await;

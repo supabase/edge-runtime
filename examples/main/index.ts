@@ -185,6 +185,10 @@ Deno.serve(async (req: Request) => {
       context: {
         useReadSyncFileAPI: true,
       },
+      otelConfig: {
+        tracing_enabled: true,
+        console: "Replace",
+      },
       // maybeEszip,
       // maybeEntrypoint,
       // maybeModuleCode,

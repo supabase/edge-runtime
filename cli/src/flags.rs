@@ -315,7 +315,7 @@ fn get_start_command() -> Command {
     .arg(
       arg!(--"otel-console" <MODE>)
         // .env("OTEL_DENO_CONSOLE")
-        .help("Configure otel console auto instrumentation")
+        .help("Configure console auto instrumentation for OpenTelemetry Logs")
         .value_parser(value_parser!(OtelConsoleConfig)),
     )
 }

@@ -305,7 +305,7 @@ fn get_start_command() -> Command {
     )
     .arg(
       arg!(--"enable-otel")
-        .help("Enable Otel in the main and event workers")
+        .help("Enable OpenTelemetry in the main and event workers")
         .value_delimiter(',')
         .value_parser(value_parser!(OtelKind))
         .num_args(0..=1)

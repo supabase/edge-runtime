@@ -11,6 +11,7 @@ use clap::ArgAction;
 use clap::ArgGroup;
 use clap::Command;
 use clap::ValueEnum;
+use deno::deno_telemetry;
 use deno_facade::Checksum;
 
 #[derive(ValueEnum, Default, Clone, Copy)]
@@ -25,6 +26,30 @@ pub(super) enum EszipV2ChecksumKind {
 impl From<EszipV2ChecksumKind> for Option<Checksum> {
   fn from(value: EszipV2ChecksumKind) -> Self {
     Checksum::from_u8(value as u8)
+  }
+}
+
+#[derive(ValueEnum, Clone, Copy)]
+pub(super) enum OtelKind {
+  Main,
+  Event,
+}
+
+#[derive(ValueEnum, Default, Clone, Copy)]
+pub(super) enum OtelConsoleConfig {
+  #[default]
+  Ignore,
+  Capture,
+  Replace,
+}
+
+impl From<OtelConsoleConfig> for deno_telemetry::OtelConsoleConfig {
+  fn from(value: OtelConsoleConfig) -> Self {
+    match value {
+      OtelConsoleConfig::Ignore => Self::Ignore,
+      OtelConsoleConfig::Capture => Self::Capture,
+      OtelConsoleConfig::Replace => Self::Replace,
+    }
   }
 }
 
@@ -277,6 +302,21 @@ fn get_start_command() -> Command {
       arg!(--"dispatch-beforeunload-memory-ratio" <PERCENTAGE>)
         .value_parser(value_parser!(u8).range(..=99))
         .default_value("90"),
+    )
+    .arg(
+      arg!(--"enable-otel")
+        .help("Enable Otel in the main and event workers")
+        .value_delimiter(',')
+        .value_parser(value_parser!(OtelKind))
+        .num_args(0..=1)
+        .default_missing_value("main,event")
+        .action(ArgAction::Append),
+    )
+    .arg(
+      arg!(--"otel-console" <MODE>)
+        // .env("OTEL_DENO_CONSOLE")
+        .help("Configure otel console auto instrumentation")
+        .value_parser(value_parser!(OtelConsoleConfig)),
     )
 }
 

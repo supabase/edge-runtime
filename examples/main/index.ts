@@ -3,6 +3,12 @@ import { STATUS_CODE } from "https://deno.land/std/http/status.ts";
 
 import { handleRegistryRequest } from "./registry/mod.ts";
 import { join } from "jsr:@std/path@^1.0";
+import { context, propagation } from "npm:@opentelemetry/api";
+import { W3CBaggagePropagator } from "npm:@opentelemetry/core@1";
+
+// @ts-ignore See https://github.com/denoland/deno/issues/28082
+globalThis[Symbol.for("opentelemetry.js.api.1")].propagation =
+  new W3CBaggagePropagator();
 
 console.log("main function started");
 console.log(Deno.version);
@@ -42,6 +48,17 @@ addEventListener("unhandledrejection", (ev) => {
 // }, 30 * 1000);
 
 Deno.serve(async (req: Request) => {
+  const ctx = propagation.extract(context.active(), req.headers, {
+    get(carrier, key) {
+      return carrier.get(key) ?? void 0;
+    },
+    keys(carrier) {
+      return [...carrier.keys()];
+    },
+  });
+  const baggage = propagation.getBaggage(ctx);
+  const requestId = baggage?.getEntry("sb-request-id")?.value ?? null;
+
   const headers = new Headers({
     "Content-Type": "application/json",
   });
@@ -149,7 +166,7 @@ Deno.serve(async (req: Request) => {
 
   // console.error(`serving the request with ${servicePath}`);
 
-  const createWorker = async () => {
+  const createWorker = async (otelAttributes?: { [_: string]: string }) => {
     const memoryLimitMb = 150;
     const workerTimeoutMs = 5 * 60 * 1000;
     const noModuleCache = false;
@@ -184,10 +201,11 @@ Deno.serve(async (req: Request) => {
       staticPatterns,
       context: {
         useReadSyncFileAPI: true,
+        otel: otelAttributes,
       },
       otelConfig: {
         tracing_enabled: true,
-        console: "Replace",
+        propagators: ["TraceContext", "Baggage"],
       },
       // maybeEszip,
       // maybeEntrypoint,
@@ -200,7 +218,14 @@ Deno.serve(async (req: Request) => {
       // If a worker for the given service path already exists,
       // it will be reused by default.
       // Update forceCreate option in createWorker to force create a new worker for each request.
-      const worker = await createWorker();
+      const worker = await createWorker(
+        requestId
+          ? {
+            "sb_request_id": requestId,
+          }
+          : void 0,
+      );
+
       const controller = new AbortController();
 
       const signal = controller.signal;

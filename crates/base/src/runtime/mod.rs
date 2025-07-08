@@ -23,7 +23,7 @@ use base_rt::get_current_cpu_time_ns;
 use base_rt::BlockingScopeCPUUsage;
 use base_rt::DenoRuntimeDropToken;
 use base_rt::DropToken;
-use base_rt::RuntimeOtelAttribute;
+use base_rt::RuntimeOtelExtraAttributes;
 use base_rt::RuntimeState;
 use base_rt::RuntimeWaker;
 use cooked_waker::IntoWaker;
@@ -55,6 +55,7 @@ use deno_cache::SqliteBackedCache;
 use deno_core::error::AnyError;
 use deno_core::error::JsError;
 use deno_core::serde_json;
+use deno_core::serde_json::Value;
 use deno_core::url::Url;
 use deno_core::v8;
 use deno_core::v8::GCCallbackFlags;
@@ -1105,6 +1106,7 @@ where
       s3_fs,
       beforeunload_cpu_threshold,
       beforeunload_mem_threshold,
+      context,
       ..
     } = match bootstrap_ret {
       Ok(Ok(v)) => v,
@@ -1116,6 +1118,7 @@ where
       }
     };
 
+    let context = context.unwrap_or_default();
     let span = Span::current();
     let post_task_ret = unsafe {
       spawn_blocking_non_send(|| {
@@ -1143,6 +1146,13 @@ where
             op_state.put::<HashMap<usize, CancellationToken>>(HashMap::new());
           }
 
+          let mut otel_attributes = HashMap::new();
+
+          otel_attributes.insert(
+            "edge_runtime.worker.kind".into(),
+            conf.to_worker_kind().to_string().into(),
+          );
+
           if conf.is_user_worker() {
             let conf = conf.as_user_worker().unwrap();
             let key = conf.key.map_or("".to_string(), |k| k.to_string());
@@ -1150,7 +1160,17 @@ where
             // set execution id for user workers
             env_vars.insert("SB_EXECUTION_ID".to_string(), key.clone());
 
-            op_state.put(RuntimeOtelAttribute(key.into()));
+            if let Some(Value::Object(attributes)) = context.get("otel") {
+              for (k, v) in attributes {
+                otel_attributes.insert(
+                  k.to_string().into(),
+                  match v {
+                    Value::String(str) => str.to_string().into(),
+                    others => others.to_string().into(),
+                  },
+                );
+              }
+            }
 
             if let Some(events_msg_tx) = conf.events_msg_tx.clone() {
               op_state.put::<mpsc::UnboundedSender<WorkerEventWithMetadata>>(
@@ -1161,14 +1181,11 @@ where
                 execution_id: conf.key,
               });
             }
-          } else {
-            op_state.put(RuntimeOtelAttribute(
-              conf.to_worker_kind().to_string().into(),
-            ));
           }
 
           op_state.put(ext_env::EnvVars(env_vars));
           op_state.put(DenoRuntimeDropToken(DropToken(drop_token.clone())));
+          op_state.put(RuntimeOtelExtraAttributes(otel_attributes));
         }
 
         if is_user_worker {

@@ -10,6 +10,7 @@ use std::sync::Arc;
 use anyhow::bail;
 use anyhow::Context;
 use anyhow::Error;
+use base::server;
 use base::server::Builder;
 use base::server::ServerFlags;
 use base::server::Tls;
@@ -30,6 +31,8 @@ use deno_facade::Metadata;
 use env::resolve_deno_runtime_env;
 use flags::get_cli;
 use flags::EszipV2ChecksumKind;
+use flags::OtelConsoleConfig;
+use flags::OtelKind;
 use log::warn;
 
 mod env;
@@ -83,7 +86,7 @@ fn main() -> Result<ExitCode, anyhow::Error> {
       Some(("start", sub_matches)) => {
         deno_telemetry::init(
           deno::versions::otel_runtime_config(),
-          &OtelConfig::default(),
+          OtelConfig::default(),
         )?;
 
         let ip = sub_matches.get_one::<String>("ip").cloned().unwrap();
@@ -127,6 +130,17 @@ fn main() -> Result<ExitCode, anyhow::Error> {
           .get_one::<bool>("inspect-main")
           .cloned()
           .unwrap();
+
+        let enable_otel = sub_matches
+          .get_many::<OtelKind>("enable-otel")
+          .unwrap_or_default()
+          .cloned()
+          .collect::<Vec<_>>();
+
+        let otel_console = sub_matches
+          .get_one::<OtelConsoleConfig>("otel-console")
+          .cloned()
+          .map(Into::into);
 
         let event_service_manager_path =
           sub_matches.get_one::<String>("event-worker").cloned();
@@ -210,6 +224,21 @@ fn main() -> Result<ExitCode, anyhow::Error> {
           .unwrap();
 
         let flags = ServerFlags {
+          otel: if !enable_otel.is_empty() {
+            if enable_otel.len() > 1 {
+              Some(server::OtelKind::Both)
+            } else {
+              match enable_otel.first() {
+                Some(OtelKind::Main) => Some(server::OtelKind::Main),
+                Some(OtelKind::Event) => Some(server::OtelKind::Event),
+                None => None,
+              }
+            }
+          } else {
+            None
+          },
+          otel_console,
+
           no_module_cache,
           allow_main_inspector,
           tcp_nodelay,

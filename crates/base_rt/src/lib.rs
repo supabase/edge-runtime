@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::sync::atomic::AtomicI64;
 use std::sync::atomic::Ordering;
@@ -200,4 +201,6 @@ impl BlockingScopeCPUUsageMetricExt for &mut OpState {
 pub struct RuntimeWaker(pub Arc<AtomicWaker>);
 
 #[derive(Debug, Clone)]
-pub struct RuntimeOtelAttribute(pub opentelemetry::Value);
+pub struct RuntimeOtelExtraAttributes(
+  pub HashMap<opentelemetry::Key, opentelemetry::Value>,
+);

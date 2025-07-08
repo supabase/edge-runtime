@@ -10,7 +10,11 @@ import { upgradeWebSocket } from "ext:deno_http/02_websocket.ts";
 import { HttpConn } from "ext:runtime/01_http.js";
 import {
   builtinTracer,
+  ContextManager,
+  currentSnapshot,
   enterSpan,
+  PROPAGATORS,
+  restoreSnapshot,
   TRACING_ENABLED,
 } from "ext:deno_telemetry/telemetry.ts";
 import {
@@ -23,11 +27,15 @@ const ops = core.ops;
 const {
   BadResourcePrototype,
   internalRidSymbol,
-  getAsyncContext,
-  setAsyncContext,
 } = core;
-const { ObjectPrototypeIsPrototypeOf, SafePromisePrototypeFinally } =
-  primordials;
+const {
+  ArrayPrototypeFind,
+  ArrayPrototypeMap,
+  ArrayPrototypePush,
+  SafeArrayIterator,
+  ObjectPrototypeIsPrototypeOf,
+  SafePromisePrototypeFinally,
+} = primordials;
 
 const HttpConnPrototypeNextRequest = HttpConn.prototype.nextRequest;
 const HttpConnPrototypeClose = HttpConn.prototype.close;
@@ -115,7 +123,7 @@ function serve(args1, args2) {
   };
 
   const listener = Deno.listen(options);
-  const context = getAsyncContext();
+  const snapshot = currentSnapshot();
 
   if (typeof args1 === "function") {
     options["handler"] = args1;
@@ -149,7 +157,7 @@ function serve(args1, args2) {
         // the case of h2.
         //
         // [1]: https://deno.land/std@0.131.0/http/server.ts?source=#L338
-        respond(requestEvent, currentHttpConn, options, context).then(() => {
+        respond(requestEvent, currentHttpConn, options, snapshot).then(() => {
           ACTIVE_REQUESTS--;
         });
       }
@@ -211,7 +219,7 @@ function serve(args1, args2) {
   };
 }
 
-async function respond(requestEvent, httpConn, options, context) {
+async function respond(requestEvent, httpConn, options, snapshot) {
   const mapped = async function (requestEvent, httpConn, options, span) {
     /** @type {Response} */
     let response;
@@ -280,11 +288,39 @@ async function respond(requestEvent, httpConn, options, context) {
   };
 
   if (TRACING_ENABLED) {
-    const oldContext = getAsyncContext();
-    setAsyncContext(context);
-    const span = builtinTracer().startSpan("deno.serve", { kind: 1 });
+    const oldSnapshot = currentSnapshot();
+    restoreSnapshot(snapshot);
+
+    const reqHeaders = requestEvent.request.headers;
+    const headers = [];
+    for (const key of reqHeaders.keys()) {
+      ArrayPrototypePush(headers, [key, reqHeaders.get(key)]);
+    }
+    let activeContext = ContextManager.active();
+    for (const propagator of new SafeArrayIterator(PROPAGATORS)) {
+      activeContext = propagator.extract(activeContext, headers, {
+        get(carrier, key) {
+          return ArrayPrototypeFind(
+            carrier,
+            (carrierEntry) => carrierEntry[0] === key,
+          )?.[1];
+        },
+        keys(carrier) {
+          return ArrayPrototypeMap(
+            carrier,
+            (carrierEntry) => carrierEntry[0],
+          );
+        },
+      });
+    }
+
+    const span = builtinTracer().startSpan(
+      "deno.serve",
+      { kind: 1 },
+      activeContext,
+    );
+    enterSpan(span);
     try {
-      enterSpan(span);
       return SafePromisePrototypeFinally(
         mapped(
           requestEvent,
@@ -295,12 +331,11 @@ async function respond(requestEvent, httpConn, options, context) {
         () => span.end(),
       );
     } finally {
-      // equiv to exitSpan.
-      setAsyncContext(oldContext);
+      restoreSnapshot(oldSnapshot);
     }
   } else {
-    const oldContext = getAsyncContext();
-    setAsyncContext(context);
+    const oldSnapshot = currentSnapshot();
+    restoreSnapshot(snapshot);
     try {
       return mapped(
         requestEvent,
@@ -309,7 +344,7 @@ async function respond(requestEvent, httpConn, options, context) {
         undefined,
       );
     } finally {
-      setAsyncContext(oldContext);
+      restoreSnapshot(oldSnapshot);
     }
   }
 }

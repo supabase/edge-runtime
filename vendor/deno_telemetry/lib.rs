@@ -18,7 +18,7 @@ use std::thread;
 use std::time::Duration;
 use std::time::SystemTime;
 
-use base_rt::RuntimeOtelAttribute;
+use base_rt::RuntimeOtelExtraAttributes;
 use deno_core::anyhow;
 use deno_core::anyhow::anyhow;
 use deno_core::anyhow::bail;
@@ -40,10 +40,13 @@ use opentelemetry::logs::AnyValue;
 use opentelemetry::logs::LogRecord as LogRecordTrait;
 use opentelemetry::logs::Severity;
 use opentelemetry::metrics::AsyncInstrumentBuilder;
+pub use opentelemetry::metrics::Histogram;
 use opentelemetry::metrics::InstrumentBuilder;
-use opentelemetry::metrics::MeterProvider as _;
+pub use opentelemetry::metrics::MeterProvider;
+pub use opentelemetry::metrics::UpDownCounter;
 use opentelemetry::otel_debug;
 use opentelemetry::otel_error;
+use opentelemetry::trace::Link;
 use opentelemetry::trace::SpanContext;
 use opentelemetry::trace::SpanId;
 use opentelemetry::trace::SpanKind;
@@ -52,10 +55,10 @@ use opentelemetry::trace::TraceFlags;
 use opentelemetry::trace::TraceId;
 use opentelemetry::trace::TraceState;
 use opentelemetry::InstrumentationScope;
-use opentelemetry::Key;
-use opentelemetry::KeyValue;
-use opentelemetry::StringValue;
-use opentelemetry::Value;
+pub use opentelemetry::Key;
+pub use opentelemetry::KeyValue;
+pub use opentelemetry::StringValue;
+pub use opentelemetry::Value;
 use opentelemetry_otlp::HttpExporterBuilder;
 use opentelemetry_otlp::Protocol;
 use opentelemetry_otlp::WithExportConfig;
@@ -87,8 +90,6 @@ use serde::Serialize;
 use tokio::sync::oneshot;
 use tokio::task::JoinSet;
 
-const RUNTIME_ATTRIBUTE_KEY: &str = "edge_runtime.runtime.attribute";
-
 deno_core::extension!(
   deno_telemetry,
   ops = [
@@ -97,6 +98,7 @@ deno_core::extension!(
     op_otel_span_attribute1,
     op_otel_span_attribute2,
     op_otel_span_attribute3,
+    op_otel_span_add_link,
     op_otel_span_update_name,
     op_otel_metric_attribute3,
     op_otel_metric_record0,
@@ -125,18 +127,33 @@ pub struct OtelConfig {
   pub tracing_enabled: bool,
   pub metrics_enabled: bool,
   pub console: OtelConsoleConfig,
-  pub deterministic: bool,
+  pub deterministic_prefix: Option<u8>,
+  pub propagators: std::collections::HashSet<OtelPropagators>,
 }
 
 impl OtelConfig {
   pub fn as_v8(&self) -> Box<[u8]> {
-    Box::new([
+    let mut data = vec![
       self.tracing_enabled as u8,
       self.metrics_enabled as u8,
       self.console as u8,
-      self.deterministic as u8,
-    ])
+    ];
+
+    data.extend(self.propagators.iter().map(|propagator| *propagator as u8));
+
+    data.into_boxed_slice()
   }
+}
+
+#[derive(
+  Default, Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq, Hash,
+)]
+#[repr(u8)]
+pub enum OtelPropagators {
+  TraceContext = 0,
+  Baggage = 1,
+  #[default]
+  None = 2,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -197,7 +214,7 @@ fn otel_create_shared_runtime() -> UnboundedSender<BoxFuture<'static, ()>> {
 }
 
 #[derive(Clone, Copy)]
-struct OtelSharedRuntime;
+pub struct OtelSharedRuntime;
 
 impl hyper::rt::Executor<BoxFuture<'static, ()>> for OtelSharedRuntime {
   fn execute(&self, fut: BoxFuture<'static, ()>) {
@@ -587,19 +604,21 @@ mod hyper_client {
   }
 }
 
-struct OtelGlobals {
-  span_processor: BatchSpanProcessor<OtelSharedRuntime>,
-  log_processor: BatchLogProcessor<OtelSharedRuntime>,
-  id_generator: DenoIdGenerator,
-  meter_provider: SdkMeterProvider,
-  builtin_instrumentation_scope: InstrumentationScope,
+#[derive(Debug)]
+pub struct OtelGlobals {
+  pub span_processor: BatchSpanProcessor<OtelSharedRuntime>,
+  pub log_processor: BatchLogProcessor<OtelSharedRuntime>,
+  pub id_generator: DenoIdGenerator,
+  pub meter_provider: SdkMeterProvider,
+  pub builtin_instrumentation_scope: InstrumentationScope,
+  pub config: OtelConfig,
 }
 
-static OTEL_GLOBALS: OnceCell<OtelGlobals> = OnceCell::new();
+pub static OTEL_GLOBALS: OnceCell<OtelGlobals> = OnceCell::new();
 
 pub fn init(
   rt_config: OtelRuntimeConfig,
-  config: &OtelConfig,
+  config: OtelConfig,
 ) -> deno_core::anyhow::Result<()> {
   // Parse the `OTEL_EXPORTER_OTLP_PROTOCOL` variable. The opentelemetry_*
   // crates don't do this automatically.
@@ -711,8 +730,8 @@ pub fn init(
       .with_version(rt_config.runtime_version.clone())
       .build();
 
-  let id_generator = if config.deterministic {
-    DenoIdGenerator::deterministic()
+  let id_generator = if let Some(prefix) = config.deterministic_prefix {
+    DenoIdGenerator::deterministic(prefix)
   } else {
     DenoIdGenerator::random()
   };
@@ -724,6 +743,7 @@ pub fn init(
       id_generator,
       meter_provider,
       builtin_instrumentation_scope,
+      config,
     })
     .map_err(|_| deno_core::anyhow::anyhow!("failed to set otel globals"))?;
 
@@ -775,7 +795,7 @@ pub fn handle_log(record: &log::Record) {
 
   struct Visitor<'s>(&'s mut LogRecord);
 
-  impl<'s, 'kvs> log::kv::VisitSource<'kvs> for Visitor<'s> {
+  impl<'kvs> log::kv::VisitSource<'kvs> for Visitor<'_> {
     fn visit_pair(
       &mut self,
       key: log::kv::Key<'kvs>,
@@ -851,10 +871,11 @@ impl DenoIdGenerator {
     Self::Random(RandomIdGenerator::default())
   }
 
-  fn deterministic() -> Self {
+  fn deterministic(prefix: u8) -> Self {
+    let prefix = u64::from(prefix) << 56;
     Self::Deterministic {
-      next_trace_id: AtomicU64::new(1),
-      next_span_id: AtomicU64::new(1),
+      next_trace_id: AtomicU64::new(prefix + 1),
+      next_span_id: AtomicU64::new(prefix + 1),
     }
   }
 }
@@ -1010,11 +1031,12 @@ fn op_otel_log<'s>(
   log_record.set_body(owned_string(scope, message).into());
   log_record.set_severity_number(severity);
   log_record.set_severity_text(severity.name());
-  if let Some(runtime_attribute) = state.try_borrow::<RuntimeOtelAttribute>() {
-    log_record.add_attribute(
-      RUNTIME_ATTRIBUTE_KEY,
-      runtime_attribute.0.as_str().to_string(),
-    );
+  if let Some(runtime_attributes) =
+    state.try_borrow::<RuntimeOtelExtraAttributes>()
+  {
+    for (k, v) in runtime_attributes.0.clone() {
+      log_record.add_attribute(k, v.to_string());
+    }
   }
   if let Some(span) =
     deno_core::_ops::try_unwrap_cppgc_object::<OtelSpan>(scope, span)
@@ -1078,11 +1100,12 @@ fn op_otel_log_foreign(
   log_record.set_body(message.into());
   log_record.set_severity_number(severity);
   log_record.set_severity_text(severity.name());
-  if let Some(runtime_attribute) = state.try_borrow::<RuntimeOtelAttribute>() {
-    log_record.add_attribute(
-      RUNTIME_ATTRIBUTE_KEY,
-      runtime_attribute.0.as_str().to_string(),
-    );
+  if let Some(runtime_attributes) =
+    state.try_borrow::<RuntimeOtelExtraAttributes>()
+  {
+    for (k, v) in runtime_attributes.0.clone() {
+      log_record.add_attribute(k, v.to_string());
+    }
   }
   if trace_id != TraceId::INVALID && span_id != SpanId::INVALID {
     log_record.set_trace_context(
@@ -1366,17 +1389,6 @@ impl OtelSpan {
   }
 
   #[fast]
-  fn drop_link(&self) {
-    let mut state = self.0.borrow_mut();
-    match &mut **state {
-      OtelSpanState::Recording(span) => {
-        span.links.dropped_count += 1;
-      }
-      OtelSpanState::Done(_) => {}
-    }
-  }
-
-  #[fast]
   fn end(&self, state: &mut OpState, end_time: f64) {
     let end_time = if end_time.is_nan() {
       SystemTime::now()
@@ -1385,7 +1397,8 @@ impl OtelSpan {
         .checked_add(Duration::from_secs_f64(end_time / 1000.0))
         .unwrap()
     };
-    let runtime_attribute = state.try_borrow::<RuntimeOtelAttribute>().clone();
+    let runtime_attributes =
+      state.try_borrow::<RuntimeOtelExtraAttributes>().clone();
 
     let mut state = self.0.borrow_mut();
     if let OtelSpanState::Recording(span) = &mut **state {
@@ -1395,11 +1408,10 @@ impl OtelSpan {
         Box::new(OtelSpanState::Done(span_context)),
       ) {
         span.end_time = end_time;
-        if let Some(attribute) = runtime_attribute {
-          span.attributes.push(KeyValue::new(
-            Key::from_static_str(RUNTIME_ATTRIBUTE_KEY),
-            attribute.0.clone(),
-          ));
+        if let Some(attributes) = runtime_attributes {
+          for (k, v) in attributes.0.clone() {
+            span.attributes.push(KeyValue::new(k, v));
+          }
         }
         let Some(OtelGlobals { span_processor, .. }) = OTEL_GLOBALS.get()
         else {
@@ -1494,6 +1506,48 @@ fn op_otel_span_update_name<'s>(
   if let OtelSpanState::Recording(span) = &mut **state {
     span.name = Cow::Owned(name)
   }
+}
+
+#[op2(fast)]
+fn op_otel_span_add_link<'s>(
+  scope: &mut v8::HandleScope<'s>,
+  span: v8::Local<'s, v8::Value>,
+  trace_id: v8::Local<'s, v8::Value>,
+  span_id: v8::Local<'s, v8::Value>,
+  #[smi] trace_flags: u8,
+  is_remote: bool,
+  #[smi] dropped_attributes_count: u32,
+) -> bool {
+  let trace_id = parse_trace_id(scope, trace_id);
+  if trace_id == TraceId::INVALID {
+    return false;
+  };
+  let span_id = parse_span_id(scope, span_id);
+  if span_id == SpanId::INVALID {
+    return false;
+  };
+  let span_context = SpanContext::new(
+    trace_id,
+    span_id,
+    TraceFlags::new(trace_flags),
+    is_remote,
+    TraceState::NONE,
+  );
+
+  let Some(span) =
+    deno_core::_ops::try_unwrap_cppgc_object::<OtelSpan>(scope, span)
+  else {
+    return true;
+  };
+  let mut state = span.0.borrow_mut();
+  if let OtelSpanState::Recording(span) = &mut **state {
+    span.links.links.push(Link::new(
+      span_context,
+      vec![],
+      dropped_attributes_count,
+    ));
+  }
+  true
 }
 
 struct OtelMeter(opentelemetry::metrics::Meter);
@@ -1689,9 +1743,9 @@ impl OtelMeter {
 
 enum Instrument {
   Counter(opentelemetry::metrics::Counter<f64>),
-  UpDownCounter(opentelemetry::metrics::UpDownCounter<f64>),
+  UpDownCounter(UpDownCounter<f64>),
   Gauge(opentelemetry::metrics::Gauge<f64>),
-  Histogram(opentelemetry::metrics::Histogram<f64>),
+  Histogram(Histogram<f64>),
   Observable(Arc<Mutex<HashMap<Vec<KeyValue>, f64>>>),
 }
 

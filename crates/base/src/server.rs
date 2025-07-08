@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::future::pending;
 use std::future::Future;
 use std::net::SocketAddr;
@@ -13,6 +14,7 @@ use anyhow::Context;
 use anyhow::Error;
 use deno::deno_telemetry::OtelConfig;
 use deno::deno_telemetry::OtelConsoleConfig;
+use deno::deno_telemetry::OtelPropagators;
 use deno_core::serde_json;
 use deno_core::serde_json::json;
 use either::Either;
@@ -269,8 +271,18 @@ pub struct WorkerEntrypoints {
   pub events: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum OtelKind {
+  Main,
+  Event,
+  Both,
+}
+
 #[derive(Debug, Default, Clone, Copy)]
 pub struct ServerFlags {
+  pub otel: Option<OtelKind>,
+  pub otel_console: Option<OtelConsoleConfig>,
+
   pub no_module_cache: bool,
   pub allow_main_inspector: bool,
   pub tcp_nodelay: bool,
@@ -401,13 +413,19 @@ impl Server {
         .set_server_flags(Some(Left(flags.clone())))
         .set_termination_token(Some(termination_tokens.event.clone().unwrap()));
 
-      builder
-        .set_entrypoint(maybe_event_entrypoint.as_deref())
-        .set_otel_config(Some(OtelConfig {
+      builder.set_entrypoint(maybe_event_entrypoint.as_deref());
+
+      if let Some(OtelKind::Event | OtelKind::Both) = flags.otel {
+        builder.set_otel_config(Some(OtelConfig {
           tracing_enabled: true,
-          console: OtelConsoleConfig::Capture,
+          console: flags.otel_console.unwrap_or_default(),
+          propagators: HashSet::from([
+            OtelPropagators::TraceContext,
+            OtelPropagators::Baggage,
+          ]),
           ..Default::default()
         }));
+      }
 
       Some(builder.build().await?)
     } else {
@@ -450,12 +468,19 @@ impl Server {
         .set_shared_metric_source(Some(shared_metric_src.clone()))
         .set_event_worker_metric_source(
           event_worker_surface.as_ref().map(|it| it.metric.clone()),
-        )
-        .set_otel_config(Some(OtelConfig {
+        );
+
+      if let Some(OtelKind::Main | OtelKind::Both) = flags.otel {
+        builder.set_otel_config(Some(OtelConfig {
           tracing_enabled: true,
-          console: OtelConsoleConfig::Capture,
+          console: flags.otel_console.unwrap_or_default(),
+          propagators: HashSet::from([
+            OtelPropagators::TraceContext,
+            OtelPropagators::Baggage,
+          ]),
           ..Default::default()
         }));
+      }
 
       builder.build().await?
     };

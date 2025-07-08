@@ -34,6 +34,7 @@ use deno_core::WriteOutcome;
 use deno_facade::EszipPayloadKind;
 use deno_telemetry::OtelConfig;
 use deno_telemetry::OtelConsoleConfig;
+use deno_telemetry::OtelPropagators;
 use errors::WorkerError;
 use ext_runtime::conn_sync::ConnWatcher;
 use fs::s3_fs::S3FsConfig;
@@ -52,6 +53,7 @@ use once_cell::sync::Lazy;
 use serde::Deserialize;
 use serde::Serialize;
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::rc::Rc;
@@ -93,6 +95,8 @@ pub struct JsOtelConfig {
   metrics_enabled: bool,
   #[serde(default)]
   console: OtelConsoleConfig,
+  #[serde(default)]
+  propagators: HashSet<OtelPropagators>,
 }
 
 pub type JsonMap = serde_json::Map<String, serde_json::Value>;
@@ -217,6 +221,7 @@ pub async fn op_user_worker_create(
       tracing_enabled: it.tracing_enabled,
       metrics_enabled: it.metrics_enabled,
       console: it.console,
+      propagators: it.propagators,
       ..Default::default()
     });
     let user_worker_options = WorkerContextInitOpts {

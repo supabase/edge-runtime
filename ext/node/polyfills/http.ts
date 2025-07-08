@@ -13,6 +13,7 @@ import {
 
 import { TextEncoder } from "ext:deno_web/08_text_encoding.js";
 import { setTimeout } from "ext:deno_web/02_timers.js";
+import { updateSpanFromError } from "ext:deno_telemetry/util.ts";
 import {
   _normalizeArgs,
   // createConnection,
@@ -65,6 +66,14 @@ import { getTimerDuration } from "ext:deno_node/internal/timers.mjs";
 // import { serve, upgradeHttpRaw } from "ext:deno_http/00_serve.ts";
 import { createHttpClient } from "ext:deno_fetch/22_http_client.js";
 import { headersEntries } from "ext:deno_fetch/20_headers.js";
+import {
+  builtinTracer,
+  ContextManager,
+  enterSpan,
+  PROPAGATORS,
+  restoreSnapshot,
+  TRACING_ENABLED,
+} from "ext:deno_telemetry/telemetry.ts";
 import { timerId } from "ext:deno_web/03_abort_signal.js";
 import { clearTimeout as webClearTimeout } from "ext:deno_web/02_timers.js";
 import { resourceForReadableStream } from "ext:deno_web/06_streams.js";
@@ -74,7 +83,8 @@ import { methods as METHODS } from "node:_http_common";
 import { deprecate } from "node:util";
 
 const { internalRidSymbol } = core;
-const { ArrayIsArray, StringPrototypeToLowerCase } = primordials;
+const { ArrayIsArray, StringPrototypeToLowerCase, SafeArrayIterator } =
+  primordials;
 
 type Chunk = string | Buffer | Uint8Array;
 
@@ -458,17 +468,49 @@ class ClientRequest extends OutgoingMessage {
       this._bodyWriteRid = resourceForReadableStream(readable);
     }
 
-    this._req = op_node_http_request(
-      this.method,
-      url,
-      headers,
-      client[internalRidSymbol],
-      this._bodyWriteRid,
-    );
-
+    let span;
+    let snapshot;
+    if (TRACING_ENABLED) {
+      span = builtinTracer().startSpan(this.method, { kind: 2 }); // Kind 2 = Client
+      snapshot = enterSpan(span);
+    }
     (async () => {
       try {
+        const parsedUrl = new URL(url);
+        if (span) {
+          const context = ContextManager.active();
+          for (const propagator of new SafeArrayIterator(PROPAGATORS)) {
+            propagator.inject(context, headers, {
+              set(carrier, key, value) {
+                carrier.push([key, value]);
+              },
+            });
+          }
+          span.setAttribute("http.request.method", this.method);
+          span.setAttribute("url.full", parsedUrl.href);
+          span.setAttribute("url.scheme", parsedUrl.protocol.slice(0, -1));
+          span.setAttribute("url.path", parsedUrl.pathname);
+          span.setAttribute("url.query", parsedUrl.search.slice(1));
+        }
+
+        this._req = op_node_http_request(
+          this.method,
+          url,
+          headers,
+          client[internalRidSymbol],
+          this._bodyWriteRid,
+        );
+
         const res = await op_node_http_fetch_send(this._req.requestRid);
+
+        if (span) {
+          span.setAttribute("http.response.status_code", res.status);
+          if (res.status >= 400) {
+            span.setAttribute("error.type", String(res.status));
+            span.setStatus({ code: 2 }); // Code 2 = Error
+          }
+        }
+
         if (this._req.cancelHandleRid !== null) {
           core.tryClose(this._req.cancelHandleRid);
         }
@@ -552,6 +594,10 @@ class ClientRequest extends OutgoingMessage {
           this.emit("response", incoming);
         }
       } catch (err) {
+        if (span) {
+          updateSpanFromError(span, err);
+        }
+
         if (this._req.cancelHandleRid !== null) {
           core.tryClose(this._req.cancelHandleRid);
         }
@@ -577,8 +623,14 @@ class ClientRequest extends OutgoingMessage {
         } else {
           this.emit("error", err);
         }
+      } finally {
+        span?.end();
       }
     })();
+
+    if (snapshot) {
+      restoreSnapshot(snapshot);
+    }
   }
 
   _implicitHeader() {

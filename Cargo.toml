@@ -55,7 +55,7 @@ deno_fs = { version = "0.92.0", features = ["sync_fs"] }
 deno_http = "0.180.0"
 deno_io = "0.92.0"
 deno_net = "0.174.0"
-deno_telemetry = "0.12.0"
+deno_telemetry = "0.17.0"
 deno_tls = "0.169.0"
 deno_url = "0.182.0"
 deno_web = "0.213.0"

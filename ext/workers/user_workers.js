@@ -166,6 +166,7 @@ class UserWorker {
           span.setStatus(2, "unknown");
         }
       }
+      throw err;
     } finally {
       span?.end();
     }

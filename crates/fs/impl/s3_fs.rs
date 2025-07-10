@@ -118,6 +118,7 @@ impl S3Fs {
 pub struct S3CredentialsObject {
   access_key_id: Cow<'static, str>,
   secret_access_key: Cow<'static, str>,
+  session_token: Option<Cow<'static, str>>,
   expires_after: Option<u64>,
 }
 
@@ -126,7 +127,7 @@ impl S3CredentialsObject {
     Credentials::new(
       self.access_key_id,
       self.secret_access_key,
-      None,
+      self.session_token.map(|it| it.to_string()),
       self
         .expires_after
         .map(Duration::from_secs)
@@ -394,7 +395,7 @@ impl deno_fs::FileSystem for S3Fs {
   }
 
   #[instrument(
-        level = "trace", 
+        level = "trace",
         skip(self, options, _access_check),
         fields(?options, has_access_check = _access_check.is_some()),
         err(Debug)

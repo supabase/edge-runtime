@@ -731,7 +731,7 @@ globalThis.bootstrapSBEdge = (opts, ctx) => {
                 return originalFn(...args);
               } else {
                 globalThis.console.error(
-                  `WARNING: Do not use Deno.${name} inside the async callback. This will be disallowed in the future.\nUse the async version instead.`,
+                  `WARNING: Do not use Deno.${name} inside the async callback. This has performance impacts and will be disallowed in the future.\nUse the async version instead.`,
                 );
                 return originalFn(...args);
               }

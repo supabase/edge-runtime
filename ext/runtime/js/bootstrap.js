@@ -408,7 +408,7 @@ const MAKE_HARD_ERR_FN = (msg) => {
 const DENIED_DENO_FS_API_LIST = ObjectKeys(fsVars)
   .reduce(
     (acc, it) => {
-      if (acc[it] !== void 0) {
+      if (fsVars[it] !== void 0) {
         acc[it] = MAKE_HARD_ERR_FN(`Deno.${it} is blocklisted`);
       }
       return acc;

@@ -1494,10 +1494,10 @@ impl S3Object {
     unsafe { Rc::from_raw(ptr.0) }
   }
 
-  fn read_byob_inner<'a>(
+  fn read_byob_inner(
     self: Rc<Self>,
-    mut buf: &'a mut [u8],
-  ) -> LocalBoxFuture<'a, FsResult<usize>> {
+    buf: &mut [u8],
+  ) -> LocalBoxFuture<'_, FsResult<usize>> {
     async move {
       let mut op_slot = RcRef::map(&self, |r| &r.op_slot).borrow_mut().await;
       let Some(op_slot_mut) = op_slot.as_mut() else {
@@ -1515,7 +1515,7 @@ impl S3Object {
         };
 
         let mut body_buf = resp.body.into_async_read();
-        let nread = body_buf.read(&mut buf).await?;
+        let nread = body_buf.read(buf).await?;
 
         *op_slot = Some(S3ObjectOpSlot::Read(S3ObjectReadState(
           Box::pin(body_buf),
@@ -1533,7 +1533,7 @@ impl S3Object {
         );
       };
 
-      let err = match state.0.read(&mut buf).await {
+      let err = match state.0.read(buf).await {
         Ok(nread) => {
           state.1 += nread;
 
@@ -1577,7 +1577,7 @@ impl S3Object {
           .map_err(io::Error::other)?;
 
         let mut body_buf = resp.body.into_async_read();
-        let nread = body_buf.read(&mut buf).await?;
+        let nread = body_buf.read(buf).await?;
 
         state.1 += nread;
         state.0 = Box::pin(body_buf);
@@ -1592,16 +1592,16 @@ impl S3Object {
     .boxed_local()
   }
 
-  fn write_inner<'a>(
+  fn write_inner(
     self: Rc<Self>,
-    buf: &'a [u8],
-  ) -> LocalBoxFuture<'a, FsResult<(usize, bool)>> {
+    buf: &[u8],
+  ) -> LocalBoxFuture<'_, FsResult<(usize, bool)>> {
     async move {
       let mut op_slot = RcRef::map(&self, |r| &r.op_slot).borrow_mut().await;
       let Some(op_slot_mut) = op_slot.as_mut() else {
         let mut state = S3ObjectWriteState::new().map_err(io::Error::other)?;
         let size = buf.len();
-        let nwritten = state.cursor.write(&buf).await?;
+        let nwritten = state.cursor.write(buf).await?;
         let written = if size == nwritten {
           (nwritten, true)
         } else {
@@ -1627,7 +1627,7 @@ impl S3Object {
       };
 
       let size = buf.len();
-      let nwritten = state.cursor.write(&buf).await?;
+      let nwritten = state.cursor.write(buf).await?;
 
       state.total_written += nwritten;
 

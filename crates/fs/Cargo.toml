@@ -20,6 +20,7 @@ deno_semver.workspace = true
 
 eszip_trait.workspace = true
 
+base_rt.workspace = true
 ext_node.workspace = true
 
 anyhow.workspace = true

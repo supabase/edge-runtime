@@ -651,15 +651,22 @@ where
           let tmp_fs =
             TmpFs::try_from(maybe_tmp_fs_config.unwrap_or_default())?;
           let tmp_fs_actual_path = tmp_fs.actual_path().to_path_buf();
-          let fs = PrefixFs::new("/tmp", tmp_fs.clone(), Some(base_fs))
+          let mut fs = PrefixFs::new("/tmp", tmp_fs.clone(), Some(base_fs))
             .tmp_dir("/tmp")
             .add_fs(tmp_fs_actual_path, tmp_fs);
+
+          fs
+            .set_runtime_state(&runtime_state);
 
           Ok(
             if let Some(s3_fs) =
               maybe_s3_fs_config.map(S3Fs::new).transpose()?
             {
-              (Arc::new(fs.add_fs("/s3", s3_fs.clone())), Some(s3_fs))
+              let mut s3_prefix_fs = fs.add_fs("/s3", s3_fs.clone());
+
+              s3_prefix_fs.set_check_sync_api(is_user_worker);
+
+              (Arc::new(s3_prefix_fs), Some(s3_fs))
             } else {
               (Arc::new(fs), None)
             },

@@ -5,6 +5,8 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 
+use anyhow::anyhow;
+use base_rt::RuntimeState;
 use deno_fs::AccessCheckCb;
 use deno_fs::FsDirEntry;
 use deno_fs::FsFileType;
@@ -21,6 +23,8 @@ pub struct PrefixFs<FileSystem> {
   tmp_dir: Option<PathBuf>,
   fs: Arc<FileSystem>,
   base_fs: Option<Arc<dyn deno_fs::FileSystem>>,
+  runtime_state: Option<Arc<RuntimeState>>,
+  check_sync_api: bool,
 }
 
 impl<FileSystem> PrefixFs<FileSystem>
@@ -41,6 +45,8 @@ where
       tmp_dir: None,
       fs: Arc::new(fs),
       base_fs,
+      runtime_state: None,
+      check_sync_api: false,
     }
   }
 
@@ -75,6 +81,16 @@ where
     self.tmp_dir = Some(v.as_ref().to_path_buf());
     self
   }
+
+  pub fn set_runtime_state(&mut self, v: &Arc<RuntimeState>) -> &mut Self {
+    self.runtime_state = Some(v.clone());
+    self
+  }
+
+  pub fn set_check_sync_api(&mut self, v: bool) -> &mut Self {
+    self.check_sync_api = v;
+    self
+  }
 }
 
 impl<FileSystem> PrefixFs<FileSystem>
@@ -95,6 +111,8 @@ where
       fs: Arc::new(fs),
       cwd: self.cwd.take(),
       tmp_dir: self.tmp_dir.take(),
+      runtime_state: self.runtime_state.clone(),
+      check_sync_api: self.check_sync_api,
       base_fs: Some(Arc::new(self)),
     }
   }
@@ -149,6 +167,7 @@ where
     options: OpenOptions,
     access_check: Option<AccessCheckCb>,
   ) -> FsResult<Rc<dyn File>> {
+    self.check_sync_api_allowed("open_sync")?;
     if path.starts_with(&self.prefix) {
       self.fs.open_sync(
         path.strip_prefix(&self.prefix).unwrap(),
@@ -194,6 +213,7 @@ where
     recursive: bool,
     mode: Option<u32>,
   ) -> FsResult<()> {
+    self.check_sync_api_allowed("mkdir_sync")?;
     if path.starts_with(&self.prefix) {
       self.fs.mkdir_sync(
         path.strip_prefix(&self.prefix).unwrap(),
@@ -232,6 +252,7 @@ where
   }
 
   fn chmod_sync(&self, path: &Path, mode: u32) -> FsResult<()> {
+    self.check_sync_api_allowed("chmod_sync")?;
     if path.starts_with(&self.prefix) {
       self
         .fs
@@ -264,6 +285,7 @@ where
     uid: Option<u32>,
     gid: Option<u32>,
   ) -> FsResult<()> {
+    self.check_sync_api_allowed("chown_sync")?;
     if path.starts_with(&self.prefix) {
       self
         .fs
@@ -305,6 +327,7 @@ where
     uid: Option<u32>,
     gid: Option<u32>,
   ) -> FsResult<()> {
+    self.check_sync_api_allowed("lchown_sync")?;
     if path.starts_with(&self.prefix) {
       self
         .fs
@@ -341,6 +364,7 @@ where
   }
 
   fn remove_sync(&self, path: &Path, recursive: bool) -> FsResult<()> {
+    self.check_sync_api_allowed("remove_sync")?;
     if path.starts_with(&self.prefix) {
       self
         .fs
@@ -371,6 +395,8 @@ where
   }
 
   fn copy_file_sync(&self, oldpath: &Path, newpath: &Path) -> FsResult<()> {
+    self.check_sync_api_allowed("copy_file_sync")?;
+
     let oldpath_matches = oldpath.starts_with(&self.prefix);
     let newpath_matches = newpath.starts_with(&self.prefix);
     if oldpath_matches || newpath_matches {
@@ -426,6 +452,8 @@ where
   }
 
   fn cp_sync(&self, path: &Path, new_path: &Path) -> FsResult<()> {
+    self.check_sync_api_allowed("cp_sync")?;
+
     let path_matches = path.starts_with(&self.prefix);
     let new_path_matches = new_path.starts_with(&self.prefix);
     if path_matches || new_path_matches {
@@ -477,6 +505,7 @@ where
   }
 
   fn stat_sync(&self, path: &Path) -> FsResult<FsStat> {
+    self.check_sync_api_allowed("stat_sync")?;
     if path.starts_with(&self.prefix) {
       self.fs.stat_sync(path.strip_prefix(&self.prefix).unwrap())
     } else {
@@ -502,6 +531,7 @@ where
   }
 
   fn lstat_sync(&self, path: &Path) -> FsResult<FsStat> {
+    self.check_sync_api_allowed("lstat_sync")?;
     if path.starts_with(&self.prefix) {
       self.fs.lstat_sync(path.strip_prefix(&self.prefix).unwrap())
     } else {
@@ -527,6 +557,7 @@ where
   }
 
   fn realpath_sync(&self, path: &Path) -> FsResult<PathBuf> {
+    self.check_sync_api_allowed("realpath_sync")?;
     if path.starts_with(&self.prefix) {
       self
         .fs
@@ -554,6 +585,7 @@ where
   }
 
   fn read_dir_sync(&self, path: &Path) -> FsResult<Vec<FsDirEntry>> {
+    self.check_sync_api_allowed("read_dir_sync")?;
     if path.starts_with(&self.prefix) {
       self
         .fs
@@ -581,6 +613,8 @@ where
   }
 
   fn rename_sync(&self, oldpath: &Path, newpath: &Path) -> FsResult<()> {
+    self.check_sync_api_allowed("rename_sync")?;
+
     let oldpath_matches = oldpath.starts_with(&self.prefix);
     let newpath_matches = newpath.starts_with(&self.prefix);
     if oldpath_matches || newpath_matches {
@@ -636,6 +670,8 @@ where
   }
 
   fn link_sync(&self, oldpath: &Path, newpath: &Path) -> FsResult<()> {
+    self.check_sync_api_allowed("link_sync")?;
+
     let oldpath_matches = oldpath.starts_with(&self.prefix);
     let newpath_matches = newpath.starts_with(&self.prefix);
     if oldpath_matches || newpath_matches {
@@ -696,6 +732,8 @@ where
     newpath: &Path,
     file_type: Option<FsFileType>,
   ) -> FsResult<()> {
+    self.check_sync_api_allowed("symlink_sync")?;
+
     let oldpath_matches = oldpath.starts_with(&self.prefix);
     let newpath_matches = newpath.starts_with(&self.prefix);
     if oldpath_matches || newpath_matches {
@@ -754,6 +792,7 @@ where
   }
 
   fn read_link_sync(&self, path: &Path) -> FsResult<PathBuf> {
+    self.check_sync_api_allowed("read_link_sync")?;
     if path.starts_with(&self.prefix) {
       self
         .fs
@@ -781,6 +820,7 @@ where
   }
 
   fn truncate_sync(&self, path: &Path, len: u64) -> FsResult<()> {
+    self.check_sync_api_allowed("truncate_sync")?;
     if path.starts_with(&self.prefix) {
       self
         .fs
@@ -818,6 +858,7 @@ where
     mtime_secs: i64,
     mtime_nanos: u32,
   ) -> FsResult<()> {
+    self.check_sync_api_allowed("utime_sync")?;
     if path.starts_with(&self.prefix) {
       self.fs.utime_sync(
         path.strip_prefix(&self.prefix).unwrap(),
@@ -872,6 +913,7 @@ where
     mtime_secs: i64,
     mtime_nanos: u32,
   ) -> FsResult<()> {
+    self.check_sync_api_allowed("lutime_sync")?;
     if path.starts_with(&self.prefix) {
       self.fs.lutime_sync(
         path.strip_prefix(&self.prefix).unwrap(),
@@ -925,6 +967,7 @@ where
     access_check: Option<AccessCheckCb>,
     data: &[u8],
   ) -> FsResult<()> {
+    self.check_sync_api_allowed("write_file_sync")?;
     if path.starts_with(&self.prefix) {
       self.fs.write_file_sync(
         path.strip_prefix(&self.prefix).unwrap(),
@@ -970,6 +1013,7 @@ where
     path: &Path,
     access_check: Option<AccessCheckCb>,
   ) -> FsResult<Cow<'static, [u8]>> {
+    self.check_sync_api_allowed("read_file_sync")?;
     if path.starts_with(&self.prefix) {
       self
         .fs
@@ -1004,6 +1048,9 @@ where
   }
 
   fn is_file_sync(&self, path: &Path) -> bool {
+    if self.check_sync_api_allowed("is_file_sync").is_err() {
+      return false;
+    }
     if path.starts_with(&self.prefix) {
       self
         .fs
@@ -1018,6 +1065,9 @@ where
   }
 
   fn is_dir_sync(&self, path: &Path) -> bool {
+    if self.check_sync_api_allowed("is_dir_sync").is_err() {
+      return false;
+    }
     if path.starts_with(&self.prefix) {
       self
         .fs
@@ -1032,6 +1082,9 @@ where
   }
 
   fn exists_sync(&self, path: &Path) -> bool {
+    if self.check_sync_api_allowed("exists_sync").is_err() {
+      return false;
+    }
     if path.starts_with(&self.prefix) {
       self
         .fs
@@ -1050,6 +1103,7 @@ where
     path: &Path,
     access_check: Option<AccessCheckCb>,
   ) -> FsResult<Cow<'static, str>> {
+    self.check_sync_api_allowed("read_text_file_lossy_sync")?;
     if path.starts_with(&self.prefix) {
       self.fs.read_text_file_lossy_sync(
         path.strip_prefix(&self.prefix).unwrap(),
@@ -1081,6 +1135,25 @@ where
       fs.read_text_file_lossy_async(path, access_check).await
     } else {
       Err(FsError::NotSupported)
+    }
+  }
+}
+
+impl<FileSystem> PrefixFs<FileSystem> {
+  fn check_sync_api_allowed(&self, name: &'static str) -> FsResult<()> {
+    if !self.check_sync_api {
+      return Ok(());
+    }
+    let Some(state) = self.runtime_state.as_ref() else {
+      return Ok(());
+    };
+
+    if state.is_init() {
+      Ok(())
+    } else {
+      Err(FsError::Io(io::Error::other(anyhow!(format!(
+        "invoking {name} is not allowed in the current context"
+      )))))
     }
   }
 }

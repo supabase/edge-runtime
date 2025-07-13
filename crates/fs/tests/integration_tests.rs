@@ -584,3 +584,54 @@ async fn test_mkdir_recursive_and_remove_recursive() {
     tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
   }
 }
+
+#[cfg_attr(not(dotenv), ignore)]
+#[tokio::test]
+#[serial]
+async fn test_ensure_using_sync_api_in_async_callback_is_not_allowed() {
+  remove("", true).await;
+
+  let mut arr = vec![0u8; 1024];
+
+  {
+    let tb = get_tb_builder()
+      .with_server_flags(ServerFlags {
+        request_buffer_size: Some(64 * 1024),
+        ..Default::default()
+      })
+      .build()
+      .await;
+
+    rand::thread_rng().fill_bytes(&mut arr);
+
+    let resp = tb
+      .request(|b| {
+        b.uri(format!("/write/{}", get_path("meow.bin")))
+          .method("POST")
+          .body(arr.clone().into())
+          .context("can't make request")
+      })
+      .await
+      .unwrap();
+
+    assert_eq!(resp.status().as_u16(), StatusCode::OK);
+    tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
+  }
+
+  {
+    let tb = get_tb_builder().build().await;
+    let resp = tb
+      .request(|b| {
+        b.uri(format!("/get/{}?sync=true", get_path("meow.bin")))
+          .method("GET")
+          .body(Body::empty())
+          .context("can't make request")
+      })
+      .await
+      .unwrap();
+
+    assert_eq!(resp.status().as_u16(), StatusCode::INTERNAL_SERVER_ERROR);
+
+    tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
+  }
+}

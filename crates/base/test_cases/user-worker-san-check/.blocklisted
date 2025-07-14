@@ -21,8 +21,6 @@ futime
 futimeSync
 link
 linkSync
-lstat
-lstatSync
 makeTempFile
 makeTempFileSync
 readLink

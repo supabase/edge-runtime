@@ -1,6 +1,7 @@
 mkdirSync
 readDirSync
 removeSync
+lstatSync
 statSync
 writeFileSync
 writeTextFileSync

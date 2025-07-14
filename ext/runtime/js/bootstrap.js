@@ -653,6 +653,7 @@ globalThis.bootstrapSBEdge = (opts, ctx) => {
       "cwd": true,
 
       "open": true,
+      "lstat": true,
       "stat": true,
       "realPath": true,
       "realPathSync": true,
@@ -671,6 +672,7 @@ globalThis.bootstrapSBEdge = (opts, ctx) => {
       "addSignalListener": "mock",
       "removeSignalListener": "mock",
 
+      "lstatSync": "allowIfRuntimeIsInInit",
       "statSync": "allowIfRuntimeIsInInit",
       "removeSync": "allowIfRuntimeIsInInit",
       "writeFileSync": "allowIfRuntimeIsInInit",

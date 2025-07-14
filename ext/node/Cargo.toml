@@ -53,6 +53,7 @@ rand.workspace = true
 regex.workspace = true
 ring.workspace = true
 rsa.workspace = true
+rusqlite.workspace = true
 sec1.workspace = true
 serde.workspace = true
 sha1.workspace = true
@@ -81,6 +82,7 @@ home = "0.5.9"
 idna = "1.0.3"
 ipnetwork = "0.20.0"
 k256 = "0.13.1"
+libsqlite3-sys = "0.30.1"
 md-5 = { version = "0.10.5", features = ["oid"] }
 md4 = "0.10.2"
 memchr = "2.7.4"

@@ -1038,7 +1038,7 @@ dependencies = [
  "bitflags 2.6.0",
  "cexpr",
  "clang-sys",
- "itertools 0.11.0",
+ "itertools 0.10.5",
  "log",
  "prettyplease",
  "proc-macro2",
@@ -2035,7 +2035,7 @@ dependencies = [
 [[package]]
 name = "deno_core"
 version = "0.324.0"
-source = "git+https://github.com/supabase/deno_core?branch=324-supabase#48428e4f791556e552902ef4ce17f89ac76be808"
+source = "git+https://github.com/supabase/deno_core?branch=324-supabase#4cfd9cafe234cd7414b45c4858ac9dda22bfacef"
 dependencies = [
  "anyhow",
  "az",
@@ -2433,7 +2433,7 @@ dependencies = [
 [[package]]
 name = "deno_ops"
 version = "0.200.0"
-source = "git+https://github.com/supabase/deno_core?branch=324-supabase#48428e4f791556e552902ef4ce17f89ac76be808"
+source = "git+https://github.com/supabase/deno_core?branch=324-supabase#4cfd9cafe234cd7414b45c4858ac9dda22bfacef"
 dependencies = [
  "proc-macro-rules",
  "proc-macro2",
@@ -3257,6 +3257,7 @@ dependencies = [
  "k256",
  "lazy-regex",
  "libc",
+ "libsqlite3-sys",
  "libz-sys",
  "md-5",
  "md4",
@@ -3279,6 +3280,7 @@ dependencies = [
  "ring 0.17.14",
  "ripemd",
  "rsa",
+ "rusqlite",
  "scrypt",
  "sec1 0.7.3",
  "serde",
@@ -6215,7 +6217,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "157c5a9d7ea5c2ed2d9fb8f495b64759f7816c7eaea54ba3978f0d63000162e3"
 dependencies = [
  "anyhow",
- "itertools 0.11.0",
+ "itertools 0.10.5",
  "proc-macro2",
  "quote",
  "syn 2.0.90",
@@ -7220,7 +7222,7 @@ dependencies = [
 [[package]]
 name = "serde_v8"
 version = "0.233.0"
-source = "git+https://github.com/supabase/deno_core?branch=324-supabase#48428e4f791556e552902ef4ce17f89ac76be808"
+source = "git+https://github.com/supabase/deno_core?branch=324-supabase#4cfd9cafe234cd7414b45c4858ac9dda22bfacef"
 dependencies = [
  "num-bigint",
  "serde",

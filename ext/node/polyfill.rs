@@ -68,7 +68,6 @@ generate_builtin_node_module_lists! {
   "punycode",
   "querystring",
   "repl",
-  "sqlite",
   "readline",
   "readline/promises",
   "stream",

@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Error};
+use base_mem_check::{MemCheckState, WorkerHeapStatistics};
 use deno_config::JsxImportSourceConfig;
 use deno_core::FastString;
 use enum_as_inner::EnumAsInner;
@@ -10,6 +11,7 @@ use sb_core::{MetricSource, SharedMetricSource};
 use sb_event_worker::events::{UncaughtExceptionEvent, WorkerEventWithMetadata};
 use std::path::PathBuf;
 use std::sync::atomic::AtomicUsize;
+use std::sync::RwLock;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::mpsc::unbounded_channel;
 use tokio::sync::{mpsc, oneshot, Mutex, Notify, OwnedSemaphorePermit};
@@ -121,6 +123,7 @@ pub struct UserWorkerProfile {
     pub cancel: CancellationToken,
     pub status: TimingStatus,
     pub exit: WorkerExit,
+    pub mem_check: Arc<RwLock<MemCheckState>>,
 }
 
 #[derive(Debug, Clone)]
@@ -238,6 +241,7 @@ pub enum UserWorkerMsgs {
     ),
     Idle(Uuid),
     Shutdown(Uuid),
+    InqueryMemoryUsage(oneshot::Sender<HashMap<Uuid, Option<WorkerHeapStatistics>>>),
 }
 
 pub type SendRequestResult = (Response<Body>, mpsc::UnboundedSender<()>);

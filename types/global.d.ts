@@ -96,6 +96,7 @@ declare namespace EdgeRuntime {
 
         fetch(request: Request, options?: UserWorkerFetchOptions): Promise<Response>;
         static create(opts: UserWorkerCreateOptions): Promise<UserWorker>;
+        static memStats(): Promise<HeapStatistics>;
     }
 
     export function scheduleTermination(): void;

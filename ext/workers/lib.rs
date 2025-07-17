@@ -6,6 +6,7 @@ use crate::context::{
     WorkerRuntimeOpts,
 };
 use anyhow::Error;
+use base_mem_check::WorkerHeapStatistics;
 use context::SendRequestResult;
 use deno_config::JsxImportSourceConfig;
 use deno_core::error::{custom_error, type_error, AnyError};
@@ -31,6 +32,7 @@ use once_cell::sync::Lazy;
 use sb_core::conn_sync::ConnWatcher;
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::rc::Rc;
@@ -45,6 +47,7 @@ deno_core::extension!(
         op_user_worker_create,
         op_user_worker_fetch_build,
         op_user_worker_fetch_send,
+        op_user_worker_mem_stats,
     ],
     esm_entry_point = "ext:sb_user_workers/user_workers.js",
     esm = ["user_workers.js",]
@@ -577,6 +580,24 @@ pub async fn op_user_worker_fetch_send(
     };
 
     Ok(response)
+}
+
+#[op2(async)]
+#[serde]
+pub async fn op_user_worker_mem_stats(
+    state: Rc<RefCell<OpState>>,
+) -> Result<HashMap<Uuid, Option<WorkerHeapStatistics>>, Error> {
+    let mem_rx = {
+        let op_state = state.borrow();
+        let tx = op_state.borrow::<mpsc::UnboundedSender<UserWorkerMsgs>>();
+
+        let (mem_tx, mem_rx) = oneshot::channel();
+        let _ = tx.send(UserWorkerMsgs::InqueryMemoryUsage(mem_tx));
+
+        mem_rx
+    };
+
+    Ok(mem_rx.await?)
 }
 
 /// Wraps a [`mpsc::Receiver`] in a [`Stream`] that can be used as a Hyper [`Body`].

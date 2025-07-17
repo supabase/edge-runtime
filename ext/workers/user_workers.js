@@ -9,6 +9,7 @@ const { TypeError } = primordials;
 const {
 	op_user_worker_fetch_send,
 	op_user_worker_create,
+	op_user_worker_mem_stats,
 } = ops;
 
 const NO_SUPABASE_TAG_WARN_MSG = `Unable to find the supabase tag from the request instance.\n\
@@ -139,6 +140,10 @@ class UserWorker {
 		const key = await op_user_worker_create(readyOptions);
 
 		return new UserWorker(key);
+	}
+
+	static async memStats() {
+		return await op_user_worker_mem_stats();
 	}
 }
 

@@ -3,6 +3,7 @@ use crate::server::ServerFlags;
 use crate::worker::WorkerSurfaceBuilder;
 
 use anyhow::{anyhow, bail, Context, Error};
+use base_mem_check::WorkerHeapStatistics;
 use deno_config::JsxImportSourceConfig;
 use either::Either::Left;
 use enum_as_inner::EnumAsInner;
@@ -449,6 +450,7 @@ impl WorkerPool {
                         permit: permit.map(Arc::new),
                         status: status.clone(),
                         exit: surface.exit,
+                        mem_check: surface.mem_check.clone(),
                         cancel,
                     };
 
@@ -657,6 +659,23 @@ impl WorkerPool {
             }
         }
     }
+
+    fn memory_usage(&self, tx: Sender<HashMap<Uuid, Option<WorkerHeapStatistics>>>) {
+        let mem_checks = self
+            .user_workers
+            .iter()
+            .map(|it| (it.0.clone(), it.1.mem_check.clone()))
+            .collect::<Vec<_>>();
+
+        drop(tokio::task::spawn_blocking(move || {
+            let mut results = HashMap::new();
+            for (uuid, mem_check) in mem_checks {
+                results.insert(uuid, mem_check.read().ok().map(|it| it.current.clone()));
+            }
+
+            let _ = tx.send(results);
+        }));
+    }
 }
 
 pub async fn create_user_worker_pool(
@@ -749,6 +768,10 @@ pub async fn create_user_worker_pool(
 
                                     break;
                                 }
+                            }
+
+                            Some(UserWorkerMsgs::InqueryMemoryUsage(tx)) => {
+                                worker_pool.memory_usage(tx);
                             }
                         }
                     }

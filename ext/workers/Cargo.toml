@@ -19,6 +19,7 @@ fs.workspace = true
 
 sb_core.workspace = true
 sb_event_worker.workspace = true
+base_mem_check.workspace = true
 
 anyhow.workspace = true
 uuid.workspace = true

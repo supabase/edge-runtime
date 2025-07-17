@@ -4,6 +4,7 @@ use crate::server::ServerFlags;
 use crate::worker::utils::{get_event_metadata, send_event_if_event_worker_available};
 
 use anyhow::Error;
+use base_mem_check::MemCheckState;
 use base_rt::error::CloneableError;
 use deno_core::unsync::MaskFutureAsSend;
 use futures_util::FutureExt;
@@ -17,7 +18,7 @@ use sb_workers::context::{
     WorkerRequestMsg,
 };
 use std::future::ready;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use tokio::io;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
@@ -183,7 +184,9 @@ impl std::ops::Deref for Worker {
 impl Worker {
     pub fn start(
         self,
-        booter_signal: oneshot::Sender<Result<(MetricSource, CancellationToken), Error>>,
+        booter_signal: oneshot::Sender<
+            Result<(MetricSource, Arc<RwLock<MemCheckState>>, CancellationToken), Error>,
+        >,
         exit: WorkerExit,
     ) {
         let worker_name = self.worker_name.clone();
@@ -242,7 +245,11 @@ impl Worker {
                 }
             };
 
-            let _ = booter_signal.send(Ok((metric_src, runtime.drop_token.clone())));
+            let _ = booter_signal.send(Ok((
+                metric_src,
+                runtime.mem_check_state(),
+                runtime.drop_token.clone(),
+            )));
             let supervise_fut = match imp.clone().supervise(&mut runtime) {
                 Some(v) => v.boxed(),
                 None if worker_kind.is_user_worker() => return None,
@@ -325,4 +332,5 @@ pub struct WorkerSurface {
     pub msg_tx: mpsc::UnboundedSender<WorkerRequestMsg>,
     pub exit: WorkerExit,
     pub cancel: CancellationToken,
+    pub mem_check: Arc<RwLock<MemCheckState>>,
 }

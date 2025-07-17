@@ -1,9 +1,10 @@
 use std::{
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, RwLock},
 };
 
 use anyhow::Context;
+use base_mem_check::MemCheckState;
 use deno_config::JsxImportSourceConfig;
 use either::Either;
 use graph::{DecoratorType, EszipPayloadKind};
@@ -329,8 +330,9 @@ impl WorkerSurfaceBuilder {
             worker_builder_hook,
         } = self;
 
-        let (worker_boot_result_tx, worker_boot_result_rx) =
-            oneshot::channel::<Result<(MetricSource, CancellationToken), anyhow::Error>>();
+        let (worker_boot_result_tx, worker_boot_result_rx) = oneshot::channel::<
+            Result<(MetricSource, Arc<RwLock<MemCheckState>>, CancellationToken), anyhow::Error>,
+        >();
 
         let flags = flags.unwrap_or_default();
         let init_opts = init_opts.context("init_opts must be specified")?;
@@ -377,7 +379,7 @@ impl WorkerSurfaceBuilder {
 
         // wait for worker to be successfully booted
         match worker_boot_result_rx.await? {
-            Ok((metric, cancel)) => {
+            Ok((metric, mem_check_state, cancel)) => {
                 let elapsed = cx.worker_boot_start_time.elapsed().as_millis();
 
                 send_event_if_event_worker_available(
@@ -393,6 +395,7 @@ impl WorkerSurfaceBuilder {
                     msg_tx: worker_req_tx,
                     exit,
                     cancel,
+                    mem_check: mem_check_state,
                 })
             }
 

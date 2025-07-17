@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Context;
+use deno::deno_telemetry::OtelConfig;
 use deno_facade::EszipPayloadKind;
 use either::Either;
 use ext_event_worker::events::BootEvent;
@@ -493,6 +494,7 @@ pub struct MainWorkerSurfaceBuilder {
   worker_pool_tx: Option<mpsc::UnboundedSender<UserWorkerMsgs>>,
   shared_metric_src: Option<SharedMetricSource>,
   event_worker_metric_src: Option<MetricSource>,
+  otel_config: Option<OtelConfig>,
 }
 
 impl std::ops::Deref for MainWorkerSurfaceBuilder {
@@ -524,6 +526,7 @@ impl MainWorkerSurfaceBuilder {
       worker_pool_tx: None,
       shared_metric_src: None,
       event_worker_metric_src: None,
+      otel_config: None,
     }
   }
 
@@ -552,6 +555,11 @@ impl MainWorkerSurfaceBuilder {
 
   pub fn event_worker_metric_source(mut self, value: MetricSource) -> Self {
     self.event_worker_metric_src = Some(value);
+    self
+  }
+
+  pub fn otel_config(mut self, value: OtelConfig) -> Self {
+    self.otel_config = Some(value);
     self
   }
 
@@ -589,6 +597,11 @@ impl MainWorkerSurfaceBuilder {
     self
   }
 
+  pub fn set_otel_config(&mut self, value: Option<OtelConfig>) -> &mut Self {
+    self.otel_config = value;
+    self
+  }
+
   pub async fn build(self) -> Result<MainWorkerSurface, anyhow::Error> {
     let Self {
       mut inner,
@@ -598,6 +611,7 @@ impl MainWorkerSurfaceBuilder {
       worker_pool_tx,
       shared_metric_src,
       event_worker_metric_src,
+      otel_config,
     } = self;
 
     let flags = inner.flags.as_ref().cloned().unwrap_or_default();
@@ -615,7 +629,6 @@ impl MainWorkerSurfaceBuilder {
 
     inner.set_init_opts(Some(WorkerContextInitOpts {
       service_path,
-      // import_map_path,
       no_module_cache: no_module_cache.unwrap_or(flags.no_module_cache),
 
       timing: None,
@@ -634,6 +647,7 @@ impl MainWorkerSurfaceBuilder {
 
       maybe_s3_fs_config: None,
       maybe_tmp_fs_config: None,
+      maybe_otel_config: otel_config,
     }));
 
     Ok(MainWorkerSurface(
@@ -677,9 +691,8 @@ pub struct EventWorkerSurfaceBuilder {
 
   event_worker_path: PathBuf,
   no_module_cache: Option<bool>,
-  // import_map_path: Option<String>,
   entrypoint: Option<String>,
-  // decorator: Option<DecoratorType>,
+  otel_config: Option<OtelConfig>,
 }
 
 impl std::ops::Deref for EventWorkerSurfaceBuilder {
@@ -707,6 +720,7 @@ impl EventWorkerSurfaceBuilder {
       event_worker_path: event_worker_path.as_ref().to_path_buf(),
       no_module_cache: None,
       entrypoint: None,
+      otel_config: None,
     }
   }
 
@@ -720,6 +734,11 @@ impl EventWorkerSurfaceBuilder {
     self
   }
 
+  pub fn otel_config(mut self, value: OtelConfig) -> Self {
+    self.otel_config = Some(value);
+    self
+  }
+
   pub fn set_no_module_cache(&mut self, value: Option<bool>) -> &mut Self {
     self.no_module_cache = value;
     self
@@ -730,12 +749,18 @@ impl EventWorkerSurfaceBuilder {
     self
   }
 
+  pub fn set_otel_config(&mut self, value: Option<OtelConfig>) -> &mut Self {
+    self.otel_config = value;
+    self
+  }
+
   pub async fn build(self) -> Result<EventWorkerSurface, anyhow::Error> {
     let Self {
       mut inner,
       event_worker_path,
       no_module_cache,
       entrypoint,
+      otel_config,
     } = self;
 
     let (event_msg_tx, event_msg_rx) =
@@ -773,6 +798,7 @@ impl EventWorkerSurfaceBuilder {
 
       maybe_s3_fs_config: None,
       maybe_tmp_fs_config: None,
+      maybe_otel_config: otel_config,
     }));
 
     Ok(EventWorkerSurface {

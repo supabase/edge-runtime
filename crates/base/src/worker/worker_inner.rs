@@ -181,12 +181,12 @@ impl std::ops::Deref for Worker {
     }
 }
 
+type BooterSignalData = (MetricSource, Arc<RwLock<MemCheckState>>, CancellationToken);
+
 impl Worker {
     pub fn start(
         self,
-        booter_signal: oneshot::Sender<
-            Result<(MetricSource, Arc<RwLock<MemCheckState>>, CancellationToken), Error>,
-        >,
+        booter_signal: oneshot::Sender<Result<BooterSignalData, Error>>,
         exit: WorkerExit,
     ) {
         let worker_name = self.worker_name.clone();

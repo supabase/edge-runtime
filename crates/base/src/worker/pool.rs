@@ -664,13 +664,13 @@ impl WorkerPool {
         let mem_checks = self
             .user_workers
             .iter()
-            .map(|it| (it.0.clone(), it.1.mem_check.clone()))
+            .map(|it| (*it.0, it.1.mem_check.clone()))
             .collect::<Vec<_>>();
 
         drop(tokio::task::spawn_blocking(move || {
             let mut results = HashMap::new();
             for (uuid, mem_check) in mem_checks {
-                results.insert(uuid, mem_check.read().ok().map(|it| it.current.clone()));
+                results.insert(uuid, mem_check.read().ok().map(|it| it.current));
             }
 
             let _ = tx.send(results);

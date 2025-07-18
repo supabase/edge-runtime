@@ -31,7 +31,7 @@ class TensorProxy {
   }
 }
 
-class Tensor {
+export class Tensor {
   /** @type {DataType} Type of the tensor. */
   type;
 
@@ -67,7 +67,7 @@ class Tensor {
   }
 }
 
-class InferenceSession {
+export class InferenceSession {
   sessionId;
   inputNames;
   outputNames;
@@ -81,6 +81,15 @@ class InferenceSession {
   static async fromBuffer(modelBuffer) {
     const [id, inputs, outputs] = await core.ops.op_ai_ort_init_session(
       modelBuffer,
+    );
+
+    return new InferenceSession(id, inputs, outputs);
+  }
+
+  static async fromRequest(modelUrl, authorization) {
+    const [id, inputs, outputs] = await core.ops.op_ai_ort_init_session(
+      modelUrl,
+      authorization,
     );
 
     return new InferenceSession(id, inputs, outputs);

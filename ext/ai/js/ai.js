@@ -1,4 +1,5 @@
 import "ext:ai/onnxruntime/onnx.js";
+import InferenceAPI from "ext:ai/onnxruntime/inference_api.js";
 import EventSourceStream from "ext:ai/util/event_source_stream.mjs";
 
 const core = globalThis.Deno.core;
@@ -258,6 +259,7 @@ const MAIN_WORKER_API = {
 
 const USER_WORKER_API = {
   Session,
+  ...InferenceAPI,
 };
 
 export { MAIN_WORKER_API, USER_WORKER_API };

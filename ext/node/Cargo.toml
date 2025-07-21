@@ -57,7 +57,7 @@ tokio.workspace = true
 url.workspace = true
 winapi.workspace = true
 
-aead-gcm-stream = "0.3"
+aead-gcm-stream = "0.4"
 blake2 = "0.10.6"
 const-oid = "0.9.5"
 digest = { version = "0.10.5", features = ["core-api", "std"] }

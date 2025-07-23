@@ -814,7 +814,7 @@ where
                 let initial_heap_size = initial_heap_size.get().cloned().unwrap_or_default();
                 let max_heap_size = max_heap_size.get().cloned().unwrap_or_default();
 
-                if initial_heap_size > 0 && max_heap_size > 0 {
+                if max_heap_size > 0 {
                     create_params = Some(v8::CreateParams::default().heap_limits(
                         mib_to_bytes(initial_heap_size) as usize,
                         mib_to_bytes(max_heap_size) as usize,

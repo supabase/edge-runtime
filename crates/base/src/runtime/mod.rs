@@ -84,6 +84,7 @@ use ext_runtime::MemCheckWaker;
 use ext_runtime::PromiseMetrics;
 use ext_workers::context::UserWorkerMsgs;
 use ext_workers::context::WorkerContextInitOpts;
+use ext_workers::context::WorkerKind;
 use ext_workers::context::WorkerRuntimeOpts;
 use fs::deno_compile_fs::DenoCompileFileSystem;
 use fs::prefix_fs::PrefixFs;
@@ -155,6 +156,11 @@ pub static SHOULD_USE_VERBOSE_DEPRECATED_API_WARNING: OnceCell<bool> =
 pub static SHOULD_INCLUDE_MALLOCED_MEMORY_ON_MEMCHECK: OnceCell<bool> =
   OnceCell::new();
 pub static MAYBE_DENO_VERSION: OnceCell<String> = OnceCell::new();
+
+pub static MAIN_WORKER_INITIAL_HEAP_SIZE_MIB: OnceCell<u64> = OnceCell::new();
+pub static MAIN_WORKER_MAX_HEAP_SIZE_MIB: OnceCell<u64> = OnceCell::new();
+pub static EVENT_WORKER_INITIAL_HEAP_SIZE_MIB: OnceCell<u64> = OnceCell::new();
+pub static EVENT_WORKER_MAX_HEAP_SIZE_MIB: OnceCell<u64> = OnceCell::new();
 
 #[ctor]
 fn init_v8_platform() {
@@ -775,39 +781,65 @@ where
         let beforeunload_mem_threshold =
           ArcSwapOption::<u64>::from_pointee(None);
 
-        if conf.is_user_worker() {
-          let conf = maybe_user_conf.unwrap();
-          let memory_limit_bytes = mib_to_bytes(conf.memory_limit_mb) as usize;
+        match conf.to_worker_kind() {
+          WorkerKind::UserWorker => {
+            let conf = maybe_user_conf.unwrap();
+            let memory_limit_bytes = mib_to_bytes(conf.memory_limit_mb) as usize;
 
-          beforeunload_mem_threshold.store(
-            flags
-              .beforeunload_memory_pct
-              .and_then(|it| percentage_value(memory_limit_bytes as u64, it))
-              .map(Arc::new),
-          );
-
-          if conf.cpu_time_hard_limit_ms > 0 {
-            beforeunload_cpu_threshold.store(
+            beforeunload_mem_threshold.store(
               flags
-                .beforeunload_cpu_pct
-                .and_then(|it| {
-                  percentage_value(conf.cpu_time_hard_limit_ms, it)
-                })
+                .beforeunload_memory_pct
+                .and_then(|it| percentage_value(memory_limit_bytes as u64, it))
                 .map(Arc::new),
             );
+
+            if conf.cpu_time_hard_limit_ms > 0 {
+              beforeunload_cpu_threshold.store(
+                flags
+                  .beforeunload_cpu_pct
+                  .and_then(|it| {
+                    percentage_value(conf.cpu_time_hard_limit_ms, it)
+                  })
+                  .map(Arc::new),
+              );
+            }
+
+            let allocator = CustomAllocator::new(memory_limit_bytes);
+
+            allocator.set_waker(mem_check.waker.clone());
+
+            mem_check.limit = Some(memory_limit_bytes);
+            create_params = Some(
+              v8::CreateParams::default()
+                .heap_limits(mib_to_bytes(0) as usize, memory_limit_bytes)
+                .array_buffer_allocator(allocator.into_v8_allocator()),
+            )
           }
 
-          let allocator = CustomAllocator::new(memory_limit_bytes);
+          kind => {
+            assert_ne!(kind, WorkerKind::UserWorker);
+            let initial_heap_size = match kind {
+              WorkerKind::MainWorker => &MAIN_WORKER_INITIAL_HEAP_SIZE_MIB,
+              WorkerKind::EventsWorker => &EVENT_WORKER_INITIAL_HEAP_SIZE_MIB,
+              _ => unreachable!(),
+            };
+            let max_heap_size = match kind {
+              WorkerKind::MainWorker => &MAIN_WORKER_MAX_HEAP_SIZE_MIB,
+              WorkerKind::EventsWorker => &EVENT_WORKER_MAX_HEAP_SIZE_MIB,
+              _ => unreachable!(),
+            };
 
-          allocator.set_waker(mem_check.waker.clone());
+            let initial_heap_size = initial_heap_size.get().cloned().unwrap_or_default();
+            let max_heap_size = max_heap_size.get().cloned().unwrap_or_default();
 
-          mem_check.limit = Some(memory_limit_bytes);
-          create_params = Some(
-            v8::CreateParams::default()
-              .heap_limits(mib_to_bytes(0) as usize, memory_limit_bytes)
-              .array_buffer_allocator(allocator.into_v8_allocator()),
-          )
-        };
+            if max_heap_size > 0 {
+              create_params = Some(v8::CreateParams::default().heap_limits(
+                mib_to_bytes(initial_heap_size) as usize,
+                mib_to_bytes(max_heap_size) as usize,
+              ));
+            }
+          }
+        }
 
         let mem_check = Arc::new(mem_check);
         let runtime_options = RuntimeOptions {

@@ -66,7 +66,7 @@ webpki-root-certs.workspace = true
 winapi.workspace = true
 yoke.workspace = true
 
-aead-gcm-stream = "0.3"
+aead-gcm-stream = "0.4"
 blake2 = "0.10.6"
 boxed_error = "0.2.2"
 const-oid = "0.9.5"

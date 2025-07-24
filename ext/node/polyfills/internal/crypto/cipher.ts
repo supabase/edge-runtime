@@ -433,7 +433,7 @@ export function privateEncrypt(
   const padding = privateKey.padding || 1;
 
   buffer = getArrayBufferOrView(buffer, "buffer");
-  return op_node_private_encrypt(data, buffer, padding);
+  return Buffer.from(op_node_private_encrypt(data, buffer, padding));
 }
 
 export function privateDecrypt(
@@ -444,7 +444,7 @@ export function privateDecrypt(
   const padding = privateKey.padding || 1;
 
   buffer = getArrayBufferOrView(buffer, "buffer");
-  return op_node_private_decrypt(data, buffer, padding);
+  return Buffer.from(op_node_private_decrypt(data, buffer, padding));
 }
 
 export function publicEncrypt(
@@ -455,7 +455,7 @@ export function publicEncrypt(
   const padding = publicKey.padding || 1;
 
   buffer = getArrayBufferOrView(buffer, "buffer");
-  return op_node_public_encrypt(data, buffer, padding);
+  return Buffer.from(op_node_public_encrypt(data, buffer, padding));
 }
 
 export function prepareKey(key) {

@@ -4,6 +4,7 @@ use aes::cipher::block_padding::Pkcs7;
 use aes::cipher::BlockDecryptMut;
 use aes::cipher::BlockEncryptMut;
 use aes::cipher::KeyIvInit;
+use aes::cipher::KeySizeUser;
 use deno_core::error::type_error;
 use deno_core::error::AnyError;
 use deno_core::Resource;
@@ -126,7 +127,7 @@ impl Cipher {
             "aes-192-ecb" => Aes192Ecb(Box::new(ecb::Encryptor::new(key.into()))),
             "aes-256-ecb" => Aes256Ecb(Box::new(ecb::Encryptor::new(key.into()))),
             "aes-128-gcm" => {
-                if iv.len() != 12 {
+                if key.len() != aes::Aes128::key_size() {
                     return Err(type_error("IV length must be 12 bytes"));
                 }
 
@@ -135,7 +136,7 @@ impl Cipher {
                 Aes128Gcm(Box::new(cipher))
             }
             "aes-256-gcm" => {
-                if iv.len() != 12 {
+                if key.len() != aes::Aes256::key_size() {
                     return Err(type_error("IV length must be 12 bytes"));
                 }
 
@@ -302,7 +303,7 @@ impl Decipher {
             "aes-192-ecb" => Aes192Ecb(Box::new(ecb::Decryptor::new(key.into()))),
             "aes-256-ecb" => Aes256Ecb(Box::new(ecb::Decryptor::new(key.into()))),
             "aes-128-gcm" => {
-                if iv.len() != 12 {
+                if key.len() != aes::Aes128::key_size() {
                     return Err(type_error("IV length must be 12 bytes"));
                 }
 
@@ -311,7 +312,7 @@ impl Decipher {
                 Aes128Gcm(Box::new(decipher))
             }
             "aes-256-gcm" => {
-                if iv.len() != 12 {
+                if key.len() != aes::Aes256::key_size() {
                     return Err(type_error("IV length must be 12 bytes"));
                 }
 

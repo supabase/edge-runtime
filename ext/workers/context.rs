@@ -9,6 +9,7 @@ use deno::deno_permissions::PermissionsOptions;
 use deno_core::unsync::sync::AtomicFlag;
 use deno_core::FastString;
 use deno_facade::EszipPayloadKind;
+use deno_telemetry::OtelConfig;
 use enum_as_inner::EnumAsInner;
 use ext_event_worker::events::UncaughtExceptionEvent;
 use ext_event_worker::events::WorkerEventWithMetadata;
@@ -260,6 +261,7 @@ pub struct WorkerContextInitOpts {
   pub maybe_entrypoint: Option<String>,
   pub maybe_s3_fs_config: Option<S3FsConfig>,
   pub maybe_tmp_fs_config: Option<TmpFsConfig>,
+  pub maybe_otel_config: Option<OtelConfig>,
 }
 
 #[derive(Debug)]
@@ -284,6 +286,7 @@ pub type SendRequestResult = (Response<Body>, mpsc::UnboundedSender<()>);
 #[derive(Debug)]
 pub struct CreateUserWorkerResult {
   pub key: Uuid,
+  pub reused: bool,
 }
 
 #[derive(Debug)]

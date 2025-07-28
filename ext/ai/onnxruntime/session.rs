@@ -155,6 +155,7 @@ pub(crate) async fn load_session_from_bytes(
 #[instrument(level = "debug", fields(%model_url), err)]
 pub(crate) async fn load_session_from_url(
   model_url: Url,
+  authorization: Option<String>,
 ) -> Result<SessionWithId, Error> {
   let session_id = fxhash::hash(model_url.as_str()).to_string();
 
@@ -169,6 +170,7 @@ pub(crate) async fn load_session_from_url(
     "model",
     model_url,
     Some(session_id.to_string()),
+    authorization,
   )
   .await?;
 

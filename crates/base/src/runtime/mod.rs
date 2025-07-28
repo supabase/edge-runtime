@@ -24,6 +24,7 @@ use base_rt::BlockingScopeCPUUsage;
 use base_rt::DenoRuntimeDropToken;
 use base_rt::DropToken;
 use base_rt::RuntimeState;
+use base_rt::RuntimeWaker;
 use cooked_waker::IntoWaker;
 use cooked_waker::WakeRef;
 use cpu_timer::CPUTimer;
@@ -471,6 +472,7 @@ where
       ..
     } = init_opts.unwrap();
 
+    let waker = Arc::<AtomicWaker>::default();
     let drop_token = CancellationToken::default();
     let is_user_worker = conf.is_user_worker();
     let is_some_entry_point = maybe_entrypoint.is_some();
@@ -486,6 +488,7 @@ where
       .unwrap_or_else(|| get_default_permissions(conf.to_worker_kind()));
 
     struct Bootstrap {
+      waker: Arc<AtomicWaker>,
       js_runtime: JsRuntime,
       mem_check: Arc<MemCheck>,
       has_inspector: bool,
@@ -912,6 +915,7 @@ where
           op_state.put(promise_metrics.clone());
           op_state.put(runtime_state.clone());
           op_state.put(GlobalMainContext(main_context));
+          op_state.put(RuntimeWaker(waker.clone()))
         }
 
         {
@@ -946,6 +950,7 @@ where
         }
 
         Ok(Bootstrap {
+          waker,
           js_runtime,
           mem_check,
           has_inspector,
@@ -1061,6 +1066,7 @@ where
     .await;
 
     let Bootstrap {
+      waker,
       mut js_runtime,
       mem_check,
       main_module_url,
@@ -1181,7 +1187,7 @@ where
       promise_metrics,
 
       mem_check,
-      waker: Arc::default(),
+      waker,
 
       beforeunload_cpu_threshold: Arc::new(beforeunload_cpu_threshold),
       beforeunload_mem_threshold: Arc::new(beforeunload_mem_threshold),

@@ -964,7 +964,7 @@ dependencies = [
  "bitflags 2.5.0",
  "cexpr",
  "clang-sys",
- "itertools 0.12.1",
+ "itertools 0.11.0",
  "lazy_static",
  "lazycell",
  "log",
@@ -1657,7 +1657,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b28bfe653d79bd16c77f659305b195b82bb5ce0c0eb2a4846b82ddbd77586813"
 dependencies = [
  "bitflags 2.5.0",
- "libloading 0.8.1",
+ "libloading 0.7.4",
  "winapi",
 ]
 
@@ -1864,7 +1864,7 @@ dependencies = [
 [[package]]
 name = "deno_core"
 version = "0.293.0"
-source = "git+https://github.com/supabase/deno_core?branch=293-supabase#d73dc1e1845d00cc2e8d2a32caf5859cc300386b"
+source = "git+https://github.com/supabase/deno_core?branch=293-supabase#f07ab22bbc97030ff35af5ff48e2325c8cb7bcdc"
 dependencies = [
  "anyhow",
  "bincode",
@@ -2139,7 +2139,7 @@ dependencies = [
 [[package]]
 name = "deno_ops"
 version = "0.169.0"
-source = "git+https://github.com/supabase/deno_core?branch=293-supabase#d73dc1e1845d00cc2e8d2a32caf5859cc300386b"
+source = "git+https://github.com/supabase/deno_core?branch=293-supabase#f07ab22bbc97030ff35af5ff48e2325c8cb7bcdc"
 dependencies = [
  "proc-macro-rules",
  "proc-macro2",
@@ -6604,7 +6604,7 @@ dependencies = [
 [[package]]
 name = "serde_v8"
 version = "0.202.0"
-source = "git+https://github.com/supabase/deno_core?branch=293-supabase#d73dc1e1845d00cc2e8d2a32caf5859cc300386b"
+source = "git+https://github.com/supabase/deno_core?branch=293-supabase#f07ab22bbc97030ff35af5ff48e2325c8cb7bcdc"
 dependencies = [
  "num-bigint",
  "serde",
@@ -8441,7 +8441,7 @@ dependencies = [
  "js-sys",
  "khronos-egl",
  "libc",
- "libloading 0.8.1",
+ "libloading 0.7.4",
  "log",
  "metal",
  "naga",

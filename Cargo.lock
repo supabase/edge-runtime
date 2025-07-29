@@ -1038,7 +1038,7 @@ dependencies = [
  "bitflags 2.6.0",
  "cexpr",
  "clang-sys",
- "itertools 0.12.1",
+ "itertools 0.11.0",
  "log",
  "prettyplease",
  "proc-macro2",
@@ -1742,7 +1742,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b28bfe653d79bd16c77f659305b195b82bb5ce0c0eb2a4846b82ddbd77586813"
 dependencies = [
  "bitflags 2.6.0",
- "libloading 0.8.1",
+ "libloading 0.7.4",
  "winapi",
 ]
 
@@ -2035,7 +2035,7 @@ dependencies = [
 [[package]]
 name = "deno_core"
 version = "0.324.0"
-source = "git+https://github.com/supabase/deno_core?branch=324-supabase#48428e4f791556e552902ef4ce17f89ac76be808"
+source = "git+https://github.com/supabase/deno_core?branch=324-supabase#4f0b75542b8907156c49ebfe94bf650001737f8f"
 dependencies = [
  "anyhow",
  "az",
@@ -2433,7 +2433,7 @@ dependencies = [
 [[package]]
 name = "deno_ops"
 version = "0.200.0"
-source = "git+https://github.com/supabase/deno_core?branch=324-supabase#48428e4f791556e552902ef4ce17f89ac76be808"
+source = "git+https://github.com/supabase/deno_core?branch=324-supabase#4f0b75542b8907156c49ebfe94bf650001737f8f"
 dependencies = [
  "proc-macro-rules",
  "proc-macro2",
@@ -6215,7 +6215,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "157c5a9d7ea5c2ed2d9fb8f495b64759f7816c7eaea54ba3978f0d63000162e3"
 dependencies = [
  "anyhow",
- "itertools 0.12.1",
+ "itertools 0.11.0",
  "proc-macro2",
  "quote",
  "syn 2.0.90",
@@ -7220,7 +7220,7 @@ dependencies = [
 [[package]]
 name = "serde_v8"
 version = "0.233.0"
-source = "git+https://github.com/supabase/deno_core?branch=324-supabase#48428e4f791556e552902ef4ce17f89ac76be808"
+source = "git+https://github.com/supabase/deno_core?branch=324-supabase#4f0b75542b8907156c49ebfe94bf650001737f8f"
 dependencies = [
  "num-bigint",
  "serde",
@@ -9180,7 +9180,7 @@ dependencies = [
  "js-sys",
  "khronos-egl",
  "libc",
- "libloading 0.8.1",
+ "libloading 0.7.4",
  "log",
  "metal",
  "naga",

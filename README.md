@@ -15,7 +15,13 @@ Options**
 
 ## Architecture
 
-![Sequence diagram of Edge Runtime request flow](assets/edge-runtime-diagram.svg?raw=true)
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="/assets/edge-runtime-diagram-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="/assets/edge-runtime-diagram.svg">
+    <img alt="Sequence diagram of Edge Runtime request flow" src="/assets/edge-runtime-diagram.svg" style="max-width: 100%;">
+  </picture>
+</p>
 
 The edge runtime can be divided into two runtimes with different purposes.
 
@@ -31,6 +37,17 @@ The edge runtime can be divided into two runtimes with different purposes.
   - An instance for the _user runtime_ is responsible for executing users' code.
   - Limits are required to be set such as: Memory and Timeouts.
   - Has access to environment variables explictly allowed by the main runtime.
+
+### Edge Runtime in Deep
+
+#### Conceptual
+
+- [EdgeRuntime Base](/crates/base/README.md): Overalls about how EdgeRuntime is based on Deno.
+
+#### Extension Modules
+
+- [AI](/ext/ai/README.md): Implements AI related features.
+- [NodeJs](/ext/node/README.md) & [NodeJs Polyfills](/ext/node/polyfills/README.md): Implements the NodeJs compatibility layer.
 
 ## Developers
 

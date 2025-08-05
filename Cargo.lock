@@ -8201,8 +8201,7 @@ dependencies = [
 [[package]]
 name = "v8"
 version = "0.97.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eb417c2cd20684f18b185085c876d379318893461c17d319948a0a5f221f0b50"
+source = "git+https://github.com/supabase/rusty_v8?tag=v0.97.1#3bd1448f9d44081cc88b5ad3f22b916efc667a8f"
 dependencies = [
  "bindgen",
  "bitflags 2.5.0",

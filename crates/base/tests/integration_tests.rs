@@ -3429,7 +3429,7 @@ async fn test_should_be_able_to_trigger_early_drop_with_mem() {
     let resp = tb
         .request(|b| {
             b.uri("/early-drop-mem")
-                .header("x-memory-limit-mb", HeaderValue::from_static("20"))
+                .header("x-memory-limit-mb", HeaderValue::from_static("22"))
                 .body(Body::empty())
                 .context("can't make request")
         })

@@ -89,9 +89,10 @@ where
     None
   }
   .unwrap_or(serde_json::Value::Object(Default::default()));
-  let capture_event =
-    get_bool_from_json_value(&metadata, "captureEvent").unwrap_or_default();
-  let (tx, rx) = if capture_event {
+  let capture_event_loop_error =
+    get_bool_from_json_value(&metadata, "captureEventLoopError")
+      .unwrap_or_default();
+  let (tx, rx) = if capture_event_loop_error {
     let (tx, rx) = mpsc::unbounded_channel::<WorkerEventWithMetadata>();
     (Some(tx), Some(rx))
   } else {

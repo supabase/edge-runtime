@@ -687,11 +687,29 @@ where
           )
         };
 
+        let static_files = if is_some_entry_point {
+          let entrypoint_path = main_module_url
+            .to_file_path()
+            .map_err(|_| anyhow!("failed to convert entrypoint to path"))?;
+          let static_root_path = entrypoint_path
+            .parent()
+            .ok_or_else(|| anyhow!("could not resolve parent of entrypoint"))?
+            .to_path_buf();
+
+          metadata
+            .static_assets_lookup(static_root_path)
+            .into_iter()
+            .chain(static_files.into_iter())
+            .collect()
+        } else {
+          static_files
+        };
+
         let (fs, s3_fs) = build_file_system_fn(if is_user_worker {
           Arc::new(StaticFs::new(
             static_files,
             if matches!(entrypoint, Some(Entrypoint::ModuleCode(_)) | None)
-              && maybe_entrypoint.is_some()
+              && is_some_entry_point
             {
               // it is eszip from before v2
               base_url

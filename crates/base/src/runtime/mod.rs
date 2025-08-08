@@ -238,6 +238,7 @@ pub trait GetRuntimeContext {
   fn get_runtime_context(
     conf: &WorkerRuntimeOpts,
     use_inspector: bool,
+    migrated: bool,
     version: Option<&str>,
   ) -> impl Serialize {
     serde_json::json!({
@@ -245,6 +246,7 @@ pub trait GetRuntimeContext {
       "kind": conf.to_worker_kind().to_string(),
       "debug": cfg!(debug_assertions),
       "inspector": use_inspector,
+      "migrated": migrated,
       "version": {
         "runtime": version.unwrap_or("0.1.0"),
         "deno": MAYBE_DENO_VERSION
@@ -488,6 +490,7 @@ where
       .unwrap_or_else(|| get_default_permissions(conf.to_worker_kind()));
 
     struct Bootstrap {
+      migrated: bool,
       waker: Arc<AtomicWaker>,
       js_runtime: JsRuntime,
       mem_check: Arc<MemCheck>,
@@ -637,6 +640,7 @@ where
         .await?;
 
         let RuntimeProviders {
+          migrated,
           module_loader,
           node_services,
           npm_snapshot,
@@ -968,6 +972,7 @@ where
         }
 
         Ok(Bootstrap {
+          migrated,
           waker,
           js_runtime,
           mem_check,
@@ -996,6 +1001,7 @@ where
         bootstrap.js_runtime.v8_isolate().exit();
 
         let has_inspector = bootstrap.has_inspector;
+        let migrated = bootstrap.migrated;
         let context = bootstrap.context.take().unwrap_or_default();
         let mut bootstrap = scopeguard::guard(bootstrap, |mut it| {
           cleanup_js_runtime(&mut it.js_runtime);
@@ -1011,6 +1017,7 @@ where
               serde_json::json!(RuntimeContext::get_runtime_context(
                 &conf,
                 has_inspector,
+                migrated,
                 option_env!("GIT_V_TAG"),
               ));
 
@@ -1018,9 +1025,9 @@ where
               let op_state = locker.op_state();
               let resource_table = &mut op_state.borrow_mut().resource_table;
               serde_json::json!({
-                  "terminationRequestToken":
-                    resource_table
-                      .add(DropToken(termination_request_token.clone()))
+                "terminationRequestToken":
+                  resource_table
+                    .add(DropToken(termination_request_token.clone()))
               })
             };
 

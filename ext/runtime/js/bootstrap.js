@@ -592,8 +592,8 @@ globalThis.bootstrapSBEdge = (opts, ctx) => {
   core.addMainModuleHandler((main) => {
     if (migrated) {
       globalThis.console.warn(
-        "It appears that the function is bundled from the old version of cli.\n",
-        "Compatibility issues may arise, so it is recommended to re-bundle using the latest version of cli.",
+        "It appears this function was deployed using an older version of Supabase CLI.\n",
+        "For best performance and compatibility we recommend re-deploying the function using the latest version of the CLI.",
       );
     }
 

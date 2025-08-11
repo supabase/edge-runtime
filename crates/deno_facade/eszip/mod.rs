@@ -97,6 +97,7 @@ async fn read_u32<R: futures::io::AsyncRead + Unpin>(
 pub struct LazyLoadableEszip {
   eszip: EszipV2,
   maybe_data_section: Option<Arc<EszipDataSection>>,
+  migrated: bool,
 }
 
 impl std::ops::Deref for LazyLoadableEszip {
@@ -122,6 +123,7 @@ impl Clone for LazyLoadableEszip {
         options: self.eszip.options,
       },
       maybe_data_section: self.maybe_data_section.clone(),
+      migrated: false,
     }
   }
 }
@@ -156,6 +158,7 @@ impl LazyLoadableEszip {
     Self {
       eszip,
       maybe_data_section,
+      migrated: false,
     }
   }
 
@@ -214,6 +217,15 @@ impl LazyLoadableEszip {
     }
 
     Ok(())
+  }
+
+  pub fn migrated(&self) -> bool {
+    self.migrated
+  }
+
+  pub fn set_migrated(&mut self, value: bool) -> &mut Self {
+    self.migrated = value;
+    self
   }
 }
 

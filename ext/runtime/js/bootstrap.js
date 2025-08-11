@@ -520,6 +520,7 @@ globalThis.bootstrapSBEdge = (opts, ctx) => {
    * target: string,
    * kind: 'user' | 'main' | 'event',
    * inspector: boolean,
+   * migrated: boolean,
    * debug: boolean,
    * version: {
    * 	runtime: string,
@@ -532,6 +533,7 @@ globalThis.bootstrapSBEdge = (opts, ctx) => {
    * }}
    */
   const {
+    migrated,
     target,
     kind,
     version,
@@ -588,6 +590,13 @@ globalThis.bootstrapSBEdge = (opts, ctx) => {
   setLanguage("en");
 
   core.addMainModuleHandler((main) => {
+    if (migrated) {
+      globalThis.console.warn(
+        "It appears this function was deployed using an older version of Supabase CLI.\n",
+        "For best performance and compatibility we recommend re-deploying the function using the latest version of the CLI.",
+      );
+    }
+
     // Find declarative fetch handler
     if (ObjectHasOwn(main, "default")) {
       registerDeclarativeServer(main.default);

@@ -590,7 +590,7 @@ globalThis.bootstrapSBEdge = (opts, ctx) => {
   setLanguage("en");
 
   core.addMainModuleHandler((main) => {
-    if (migrated) {
+    if (migrated && !ctx?.suppressEszipMigrationWarning) {
       globalThis.console.warn(
         "It appears this function was deployed using an older version of Supabase CLI.\n",
         "For best performance and compatibility we recommend re-deploying the function using the latest version of the CLI.",

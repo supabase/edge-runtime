@@ -43,6 +43,14 @@ interface PermissionsOptions {
   allow_import?: string[] | null;
 }
 
+interface UserWorkerCreateContext {
+  sourceMap?: boolean | null;
+  importMapPath?: string | null;
+  shouldBootstrapMockFnThrowError?: boolean | null;
+  suppressEszipMigrationWarning?: boolean | null;
+  useReadSyncFileAPI?: boolean | null;
+}
+
 interface UserWorkerCreateOptions {
   servicePath?: string | null;
   envVars?: string[][] | [string, string][] | null;
@@ -67,7 +75,7 @@ interface UserWorkerCreateOptions {
   s3FsConfig?: S3FsConfig | null;
   tmpFsConfig?: TmpFsConfig | null;
 
-  context?: { [key: string]: unknown } | null;
+  context?: UserWorkerCreateContext | null;
 }
 
 interface HeapStatistics {
@@ -178,5 +186,6 @@ declare namespace Supabase {
 declare namespace Deno {
   export namespace errors {
     class WorkerRequestCancelled extends Error {}
+    class WorkerAlreadyRetired extends Error {}
   }
 }

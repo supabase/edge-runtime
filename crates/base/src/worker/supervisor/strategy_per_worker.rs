@@ -163,7 +163,7 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
       .and_then(|it| {
         it.get("requestAbsentTimeoutMs")
           .and_then(|it| it.as_u64())
-          .map(|it| Duration::from_millis(it))
+          .map(Duration::from_millis)
       }),
 
     is_wall_clock_limit_disabled: worker_timeout_ms == 0,

@@ -2522,7 +2522,10 @@ async fn test_issue_func_205() {
       b.uri("/issue-func-205")
         .header("x-cpu-time-soft-limit-ms", HeaderValue::from_static("500"))
         .header("x-cpu-time-hard-limit-ms", HeaderValue::from_static("1000"))
-        .header("x-use-read-sync-file-api", HeaderValue::from_static("true"))
+        .header(
+          "x-context-use-read-sync-file-api",
+          HeaderValue::from_static("true"),
+        )
         .body(Body::empty())
         .context("can't make request")
     })
@@ -3863,6 +3866,49 @@ async fn test_eszip_wasm_import() {
     }),
     TerminationToken::new()
   );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_request_absent_timeout() {
+  let (tx, mut rx) = mpsc::unbounded_channel();
+  let tb = TestBedBuilder::new("./test_cases/main")
+    .with_per_worker_policy(None)
+    .with_worker_event_sender(Some(tx))
+    .build()
+    .await;
+
+  let resp = tb
+    .request(|b| {
+      b.uri("/sleep-5000ms")
+        .header("x-worker-timeout-ms", HeaderValue::from_static("3600000"))
+        .header(
+          "x-context-supervisor-request-absent-timeout-ms",
+          HeaderValue::from_static("1000"),
+        )
+        .body(Body::empty())
+        .context("can't make request")
+    })
+    .await
+    .unwrap();
+
+  assert_eq!(resp.status().as_u16(), StatusCode::OK);
+
+  sleep(Duration::from_secs(3)).await;
+  rx.close();
+  tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
+
+  while let Some(ev) = rx.recv().await {
+    let WorkerEvents::Shutdown(ev) = ev.event else {
+      continue;
+    };
+    if ev.reason != ShutdownReason::EarlyDrop {
+      break;
+    }
+    return;
+  }
+
+  unreachable!("test failed");
 }
 
 #[derive(Deserialize)]

@@ -49,6 +49,9 @@ interface UserWorkerCreateContext {
   shouldBootstrapMockFnThrowError?: boolean | null;
   suppressEszipMigrationWarning?: boolean | null;
   useReadSyncFileAPI?: boolean | null;
+  supervisor?: {
+    requestAbsentTimeoutMs?: number | null;
+  };
 }
 
 interface UserWorkerCreateOptions {

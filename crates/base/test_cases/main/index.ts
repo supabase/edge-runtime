@@ -1,6 +1,6 @@
 console.log("main function started");
 
-function parseIntFromHeadersOrDefault(req: Request, key: string, val: number) {
+function parseIntFromHeadersOrDefault(req: Request, key: string, val?: number) {
   const headerValue = req.headers.get(key);
   if (!headerValue) {
     return val;
@@ -62,7 +62,14 @@ Deno.serve((req: Request) => {
     const envVars = Object.keys(envVarsObj).map((k) => [k, envVarsObj[k]]);
     const context = {
       sourceMap: req.headers.get("x-context-source-map") == "true",
-      useReadSyncFileAPI: req.headers.get("x-use-read-sync-file-api") == "true",
+      useReadSyncFileAPI:
+        req.headers.get("x-context-use-read-sync-file-api") == "true",
+      supervisor: {
+        requestAbsentTimeoutMs: parseIntFromHeadersOrDefault(
+          req,
+          "x-context-supervisor-request-absent-timeout-ms",
+        ),
+      },
     };
 
     return await EdgeRuntime.userWorkers.create({

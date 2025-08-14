@@ -3933,8 +3933,6 @@ async fn test_user_workers_cleanup_idle_workers() {
 
   assert_eq!(resp.status().as_u16(), StatusCode::OK);
 
-  sleep(Duration::from_secs(3)).await;
-
   let mut resp = tb
     .request(|b| {
       b.uri("/_internal/cleanup-idle-workers")

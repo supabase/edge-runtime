@@ -142,6 +142,7 @@ jobs:
       - name: Coveralls upload
         uses: coverallsapp/github-action@v2
         with:
+          fail-on-error: false
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path-to-lcov: lcov.info
           debug: true

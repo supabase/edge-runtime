@@ -138,6 +138,7 @@ impl Default for UserWorkerRuntimeOpts {
 #[derive(Debug, Clone)]
 pub struct UserWorkerProfile {
   pub worker_request_msg_tx: mpsc::UnboundedSender<WorkerRequestMsg>,
+  pub early_drop_tx: mpsc::UnboundedSender<oneshot::Sender<bool>>,
   pub timing_tx_pair: (
     mpsc::UnboundedSender<Arc<Notify>>,
     mpsc::UnboundedSender<()>,
@@ -226,6 +227,7 @@ pub struct TimingStatus {
 
 #[derive(Debug)]
 pub struct Timing {
+  pub early_drop_rx: mpsc::UnboundedReceiver<oneshot::Sender<bool>>,
   pub status: TimingStatus,
   pub req: (
     mpsc::UnboundedReceiver<Arc<Notify>>,
@@ -235,10 +237,12 @@ pub struct Timing {
 
 impl Default for Timing {
   fn default() -> Self {
+    let (_, dumb_early_drop_rx) = unbounded_channel();
     let (_, dumb_start_rx) = unbounded_channel::<Arc<Notify>>();
     let (_, dumb_end_rx) = unbounded_channel::<()>();
 
     Self {
+      early_drop_rx: dumb_early_drop_rx,
       status: TimingStatus::default(),
       req: (dumb_start_rx, dumb_end_rx),
     }
@@ -277,6 +281,7 @@ pub enum UserWorkerMsgs {
   ),
   Idle(Uuid),
   Shutdown(Uuid),
+  TryCleanupIdleWorkers(usize, oneshot::Sender<usize>),
 }
 
 pub type SendRequestResult = (Response<Body>, mpsc::UnboundedSender<()>);

@@ -14,10 +14,18 @@ function parseIntFromHeadersOrDefault(req: Request, key: string, val?: number) {
   return parsedValue;
 }
 
-Deno.serve((req: Request) => {
+Deno.serve(async (req: Request) => {
   console.log(req.url);
   const url = new URL(req.url);
   const { pathname } = url;
+
+  // handle health checks
+  if (pathname === "/_internal/cleanup-idle-workers") {
+    return Response.json({
+      count: await EdgeRuntime.userWorkers.tryCleanupIdleWorkers(1000),
+    });
+  }
+
   const path_parts = pathname.split("/");
   let service_name = path_parts[1];
 

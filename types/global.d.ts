@@ -121,7 +121,9 @@ declare namespace EdgeRuntime {
       request: Request,
       options?: UserWorkerFetchOptions,
     ): Promise<Response>;
+
     static create(opts: UserWorkerCreateOptions): Promise<UserWorker>;
+    static tryCleanupIdleWorkers(timeoutMs: number): Promise<number>;
   }
 
   export function scheduleTermination(): void;

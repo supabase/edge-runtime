@@ -69,6 +69,7 @@ deno_core::extension!(
     op_user_worker_create,
     op_user_worker_fetch_build,
     op_user_worker_fetch_send,
+    op_user_worker_cleanup_idle_workers,
   ],
   esm_entry_point = "ext:user_workers/user_workers.js",
   esm = ["user_workers.js",]
@@ -629,6 +630,30 @@ pub async fn op_user_worker_fetch_send(
   };
 
   Ok(response)
+}
+
+#[op2(async)]
+#[number]
+pub async fn op_user_worker_cleanup_idle_workers(
+  state: Rc<RefCell<OpState>>,
+  #[number] timeout_ms: usize,
+) -> usize {
+  let msg_tx = {
+    state
+      .borrow()
+      .borrow::<mpsc::UnboundedSender<UserWorkerMsgs>>()
+      .clone()
+  };
+
+  let (tx, rx) = oneshot::channel();
+  if msg_tx
+    .send(UserWorkerMsgs::TryCleanupIdleWorkers(timeout_ms, tx))
+    .is_err()
+  {
+    return 0;
+  }
+
+  (rx.await).unwrap_or_default()
 }
 
 /// Wraps a [`mpsc::Receiver`] in a [`Stream`] that can be used as a Hyper [`Body`].

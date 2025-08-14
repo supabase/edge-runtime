@@ -143,8 +143,10 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
   } = args;
 
   let Timing {
+    mut early_drop_rx,
     status: TimingStatus { demand, is_retired },
     req: (_, mut req_end_rx),
+    ..
   } = timing.unwrap_or_default();
 
   let UserWorkerRuntimeOpts {
@@ -465,6 +467,18 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
       Some(_) = memory_limit_rx.recv() => {
         error!("memory limit reached for the worker: isolate: {:?}", key);
         complete_reason = Some(ShutdownReason::Memory);
+      }
+
+      Some(tx) = early_drop_rx.recv() => {
+        let mut acknowledged = false;
+        if state.have_all_pending_tasks_been_resolved() {
+          if let Some(func) = dispatch_early_drop_beforeunload_fn.take() {
+            early_retire_fn();
+            func();
+            acknowledged = true;
+          }
+        }
+        let _ = tx.send(acknowledged);
       }
 
       _ = &mut early_drop_fut => {

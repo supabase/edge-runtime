@@ -3911,6 +3911,68 @@ async fn test_request_absent_timeout() {
   unreachable!("test failed");
 }
 
+#[tokio::test]
+#[serial]
+async fn test_user_workers_cleanup_idle_workers() {
+  let (tx, mut rx) = mpsc::unbounded_channel();
+  let tb = TestBedBuilder::new("./test_cases/main")
+    .with_per_worker_policy(None)
+    .with_worker_event_sender(Some(tx))
+    .build()
+    .await;
+
+  let resp = tb
+    .request(|b| {
+      b.uri("/sleep-5000ms")
+        .header("x-worker-timeout-ms", HeaderValue::from_static("3600000"))
+        .body(Body::empty())
+        .context("can't make request")
+    })
+    .await
+    .unwrap();
+
+  assert_eq!(resp.status().as_u16(), StatusCode::OK);
+
+  sleep(Duration::from_secs(3)).await;
+
+  let mut resp = tb
+    .request(|b| {
+      b.uri("/_internal/cleanup-idle-workers")
+        .body(Body::empty())
+        .context("can't make request")
+    })
+    .await
+    .unwrap();
+
+  assert_eq!(resp.status().as_u16(), StatusCode::OK);
+
+  let bytes = hyper_v014::body::HttpBody::collect(resp.body_mut())
+    .await
+    .unwrap()
+    .to_bytes();
+
+  let payload = serde_json::from_slice::<serde_json::Value>(&*bytes).unwrap();
+  let count = payload.get("count").unwrap().as_u64().unwrap();
+
+  assert_eq!(count, 1);
+
+  sleep(Duration::from_secs(3)).await;
+
+  rx.close();
+  tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
+  while let Some(ev) = rx.recv().await {
+    let WorkerEvents::Shutdown(ev) = ev.event else {
+      continue;
+    };
+    if ev.reason != ShutdownReason::EarlyDrop {
+      break;
+    }
+    return;
+  }
+
+  unreachable!("test failed");
+}
+
 #[derive(Deserialize)]
 struct ErrorResponsePayload {
   msg: String,

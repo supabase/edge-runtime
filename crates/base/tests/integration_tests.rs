@@ -3949,7 +3949,7 @@ async fn test_user_workers_cleanup_idle_workers() {
     .unwrap()
     .to_bytes();
 
-  let payload = serde_json::from_slice::<serde_json::Value>(&*bytes).unwrap();
+  let payload = serde_json::from_slice::<serde_json::Value>(&bytes).unwrap();
   let count = payload.get("count").unwrap().as_u64().unwrap();
 
   assert_eq!(count, 1);

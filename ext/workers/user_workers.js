@@ -12,6 +12,7 @@ const { TypeError } = primordials;
 const {
   op_user_worker_fetch_send,
   op_user_worker_create,
+  op_user_worker_cleanup_idle_workers,
 } = ops;
 
 const NO_SUPABASE_TAG_WARN_MSG =
@@ -143,6 +144,10 @@ class UserWorker {
     const key = await op_user_worker_create(readyOptions);
 
     return new UserWorker(key);
+  }
+
+  static async tryCleanupIdleWorkers(timeoutMs) {
+    return await op_user_worker_cleanup_idle_workers(timeoutMs);
   }
 }
 

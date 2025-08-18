@@ -36,7 +36,7 @@ The edge runtime can be divided into two runtimes with different purposes.
 - User runtime:
   - An instance for the _user runtime_ is responsible for executing users' code.
   - Limits are required to be set such as: Memory and Timeouts.
-  - Has access to environment variables explictly allowed by the main runtime.
+  - Has access to environment variables explicitly allowed by the main runtime.
 
 ### Edge Runtime in Deep
 

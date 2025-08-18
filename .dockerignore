@@ -2,7 +2,7 @@ target/
 k6/
 examples/
 assets/
-.vscodes/
+.vscode/
 .github/
 
 scripts/*

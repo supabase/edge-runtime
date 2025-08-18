@@ -1006,6 +1006,7 @@ dependencies = [
  "cpu_timer",
  "deno_core",
  "once_cell",
+ "opentelemetry",
  "tokio",
  "tokio-util",
  "tracing",
@@ -1038,7 +1039,7 @@ dependencies = [
  "bitflags 2.6.0",
  "cexpr",
  "clang-sys",
- "itertools 0.11.0",
+ "itertools 0.12.1",
  "log",
  "prettyplease",
  "proc-macro2",
@@ -1742,7 +1743,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b28bfe653d79bd16c77f659305b195b82bb5ce0c0eb2a4846b82ddbd77586813"
 dependencies = [
  "bitflags 2.6.0",
- "libloading 0.7.4",
+ "libloading 0.8.1",
  "winapi",
 ]
 
@@ -2176,8 +2177,6 @@ dependencies = [
 [[package]]
 name = "deno_fetch"
 version = "0.206.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b190136d6226d3fcb4e48e80ca952272cdbd5ca4856818a33db4722ee73c8d29"
 dependencies = [
  "base64 0.21.7",
  "bytes",
@@ -2267,8 +2266,6 @@ dependencies = [
 [[package]]
 name = "deno_http"
 version = "0.180.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c15b121d076ca72659d5ede77585895954616efd0c09aed221f71e5b7f93334e"
 dependencies = [
  "async-compression",
  "async-trait",
@@ -2529,14 +2526,15 @@ dependencies = [
 
 [[package]]
 name = "deno_telemetry"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0c4cb531664acf92a67f468898367ca2d72e108059ebcfd7027cd8980a5b9734"
+version = "0.17.0"
 dependencies = [
  "async-trait",
+ "base_rt",
  "deno_core",
+ "deno_tls",
  "http-body-util",
  "hyper 1.5.2",
+ "hyper-rustls 0.27.4",
  "hyper-util",
  "log",
  "once_cell",
@@ -3354,6 +3352,7 @@ dependencies = [
  "deno_config",
  "deno_core",
  "deno_facade",
+ "deno_telemetry",
  "enum-as-inner",
  "ext_event_worker",
  "ext_runtime",
@@ -6215,7 +6214,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "157c5a9d7ea5c2ed2d9fb8f495b64759f7816c7eaea54ba3978f0d63000162e3"
 dependencies = [
  "anyhow",
- "itertools 0.11.0",
+ "itertools 0.12.1",
  "proc-macro2",
  "quote",
  "syn 2.0.90",
@@ -9180,7 +9179,7 @@ dependencies = [
  "js-sys",
  "khronos-egl",
  "libc",
- "libloading 0.7.4",
+ "libloading 0.8.1",
  "log",
  "metal",
  "naga",

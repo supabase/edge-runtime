@@ -23,6 +23,7 @@ use base_rt::get_current_cpu_time_ns;
 use base_rt::BlockingScopeCPUUsage;
 use base_rt::DenoRuntimeDropToken;
 use base_rt::DropToken;
+use base_rt::RuntimeOtelExtraAttributes;
 use base_rt::RuntimeState;
 use base_rt::RuntimeWaker;
 use cooked_waker::IntoWaker;
@@ -39,6 +40,7 @@ use deno::deno_io;
 use deno::deno_net;
 use deno::deno_package_json;
 use deno::deno_telemetry;
+use deno::deno_telemetry::OtelConfig;
 use deno::deno_tls;
 use deno::deno_tls::deno_native_certs::load_native_certs;
 use deno::deno_tls::rustls::RootCertStore;
@@ -53,6 +55,7 @@ use deno_cache::SqliteBackedCache;
 use deno_core::error::AnyError;
 use deno_core::error::JsError;
 use deno_core::serde_json;
+use deno_core::serde_json::Value;
 use deno_core::url::Url;
 use deno_core::v8;
 use deno_core::v8::GCCallbackFlags;
@@ -240,6 +243,7 @@ pub trait GetRuntimeContext {
     use_inspector: bool,
     migrated: bool,
     version: Option<&str>,
+    otel_config: Option<OtelConfig>,
   ) -> impl Serialize {
     serde_json::json!({
       "target": env!("TARGET"),
@@ -265,7 +269,8 @@ pub trait GetRuntimeContext {
             .get()
             .copied()
             .unwrap_or_default()
-      }
+      },
+      "otel": otel_config.unwrap_or_default().as_v8(),
     })
   }
 
@@ -471,6 +476,7 @@ where
       static_patterns,
       maybe_s3_fs_config,
       maybe_tmp_fs_config,
+      maybe_otel_config,
       ..
     } = init_opts.unwrap();
 
@@ -1019,6 +1025,7 @@ where
                 has_inspector,
                 migrated,
                 option_env!("GIT_V_TAG"),
+                maybe_otel_config,
               ));
 
             let tokens = {
@@ -1099,6 +1106,7 @@ where
       s3_fs,
       beforeunload_cpu_threshold,
       beforeunload_mem_threshold,
+      context,
       ..
     } = match bootstrap_ret {
       Ok(Ok(v)) => v,
@@ -1110,6 +1118,7 @@ where
       }
     };
 
+    let context = context.unwrap_or_default();
     let span = Span::current();
     let post_task_ret = unsafe {
       spawn_blocking_non_send(|| {
@@ -1137,14 +1146,31 @@ where
             op_state.put::<HashMap<usize, CancellationToken>>(HashMap::new());
           }
 
+          let mut otel_attributes = HashMap::new();
+
+          otel_attributes.insert(
+            "edge_runtime.worker.kind".into(),
+            conf.to_worker_kind().to_string().into(),
+          );
+
           if conf.is_user_worker() {
             let conf = conf.as_user_worker().unwrap();
+            let key = conf.key.map_or("".to_string(), |k| k.to_string());
 
             // set execution id for user workers
-            env_vars.insert(
-              "SB_EXECUTION_ID".to_string(),
-              conf.key.map_or("".to_string(), |k| k.to_string()),
-            );
+            env_vars.insert("SB_EXECUTION_ID".to_string(), key.clone());
+
+            if let Some(Value::Object(attributes)) = context.get("otel") {
+              for (k, v) in attributes {
+                otel_attributes.insert(
+                  k.to_string().into(),
+                  match v {
+                    Value::String(str) => str.to_string().into(),
+                    others => others.to_string().into(),
+                  },
+                );
+              }
+            }
 
             if let Some(events_msg_tx) = conf.events_msg_tx.clone() {
               op_state.put::<mpsc::UnboundedSender<WorkerEventWithMetadata>>(
@@ -1159,6 +1185,7 @@ where
 
           op_state.put(ext_env::EnvVars(env_vars));
           op_state.put(DenoRuntimeDropToken(DropToken(drop_token.clone())));
+          op_state.put(RuntimeOtelExtraAttributes(otel_attributes));
         }
 
         if is_user_worker {
@@ -2451,6 +2478,7 @@ mod test {
 
             maybe_s3_fs_config: s3_fs_config,
             maybe_tmp_fs_config: tmp_fs_config,
+            maybe_otel_config: None,
           },
           Arc::default(),
         )
@@ -2554,6 +2582,7 @@ mod test {
 
           maybe_s3_fs_config: None,
           maybe_tmp_fs_config: None,
+          maybe_otel_config: None,
         },
         Arc::default(),
       )
@@ -2619,6 +2648,7 @@ mod test {
 
           maybe_s3_fs_config: None,
           maybe_tmp_fs_config: None,
+          maybe_otel_config: None,
         },
         Arc::default(),
       )
@@ -2706,6 +2736,7 @@ mod test {
 
           maybe_s3_fs_config: None,
           maybe_tmp_fs_config: None,
+          maybe_otel_config: None,
         },
         Arc::default(),
       )

@@ -47,6 +47,7 @@ import { installPromiseHook } from "ext:runtime/async_hook.js";
 import { registerErrors } from "ext:runtime/errors.js";
 import { denoOverrides, fsVars } from "ext:runtime/denoOverrides.js";
 import { registerDeclarativeServer } from "ext:runtime/00_serve.js";
+import { bootstrap as bootstrapOtel } from "ext:deno_telemetry/telemetry.ts";
 
 import {
   formatException,
@@ -529,7 +530,8 @@ globalThis.bootstrapSBEdge = (opts, ctx) => {
    * flags: {
    * 	SHOULD_DISABLE_DEPRECATED_API_WARNING: boolean,
    * 	SHOULD_USE_VERBOSE_DEPRECATED_API_WARNING: boolean
-   * }
+   * },
+   * otel: [] | [number, number]
    * }}
    */
   const {
@@ -539,6 +541,7 @@ globalThis.bootstrapSBEdge = (opts, ctx) => {
     version,
     inspector,
     flags,
+    otel,
   } = opts;
 
   deprecatedApiWarningDisabled = flags["SHOULD_DISABLE_DEPRECATED_API_WARNING"];
@@ -580,6 +583,26 @@ globalThis.bootstrapSBEdge = (opts, ctx) => {
       typescript: "5.1.6",
     })),
   });
+
+  if (inspector) {
+    ObjectDefineProperties(globalThis, {
+      console: nonEnumerable(v8Console),
+    });
+  }
+
+  if (kind === "user" && !inspector) {
+    // override console
+    ObjectDefineProperties(globalThis, {
+      console: nonEnumerable(
+        new console.Console((msg, level) => {
+          return ops.op_user_worker_log(msg, level > 1);
+        }),
+      ),
+    });
+  }
+
+  bootstrapOtel(otel);
+
   ObjectDefineProperty(globalThis, "Deno", readOnly(denoOverrides));
 
   setNumCpus(1); // explicitly setting no of CPUs to 1 (since we don't allow workers)
@@ -636,26 +659,9 @@ globalThis.bootstrapSBEdge = (opts, ctx) => {
   delete globalThis.SharedArrayBuffer;
   globalThis.WebAssembly.Memory = patchedWasmMemoryCtor;
 
-  if (inspector) {
-    ObjectDefineProperties(globalThis, {
-      console: nonEnumerable(v8Console),
-    });
-  }
-
   /// DISABLE SHARED MEMORY INSTALL MEM CHECK TIMING
 
   if (kind === "user") {
-    // override console
-    if (!inspector) {
-      ObjectDefineProperties(globalThis, {
-        console: nonEnumerable(
-          new console.Console((msg, level) => {
-            return ops.op_user_worker_log(msg, level > 1);
-          }),
-        ),
-      });
-    }
-
     const apisToBeOverridden = {
       ...DENIED_DENO_FS_API_LIST,
 

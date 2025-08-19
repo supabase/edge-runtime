@@ -2058,7 +2058,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_v8",
- "smallvec",
+ "smallvec 1.13.1",
  "sourcemap 8.0.1",
  "static_assertions",
  "tokio",
@@ -2293,7 +2293,7 @@ dependencies = [
  "ring 0.17.14",
  "scopeguard",
  "serde",
- "smallvec",
+ "smallvec 1.13.1",
  "thiserror 2.0.8",
  "tokio",
  "tokio-util",
@@ -4154,7 +4154,7 @@ dependencies = [
  "rand",
  "resolv-conf",
  "serde",
- "smallvec",
+ "smallvec 1.13.1",
  "thiserror 2.0.8",
  "tokio",
  "tracing",
@@ -4338,7 +4338,7 @@ dependencies = [
  "httpdate",
  "itoa",
  "pin-project-lite",
- "smallvec",
+ "smallvec 1.13.1",
  "tokio",
  "want",
 ]
@@ -4515,7 +4515,7 @@ dependencies = [
  "icu_normalizer_data",
  "icu_properties",
  "icu_provider",
- "smallvec",
+ "smallvec 1.13.1",
  "utf16_iter",
  "utf8_iter",
  "write16",
@@ -4590,7 +4590,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "686f825264d630750a544639377bae737628043f20d38bbc029e8f29ea968a7e"
 dependencies = [
  "idna_adapter",
- "smallvec",
+ "smallvec 1.13.1",
  "utf8_iter",
 ]
 
@@ -5200,7 +5200,7 @@ dependencies = [
  "parking_lot",
  "quanta",
  "rustc_version 0.4.0",
- "smallvec",
+ "smallvec 1.13.1",
  "tagptr",
  "thiserror 1.0.62",
  "triomphe",
@@ -5434,7 +5434,7 @@ dependencies = [
  "num-traits",
  "rand",
  "serde",
- "smallvec",
+ "smallvec 1.13.1",
  "zeroize",
 ]
 
@@ -5730,22 +5730,23 @@ checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 
 [[package]]
 name = "ort"
-version = "2.0.0-rc.9"
+version = "2.0.0-rc.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "52afb44b6b0cffa9bf45e4d37e5a4935b0334a51570658e279e9e3e6cf324aa5"
+checksum = "1fa7e49bd669d32d7bc2a15ec540a527e7764aec722a45467814005725bcd721"
 dependencies = [
  "half",
  "libloading 0.8.1",
  "ndarray",
  "ort-sys",
+ "smallvec 2.0.0-alpha.10",
  "tracing",
 ]
 
 [[package]]
 name = "ort-sys"
-version = "2.0.0-rc.9"
+version = "2.0.0-rc.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c41d7757331aef2d04b9cb09b45583a59217628beaf91895b7e76187b6e8c088"
+checksum = "e2aba9f5c7c479925205799216e7e5d07cc1d4fa76ea8058c60a9a30f6a4e890"
 dependencies = [
  "pkg-config",
 ]
@@ -5858,7 +5859,7 @@ dependencies = [
  "cfg-if",
  "libc",
  "redox_syscall",
- "smallvec",
+ "smallvec 1.13.1",
  "windows-targets 0.48.5",
 ]
 
@@ -6776,7 +6777,7 @@ dependencies = [
  "fallible-streaming-iterator",
  "hashlink 0.9.1",
  "libsqlite3-sys",
- "smallvec",
+ "smallvec 1.13.1",
 ]
 
 [[package]]
@@ -7223,7 +7224,7 @@ source = "git+https://github.com/supabase/deno_core?branch=324-supabase#4f0b7554
 dependencies = [
  "num-bigint",
  "serde",
- "smallvec",
+ "smallvec 1.13.1",
  "thiserror 1.0.62",
  "v8",
 ]
@@ -7435,6 +7436,12 @@ name = "smallvec"
 version = "1.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6ecd384b10a64542d77071bd64bd7b231f4ed5940fba55e98c3de13824cf3d7"
+
+[[package]]
+name = "smallvec"
+version = "2.0.0-alpha.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "51d44cfb396c3caf6fbfd0ab422af02631b69ddd96d2eff0b0f0724f9024051b"
 
 [[package]]
 name = "smartstring"
@@ -7831,7 +7838,7 @@ dependencies = [
  "num-traits",
  "phf",
  "serde",
- "smallvec",
+ "smallvec 1.13.1",
  "smartstring",
  "stacker",
  "swc_atoms",
@@ -7854,7 +7861,7 @@ dependencies = [
  "phf",
  "rustc-hash 1.1.0",
  "serde",
- "smallvec",
+ "smallvec 1.13.1",
  "swc_atoms",
  "swc_common",
  "swc_ecma_ast",
@@ -7923,7 +7930,7 @@ dependencies = [
  "either",
  "rustc-hash 1.1.0",
  "serde",
- "smallvec",
+ "smallvec 1.13.1",
  "swc_atoms",
  "swc_common",
  "swc_ecma_ast",
@@ -8644,7 +8651,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sharded-slab",
- "smallvec",
+ "smallvec 1.13.1",
  "thread_local",
  "tracing",
  "tracing-core",
@@ -8781,7 +8788,7 @@ version = "0.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "43f613e4fa046e69818dd287fdc4bc78175ff20331479dab6e1b0f98d57062de"
 dependencies = [
- "smallvec",
+ "smallvec 1.13.1",
 ]
 
 [[package]]
@@ -9150,7 +9157,7 @@ dependencies = [
  "ron",
  "rustc-hash 1.1.0",
  "serde",
- "smallvec",
+ "smallvec 1.13.1",
  "thiserror 1.0.62",
  "web-sys",
  "wgpu-hal",
@@ -9191,7 +9198,7 @@ dependencies = [
  "range-alloc",
  "raw-window-handle",
  "rustc-hash 1.1.0",
- "smallvec",
+ "smallvec 1.13.1",
  "thiserror 1.0.62",
  "wasm-bindgen",
  "web-sys",

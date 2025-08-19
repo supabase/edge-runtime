@@ -2572,8 +2572,8 @@ async fn test_issue_func_280() {
     let resp = tb
       .request(|b| {
         b.uri("/meow")
-          .header("x-cpu-time-soft-limit-ms", HeaderValue::from_static("500"))
-          .header("x-cpu-time-hard-limit-ms", HeaderValue::from_static("1000"))
+          .header("x-cpu-time-soft-limit-ms", HeaderValue::from_static("1000"))
+          .header("x-cpu-time-hard-limit-ms", HeaderValue::from_static("2000"))
           .header("x-memory-limit-mb", "30")
           .header("x-service-path", format!("issue-func-280/{}", func_name))
           .body(Body::empty())

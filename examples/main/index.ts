@@ -7,8 +7,10 @@ import { context, propagation } from "npm:@opentelemetry/api";
 import { W3CBaggagePropagator } from "npm:@opentelemetry/core@1";
 
 // @ts-ignore See https://github.com/denoland/deno/issues/28082
-globalThis[Symbol.for("opentelemetry.js.api.1")].propagation =
-  new W3CBaggagePropagator();
+if (globalThis[Symbol.for("opentelemetry.js.api.1")]) {
+  globalThis[Symbol.for("opentelemetry.js.api.1")].propagation =
+    new W3CBaggagePropagator();
+}
 
 console.log("main function started");
 console.log(Deno.version);

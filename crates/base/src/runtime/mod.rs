@@ -1573,8 +1573,9 @@ where
       }
 
       let js_runtime = &mut this.js_runtime;
+      let op_state = js_runtime.op_state();
       let cpu_metrics_guard = get_cpu_metrics_guard(
-        js_runtime.op_state(),
+        op_state.clone(),
         maybe_cpu_usage_metrics_tx,
         accumulated_cpu_time_ns,
       );
@@ -1630,15 +1631,22 @@ where
           beforeunload_cpu_threshold.load().as_deref().copied()
         {
           let threshold_ns = (threshold_ms as i128) * 1_000_000;
-          let accumulated_cpu_time_ns = *accumulated_cpu_time_ns as i128;
-
-          if accumulated_cpu_time_ns >= threshold_ns {
+          if (*accumulated_cpu_time_ns as i128) >= threshold_ns {
             beforeunload_cpu_threshold.store(None);
 
             if !state.is_terminated() {
+              let _cpu_metrics_guard = get_cpu_metrics_guard(
+                op_state.clone(),
+                maybe_cpu_usage_metrics_tx,
+                accumulated_cpu_time_ns,
+              );
+
               if let Err(err) = MaybeDenoRuntime::DenoRuntime(&mut this)
                 .dispatch_beforeunload_event(WillTerminateReason::CPU)
               {
+                if state.is_terminated() {
+                  return Poll::Ready(Err(anyhow!("execution terminated")));
+                }
                 return Poll::Ready(Err(err));
               }
             }
@@ -1662,9 +1670,18 @@ where
             beforeunload_mem_threshold.store(None);
 
             if !state.is_terminated() && !mem_state.is_exceeded() {
+              let _cpu_metrics_guard = get_cpu_metrics_guard(
+                op_state,
+                maybe_cpu_usage_metrics_tx,
+                accumulated_cpu_time_ns,
+              );
+
               if let Err(err) = MaybeDenoRuntime::DenoRuntime(&mut this)
                 .dispatch_beforeunload_event(WillTerminateReason::Memory)
               {
+                if state.is_terminated() {
+                  return Poll::Ready(Err(anyhow!("execution terminated")));
+                }
                 return Poll::Ready(Err(err));
               }
             }

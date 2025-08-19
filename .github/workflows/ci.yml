@@ -7,10 +7,22 @@ on:
       - reopened
       - synchronize
       - ready_for_review
+    paths: &watch
+      - '.cargo/**'
+      - 'cli/**'
+      - 'crates/**'
+      - 'deno/**'
+      - 'ext/**'
+      - 'vendor/**'
+      - '.env'
+      - 'Cargo.lock'
+      - 'Cargo.toml'
+      - 'rust-toolchain.toml'
   push:
     branches:
       - main
       - develop
+    paths: *watch
   workflow_dispatch:
 
 permissions:

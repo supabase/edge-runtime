@@ -39,5 +39,5 @@ openblas-src = { version = "0.10", features = ['cblas', 'system'] }
 rand = "0.8"
 tokenizers = { version = ">=0.13.4", default-features = false, features = ["onig"] }
 
-ort = { version = "=2.0.0-rc.9", default-features = false, features = ["ndarray", "half", "load-dynamic", "cuda"] }
-ort-sys = "=2.0.0-rc.9"
+ort = { version = "=2.0.0-rc.10", default-features = false, features = ["ndarray", "half", "load-dynamic", "cuda"] }
+ort-sys = "=2.0.0-rc.10"

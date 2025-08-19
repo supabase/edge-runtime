@@ -2555,6 +2555,59 @@ async fn test_issue_func_205() {
 
 #[tokio::test]
 #[serial]
+async fn test_issue_func_280() {
+  async fn run(func_name: &'static str, reason: ShutdownReason) {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let tb = TestBedBuilder::new("./test_cases/main")
+      .with_per_worker_policy(None)
+      .with_worker_event_sender(Some(tx))
+      .with_server_flags(ServerFlags {
+        beforeunload_cpu_pct: Some(90),
+        beforeunload_memory_pct: Some(90),
+        ..Default::default()
+      })
+      .build()
+      .await;
+
+    let resp = tb
+      .request(|b| {
+        b.uri("/meow")
+          .header("x-cpu-time-soft-limit-ms", HeaderValue::from_static("1000"))
+          .header("x-cpu-time-hard-limit-ms", HeaderValue::from_static("2000"))
+          .header("x-memory-limit-mb", "30")
+          .header("x-service-path", format!("issue-func-280/{}", func_name))
+          .body(Body::empty())
+          .context("can't make request")
+      })
+      .await
+      .unwrap();
+
+    assert_eq!(resp.status().as_u16(), StatusCode::OK);
+
+    while let Some(ev) = rx.recv().await {
+      match ev.event {
+        WorkerEvents::Log(ev) => {
+          tracing::info!("{}", ev.msg);
+          continue;
+        }
+        WorkerEvents::Shutdown(ev) => {
+          tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
+          assert_eq!(ev.reason, reason);
+          return;
+        }
+        _ => continue,
+      }
+    }
+
+    unreachable!("test failed");
+  }
+
+  run("cpu", ShutdownReason::CPUTime).await;
+  run("mem", ShutdownReason::Memory).await;
+}
+
+#[tokio::test]
+#[serial]
 async fn test_should_render_detailed_failed_to_create_graph_error() {
   {
     integration_test!(

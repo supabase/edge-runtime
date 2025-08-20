@@ -10,6 +10,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
+use std::sync::Mutex;
 
 use anyhow::anyhow;
 use anyhow::Context;
@@ -56,7 +57,7 @@ pub async fn op_ai_ort_init_session(
 
   let mut state = state.borrow_mut();
   let mut sessions =
-    { state.try_take::<Vec<Arc<Session>>>().unwrap_or_default() };
+    { state.try_take::<Vec<Arc<Mutex<Session>>>>().unwrap_or_default() };
 
   sessions.push(model.get_session());
   state.put(sessions);
@@ -103,7 +104,12 @@ pub async fn op_ai_ort_run_session(
     JsRuntime::op_state_from(state)
       .borrow_mut()
       .spawn_cpu_accumul_blocking_scope(move || {
-        let outputs = match model_session.run(input_values) {
+        let Ok(mut session_guard) = model_session.lock() else {
+          let _ = tx.send(Err(anyhow!("failed to lock model session")));
+          return;
+        };
+
+        let outputs = match session_guard.run(input_values) {
           Ok(v) => v,
           Err(err) => {
             let _ = tx.send(Err(anyhow::Error::from(err)));

@@ -14,6 +14,7 @@ use ort::memory::MemoryInfo;
 use ort::memory::MemoryType;
 use ort::session::SessionInputValue;
 use ort::tensor::PrimitiveTensorElementType;
+use ort::tensor::Shape;
 use ort::tensor::TensorElementType;
 use ort::value::DynValue;
 use ort::value::DynValueTypeMarker;
@@ -32,8 +33,7 @@ macro_rules! v8_slice_from {
   (tensor::<$type:ident>($tensor:expr)) => {{
     // We must ensure there's some detection to avoid `null pointer` errors
     // https://github.com/pykeio/ort/issues/185
-    let n_detections = $tensor.shape()?[0];
-    if n_detections == 0 {
+    if $tensor.shape().is_empty() {
       let buf_store =
         v8::ArrayBuffer::new_backing_store_from_vec(vec![]).make_shared();
       let buffer_slice = unsafe {
@@ -43,7 +43,7 @@ macro_rules! v8_slice_from {
       buffer_slice
     } else {
       let (_, raw_tensor) = $tensor
-        .try_extract_raw_tensor_mut::<$type>()
+        .try_extract_tensor_mut::<$type>()
         .map_err(AnyError::from)?;
 
       let tensor_ptr = raw_tensor.as_ptr();
@@ -113,6 +113,24 @@ pub enum JsTensorType {
   Uint64,
   /// Brain 16-bit floating point number, equivalent to [`half::bf16`] (requires the `half` feature).
   Bfloat16,
+  Complex64,
+	Complex128,
+	/// 8-bit floating point number with 4 exponent bits and 3 mantissa bits, with only NaN values and no infinite
+	/// values.
+	Float8E4M3FN,
+	/// 8-bit floating point number with 4 exponent bits and 3 mantissa bits, with only NaN values, no infinite
+	/// values, and no negative zero.
+	Float8E4M3FNUZ,
+	/// 8-bit floating point number with 5 exponent bits and 2 mantissa bits.
+	Float8E5M2,
+	/// 8-bit floating point number with 5 exponent bits and 2 mantissa bits, with only NaN values, no infinite
+	/// values, and no negative zero.
+	Float8E5M2FNUZ,
+	/// 4-bit unsigned integer.
+	Uint4,
+	/// 4-bit signed integer.
+	Int4,
+	Undefined
 }
 
 #[derive(Serialize, Deserialize)]
@@ -183,7 +201,7 @@ impl JsTensor {
       TensorRefMut::<T>::from_raw(
         memory_info,
         data.as_mut_ptr() as *mut c_void,
-        self.dims,
+        Shape::new(self.dims),
       )
     }?;
 
@@ -205,7 +223,7 @@ impl JsTensor {
           ));
         };
 
-        Tensor::from_string_array((self.dims, data))?.into()
+        Tensor::from_string_array((self.dims, data.as_slice()))?.into()
       }
       TensorElementType::Int8 => self.extract_ort_tensor_ref::<i8>()?.into(),
       TensorElementType::Uint8 => self.extract_ort_tensor_ref::<u8>()?.into(),
@@ -221,6 +239,9 @@ impl JsTensor {
       }
       TensorElementType::Bfloat16 => {
         return Err(anyhow!("'half::bf16' is not supported by JS tensor."))
+      }
+      other => {
+        return Err(anyhow!("'{other:?}' is not supported by JS tensor."))
       }
     };
 
@@ -243,7 +264,7 @@ impl ToJsTensor {
         "JS only support 'ort::Value' of 'Tensor' type, got '{value:?}'."
       ));
     };
-    let tensor_shape = value.shape()?;
+    let tensor_shape = value.shape().to_vec();
 
     let buffer_slice = match tensor_type {
       TensorElementType::Float32 => v8_slice_from!(tensor::<f32>(value)),
@@ -260,6 +281,7 @@ impl ToJsTensor {
       TensorElementType::String => todo!(),
       TensorElementType::Float16 => todo!(),
       TensorElementType::Bfloat16 => todo!(),
+      _ => todo!()
     };
 
     Ok(Self {

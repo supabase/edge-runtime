@@ -33,7 +33,8 @@ macro_rules! v8_slice_from {
   (tensor::<$type:ident>($tensor:expr)) => {{
     // We must ensure there's some detection to avoid `null pointer` errors
     // https://github.com/pykeio/ort/issues/185
-    if $tensor.shape().is_empty() {
+    let n_detections = $tensor.shape()[0];
+    if n_detections == 0 {
       let buf_store =
         v8::ArrayBuffer::new_backing_store_from_vec(vec![]).make_shared();
       let buffer_slice = unsafe {

@@ -21,6 +21,7 @@ use ndarray::ArrayView3;
 use ndarray::Axis;
 use ndarray::Ix3;
 use ort::inputs;
+use ort::value::TensorRef;
 use reqwest::Url;
 use session::load_session_from_url;
 use std::cell::RefCell;
@@ -180,6 +181,7 @@ async fn init_gte(state: Rc<RefCell<OpState>>) -> Result<(), Error> {
           -> Result<Vec<f32>, Error> {
       let encoded_prompt =
         tokenizer.encode(prompt, true).map_err(anyhow::Error::msg)?;
+
       let input_ids = encoded_prompt
         .get_ids()
         .iter()
@@ -198,32 +200,36 @@ async fn init_gte(state: Rc<RefCell<OpState>>) -> Result<(), Error> {
         .map(|i| *i as i64)
         .collect::<Vec<_>>();
 
-      let input_ids_array = Array1::from_iter(input_ids.iter().cloned());
-      let input_ids_array = input_ids_array.view().insert_axis(Axis(0));
+      let input_ids_array = TensorRef::from_array_view(([input_ids.len(), 1], &*input_ids))?;
+      let attention_mask_array = TensorRef::from_array_view(([1, encoded_prompt.len()], &*attention_mask))?;
+      let token_type_ids_array = TensorRef::from_array_view(([1, encoded_prompt.len()], &*token_type_ids))?;
 
-      let attention_mask_array =
-        Array1::from_iter(attention_mask.iter().cloned());
-      let attention_mask_array =
-        attention_mask_array.view().insert_axis(Axis(0));
 
-      let token_type_ids_array =
-        Array1::from_iter(token_type_ids.iter().cloned());
-      let token_type_ids_array =
-        token_type_ids_array.view().insert_axis(Axis(0));
+      let Ok(mut guard) = session.lock() else {
+        let err = anyhow!("failed to lock session");
+        error!(reason = ?err);
+        return Err(err);
+      };
 
       let outputs = trace_span!("infer_gte").in_scope(|| {
-        session.run(inputs! {
-            "input_ids" => input_ids_array,
-            "token_type_ids" => token_type_ids_array,
-            "attention_mask" => attention_mask_array,
-        }?)
+        guard.run(inputs! {
+          "input_ids" => input_ids_array,
+          "token_type_ids" => token_type_ids_array,
+          "attention_mask" => attention_mask_array,
+        })
       })?;
 
-      let embeddings = outputs["last_hidden_state"].try_extract_tensor()?;
+      let embeddings = outputs["last_hidden_state"].try_extract_array()?;
       let embeddings = embeddings.into_dimensionality::<Ix3>()?;
 
       let result = if do_mean_pooling {
-        mean_pool(embeddings, attention_mask_array.insert_axis(Axis(2)))
+      let attention_mask_array_clone= Array1::from_iter(attention_mask.iter().cloned());
+      let attention_mask_array_clone= attention_mask_array_clone.view()
+        .insert_axis(Axis(0))
+        .insert_axis(Axis(2));
+
+        println!("attention_mask: {attention_mask_array_clone:?}");
+        mean_pool(embeddings, attention_mask_array_clone)
       } else {
         embeddings.into_owned().remove_axis(Axis(0))
       };

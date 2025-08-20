@@ -5,7 +5,8 @@ use reqwest::Url;
 use std::collections::HashMap;
 use std::hash::Hasher;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use std::sync::Mutex;
+use tokio::sync::Mutex as AsyncMutex;
 use tokio_util::compat::FuturesAsyncWriteCompatExt;
 use tracing::debug;
 use tracing::instrument;
@@ -25,17 +26,17 @@ use ort::session::Session;
 
 use crate::onnx::ensure_onnx_env_init;
 
-static SESSIONS: Lazy<Mutex<HashMap<String, Arc<Session>>>> =
-  Lazy::new(|| Mutex::new(HashMap::new()));
+static SESSIONS: Lazy<AsyncMutex<HashMap<String, Arc<Mutex<Session>>>>> =
+  Lazy::new(|| AsyncMutex::new(HashMap::new()));
 
 #[derive(Debug)]
 pub struct SessionWithId {
   pub(crate) id: String,
-  pub(crate) session: Arc<Session>,
+  pub(crate) session: Arc<Mutex<Session>>,
 }
 
-impl From<(String, Arc<Session>)> for SessionWithId {
-  fn from(value: (String, Arc<Session>)) -> Self {
+impl From<(String, Arc<Mutex<Session>>)> for SessionWithId {
+  fn from(value: (String, Arc<Mutex<Session>>)) -> Self {
     Self {
       id: value.0,
       session: value.1,
@@ -50,7 +51,7 @@ impl std::fmt::Display for SessionWithId {
 }
 
 impl SessionWithId {
-  pub fn into_split(self) -> (String, Arc<Session>) {
+  pub fn into_split(self) -> (String, Arc<Mutex<Session>>) {
     (self.id, self.session)
   }
 }
@@ -74,53 +75,51 @@ pub(crate) fn get_session_builder() -> Result<SessionBuilder, AnyError> {
   Ok(builder)
 }
 
-fn cpu_execution_provider(
-) -> Box<dyn Iterator<Item = ExecutionProviderDispatch>> {
-  Box::new(
-    [
-      // NOTE(Nyannacha): See the comment above. This makes `enable_cpu_mem_arena` set to
-      // False.
-      //
-      // Backgrounds:
-      // [1]: https://docs.rs/ort/2.0.0-rc.4/src/ort/execution_providers/cpu.rs.html#9-18
-      // [2]: https://docs.rs/ort/2.0.0-rc.4/src/ort/execution_providers/cpu.rs.html#46-50
-      CPUExecutionProvider::default().build(),
-    ]
-    .into_iter(),
-  )
+fn cpu_execution_provider() -> ExecutionProviderDispatch {
+    // NOTE(Nyannacha): See the comment above. This makes `enable_cpu_mem_arena` set to
+    // False.
+    //
+    // Backgrounds:
+    // [1]: https://docs.rs/ort/2.0.0-rc.4/src/ort/execution_providers/cpu.rs.html#9-18
+    // [2]: https://docs.rs/ort/2.0.0-rc.4/src/ort/execution_providers/cpu.rs.html#46-50
+    CPUExecutionProvider::default().build()
 }
 
-fn cuda_execution_provider(
-) -> Box<dyn Iterator<Item = ExecutionProviderDispatch>> {
+fn cuda_execution_provider() -> Option<ExecutionProviderDispatch> {
   let cuda = CUDAExecutionProvider::default();
-  let providers = match cuda.is_available() {
-    Ok(is_cuda_available) => {
-      debug!(cuda_support = is_cuda_available);
-      if is_cuda_available {
-        vec![cuda.build()]
-      } else {
-        vec![]
-      }
-    }
+  let is_cuda_available = cuda.is_available().is_ok_and(|v| v);
+  debug!(cuda_support = is_cuda_available);
 
-    _ => vec![],
+  if is_cuda_available {
+    Some(cuda.build())
+  }else{
+    None
+  }
+}
+
+fn get_execution_providers(
+) -> Vec<ExecutionProviderDispatch> {
+  let cpu = cpu_execution_provider();
+
+  if let Some(cuda) = cuda_execution_provider() {
+    return [cuda, cpu].to_vec();
   };
 
-  Box::new(providers.into_iter().chain(cpu_execution_provider()))
+  [cpu].to_vec()
 }
 
-fn create_session(model_bytes: &[u8]) -> Result<Arc<Session>, Error> {
+fn create_session(model_bytes: &[u8]) -> Result<Arc<Mutex<Session>>, Error> {
   let session = {
     if let Some(err) = ensure_onnx_env_init() {
       return Err(anyhow!("failed to create onnx environment: {err}"));
     }
 
     get_session_builder()?
-      .with_execution_providers(cuda_execution_provider())?
+      .with_execution_providers(get_execution_providers())?
       .commit_from_memory(model_bytes)?
   };
 
-  Ok(Arc::new(session))
+  Ok(Arc::new(Mutex::new(session)))
 }
 
 #[instrument(level = "debug", skip_all, fields(model_bytes = model_bytes.len()), err)]
@@ -181,7 +180,7 @@ pub(crate) async fn load_session_from_url(
   Ok((session_id, session).into())
 }
 
-pub(crate) async fn get_session(id: &str) -> Option<Arc<Session>> {
+pub(crate) async fn get_session(id: &str) -> Option<Arc<Mutex<Session>>> {
   SESSIONS.lock().await.get(id).cloned()
 }
 

@@ -61,6 +61,9 @@ interface UserWorkerCreateContext {
   supervisor?: {
     requestAbsentTimeoutMs?: number | null;
   };
+  otel?: {
+    [attribute: string]: string;
+  };
 }
 
 interface UserWorkerCreateOptions {

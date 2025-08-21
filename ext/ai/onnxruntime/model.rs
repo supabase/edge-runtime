@@ -36,20 +36,23 @@ impl Model {
   fn new(session_with_id: SessionWithId) -> Result<Self> {
     let (input_names, output_names) = {
       let Ok(session_guard) = session_with_id.session.lock() else {
-      return Err(anyhow!("Could not lock model session {}", session_with_id.id));
-    };
+        return Err(anyhow!(
+          "Could not lock model session {}",
+          session_with_id.id
+        ));
+      };
 
-    let input_names = session_guard
-      .inputs
-      .iter()
-      .map(|input| input.name.clone())
-      .collect::<Vec<_>>();
+      let input_names = session_guard
+        .inputs
+        .iter()
+        .map(|input| input.name.clone())
+        .collect::<Vec<_>>();
 
-    let output_names = session_guard
-      .outputs
-      .iter()
-      .map(|output| output.name.clone())
-      .collect::<Vec<_>>();
+      let output_names = session_guard
+        .outputs
+        .iter()
+        .map(|output| output.name.clone())
+        .collect::<Vec<_>>();
 
       (input_names, output_names)
     };
@@ -75,13 +78,11 @@ impl Model {
   pub async fn from_id(id: &str) -> Option<Self> {
     let session = {
       get_session(id)
-      .await
-      .map(|it| SessionWithId::from((id.to_string(), it)))
+        .await
+        .map(|it| SessionWithId::from((id.to_string(), it)))
     };
 
-    let Some(session) = session else {
-      return None;
-    };
+    let session = session?;
 
     Self::new(session).ok()
   }

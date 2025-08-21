@@ -56,8 +56,11 @@ pub async fn op_ai_ort_init_session(
   };
 
   let mut state = state.borrow_mut();
-  let mut sessions =
-    { state.try_take::<Vec<Arc<Mutex<Session>>>>().unwrap_or_default() };
+  let mut sessions = {
+    state
+      .try_take::<Vec<Arc<Mutex<Session>>>>()
+      .unwrap_or_default()
+  };
 
   sessions.push(model.get_session());
   state.put(sessions);

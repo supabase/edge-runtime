@@ -149,57 +149,64 @@ declare namespace EdgeRuntime {
   export { UserWorker as userWorkers };
 }
 
+// TODO:(kallebysantos) use some TS builder to bundle all types
+import { ai as AINamespace } from "../ext/ai/js/ai.d.ts";
+
 declare namespace Supabase {
-  export namespace ai {
-    interface ModelOptions {
-      /**
-       * Pool embeddings by taking their mean. Applies only for `gte-small` model
-       */
-      mean_pool?: boolean;
-
-      /**
-       * Normalize the embeddings result. Applies only for `gte-small` model
-       */
-      normalize?: boolean;
-
-      /**
-       * Stream response from model. Applies only for LLMs like `mistral` (default: false)
-       */
-      stream?: boolean;
-
-      /**
-       * Automatically abort the request to the model after specified time (in seconds). Applies only for LLMs like `mistral` (default: 60)
-       */
-      timeout?: number;
-
-      /**
-       * Mode for the inference API host. (default: 'ollama')
-       */
-      mode?: "ollama" | "openaicompatible";
-      signal?: AbortSignal;
-    }
-
-    export class Session {
-      /**
-       * Create a new model session using given model
-       */
-      constructor(model: string);
-
-      /**
-       * Execute the given prompt in model session
-       */
-      run(
-        prompt:
-          | string
-          | Omit<
-            import("openai").OpenAI.Chat.ChatCompletionCreateParams,
-            "model" | "stream"
-          >,
-        modelOptions?: ModelOptions,
-      ): unknown;
-    }
-  }
+  export import ai = AINamespace;
 }
+
+// declare namespace Supabase {
+//   export namespace ai {
+//     interface ModelOptions {
+//       /**
+//        * Pool embeddings by taking their mean. Applies only for `gte-small` model
+//        */
+//       mean_pool?: boolean;
+//
+//       /**
+//        * Normalize the embeddings result. Applies only for `gte-small` model
+//        */
+//       normalize?: boolean;
+//
+//       /**
+//        * Stream response from model. Applies only for LLMs like `mistral` (default: false)
+//        */
+//       stream?: boolean;
+//
+//       /**
+//        * Automatically abort the request to the model after specified time (in seconds). Applies only for LLMs like `mistral` (default: 60)
+//        */
+//       timeout?: number;
+//
+//       /**
+//        * Mode for the inference API host. (default: 'ollama')
+//        */
+//       mode?: "ollama" | "openaicompatible";
+//       signal?: AbortSignal;
+//     }
+//
+//     export class Session {
+//       /**
+//        * Create a new model session using given model
+//        */
+//       constructor(model: string);
+//
+//       /**
+//        * Execute the given prompt in model session
+//        */
+//       run(
+//         prompt:
+//           | string
+//           | Omit<
+//             import("openai").OpenAI.Chat.ChatCompletionCreateParams,
+//             "model" | "stream"
+//           >,
+//         modelOptions?: ModelOptions,
+//       ): unknown;
+//     }
+//   }
+// }
 
 declare namespace Deno {
   export namespace errors {

@@ -48,14 +48,18 @@ deno_core::extension!(
     op_ai_ort_init_session,
     op_ai_ort_run_session,
   ],
-  esm_entry_point = "ext:ai/ai.js",
+  esm_entry_point = "ext:ai/ai.ts",
   esm = [
     dir "js",
-    "ai.js",
-    "util/event_stream_parser.mjs",
-    "util/event_source_stream.mjs",
+    "ai.ts",
     "onnxruntime/onnx.js",
-    "onnxruntime/cache_adapter.js"
+    "onnxruntime/cache_adapter.js",
+    "llm/llm_session.ts",
+    "llm/providers/ollama.ts",
+    "llm/providers/openai.ts",
+    "llm/utils/json_parser.ts",
+    "llm/utils/event_stream_parser.mjs",
+    "llm/utils/event_source_stream.mjs",
   ]
 );
 
@@ -276,6 +280,10 @@ async fn run_gte(
   mean_pool: bool,
   normalize: bool,
 ) -> Result<Vec<f32>, Error> {
+  if prompt.is_empty() {
+    bail!("must provide a valid prompt value, got 'empty'")
+  }
+
   let req_tx;
   {
     let op_state = state.borrow();

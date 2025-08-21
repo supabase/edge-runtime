@@ -200,10 +200,17 @@ async fn init_gte(state: Rc<RefCell<OpState>>) -> Result<(), Error> {
         .map(|i| *i as i64)
         .collect::<Vec<_>>();
 
-      let input_ids_array = TensorRef::from_array_view(([input_ids.len(), 1], &*input_ids))?;
-      let attention_mask_array = TensorRef::from_array_view(([1, encoded_prompt.len()], &*attention_mask))?;
-      let token_type_ids_array = TensorRef::from_array_view(([1, encoded_prompt.len()], &*token_type_ids))?;
+      let input_ids_array =
+        TensorRef::from_array_view(([input_ids.len(), 1], &*input_ids))?;
+      let attention_mask_array = TensorRef::from_array_view((
+        [1, encoded_prompt.len()],
+        &*attention_mask,
+      ))?;
 
+      let token_type_ids_array = TensorRef::from_array_view((
+        [1, encoded_prompt.len()],
+        &*token_type_ids,
+      ))?;
 
       let Ok(mut guard) = session.lock() else {
         let err = anyhow!("failed to lock session");
@@ -223,10 +230,12 @@ async fn init_gte(state: Rc<RefCell<OpState>>) -> Result<(), Error> {
       let embeddings = embeddings.into_dimensionality::<Ix3>()?;
 
       let result = if do_mean_pooling {
-      let attention_mask_array_clone= Array1::from_iter(attention_mask.iter().cloned());
-      let attention_mask_array_clone= attention_mask_array_clone.view()
-        .insert_axis(Axis(0))
-        .insert_axis(Axis(2));
+        let attention_mask_array_clone =
+          Array1::from_iter(attention_mask.iter().cloned());
+        let attention_mask_array_clone = attention_mask_array_clone
+          .view()
+          .insert_axis(Axis(0))
+          .insert_axis(Axis(2));
 
         println!("attention_mask: {attention_mask_array_clone:?}");
         mean_pool(embeddings, attention_mask_array_clone)

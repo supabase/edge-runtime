@@ -76,13 +76,13 @@ pub(crate) fn get_session_builder() -> Result<SessionBuilder, AnyError> {
 }
 
 fn cpu_execution_provider() -> ExecutionProviderDispatch {
-    // NOTE(Nyannacha): See the comment above. This makes `enable_cpu_mem_arena` set to
-    // False.
-    //
-    // Backgrounds:
-    // [1]: https://docs.rs/ort/2.0.0-rc.4/src/ort/execution_providers/cpu.rs.html#9-18
-    // [2]: https://docs.rs/ort/2.0.0-rc.4/src/ort/execution_providers/cpu.rs.html#46-50
-    CPUExecutionProvider::default().build()
+  // NOTE(Nyannacha): See the comment above. This makes `enable_cpu_mem_arena` set to
+  // False.
+  //
+  // Backgrounds:
+  // [1]: https://docs.rs/ort/2.0.0-rc.4/src/ort/execution_providers/cpu.rs.html#9-18
+  // [2]: https://docs.rs/ort/2.0.0-rc.4/src/ort/execution_providers/cpu.rs.html#46-50
+  CPUExecutionProvider::default().build()
 }
 
 fn cuda_execution_provider() -> Option<ExecutionProviderDispatch> {
@@ -92,13 +92,12 @@ fn cuda_execution_provider() -> Option<ExecutionProviderDispatch> {
 
   if is_cuda_available {
     Some(cuda.build())
-  }else{
+  } else {
     None
   }
 }
 
-fn get_execution_providers(
-) -> Vec<ExecutionProviderDispatch> {
+fn get_execution_providers() -> Vec<ExecutionProviderDispatch> {
   let cpu = cpu_execution_provider();
 
   if let Some(cuda) = cuda_execution_provider() {

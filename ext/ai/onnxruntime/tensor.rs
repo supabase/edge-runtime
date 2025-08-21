@@ -115,23 +115,23 @@ pub enum JsTensorType {
   /// Brain 16-bit floating point number, equivalent to [`half::bf16`] (requires the `half` feature).
   Bfloat16,
   Complex64,
-	Complex128,
-	/// 8-bit floating point number with 4 exponent bits and 3 mantissa bits, with only NaN values and no infinite
-	/// values.
-	Float8E4M3FN,
-	/// 8-bit floating point number with 4 exponent bits and 3 mantissa bits, with only NaN values, no infinite
-	/// values, and no negative zero.
-	Float8E4M3FNUZ,
-	/// 8-bit floating point number with 5 exponent bits and 2 mantissa bits.
-	Float8E5M2,
-	/// 8-bit floating point number with 5 exponent bits and 2 mantissa bits, with only NaN values, no infinite
-	/// values, and no negative zero.
-	Float8E5M2FNUZ,
-	/// 4-bit unsigned integer.
-	Uint4,
-	/// 4-bit signed integer.
-	Int4,
-	Undefined
+  Complex128,
+  /// 8-bit floating point number with 4 exponent bits and 3 mantissa bits, with only NaN values and no infinite
+  /// values.
+  Float8E4M3FN,
+  /// 8-bit floating point number with 4 exponent bits and 3 mantissa bits, with only NaN values, no infinite
+  /// values, and no negative zero.
+  Float8E4M3FNUZ,
+  /// 8-bit floating point number with 5 exponent bits and 2 mantissa bits.
+  Float8E5M2,
+  /// 8-bit floating point number with 5 exponent bits and 2 mantissa bits, with only NaN values, no infinite
+  /// values, and no negative zero.
+  Float8E5M2FNUZ,
+  /// 4-bit unsigned integer.
+  Uint4,
+  /// 4-bit signed integer.
+  Int4,
+  Undefined,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -282,7 +282,7 @@ impl ToJsTensor {
       TensorElementType::String => todo!(),
       TensorElementType::Float16 => todo!(),
       TensorElementType::Bfloat16 => todo!(),
-      _ => todo!()
+      _ => todo!(),
     };
 
     Ok(Self {

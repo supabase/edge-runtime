@@ -47,6 +47,7 @@ deno_core::extension!(
     op_ai_try_cleanup_unused_session,
     op_ai_ort_init_session,
     op_ai_ort_run_session,
+    op_ai_ort_encode_tensor_audio,
   ],
   esm_entry_point = "ext:ai/ai.js",
   esm = [
@@ -55,7 +56,8 @@ deno_core::extension!(
     "util/event_stream_parser.mjs",
     "util/event_source_stream.mjs",
     "onnxruntime/onnx.js",
-    "onnxruntime/cache_adapter.js"
+    "onnxruntime/cache_adapter.js",
+    "onnxruntime/inference_api.js"
   ]
 );
 
@@ -116,8 +118,11 @@ async fn init_gte(state: Rc<RefCell<OpState>>) -> Result<(), Error> {
     let handle = handle.clone();
     move || {
       handle.block_on(async move {
-        load_session_from_url(Url::parse(consts::GTE_SMALL_MODEL_URL).unwrap())
-          .await
+        load_session_from_url(
+          Url::parse(consts::GTE_SMALL_MODEL_URL).unwrap(),
+          None,
+        )
+        .await
       })
     }
   })
@@ -140,6 +145,7 @@ async fn init_gte(state: Rc<RefCell<OpState>>) -> Result<(), Error> {
             utils::fetch_and_cache_from_url(
               "tokenizer",
               Url::parse(consts::GTE_SMALL_TOKENIZER_URL).unwrap(),
+              None,
               None,
             )
             .map_err(AnyError::from)

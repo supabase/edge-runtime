@@ -44,6 +44,7 @@ use deno_facade::EszipPayloadKind;
 use deno_facade::Metadata;
 use ext_event_worker::events::LogLevel;
 use ext_event_worker::events::ShutdownReason;
+use ext_event_worker::events::WorkerEventWithMetadata;
 use ext_event_worker::events::WorkerEvents;
 use ext_runtime::SharedMetricSource;
 use ext_workers::context::MainWorkerRuntimeOpts;
@@ -2604,6 +2605,70 @@ async fn test_issue_func_280() {
 
   run("cpu", ShutdownReason::CPUTime).await;
   run("mem", ShutdownReason::Memory).await;
+}
+
+#[tokio::test]
+#[serial]
+async fn test_issue_func_284() {
+  async fn find_boot_event(
+    rx: &mut mpsc::UnboundedReceiver<WorkerEventWithMetadata>,
+  ) -> Option<usize> {
+    while let Some(ev) = rx.recv().await {
+      match ev.event {
+        WorkerEvents::Boot(ev) => return Some(ev.boot_time),
+        _ => continue,
+      }
+    }
+
+    None
+  }
+
+  let (tx, mut rx) = mpsc::unbounded_channel();
+  let tb = TestBedBuilder::new("./test_cases/main")
+    .with_per_worker_policy(None)
+    .with_worker_event_sender(Some(tx))
+    .build()
+    .await;
+
+  tokio::spawn({
+    let tb = tb.clone();
+    async move {
+      tb.request(|b| {
+        b.uri("/meow")
+          .header("x-service-path", "issue-func-284/noisy")
+          .body(Body::empty())
+          .context("can't make request")
+      })
+      .await
+      .unwrap();
+    }
+  });
+
+  timeout(Duration::from_secs(1), find_boot_event(&mut rx))
+    .await
+    .unwrap()
+    .unwrap();
+
+  tokio::spawn({
+    let tb = tb.clone();
+    async move {
+      tb.request(|b| {
+        b.uri("/meow")
+          .header("x-service-path", "issue-func-284/baseline")
+          .body(Body::empty())
+          .context("can't make request")
+      })
+      .await
+      .unwrap();
+    }
+  });
+
+  let boot_time = timeout(Duration::from_secs(1), find_boot_event(&mut rx))
+    .await
+    .unwrap()
+    .unwrap();
+
+  assert!(boot_time < 1000);
 }
 
 #[tokio::test]

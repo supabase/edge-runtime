@@ -273,6 +273,12 @@ impl Worker {
 
       let _ =
         booter_signal.send(Ok((metric_src, new_runtime.drop_token.clone())));
+
+      let span = debug_span!(
+        "poll",
+        thread = ?std::thread::current().id(),
+      );
+
       let supervise_fut = match imp.clone().supervise(&mut new_runtime) {
         Some(v) => v.boxed(),
         None if worker_kind.is_user_worker() => return None,
@@ -290,28 +296,41 @@ impl Worker {
         }
       });
 
-      let result = imp.on_created(&mut new_runtime).await;
-      let maybe_uncaught_exception_event = match result.as_ref() {
-        Ok(WorkerEvents::UncaughtException(ev)) => Some(ev.clone()),
-        Err(err) => Some(UncaughtExceptionEvent {
-          cpu_time_used: 0,
-          exception: err.to_string(),
-        }),
+      let worker_poll_fut = async move {
+        let result = imp.on_created(&mut new_runtime).await;
+        let maybe_uncaught_exception_event = match result.as_ref() {
+          Ok(WorkerEvents::UncaughtException(ev)) => Some(ev.clone()),
+          Err(err) => Some(UncaughtExceptionEvent {
+            cpu_time_used: 0,
+            exception: err.to_string(),
+          }),
 
-        _ => None,
-      };
+          _ => None,
+        };
 
-      if let Some(ev) = maybe_uncaught_exception_event {
-        exit.set(WorkerExitStatus::WithUncaughtException(ev)).await;
+        if let Some(ev) = maybe_uncaught_exception_event {
+          exit.set(WorkerExitStatus::WithUncaughtException(ev)).await;
+        }
+
+        drop(new_runtime);
+        let _ = supervise_fut.await;
+
+        result
       }
+      .instrument(span);
 
-      drop(new_runtime);
-      let _ = supervise_fut.await;
-
-      Some(result)
+      Some(
+        rt.spawn_pinned({
+          let fut = unsafe { MaskFutureAsSend::new(worker_poll_fut) };
+          move || tokio::task::spawn_local(fut)
+        })
+        .await
+        .map_err(anyhow::Error::from)
+        .and_then(|it| it.map_err(anyhow::Error::from))
+        .and_then(|it| it.into_inner()),
+      )
     };
-
-    let worker_fut = {
+    let worker_result_fut = {
       let event_metadata = event_metadata.clone();
       async move {
         let Some(result) = worker_fut.await else {
@@ -349,13 +368,11 @@ impl Worker {
       "worker",
       id = worker_name.as_str(),
       kind = %worker_kind,
-      thread = ?std::thread::current().id(),
       metadata = ?event_metadata
     ));
 
-    drop(rt.spawn_pinned({
-      let worker_fut = unsafe { MaskFutureAsSend::new(worker_fut) };
-      move || tokio::task::spawn_local(worker_fut)
+    drop(tokio::spawn(unsafe {
+      MaskFutureAsSend::new(worker_result_fut)
     }));
   }
 }

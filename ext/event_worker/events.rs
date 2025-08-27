@@ -1,3 +1,5 @@
+use std::convert::Infallible;
+
 use base_mem_check::MemCheckState;
 use enum_as_inner::EnumAsInner;
 use serde::Deserialize;
@@ -50,12 +52,28 @@ pub struct LogEvent {
   pub level: LogLevel,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
 pub enum LogLevel {
+  #[default]
   Debug,
   Info,
   Warning,
   Error,
+}
+
+impl TryFrom<u8> for LogLevel {
+  type Error = Infallible;
+
+  fn try_from(value: u8) -> Result<Self, Infallible> {
+    match value {
+      0 => Ok(Self::Debug),
+      1 => Ok(Self::Info),
+      2 => Ok(Self::Warning),
+      3 => Ok(Self::Error),
+      _ => Ok(Self::Debug),
+    }
+  }
 }
 
 #[derive(Serialize, Deserialize, Debug, EnumAsInner)]

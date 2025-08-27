@@ -595,7 +595,7 @@ globalThis.bootstrapSBEdge = (opts, ctx) => {
     ObjectDefineProperties(globalThis, {
       console: nonEnumerable(
         new console.Console((msg, level) => {
-          return ops.op_user_worker_log(msg, level > 1);
+          return ops.op_user_worker_log(msg, level);
         }),
       ),
     });

@@ -42,6 +42,7 @@ mod linux {
 #[repr(C)]
 #[derive(Clone, Default)]
 pub struct CPUAlarmVal {
+  #[cfg(target_os = "linux")]
   pub cpu_alarms_tx: Arc<Mutex<Option<mpsc::UnboundedSender<()>>>>,
 }
 
@@ -131,9 +132,12 @@ impl CPUTimer {
 
   pub async fn set_channel(&self) -> mpsc::UnboundedReceiver<()> {
     let (tx, rx) = mpsc::unbounded_channel();
-    let mut val = self.cpu_alarm_val.cpu_alarms_tx.lock().await;
+    #[cfg(target_os = "linux")]
+    {
+      let mut val = self.cpu_alarm_val.cpu_alarms_tx.lock().await;
+      *val = Some(tx);
+    }
 
-    *val = Some(tx);
     rx
   }
 
@@ -175,11 +179,6 @@ impl CPUTimer {
   pub fn start(_: u64, _: u64, _: CPUAlarmVal) -> Result<Self, Error> {
     log::error!("CPU timer: not enabled (need Linux)");
     Ok(Self {})
-  }
-
-  #[cfg(not(target_os = "linux"))]
-  pub fn reset(&self) -> Result<(), Error> {
-    Ok(())
   }
 }
 

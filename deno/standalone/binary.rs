@@ -9,7 +9,7 @@ use indexmap::IndexMap;
 use serde::Deserialize;
 use serde::Serialize;
 
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub enum NodeModules {
   Managed {
     /// Relative path for the node_modules directory in the vfs.

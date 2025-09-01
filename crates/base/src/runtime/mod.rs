@@ -658,6 +658,10 @@ where
           base_url,
         } = rt_provider;
 
+        let node_modules = metadata
+          .node_modules()
+          .ok()
+          .flatten();
         let entrypoint = metadata.entrypoint.clone();
         let main_module_url = match entrypoint.as_ref() {
           Some(Entrypoint::Key(key)) => base_url.join(key)?,
@@ -717,6 +721,7 @@ where
 
         let (fs, s3_fs) = build_file_system_fn(if is_user_worker {
           Arc::new(StaticFs::new(
+            node_modules,
             static_files,
             if matches!(entrypoint, Some(Entrypoint::ModuleCode(_)) | None)
               && is_some_entry_point

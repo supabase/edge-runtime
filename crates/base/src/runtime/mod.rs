@@ -55,7 +55,6 @@ use deno_cache::SqliteBackedCache;
 use deno_core::error::AnyError;
 use deno_core::error::JsError;
 use deno_core::serde_json;
-use deno_core::serde_json::Value;
 use deno_core::url::Url;
 use deno_core::v8;
 use deno_core::v8::GCCallbackFlags;
@@ -80,7 +79,6 @@ use deno_facade::EmitterFactory;
 use deno_facade::EszipPayloadKind;
 use deno_facade::Metadata;
 use either::Either;
-use ext_event_worker::events::EventMetadata;
 use ext_event_worker::events::WorkerEventWithMetadata;
 use ext_runtime::cert::ValueRootCertStoreProvider;
 use ext_runtime::external_memory::CustomAllocator;
@@ -462,6 +460,7 @@ where
   pub(crate) async fn new(mut worker: Worker) -> Result<Self, Error> {
     let init_opts = worker.init_opts.take();
     let flags = worker.flags.clone();
+    let event_metadata = worker.event_metadata.clone();
 
     debug_assert!(init_opts.is_some(), "init_opts must not be None");
 
@@ -1111,7 +1110,6 @@ where
       s3_fs,
       beforeunload_cpu_threshold,
       beforeunload_mem_threshold,
-      context,
       ..
     } = match bootstrap_ret {
       Ok(Ok(v)) => v,
@@ -1123,7 +1121,7 @@ where
       }
     };
 
-    let context = context.unwrap_or_default();
+    let otel_attributes = event_metadata.otel_attributes.clone();
     let span = Span::current();
     let post_task_ret = unsafe {
       spawn_blocking_non_send(|| {
@@ -1151,13 +1149,6 @@ where
             op_state.put::<HashMap<usize, CancellationToken>>(HashMap::new());
           }
 
-          let mut otel_attributes = HashMap::new();
-
-          otel_attributes.insert(
-            "edge_runtime.worker.kind".into(),
-            conf.to_worker_kind().to_string().into(),
-          );
-
           if conf.is_user_worker() {
             let conf = conf.as_user_worker().unwrap();
             let key = conf.key.map_or("".to_string(), |k| k.to_string());
@@ -1165,32 +1156,23 @@ where
             // set execution id for user workers
             env_vars.insert("SB_EXECUTION_ID".to_string(), key.clone());
 
-            if let Some(Value::Object(attributes)) = context.get("otel") {
-              for (k, v) in attributes {
-                otel_attributes.insert(
-                  k.to_string().into(),
-                  match v {
-                    Value::String(str) => str.to_string().into(),
-                    others => others.to_string().into(),
-                  },
-                );
-              }
-            }
-
             if let Some(events_msg_tx) = conf.events_msg_tx.clone() {
               op_state.put::<mpsc::UnboundedSender<WorkerEventWithMetadata>>(
                 events_msg_tx,
               );
-              op_state.put::<EventMetadata>(EventMetadata {
-                service_path: conf.service_path.clone(),
-                execution_id: conf.key,
-              });
+              op_state.put(event_metadata);
             }
           }
 
           op_state.put(ext_env::EnvVars(env_vars));
           op_state.put(DenoRuntimeDropToken(DropToken(drop_token.clone())));
-          op_state.put(RuntimeOtelExtraAttributes(otel_attributes));
+          op_state.put(RuntimeOtelExtraAttributes(
+            otel_attributes
+              .unwrap_or_default()
+              .into_iter()
+              .map(|(k, v)| (k.into(), v.into()))
+              .collect(),
+          ));
         }
 
         if is_user_worker {

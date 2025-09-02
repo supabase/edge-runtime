@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::convert::Infallible;
 
 use base_mem_check::MemCheckState;
@@ -106,6 +107,7 @@ impl WorkerEvents {
 pub struct EventMetadata {
   pub service_path: Option<String>,
   pub execution_id: Option<Uuid>,
+  pub otel_attributes: Option<HashMap<String, String>>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

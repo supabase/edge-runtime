@@ -8,3 +8,4 @@ writeTextFileSync
 readTextFileSync
 readFileSync
 makeTempDirSync
+makeTempFileSync

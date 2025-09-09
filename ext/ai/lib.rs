@@ -200,8 +200,9 @@ async fn init_gte(state: Rc<RefCell<OpState>>) -> Result<(), Error> {
         .map(|i| *i as i64)
         .collect::<Vec<_>>();
 
+      // Convert our flattened arrays into 2-dimensional tensors of shape [N, L] -> Since we're not batching 'N' will be always = 1
       let input_ids_array =
-        TensorRef::from_array_view(([input_ids.len(), 1], &*input_ids))?;
+        TensorRef::from_array_view(([1, input_ids.len()], &*input_ids))?;
       let attention_mask_array = TensorRef::from_array_view((
         [1, encoded_prompt.len()],
         &*attention_mask,
@@ -237,7 +238,6 @@ async fn init_gte(state: Rc<RefCell<OpState>>) -> Result<(), Error> {
           .insert_axis(Axis(0))
           .insert_axis(Axis(2));
 
-        println!("attention_mask: {attention_mask_array_clone:?}");
         mean_pool(embeddings, attention_mask_array_clone)
       } else {
         embeddings.into_owned().remove_axis(Axis(0))

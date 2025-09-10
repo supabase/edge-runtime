@@ -235,12 +235,6 @@ impl JsTensor {
       TensorElementType::Int64 => self.extract_ort_tensor_ref::<i64>()?.into(),
       TensorElementType::Uint64 => self.extract_ort_tensor_ref::<u64>()?.into(),
       TensorElementType::Bool => self.extract_ort_tensor_ref::<bool>()?.into(),
-      TensorElementType::Float16 => {
-        return Err(anyhow!("'half::f16' is not supported by JS tensor."))
-      }
-      TensorElementType::Bfloat16 => {
-        return Err(anyhow!("'half::bf16' is not supported by JS tensor."))
-      }
       other => {
         return Err(anyhow!("'{other:?}' is not supported by JS tensor."))
       }
@@ -279,10 +273,9 @@ impl ToJsTensor {
       TensorElementType::Int64 => v8_slice_from!(tensor::<i64>(value)),
       TensorElementType::Uint64 => v8_slice_from!(tensor::<u64>(value)),
       TensorElementType::Bool => v8_slice_from!(tensor::<bool>(value)),
-      TensorElementType::String => todo!(),
-      TensorElementType::Float16 => todo!(),
-      TensorElementType::Bfloat16 => todo!(),
-      _ => todo!(),
+      other => {
+        return Err(anyhow!("'{other:?}' is not supported by JS tensor."))
+      },
     };
 
     Ok(Self {

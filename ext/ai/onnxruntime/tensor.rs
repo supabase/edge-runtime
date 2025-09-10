@@ -275,7 +275,7 @@ impl ToJsTensor {
       TensorElementType::Bool => v8_slice_from!(tensor::<bool>(value)),
       other => {
         return Err(anyhow!("'{other:?}' is not supported by JS tensor."))
-      },
+      }
     };
 
     Ok(Self {

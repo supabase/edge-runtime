@@ -188,7 +188,7 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
     worker_timeout_ms
   };
 
-  let wall_clock_duration = Duration::from_millis(worker_timeout_ms);
+  let wall_clock_duration = Duration::from_millis(wall_clock_limit_ms);
 
   // Split wall clock duration into 2 intervals.
   // At the first interval, we will send a msg to retire the worker.

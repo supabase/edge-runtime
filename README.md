@@ -38,6 +38,10 @@ The edge runtime can be divided into two runtimes with different purposes.
   - Limits are required to be set such as: Memory and Timeouts.
   - Has access to environment variables explicitly allowed by the main runtime.
 
+### Usage & Self-Hosting
+
+For completely usage and self-host details, visit [usage.md](/docs/usage.md)
+
 ### Edge Runtime in Deep
 
 #### Conceptual

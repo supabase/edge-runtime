@@ -32,6 +32,14 @@ The edge runtime can be divided into two runtimes with different purposes.
   - Limits are required to be set such as: Memory and Timeouts.
   - Has access to environment variables explictly allowed by the main runtime.
 
+## Configuration
+
+### Environment Variables
+
+- `SUPABASE_FUNCTIONS_PATH` - Custom path for function compilation directory. 
+  - Default: `/var/tmp/sb-compile-<executable-name>` on Unix/Linux, `%TEMP%\sb-compile-<executable-name>` on Windows
+  - Example: `SUPABASE_FUNCTIONS_PATH=/home/deno/functions` (useful for Kubernetes deployments)
+
 ## Developers
 
 To learn how to build / test Edge Runtime, visit [DEVELOPERS.md](DEVELOPERS.md)

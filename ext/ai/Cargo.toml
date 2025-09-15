@@ -17,6 +17,7 @@ ext_ai_v8_utilities.workspace = true
 anyhow.workspace = true
 clap = { workspace = true, features = ["derive"] }
 ctor.workspace = true
+dashmap.workspace = true
 faster-hex.workspace = true
 futures.workspace = true
 futures-util = { workspace = true, features = ["io"] }

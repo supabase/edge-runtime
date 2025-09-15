@@ -3153,6 +3153,7 @@ dependencies = [
  "clap",
  "convert_case",
  "ctor",
+ "dashmap",
  "deno_core",
  "ext_ai_v8_utilities",
  "faster-hex",

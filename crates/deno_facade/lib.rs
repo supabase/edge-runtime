@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
@@ -35,13 +36,22 @@ fn ensure_unix_relative_path(path: &Path) -> &Path {
   path
 }
 
+fn strip_file_scheme(input: &str) -> Cow<'_, str> {
+  if input.starts_with("file://") {
+    Cow::Owned(input.strip_prefix("file://").unwrap().to_owned())
+  } else {
+    Cow::Borrowed(input)
+  }
+}
+
 async fn create_module_path(
   global_specifier: &str,
   entry_path: &Path,
   output_folder: &Path,
 ) -> PathBuf {
+  let cleaned_specifier = strip_file_scheme(global_specifier);
   let cleaned_specifier =
-    global_specifier.replace(entry_path.to_str().unwrap(), "");
+    cleaned_specifier.replace(entry_path.to_str().unwrap(), "");
   let module_path = PathBuf::from(cleaned_specifier);
 
   if let Some(parent) = module_path.parent() {
@@ -70,7 +80,7 @@ async fn extract_modules(
   lowest_path: &str,
   output_folder: &Path,
 ) {
-  let main_path = PathBuf::from(lowest_path);
+  let main_path = PathBuf::from(&*strip_file_scheme(lowest_path));
   let entry_path = main_path.parent().unwrap();
   for global_specifier in specifiers {
     let module_path =

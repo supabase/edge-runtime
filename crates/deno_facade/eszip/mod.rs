@@ -1196,8 +1196,31 @@ pub async fn extract_eszip(payload: ExtractEszipPayload) -> bool {
     if let Some(lowest_path) =
       deno::util::path::find_lowest_path(&file_specifiers)
     {
-      extract_modules(&eszip, &file_specifiers, &lowest_path, &output_folder)
-        .await;
+      let targets = eszip
+        .specifiers()
+        .iter()
+        .filter(|it| it.starts_with("static:"))
+        .cloned()
+        .collect::<Vec<_>>();
+
+      {
+        let mut modules = eszip.eszip.modules.0.lock().unwrap();
+        for asset in targets {
+          let url = Url::parse(&asset).unwrap();
+          modules.insert(
+            format!("file://{}", url.path()),
+            EszipV2Module::Redirect { target: asset },
+          );
+        }
+      }
+
+      extract_modules(
+        &eszip,
+        &extract_file_specifiers(&eszip),
+        &lowest_path,
+        &output_folder,
+      )
+      .await;
       true
     } else {
       panic!("Path seems to be invalid");

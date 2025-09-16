@@ -380,7 +380,7 @@ fn get_unbundle_command() -> Command {
         .default_value("./"),
     )
     .arg(
-      arg!(--"eszip" <DIR>)
+      arg!(--"eszip" <Path>)
         .help("Path of eszip to extract")
         .required(true),
     )

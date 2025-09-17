@@ -21,8 +21,6 @@ futime
 futimeSync
 link
 linkSync
-makeTempFile
-makeTempFileSync
 readLink
 readLinkSync
 rename

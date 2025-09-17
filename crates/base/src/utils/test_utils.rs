@@ -271,6 +271,7 @@ impl TestBedBuilder {
   }
 }
 
+#[derive(Clone)]
 pub struct TestBed {
   pool_termination_token: TerminationToken,
   main_termination_token: TerminationToken,

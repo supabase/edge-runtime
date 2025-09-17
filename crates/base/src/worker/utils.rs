@@ -1,5 +1,8 @@
+use std::collections::HashMap;
+
 use anyhow::anyhow;
 use anyhow::bail;
+use deno_core::serde_json::Value;
 use ext_event_worker::events::EventMetadata;
 use ext_event_worker::events::WorkerEventWithMetadata;
 use ext_event_worker::events::WorkerEvents;
@@ -15,18 +18,39 @@ use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
 pub fn get_event_metadata(conf: &WorkerRuntimeOpts) -> EventMetadata {
+  let mut otel_attributes = HashMap::new();
   let mut event_metadata = EventMetadata {
     service_path: None,
     execution_id: None,
+    otel_attributes: None,
   };
+
+  otel_attributes.insert(
+    "edge_runtime.worker.kind".to_string(),
+    conf.to_worker_kind().to_string(),
+  );
+
   if conf.is_user_worker() {
     let conf = conf.as_user_worker().unwrap();
-    event_metadata = EventMetadata {
-      service_path: conf.service_path.clone(),
-      execution_id: conf.key,
-    };
+    let context = conf.context.clone().unwrap_or_default();
+
+    event_metadata.service_path = conf.service_path.clone();
+    event_metadata.execution_id = conf.key;
+
+    if let Some(Value::Object(attributes)) = context.get("otel") {
+      for (k, v) in attributes {
+        otel_attributes.insert(
+          k.to_string(),
+          match v {
+            Value::String(str) => str.to_string(),
+            others => others.to_string(),
+          },
+        );
+      }
+    }
   }
 
+  event_metadata.otel_attributes = Some(otel_attributes);
   event_metadata
 }
 

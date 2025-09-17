@@ -103,6 +103,141 @@ The user worker is a more restricted and isolated environment, great to put user
 
 > When using `supabase functions deploy`, in a Supabase Hosting Platform, all your function code will be executed inside an **User Worker**.
 
+### API Comparison
+
+<details>
+  <summary>Deno APIs</summary>
+
+<https://docs.deno.com/api/deno>
+
+| API  | Main Worker | User Worker |
+|---|---|---|
+| [`cloud`](https://docs.deno.com/api/deno/cloud) | ❌ | ❌ |
+| [`fetch`](https://docs.deno.com/api/deno/fetch) | ✅ | ✅ |
+| [`ffi`](https://docs.deno.com/api/deno/ffi) | ❌ | ❌ |
+| [`file-system`](https://docs.deno.com/api/deno/file-system) | ✅ | ❌  |
+| [`gpu`](https://docs.deno.com/api/deno/gpu) | ❌ | ❌ |
+| [`http-server`](https://docs.deno.com/api/deno/http-server) | ✅ | ✅ |
+| [`io`](https://docs.deno.com/api/deno/io) | ❌ | ❌ |
+| [`jupyter`](https://docs.deno.com/api/deno/jupyter) | ❌ | ❌ |
+| [`linter`](https://docs.deno.com/api/deno/linter) | ❌ | ❌ |
+| [`network`](https://docs.deno.com/api/deno/network) | ✅ | ✅ |
+| [`permissions`](https://docs.deno.com/api/deno/permissions) | ✅ | ✅ |
+| [`runtime`](https://docs.deno.com/api/deno/runtime) | ⚠️ | ⚠️  |
+| [`subprocess`](https://docs.deno.com/api/deno/subprocess) | ❌ | ❌ |
+| [`telemetry`](https://docs.deno.com/api/deno/telemetry) | ✅ | ✅ |
+| [`testing`](https://docs.deno.com/api/deno/testing) | ✅ | ✅ |
+| [`websockets`](https://docs.deno.com/api/deno/websockets) | ✅ | ✅ |
+
+> ❌ Not supported
+> ✅ Supported
+> ⚠️Partial supported
+
+</details>
+
+<details>
+  <summary>Web APIs</summary>
+
+  <https://docs.deno.com/api/web>
+
+| API  | Main Worker | User Worker |
+|---|---|---|
+| [`cache`](https://docs.deno.com/api/web/cache) | ❌ | ⚠️ **ai models** only |
+| [`canvas`](https://docs.deno.com/api/web/canvas) | ❌ | ❌ |
+| [`crypto`](https://docs.deno.com/api/web/crypto) | ✅ | ✅ |
+| [`encoding`](https://docs.deno.com/api/web/encoding) | ✅ | ✅ |
+| [`events`](https://docs.deno.com/api/web/events) | ✅ | ✅ |
+| [`events`](https://docs.deno.com/api/web/events) | ✅ | ✅ |
+| [`fetch`](https://docs.deno.com/api/web/fetch) | ✅ | ✅ |
+| [`file`](https://docs.deno.com/api/web/file) | ✅ | ✅ |
+| [`gpu`](https://docs.deno.com/api/web/gpu) | ❌ | ❌ |
+| [`io`](https://docs.deno.com/api/web/io) | ✅ | ✅ |
+| [`io`](https://docs.deno.com/api/web/io) | ✅ | ✅ |
+| [`intl`](https://docs.deno.com/api/web/intl) | ✅ | ✅ |
+| [`messaging`](https://docs.deno.com/api/web/messaging) | ✅ | ✅ |
+| [`performance`](https://docs.deno.com/api/web/performance) | ✅ | ✅ |
+| [`platform`](https://docs.deno.com/api/web/platform) | ❌ | ❌ |
+| [`storage`](https://docs.deno.com/api/web/storage) | ❌ | ❌ |
+| [`streams`](https://docs.deno.com/api/web/streams) | ✅ | ✅ |
+| [`temporal`](https://docs.deno.com/api/web/temporal) | ✅ | ✅ |
+| [`url`](https://docs.deno.com/api/web/url) | ✅ | ✅ |
+| [`wasm`](https://docs.deno.com/api/web/wasm) | ✅ | ✅ |
+| [`websockets`](https://docs.deno.com/api/web/websockets) | ✅ | ✅ |
+| [`workers`](https://docs.deno.com/api/web/storage) | ❌ | ❌ |
+
+> ❌ Not supported
+> ✅ Supported
+> ⚠️Partial supported
+
+</details>
+
+<details>
+  <summary>Node APIs</summary>
+
+<https://docs.deno.com/api/node/>
+
+| API  | Main Worker | User Worker |
+|---|---|---|
+| [`assert`](https://docs.deno.com/api/node/assert) | ✅ | ✅ |
+| [`assert/strict`](https://docs.deno.com/api/node/assert/~/assert.strict) | ✅ | ✅ |
+| [`assync_hooks`](https://docs.deno.com/api/node/assync_hooks) | ✅ | ✅ |
+| [`buffer`](https://docs.deno.com/api/node/buffer) | ✅ | ✅ |
+| [`child_process`](https://docs.deno.com/api/node/child_process) | ❌ | ❌ |
+| [`cluster`](https://docs.deno.com/api/node/cluster) | ❌ | ❌ |
+| [`console`](https://docs.deno.com/api/node/console) | ⚠️all outputs are trimmed out | ⚠️ same as *Main Worker* |
+| [`crypto`](https://docs.deno.com/api/node/crypto) | ✅ | ✅ |
+| [`dgram`](https://docs.deno.com/api/node/dgram) | ✅ | ✅ |
+| [`diagnostics_channel`](https://docs.deno.com/api/node/diagnostics_channel) | ❌ | ❌ |
+| [`dns`](https://docs.deno.com/api/node/dns) | ✅ | ✅ |
+| [`dns/promisses`](https://docs.deno.com/api/node/dns/promisses) | ✅ | ✅ |
+| [`domain`](https://docs.deno.com/api/node/domain) | ✅ | ✅ |
+| [`events`](https://docs.deno.com/api/node/events) | ✅ | ✅ |
+| [`fs`](https://docs.deno.com/api/node/fs) | ✅ | ❌ |
+| [`fs/promisses`](https://docs.deno.com/api/node/fs/promisses) | ✅ | ❌ |
+| [`http`](https://docs.deno.com/api/node/http) | ✅ | ✅ |
+| [`http2`](https://docs.deno.com/api/node/http2) | ✅ | ✅ |
+| [`https`](https://docs.deno.com/api/node/https) | ✅ | ✅ |
+| [`inspector`](https://docs.deno.com/api/node/inspector) | ✅ | ✅ |
+| [`inspector/promisses`](https://docs.deno.com/api/node/inspector/promisses) | ✅ | ✅ |
+| [`module`](https://docs.deno.com/api/node/module) | ✅ | ✅ |
+| [`net`](https://docs.deno.com/api/node/net) | ✅ | ✅ |
+| [`os`](https://docs.deno.com/api/node/os) | ✅ | ✅ |
+| [`path`](https://docs.deno.com/api/node/path) | ✅ | ✅ |
+| [`perf_hooks`](https://docs.deno.com/api/node/perf_hooks) | ✅ | ✅ |
+| [`process`](https://docs.deno.com/api/node/process) | ✅ | ✅ |
+| [`querystring`](https://docs.deno.com/api/node/querystring) | ✅ | ✅ |
+| [`readline`](https://docs.deno.com/api/node/readline) | ❌ | ❌ |
+| [`readline/promisses`](https://docs.deno.com/api/node/readline/promisses) | ❌ | ❌ |
+| [`repl`](https://docs.deno.com/api/node/repl) | ❌ | ❌ |
+| [`sea`](https://docs.deno.com/api/node/sea) | ❌ | ❌ |
+| [`sqlite`](https://docs.deno.com/api/node/sqlite) | ❌ | ❌ |
+| [`stream`](https://docs.deno.com/api/node/stream) | ✅ | ✅ |
+| [`stream/consumers`](https://docs.deno.com/api/node/stream/consumers) | ✅ | ✅ |
+| [`stream/promisses`](https://docs.deno.com/api/node/stream/promisses) | ✅ | ✅ |
+| [`stream/web`](https://docs.deno.com/api/node/stream/web) | ✅ | ✅ |
+| [`string_decoder`](https://docs.deno.com/api/node/string_decoder) | ✅ | ✅ |
+| [`test`](https://docs.deno.com/api/node/test) | ✅ | ✅ |
+| [`test/reporters`](https://docs.deno.com/api/node/test/reporters) | ✅ | ✅ |
+| [`timers`](https://docs.deno.com/api/node/timers) | ✅ | ✅ |
+| [`timers/promisses`](https://docs.deno.com/api/node/timers/promisses) | ✅ | ✅ |
+| [`tls`](https://docs.deno.com/api/node/tls) | ✅ | ✅ |
+| [`trace_events`](https://docs.deno.com/api/node/trace_events) | ✅ | ✅ |
+| [`tty`](https://docs.deno.com/api/node/tty) | ❌ | ❌ |
+| [`url`](https://docs.deno.com/api/node/url) | ✅ | ✅ |
+| [`util`](https://docs.deno.com/api/node/util) | ✅ | ✅ |
+| [`util/types`](https://docs.deno.com/api/node/util/types) | ✅ | ✅ |
+| [`v8`](https://docs.deno.com/api/node/v8) | ❌ | ❌ |
+| [`vm`](https://docs.deno.com/api/node/vm) | ❌ | ❌ |
+| [`wasi`](https://docs.deno.com/api/node/wasi) | ✅ | ✅ |
+| [`worker_threads`](https://docs.deno.com/api/node/worker_threads) | ✅ | ✅ |
+| [`zlib`](https://docs.deno.com/api/node/zlib) | ✅ | ✅ |
+
+> ❌ Not supported
+> ✅ Supported
+> ⚠️Partial supported
+
+</details>
+
 ### Self-Hosting
 
 To self-host edge-functions you should manage the main service as well the user worker spawn logic, like [main.ts template](https://github.com/supabase/supabase/blob/d91ea9d4e24c211f666e6e0ff01d290a9f3831cb/docker/volumes/functions/main/index.ts)

@@ -40,6 +40,8 @@ use tracing::error;
 use tracing::trace_span;
 use tracing::Instrument;
 
+use crate::onnxruntime::session::as_mut_session;
+
 deno_core::extension!(
   ai,
   ops = [
@@ -213,14 +215,10 @@ async fn init_gte(state: Rc<RefCell<OpState>>) -> Result<(), Error> {
         &*token_type_ids,
       ))?;
 
-      let Ok(mut guard) = session.lock() else {
-        let err = anyhow!("failed to lock session");
-        error!(reason = ?err);
-        return Err(err);
-      };
+      let session = unsafe { as_mut_session(&session) };
 
       let outputs = trace_span!("infer_gte").in_scope(|| {
-        guard.run(inputs! {
+        session.run(inputs! {
           "input_ids" => input_ids_array,
           "token_type_ids" => token_type_ids_array,
           "attention_mask" => attention_mask_array,

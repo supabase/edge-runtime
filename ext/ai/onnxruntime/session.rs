@@ -5,7 +5,6 @@ use once_cell::sync::Lazy;
 use reqwest::Url;
 use std::hash::Hasher;
 use std::sync::Arc;
-use std::sync::Mutex;
 use tokio_util::compat::FuturesAsyncWriteCompatExt;
 use tracing::debug;
 use tracing::instrument;
@@ -25,17 +24,16 @@ use ort::session::Session;
 
 use crate::onnx::ensure_onnx_env_init;
 
-static SESSIONS: Lazy<DashMap<String, Arc<Mutex<Session>>>> =
-  Lazy::new(DashMap::new);
+static SESSIONS: Lazy<DashMap<String, Arc<Session>>> = Lazy::new(DashMap::new);
 
 #[derive(Debug)]
 pub struct SessionWithId {
   pub(crate) id: String,
-  pub(crate) session: Arc<Mutex<Session>>,
+  pub(crate) session: Arc<Session>,
 }
 
-impl From<(String, Arc<Mutex<Session>>)> for SessionWithId {
-  fn from(value: (String, Arc<Mutex<Session>>)) -> Self {
+impl From<(String, Arc<Session>)> for SessionWithId {
+  fn from(value: (String, Arc<Session>)) -> Self {
     Self {
       id: value.0,
       session: value.1,
@@ -50,7 +48,7 @@ impl std::fmt::Display for SessionWithId {
 }
 
 impl SessionWithId {
-  pub fn into_split(self) -> (String, Arc<Mutex<Session>>) {
+  pub fn into_split(self) -> (String, Arc<Session>) {
     (self.id, self.session)
   }
 }
@@ -106,7 +104,7 @@ fn get_execution_providers() -> Vec<ExecutionProviderDispatch> {
   [cpu].to_vec()
 }
 
-fn create_session(model_bytes: &[u8]) -> Result<Arc<Mutex<Session>>, Error> {
+fn create_session(model_bytes: &[u8]) -> Result<Arc<Session>, Error> {
   let session = {
     if let Some(err) = ensure_onnx_env_init() {
       return Err(anyhow!("failed to create onnx environment: {err}"));
@@ -117,7 +115,14 @@ fn create_session(model_bytes: &[u8]) -> Result<Arc<Mutex<Session>>, Error> {
       .commit_from_memory(model_bytes)?
   };
 
-  Ok(Arc::new(Mutex::new(session)))
+  Ok(Arc::new(session))
+}
+
+#[allow(mutable_transmutes)]
+#[allow(clippy::mut_from_ref)]
+pub(crate) unsafe fn as_mut_session(session: &Arc<Session>) -> &mut Session {
+  // SAFETY: CPU EP https://github.com/pykeio/ort/issues/402#issuecomment-2949993914
+  unsafe { std::mem::transmute::<&Session, &mut Session>(&session.clone()) }
 }
 
 #[instrument(level = "debug", skip_all, fields(model_bytes = model_bytes.len()), err)]
@@ -174,7 +179,7 @@ pub(crate) async fn load_session_from_url(
   Ok((session_id, session).into())
 }
 
-pub(crate) async fn get_session(id: &str) -> Option<Arc<Mutex<Session>>> {
+pub(crate) async fn get_session(id: &str) -> Option<Arc<Session>> {
   SESSIONS.get(id).map(|value| value.pair().1.clone())
 }
 

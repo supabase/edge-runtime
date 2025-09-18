@@ -1,12 +1,9 @@
-use std::sync::Arc;
-use std::sync::Mutex;
-
-use anyhow::anyhow;
 use anyhow::Result;
 use deno_core::serde_v8::to_v8;
 use deno_core::ToV8;
 use ort::session::Session;
 use reqwest::Url;
+use std::sync::Arc;
 
 use super::session::get_session;
 use super::session::load_session_from_bytes;
@@ -29,26 +26,21 @@ impl std::fmt::Display for ModelInfo {
 #[derive(Debug)]
 pub struct Model {
   info: ModelInfo,
-  session: Arc<Mutex<Session>>,
+  session: Arc<Session>,
 }
 
 impl Model {
   fn new(session_with_id: SessionWithId) -> Result<Self> {
     let (input_names, output_names) = {
-      let Ok(session_guard) = session_with_id.session.lock() else {
-        return Err(anyhow!(
-          "Could not lock model session {}",
-          session_with_id.id
-        ));
-      };
+      let session = { session_with_id.session.clone() };
 
-      let input_names = session_guard
+      let input_names = session
         .inputs
         .iter()
         .map(|input| input.name.clone())
         .collect::<Vec<_>>();
 
-      let output_names = session_guard
+      let output_names = session
         .outputs
         .iter()
         .map(|output| output.name.clone())
@@ -71,7 +63,7 @@ impl Model {
     self.info.clone()
   }
 
-  pub fn get_session(&self) -> Arc<Mutex<Session>> {
+  pub fn get_session(&self) -> Arc<Session> {
     self.session.clone()
   }
 

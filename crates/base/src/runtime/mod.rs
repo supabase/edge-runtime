@@ -79,6 +79,8 @@ use deno_facade::EmitterFactory;
 use deno_facade::EszipPayloadKind;
 use deno_facade::Metadata;
 use either::Either;
+use either::Either::Left;
+use either::Either::Right;
 use ext_event_worker::events::WorkerEventWithMetadata;
 use ext_runtime::cert::ValueRootCertStoreProvider;
 use ext_runtime::external_memory::CustomAllocator;
@@ -1328,47 +1330,6 @@ where
         return (Err(err), 0i64);
       }
 
-      if inspector.is_some() {
-        let ret = spawn_blocking_non_send(|| {
-          let state = self.runtime_state.clone();
-          let _guard = scopeguard::guard_on_unwind((), |_| {
-            state.terminated.raise();
-          });
-
-          self.assert_isolate_not_locked();
-          let mut locker = self.with_locker();
-
-          {
-            let _guard =
-              scopeguard::guard(state.found_inspector_session.clone(), |v| {
-                v.raise();
-              });
-
-            // XXX(Nyannyacha): Suppose the user skips this function by passing
-            // the `--inspect` argument. In that case, the runtime may terminate
-            // before the inspector session is connected if the function doesn't
-            // have a long execution time. Should we wait for an inspector session
-            // to connect with the V8?
-            locker.wait_for_inspector_session();
-          }
-
-          if locker.termination_request_token.is_cancelled() {
-            state.terminated.raise();
-            return false;
-          }
-
-          true
-        })
-        .await
-        .map_err(Error::from);
-
-        match ret {
-          Ok(true) => {}
-          Ok(false) => return (Ok(()), 0i64),
-          Err(err) => return (Err(err), 0i64),
-        }
-      }
-
       let Some(main_module_id) = self.main_module_id else {
         return (Err(anyhow!("failed to get main module id")), 0);
       };
@@ -1388,15 +1349,42 @@ where
           async {
             self.assert_isolate_not_locked();
             let mut locker = self.with_locker();
-
             let op_state = locker.js_runtime.op_state();
+            let state = locker.runtime_state.clone();
 
-            with_cpu_metrics_guard(
+            if inspector.is_some() {
+              let _guard = scopeguard::guard_on_unwind((), |_| {
+                state.terminated.raise();
+              });
+
+              {
+                let _guard = scopeguard::guard(
+                  state.found_inspector_session.clone(),
+                  |v| {
+                    v.raise();
+                  },
+                );
+
+                // XXX(Nyannyacha): Suppose the user skips this function by
+                // passing the `--inspect` argument. In that case, the runtime
+                // may terminate before the inspector session is connected if
+                // the function doesn't have a long execution time. Should we
+                // wait for an inspector session to connect with the V8?
+                locker.wait_for_inspector_session();
+              }
+
+              if locker.termination_request_token.is_cancelled() {
+                state.terminated.raise();
+                return Left(());
+              }
+            }
+
+            Right(with_cpu_metrics_guard(
               op_state,
               &maybe_cpu_usage_metrics_tx,
               &mut accumulated_cpu_time_ns,
               || locker.js_runtime.mod_evaluate(main_module_id),
-            )
+            ))
           }
           .instrument(span),
         )
@@ -1405,7 +1393,10 @@ where
     };
 
     let mut mod_ret_rx = match mod_fut_ret {
-      Ok(v) => v,
+      Ok(v) => match v {
+        Left(_give_up) => return (Ok(()), 0i64),
+        Right(fut) => fut,
+      },
       Err(err) => {
         return (
           Err(err).context("failed to load the module"),

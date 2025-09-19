@@ -81,7 +81,7 @@ pub struct CPUTimer {}
 
 impl CPUTimer {
   #[cfg(not(target_os = "linux"))]
-  pub fn new(_: u64) -> Result<Self, Error> {
+  pub fn new() -> Result<Self, Error> {
     log::error!("CPU timer: not enabled (need Linux)");
     Ok(Self {})
   }

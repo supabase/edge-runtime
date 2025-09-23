@@ -579,12 +579,18 @@ pub async fn create_module_loader_for_eszip(
   .transpose()?
   .unwrap_or_default();
 
-  let root_path = if cfg!(target_family = "unix") {
-    PathBuf::from("/var/tmp")
-  } else {
-    std::env::temp_dir()
-  }
-  .join(format!("sb-compile-{}", current_exe_name));
+  let root_path = match std::env::var("SUPABASE_FUNCTIONS_PATH") {
+    Ok(custom_path) => PathBuf::from(custom_path),
+    Err(_) => {
+      // Default behavior: use platform-specific temp directory
+      if cfg!(target_family = "unix") {
+        PathBuf::from("/var/tmp")
+      } else {
+        std::env::temp_dir()
+      }
+      .join(format!("sb-compile-{}", current_exe_name))
+    }
+  };
 
   let node_modules = metadata.node_modules()?;
   let root_dir_url =

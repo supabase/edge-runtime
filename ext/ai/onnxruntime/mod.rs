@@ -32,6 +32,8 @@ use tokio::sync::oneshot;
 use tracing::debug;
 use tracing::trace;
 
+use crate::onnxruntime::session::as_mut_session;
+
 #[op2(async)]
 #[to_v8]
 pub async fn op_ai_ort_init_session(
@@ -103,7 +105,9 @@ pub async fn op_ai_ort_run_session(
     JsRuntime::op_state_from(state)
       .borrow_mut()
       .spawn_cpu_accumul_blocking_scope(move || {
-        let outputs = match model_session.run(input_values) {
+        let session = unsafe { as_mut_session(&model_session) };
+
+        let outputs = match session.run(input_values) {
           Ok(v) => v,
           Err(err) => {
             let _ = tx.send(Err(anyhow::Error::from(err)));

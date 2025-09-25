@@ -1,11 +1,10 @@
+use dashmap::DashMap;
 use deno_core::error::AnyError;
 use futures::io::AllowStdIo;
 use once_cell::sync::Lazy;
 use reqwest::Url;
-use std::collections::HashMap;
 use std::hash::Hasher;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 use tokio_util::compat::FuturesAsyncWriteCompatExt;
 use tracing::debug;
 use tracing::instrument;
@@ -25,8 +24,7 @@ use ort::session::Session;
 
 use crate::onnx::ensure_onnx_env_init;
 
-static SESSIONS: Lazy<Mutex<HashMap<String, Arc<Session>>>> =
-  Lazy::new(|| Mutex::new(HashMap::new()));
+static SESSIONS: Lazy<DashMap<String, Arc<Session>>> = Lazy::new(DashMap::new);
 
 #[derive(Debug)]
 pub struct SessionWithId {
@@ -74,39 +72,36 @@ pub(crate) fn get_session_builder() -> Result<SessionBuilder, AnyError> {
   Ok(builder)
 }
 
-fn cpu_execution_provider(
-) -> Box<dyn Iterator<Item = ExecutionProviderDispatch>> {
-  Box::new(
-    [
-      // NOTE(Nyannacha): See the comment above. This makes `enable_cpu_mem_arena` set to
-      // False.
-      //
-      // Backgrounds:
-      // [1]: https://docs.rs/ort/2.0.0-rc.4/src/ort/execution_providers/cpu.rs.html#9-18
-      // [2]: https://docs.rs/ort/2.0.0-rc.4/src/ort/execution_providers/cpu.rs.html#46-50
-      CPUExecutionProvider::default().build(),
-    ]
-    .into_iter(),
-  )
+fn cpu_execution_provider() -> ExecutionProviderDispatch {
+  // NOTE(Nyannacha): See the comment above. This makes `enable_cpu_mem_arena` set to
+  // False.
+  //
+  // Backgrounds:
+  // [1]: https://docs.rs/ort/2.0.0-rc.4/src/ort/execution_providers/cpu.rs.html#9-18
+  // [2]: https://docs.rs/ort/2.0.0-rc.4/src/ort/execution_providers/cpu.rs.html#46-50
+  CPUExecutionProvider::default().build()
 }
 
-fn cuda_execution_provider(
-) -> Box<dyn Iterator<Item = ExecutionProviderDispatch>> {
+fn cuda_execution_provider() -> Option<ExecutionProviderDispatch> {
   let cuda = CUDAExecutionProvider::default();
-  let providers = match cuda.is_available() {
-    Ok(is_cuda_available) => {
-      debug!(cuda_support = is_cuda_available);
-      if is_cuda_available {
-        vec![cuda.build()]
-      } else {
-        vec![]
-      }
-    }
+  let is_cuda_available = cuda.is_available().is_ok_and(|v| v);
+  debug!(cuda_support = is_cuda_available);
 
-    _ => vec![],
+  if is_cuda_available {
+    Some(cuda.build())
+  } else {
+    None
+  }
+}
+
+fn get_execution_providers() -> Vec<ExecutionProviderDispatch> {
+  let cpu = cpu_execution_provider();
+
+  if let Some(cuda) = cuda_execution_provider() {
+    return [cuda, cpu].to_vec();
   };
 
-  Box::new(providers.into_iter().chain(cpu_execution_provider()))
+  [cpu].to_vec()
 }
 
 fn create_session(model_bytes: &[u8]) -> Result<Arc<Session>, Error> {
@@ -116,11 +111,18 @@ fn create_session(model_bytes: &[u8]) -> Result<Arc<Session>, Error> {
     }
 
     get_session_builder()?
-      .with_execution_providers(cuda_execution_provider())?
+      .with_execution_providers(get_execution_providers())?
       .commit_from_memory(model_bytes)?
   };
 
   Ok(Arc::new(session))
+}
+
+#[allow(mutable_transmutes)]
+#[allow(clippy::mut_from_ref)]
+pub(crate) unsafe fn as_mut_session(session: &Arc<Session>) -> &mut Session {
+  // SAFETY: CPU EP https://github.com/pykeio/ort/issues/402#issuecomment-2949993914
+  unsafe { std::mem::transmute::<&Session, &mut Session>(&session.clone()) }
 }
 
 #[instrument(level = "debug", skip_all, fields(model_bytes = model_bytes.len()), err)]
@@ -138,16 +140,14 @@ pub(crate) async fn load_session_from_bytes(
     faster_hex::hex_string(&hasher.finish().to_be_bytes())
   };
 
-  let mut sessions = SESSIONS.lock().await;
-
-  if let Some(session) = sessions.get(&session_id) {
+  if let Some(session) = SESSIONS.get(&session_id) {
     return Ok((session_id, session.clone()).into());
   }
 
   trace!(session_id, "new session");
   let session = create_session(model_bytes)?;
 
-  sessions.insert(session_id.clone(), session.clone());
+  SESSIONS.insert(session_id.clone(), session.clone());
 
   Ok((session_id, session).into())
 }
@@ -158,9 +158,7 @@ pub(crate) async fn load_session_from_url(
 ) -> Result<SessionWithId, Error> {
   let session_id = fxhash::hash(model_url.as_str()).to_string();
 
-  let mut sessions = SESSIONS.lock().await;
-
-  if let Some(session) = sessions.get(&session_id) {
+  if let Some(session) = SESSIONS.get(&session_id) {
     debug!(session_id, "use existing session");
     return Ok((session_id, session.clone()).into());
   }
@@ -176,22 +174,23 @@ pub(crate) async fn load_session_from_url(
   let session = create_session(model_bytes.as_slice())?;
 
   debug!(session_id, "new session");
-  sessions.insert(session_id.clone(), session.clone());
+  SESSIONS.insert(session_id.clone(), session.clone());
 
   Ok((session_id, session).into())
 }
 
 pub(crate) async fn get_session(id: &str) -> Option<Arc<Session>> {
-  SESSIONS.lock().await.get(id).cloned()
+  SESSIONS.get(id).map(|value| value.pair().1.clone())
 }
 
 pub async fn cleanup() -> Result<usize, AnyError> {
   let mut remove_counter = 0;
   {
-    let mut guard = SESSIONS.lock().await;
+    //let mut guard = SESSIONS.lock().await;
     let mut to_be_removed = vec![];
 
-    for (key, session) in &mut *guard {
+    for v in SESSIONS.iter() {
+      let (key, session) = v.pair();
       // Since we're currently referencing the session at this point
       // It also will increments the counter, so we need to check: counter > 1
       if Arc::strong_count(session) > 1 {
@@ -202,7 +201,7 @@ pub async fn cleanup() -> Result<usize, AnyError> {
     }
 
     for key in to_be_removed {
-      let old_store = guard.remove(&key);
+      let old_store = SESSIONS.remove(&key);
       debug_assert!(old_store.is_some());
 
       remove_counter += 1;

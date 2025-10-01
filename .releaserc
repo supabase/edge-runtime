@@ -4,6 +4,10 @@
     {
       "name": "develop",
       "prerelease": true
+    },
+    {
+      "name": "v1",
+      "range": "1.68.x"
     }
   ],
   "plugins": [

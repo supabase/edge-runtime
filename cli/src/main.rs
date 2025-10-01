@@ -436,9 +436,10 @@ fn main() -> Result<ExitCode, anyhow::Error> {
             "Eszip extracted successfully inside path {}",
             output_path.to_str().unwrap()
           );
+          ExitCode::SUCCESS
+        } else {
+          ExitCode::FAILURE
         }
-
-        ExitCode::SUCCESS
       }
 
       _ => {

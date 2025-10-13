@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::env;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -243,7 +244,9 @@ impl DenoOptions {
     });
     let config_parse_options =
       deno_config::deno_json::ConfigParseOptions::default();
-    let discover_pkg_json = config != ConfigMode::Disabled && !no_npm;
+    let discover_pkg_json = config != ConfigMode::Disabled
+      && !no_npm
+      && !has_flag_env_var("DENO_NO_PACKAGE_JSON");
     if !discover_pkg_json {
       log::debug!("package.json auto-discovery is disabled");
     }
@@ -540,4 +543,9 @@ impl DenoOptionsBuilder {
   pub fn build(self) -> Result<DenoOptions, AnyError> {
     DenoOptions::from_builder(self)
   }
+}
+
+pub fn has_flag_env_var(name: &str) -> bool {
+  let value = env::var(name);
+  matches!(value.as_ref().map(|s| s.as_str()), Ok("1"))
 }

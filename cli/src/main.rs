@@ -272,7 +272,7 @@ fn main() -> Result<ExitCode, anyhow::Error> {
                   "{}",
                   concat!(
                     "if `oneshot` policy is enabled, the maximum ",
-                    "parallelism is fixed to `1` as forcibly"
+                    "parallelism is fixed to `1` as forcibly ^^"
                   )
                 );
               }

@@ -41,7 +41,7 @@ jobs:
   cargo-fmt:
     if: github.event.pull_request.draft == false
     name: 'fmt'
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v4
       - uses: denoland/setup-deno@v2
@@ -53,7 +53,7 @@ jobs:
   cargo-clippy:
     if: github.event.pull_request.draft == false
     name: 'cargo clippy'
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v4
       - name: Install deps
@@ -67,7 +67,7 @@ jobs:
   cargo-test:
     if: github.event.pull_request.draft == false
     name: 'cargo test'
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Install deps
         run: |

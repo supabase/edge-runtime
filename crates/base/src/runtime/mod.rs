@@ -517,6 +517,11 @@ where
         let base_dir_path =
           std::env::current_dir().map(|p| p.join(&service_path))?;
 
+        let maybe_import_map_path = context
+          .get("importMapPath")
+          .and_then(|it| it.as_str())
+          .map(str::to_string);
+
         let eszip = if let Some(eszip_payload) = maybe_eszip {
           eszip_payload
         } else {
@@ -564,6 +569,7 @@ where
             CacheSetting::Use
           };
 
+          emitter_factory.set_import_map_path(maybe_import_map_path.clone());
           emitter_factory
             .set_permissions_options(Some(permissions_options.clone()));
 
@@ -634,10 +640,6 @@ where
           .get("sourceMap")
           .and_then(serde_json::Value::as_bool)
           .unwrap_or_default();
-        let maybe_import_map_path = context
-          .get("importMapPath")
-          .and_then(|it| it.as_str())
-          .map(str::to_string);
 
         let rt_provider = create_module_loader_for_standalone_from_eszip_kind(
           eszip,

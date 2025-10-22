@@ -16,6 +16,7 @@ use deno_config::deno_json::TsConfigForEmit;
 use deno_config::deno_json::TsConfigType;
 use deno_config::workspace::CreateResolverOptions;
 use deno_config::workspace::PackageJsonDepResolution;
+use deno_config::workspace::SpecifiedImportMap;
 use deno_config::workspace::VendorEnablement;
 use deno_config::workspace::WorkspaceDirectory;
 use deno_config::workspace::WorkspaceDirectoryEmptyOptions;
@@ -199,12 +200,13 @@ impl DenoOptions {
   pub fn create_workspace_resolver(
     &self,
     _file_fetcher: &FileFetcher,
+    specified_import_map: Option<SpecifiedImportMap>,
     pkg_json_dep_resolution: PackageJsonDepResolution,
   ) -> Result<WorkspaceResolver, AnyError> {
     Ok(self.workspace().create_resolver(
       CreateResolverOptions {
         pkg_json_dep_resolution,
-        specified_import_map: None,
+        specified_import_map,
       },
       |path| Ok(std::fs::read_to_string(path)?),
     )?)

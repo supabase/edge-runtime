@@ -58,6 +58,7 @@ use ext_node::DenoFsNodeResolverEnv;
 use ext_node::NodeResolver;
 use ext_node::PackageJsonResolver;
 
+use crate::import_map::load_import_map;
 use crate::permissions::RuntimePermissionDescriptorParser;
 
 struct Deferred<T>(once_cell::unsync::OnceCell<T>);
@@ -120,6 +121,7 @@ pub struct EmitterFactory {
   sloppy_imports_resolver: Deferred<Option<Arc<CliSloppyImportsResolver>>>,
   workspace_resolver: Deferred<Arc<WorkspaceResolver>>,
 
+  import_map_path: Option<String>,
   cache_strategy: Option<CacheSetting>,
   deno_dir: DenoDir,
   deno_options: Option<Arc<DenoOptions>>,
@@ -160,6 +162,7 @@ impl EmitterFactory {
       sloppy_imports_resolver: Default::default(),
       workspace_resolver: Default::default(),
 
+      import_map_path: Default::default(),
       cache_strategy: None,
       deno_dir,
       deno_options: None,
@@ -177,6 +180,11 @@ impl EmitterFactory {
 
   pub fn set_deno_options(&mut self, value: DenoOptions) -> &mut Self {
     self.deno_options = Some(Arc::new(value));
+    self
+  }
+
+  pub fn set_import_map_path(&mut self, value: Option<String>) -> &mut Self {
+    self.import_map_path = value;
     self
   }
 
@@ -528,8 +536,12 @@ impl EmitterFactory {
   ) -> Result<&Arc<WorkspaceResolver>, anyhow::Error> {
     self.workspace_resolver.get_or_try_init(|| {
       let options = self.deno_options()?;
+      let specified_import_map =
+        load_import_map(self.import_map_path.as_deref())?;
+
       let resolver = options.create_workspace_resolver(
         self.file_fetcher()?,
+        specified_import_map,
         if options.use_byonm() {
           PackageJsonDepResolution::Disabled
         } else {

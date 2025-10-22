@@ -356,7 +356,15 @@ impl EmitterFactory {
           } else {
             CliNpmResolverCreateOptions::Managed(
               CliManagedNpmResolverCreateOptions {
-                snapshot: CliNpmResolverManagedSnapshotOption::Specified(None),
+                snapshot: if let Some(lockfile) =
+                  options.maybe_lockfile().cloned()
+                {
+                  CliNpmResolverManagedSnapshotOption::ResolveFromLockfile(
+                    lockfile,
+                  )
+                } else {
+                  CliNpmResolverManagedSnapshotOption::Specified(None)
+                },
                 maybe_lockfile: options.maybe_lockfile().cloned(),
                 fs,
                 http_client_provider: self.http_client_provider().clone(),

@@ -22,7 +22,9 @@ Deno.serve(async (req: Request) => {
         "helper-from-import-map": `./${path.join(basePath, "helper.ts")}`,
       },
     };
-    const importMapPath = `data:${encodeURIComponent(JSON.stringify(inlineImportMap))}`;
+    const importMapPath = `data:${
+      encodeURIComponent(JSON.stringify(inlineImportMap))
+    }`;
 
     const worker = await EdgeRuntime.userWorkers.create({
       servicePath: userWorkerPath,

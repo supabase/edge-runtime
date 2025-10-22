@@ -18,7 +18,7 @@ pub fn load_import_map(
     // the data URI takes the following format
     // data:{encodeURIComponent(mport_map.json)?{encodeURIComponent(base_path)}
     if path_str.starts_with("data:") {
-      let data_uri = Url::parse(&path_str)?;
+      let data_uri = Url::parse(path_str)?;
       json_str = decode(data_uri.path())?.into_owned();
       if let Some(query) = data_uri.query() {
         base_url = Url::from_directory_path(decode(query)?.into_owned())

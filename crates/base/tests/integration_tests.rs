@@ -25,6 +25,7 @@ use base::server::ServerEvent;
 use base::server::ServerFlags;
 use base::server::ServerHealth;
 use base::server::Tls;
+use base::utils::test_utils;
 use base::utils::test_utils::create_test_user_worker;
 use base::utils::test_utils::ensure_npm_package_installed;
 use base::utils::test_utils::test_user_runtime_opts;

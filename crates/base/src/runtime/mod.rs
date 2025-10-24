@@ -2329,7 +2329,6 @@ extern "C" fn mem_check_gc_prologue_callback_fn(
 #[cfg(test)]
 mod test {
   use std::collections::HashMap;
-  use std::fs::File;
   use std::io::Write;
   use std::marker::PhantomData;
   use std::path::Path;
@@ -2361,6 +2360,7 @@ mod test {
   use serde::de::DeserializeOwned;
   use serde::Serialize;
   use serial_test::serial;
+  use tempfile::Builder;
   use tokio::sync::mpsc;
   use tokio::time::timeout;
 
@@ -2593,11 +2593,18 @@ mod test {
   #[allow(clippy::arc_with_non_send_sync)]
   async fn test_eszip_with_source_file() {
     let (worker_pool_tx, _) = mpsc::unbounded_channel::<UserWorkerMsgs>();
-    let mut file = File::create("./test_cases/eszip-source-test.ts").unwrap();
-    file.write_all(b"import isEven from \"npm:is-even\"; globalThis.isTenEven = isEven(9);")
+    let mut temp_file = Builder::new()
+      .prefix("eszip-source-test")
+      .suffix(".ts")
+      .tempfile_in("./test_cases")
+      .unwrap();
+    temp_file
+      .write_all(
+        b"import isEven from \"npm:is-even\"; globalThis.isTenEven = isEven(9);",
+      )
       .unwrap();
 
-    let path_buf = PathBuf::from("./test_cases/eszip-source-test.ts");
+    let path_buf = temp_file.path().to_path_buf();
     let mut emitter_factory = EmitterFactory::new();
 
     emitter_factory.set_deno_options(
@@ -2618,7 +2625,8 @@ mod test {
     .await
     .unwrap();
 
-    std::fs::remove_file("./test_cases/eszip-source-test.ts").unwrap();
+    let temp_path = temp_file.into_temp_path();
+    temp_path.close().unwrap();
 
     let eszip_code = bin_eszip.into_bytes();
     let runtime = DenoRuntime::<()>::new(

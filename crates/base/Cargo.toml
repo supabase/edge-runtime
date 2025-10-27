@@ -87,6 +87,7 @@ tokio-util = { workspace = true, features = ["rt", "compat"] }
 tracing-subscriber = { workspace = true, features = ["env-filter", "tracing-log"] }
 
 async-tungstenite = { version = "0.25.0", default-features = false }
+diff = "0.1"
 tungstenite = { version = "0.21.0", default-features = false, features = ["handshake"] }
 
 [build-dependencies]

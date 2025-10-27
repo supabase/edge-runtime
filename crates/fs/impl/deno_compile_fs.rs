@@ -54,7 +54,7 @@ impl DenoCompileFileSystem {
       if not_found {
         return Err(FsError::Io(io::Error::from(io::ErrorKind::NotFound)));
       }
-      return Err(FsError::NotSupported);
+      Err(FsError::NotSupported)
     } else {
       Ok(())
     }

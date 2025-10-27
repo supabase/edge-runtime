@@ -81,7 +81,7 @@ async fn test_eszip_migration() {
       format!("eszip test result: {status}. {passed} passed ({snapshot_created} snapshot created); {failed} failed");
   if failed > 0 {
     for line in diff_msgs {
-      println!("{line}");
+      eprintln!("{line}");
     }
     panic!("{msg}");
   } else {

@@ -621,7 +621,7 @@ pub async fn create_module_loader_for_eszip(
     )
     .context("Failed to load npm vfs.")?;
 
-    let fs = DenoCompileFileSystem::new(vfs);
+    let fs = DenoCompileFileSystem::new(vfs).use_real_fs(false);
     let fs_backed_vfs = fs.file_backed_vfs().clone();
 
     (

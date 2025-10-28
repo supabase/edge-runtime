@@ -656,7 +656,7 @@ globalThis.bootstrapSBEdge = (opts, ctx) => {
     return new wasmMemoryCtor(maybeOpts);
   }
 
-  delete globalThis.SharedArrayBuffer;
+  globalThis.SharedArrayBuffer = globalThis.ArrayBuffer;
   globalThis.WebAssembly.Memory = patchedWasmMemoryCtor;
 
   /// DISABLE SHARED MEMORY INSTALL MEM CHECK TIMING

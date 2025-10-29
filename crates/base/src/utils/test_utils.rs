@@ -242,6 +242,7 @@ impl TestBedBuilder {
       .init_opts(WorkerContextInitOpts {
         service_path: self.main_service_path,
         no_module_cache: false,
+        no_npm: None,
         env_vars: std::env::vars().collect(),
         timing: None,
         maybe_eszip: None,

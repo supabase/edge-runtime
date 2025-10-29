@@ -212,6 +212,7 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
     .init_opts(WorkerContextInitOpts {
       service_path: "./test_cases/slow_resp".into(),
       no_module_cache: false,
+      no_npm: None,
       env_vars: HashMap::new(),
       timing: None,
       maybe_eszip: None,
@@ -371,6 +372,7 @@ async fn test_main_worker_boot_error() {
     .init_opts(WorkerContextInitOpts {
       service_path: "./test_cases/meow".into(),
       no_module_cache: false,
+      no_npm: None,
       env_vars: HashMap::new(),
       timing: None,
       maybe_eszip: None,
@@ -494,6 +496,7 @@ async fn test_main_worker_user_worker_mod_evaluate_exception() {
     .init_opts(WorkerContextInitOpts {
       service_path: "./test_cases/main".into(),
       no_module_cache: false,
+      no_npm: None,
       env_vars: HashMap::new(),
       timing: None,
       maybe_eszip: None,
@@ -877,6 +880,7 @@ async fn test_worker_boot_invalid_imports() {
   let opts = WorkerContextInitOpts {
     service_path: "./test_cases/invalid_imports".into(),
     no_module_cache: false,
+    no_npm: None,
     env_vars: HashMap::new(),
     timing: None,
     maybe_eszip: None,
@@ -905,6 +909,7 @@ async fn test_worker_boot_with_0_byte_eszip() {
   let opts = WorkerContextInitOpts {
     service_path: "./test_cases/meow".into(),
     no_module_cache: false,
+    no_npm: None,
     env_vars: HashMap::new(),
     timing: None,
     maybe_eszip: Some(EszipPayloadKind::VecKind(vec![])),
@@ -932,6 +937,7 @@ async fn test_worker_boot_with_invalid_entrypoint() {
   let opts = WorkerContextInitOpts {
     service_path: "./test_cases/meow".into(),
     no_module_cache: false,
+    no_npm: None,
     env_vars: HashMap::new(),
     timing: None,
     maybe_eszip: None,

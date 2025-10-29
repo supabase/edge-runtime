@@ -70,6 +70,7 @@ interface UserWorkerCreateOptions {
   servicePath?: string | null;
   envVars?: string[][] | [string, string][] | null;
   noModuleCache?: boolean | null;
+  noNpm?: boolean | null;
 
   forceCreate?: boolean | null;
   allowRemoteModules?: boolean | null;

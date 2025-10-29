@@ -391,6 +391,7 @@ impl WorkerPool {
           let WorkerContextInitOpts {
             service_path,
             no_module_cache,
+            no_npm,
             env_vars,
             conf,
             maybe_eszip,
@@ -408,6 +409,7 @@ impl WorkerPool {
               WorkerContextInitOpts {
                 service_path,
                 no_module_cache,
+                no_npm,
                 env_vars,
                 timing: None,
                 conf,

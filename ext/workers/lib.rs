@@ -107,6 +107,7 @@ pub struct UserWorkerCreateOptions {
   service_path: String,
   env_vars: Vec<(String, String)>,
   no_module_cache: bool,
+  no_npm: Option<bool>,
 
   force_create: bool,
   allow_remote_modules: bool,
@@ -193,6 +194,7 @@ pub async fn op_user_worker_create(
       service_path,
       env_vars,
       no_module_cache,
+      no_npm,
 
       force_create,
       allow_remote_modules,
@@ -227,6 +229,7 @@ pub async fn op_user_worker_create(
     let user_worker_options = WorkerContextInitOpts {
       service_path: PathBuf::from(service_path),
       no_module_cache,
+      no_npm,
 
       env_vars: env_vars.into_iter().collect(),
       conf: WorkerRuntimeOpts::UserWorker({

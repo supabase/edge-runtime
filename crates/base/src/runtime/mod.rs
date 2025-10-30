@@ -470,6 +470,7 @@ where
       mut conf,
       service_path,
       no_module_cache,
+      no_npm,
       env_vars,
       maybe_eszip,
       maybe_entrypoint,
@@ -584,6 +585,8 @@ where
           if let Some(module_url) = main_module_url.as_ref() {
             builder.set_entrypoint(Some(module_url.to_file_path().unwrap()));
           }
+          builder.set_no_npm(no_npm);
+
           emitter_factory.set_deno_options(builder.build()?);
 
           let deno_options = emitter_factory.deno_options()?;
@@ -2465,6 +2468,7 @@ mod test {
             maybe_module_code: None,
 
             no_module_cache: false,
+            no_npm: None,
             env_vars: env_vars.unwrap_or_default(),
 
             static_patterns,
@@ -2558,6 +2562,7 @@ mod test {
         WorkerContextInitOpts {
           service_path: PathBuf::from("./test_cases/"),
           no_module_cache: false,
+          no_npm: None,
           env_vars: Default::default(),
           timing: None,
           maybe_eszip: None,
@@ -2626,6 +2631,7 @@ mod test {
         WorkerContextInitOpts {
           service_path: PathBuf::from("./test_cases/"),
           no_module_cache: false,
+          no_npm: None,
           env_vars: Default::default(),
           timing: None,
           maybe_eszip: Some(EszipPayloadKind::VecKind(eszip_code)),
@@ -2714,6 +2720,7 @@ mod test {
         WorkerContextInitOpts {
           service_path,
           no_module_cache: false,
+          no_npm: None,
           env_vars: Default::default(),
           timing: None,
           maybe_eszip: Some(EszipPayloadKind::VecKind(eszip_code)),

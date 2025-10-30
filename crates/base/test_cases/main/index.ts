@@ -65,6 +65,13 @@ Deno.serve(async (req: Request) => {
       "x-cpu-time-hard-limit-ms",
       10 * 60 * 1000,
     );
+    const noNpm = parseIntFromHeadersOrDefault(
+        req,
+        "x-no-npm",
+        void 0,
+      ) === 1
+      ? true
+      : null;
     const noModuleCache = false;
     const envVarsObj = Deno.env.toObject();
     const envVars = Object.keys(envVarsObj).map((k) => [k, envVarsObj[k]]);
@@ -87,6 +94,7 @@ Deno.serve(async (req: Request) => {
       cpuTimeSoftLimitMs,
       cpuTimeHardLimitMs,
       noModuleCache,
+      noNpm,
       envVars,
       context,
     });

@@ -256,6 +256,7 @@ impl Default for Timing {
 pub struct WorkerContextInitOpts {
   pub service_path: PathBuf,
   pub no_module_cache: bool,
+  pub no_npm: Option<bool>,
   pub env_vars: HashMap<String, String>,
   pub conf: WorkerRuntimeOpts,
   pub static_patterns: Vec<String>,

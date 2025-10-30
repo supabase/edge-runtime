@@ -123,6 +123,7 @@ where
     .init_opts(WorkerContextInitOpts {
       service_path: PathBuf::from("meow"),
       no_module_cache: false,
+      no_npm: None,
       // XXX: This seems insufficient as it may rely on the env contained in
       // Edge Functions' metadata.
       env_vars: std::env::vars().collect(),

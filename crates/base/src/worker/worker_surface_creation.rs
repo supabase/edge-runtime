@@ -630,6 +630,7 @@ impl MainWorkerSurfaceBuilder {
     inner.set_init_opts(Some(WorkerContextInitOpts {
       service_path,
       no_module_cache: no_module_cache.unwrap_or(flags.no_module_cache),
+      no_npm: None,
 
       timing: None,
       maybe_eszip,
@@ -783,6 +784,7 @@ impl EventWorkerSurfaceBuilder {
     inner.set_init_opts(Some(WorkerContextInitOpts {
       service_path,
       no_module_cache: no_module_cache.unwrap_or(flags.no_module_cache),
+      no_npm: None,
 
       env_vars: std::env::vars().collect(),
       timing: None,

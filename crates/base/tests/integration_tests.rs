@@ -29,6 +29,7 @@ use base::utils::test_utils::create_test_user_worker;
 use base::utils::test_utils::ensure_npm_package_installed;
 use base::utils::test_utils::test_user_runtime_opts;
 use base::utils::test_utils::test_user_worker_pool_policy;
+use base::utils::test_utils::TestBed;
 use base::utils::test_utils::TestBedBuilder;
 use base::utils::test_utils::{self};
 use base::worker;
@@ -4099,6 +4100,80 @@ async fn test_user_workers_cleanup_idle_workers() {
   }
 
   unreachable!("test failed");
+}
+
+#[tokio::test]
+#[serial]
+async fn test_no_npm() {
+  async fn send_it(
+    no_npm: bool,
+    tx: mpsc::UnboundedSender<WorkerEventWithMetadata>,
+  ) -> (TestBed, u16) {
+    let tb = TestBedBuilder::new("./test_cases/main")
+      .with_per_worker_policy(None)
+      .with_worker_event_sender(Some(tx))
+      .build()
+      .await;
+
+    let resp = tb
+      .request(|mut b| {
+        b = b.uri("/npm-import-with-package-json");
+        if no_npm {
+          b = b.header("x-no-npm", HeaderValue::from_static("1"))
+        }
+        b.body(Body::empty()).context("can't make request")
+      })
+      .await
+      .unwrap();
+
+    (tb, resp.status().as_u16())
+  }
+
+  {
+    // Since `noNpm` is configured, it will not discover package.json, and
+    // `npm:is-even` will resolve normally using Deno's original module
+    // resolution method.
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let (tb, status_code) = send_it(true, tx).await;
+
+    assert_eq!(status_code, StatusCode::OK);
+
+    rx.close();
+    tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
+  }
+  {
+    // Note that `noNpm` is not set this time. In this case, it will try to
+    // discover package.json and will eventually find it.
+    //
+    // This causes it to switch to Byonm mode and try to resolve modules from
+    // the adjacent node_modules/.
+    //
+    // However, since node_modules/ does not exist anywhere, the attempt to
+    // resolve `npm:is-even` will fail.
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let (tb, status_code) = send_it(false, tx).await;
+
+    assert_eq!(status_code, StatusCode::INTERNAL_SERVER_ERROR);
+
+    rx.close();
+    tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
+
+    while let Some(ev) = rx.recv().await {
+      let WorkerEvents::BootFailure(ev) = ev.event else {
+        continue;
+      };
+
+      assert!(ev.msg.starts_with(
+        "worker boot error: failed to bootstrap runtime: failed to create the \
+graph: Could not find a matching package for 'npm:is-even' in the node_modules \
+directory."
+      ));
+
+      return;
+    }
+
+    unreachable!("test failed");
+  }
 }
 
 #[derive(Deserialize)]

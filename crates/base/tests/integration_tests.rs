@@ -4224,6 +4224,27 @@ async fn test_user_worker_with_import_map() {
   }
 }
 
+#[tokio::test]
+#[serial]
+async fn test_pin_package_version_correctly() {
+  integration_test!(
+    "./test_cases/pin-package",
+    NON_SECURE_PORT,
+    "",
+    None,
+    None,
+    None,
+    (|resp| async {
+      let res = resp.unwrap();
+      assert!(res.status().as_u16() == 200);
+
+      let body_bytes = res.bytes().await.unwrap();
+      assert_eq!(body_bytes, r#"3.0.0"#);
+    }),
+    TerminationToken::new()
+  );
+}
+
 #[derive(Deserialize)]
 struct ErrorResponsePayload {
   msg: String,

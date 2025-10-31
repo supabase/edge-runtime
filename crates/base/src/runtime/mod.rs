@@ -569,7 +569,6 @@ where
             CacheSetting::Use
           };
 
-          emitter_factory.set_import_map_path(maybe_import_map_path.clone());
           emitter_factory
             .set_permissions_options(Some(permissions_options.clone()));
 
@@ -591,7 +590,9 @@ where
           if let Some(module_url) = main_module_url.as_ref() {
             builder.set_entrypoint(Some(module_url.to_file_path().unwrap()));
           }
-          builder.set_no_npm(no_npm);
+          builder
+            .set_no_npm(no_npm)
+            .set_import_map_path(maybe_import_map_path.clone());
 
           emitter_factory.set_deno_options(builder.build()?);
 

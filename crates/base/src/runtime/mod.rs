@@ -517,6 +517,11 @@ where
         let base_dir_path =
           std::env::current_dir().map(|p| p.join(&service_path))?;
 
+        let maybe_import_map_path = context
+          .get("importMapPath")
+          .and_then(|it| it.as_str())
+          .map(str::to_string);
+
         let eszip = if let Some(eszip_payload) = maybe_eszip {
           eszip_payload
         } else {
@@ -585,7 +590,9 @@ where
           if let Some(module_url) = main_module_url.as_ref() {
             builder.set_entrypoint(Some(module_url.to_file_path().unwrap()));
           }
-          builder.set_no_npm(no_npm);
+          builder
+            .set_no_npm(no_npm)
+            .set_import_map_path(maybe_import_map_path.clone());
 
           emitter_factory.set_deno_options(builder.build()?);
 
@@ -634,10 +641,6 @@ where
           .get("sourceMap")
           .and_then(serde_json::Value::as_bool)
           .unwrap_or_default();
-        let maybe_import_map_path = context
-          .get("importMapPath")
-          .and_then(|it| it.as_str())
-          .map(str::to_string);
 
         let rt_provider = create_module_loader_for_standalone_from_eszip_kind(
           eszip,

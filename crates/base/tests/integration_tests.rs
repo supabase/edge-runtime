@@ -25,13 +25,13 @@ use base::server::ServerEvent;
 use base::server::ServerFlags;
 use base::server::ServerHealth;
 use base::server::Tls;
+use base::utils::test_utils;
 use base::utils::test_utils::create_test_user_worker;
 use base::utils::test_utils::ensure_npm_package_installed;
 use base::utils::test_utils::test_user_runtime_opts;
 use base::utils::test_utils::test_user_worker_pool_policy;
 use base::utils::test_utils::TestBed;
 use base::utils::test_utils::TestBedBuilder;
-use base::utils::test_utils::{self};
 use base::worker;
 use base::worker::TerminationToken;
 use base::WorkerKind;
@@ -4173,6 +4173,54 @@ directory."
     }
 
     unreachable!("test failed");
+  }
+}
+
+#[tokio::test]
+#[serial]
+async fn test_user_worker_with_import_map() {
+  let assert_fn = |resp: Result<Response, reqwest::Error>| async {
+    let res = resp.unwrap();
+    let status = res.status().as_u16();
+
+    let body_bytes = res.bytes().await.unwrap();
+    let body_str = String::from_utf8_lossy(&body_bytes);
+
+    assert_eq!(
+      status, 200,
+      "Expected 200, got {} with body: {}",
+      status, body_str
+    );
+
+    assert!(
+      body_str.contains("import map works!"),
+      "Expected import map works!, got: {}",
+      body_str
+    );
+  };
+  {
+    integration_test!(
+      "./test_cases/user-worker-with-import-map",
+      NON_SECURE_PORT,
+      "import_map",
+      None,
+      None,
+      None,
+      (assert_fn),
+      TerminationToken::new()
+    );
+  }
+  {
+    integration_test!(
+      "./test_cases/user-worker-with-import-map",
+      NON_SECURE_PORT,
+      "inline_import_map",
+      None,
+      None,
+      None,
+      (assert_fn),
+      TerminationToken::new()
+    );
   }
 }
 

@@ -15,7 +15,6 @@ mod eszip;
 
 pub mod errors;
 pub mod graph;
-pub mod import_map;
 pub mod jsr;
 pub mod metadata;
 pub mod module_loader;

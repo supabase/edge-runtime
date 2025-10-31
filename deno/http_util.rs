@@ -251,6 +251,7 @@ impl HttpClientProvider {
               Some(provider) => Some(provider.get_or_try_init()?.clone()),
               None => None,
             },
+            // http2: false,
             ..self.options.clone()
           },
         )?;

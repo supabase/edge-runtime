@@ -13,6 +13,7 @@ use tokio::fs::create_dir_all;
 mod emitter;
 mod eszip;
 
+pub mod cert_provider;
 pub mod errors;
 pub mod graph;
 pub mod jsr;

@@ -179,7 +179,7 @@ async fn resolve_snapshot(
         let guard = lockfile.lock();
         (guard.overwrite, guard.filename.clone())
       };
-      if overwrite {
+      if !overwrite {
         let snapshot = snapshot_from_lockfile(
           lockfile.clone(),
           &registry_info_provider.as_npm_registry_api(),

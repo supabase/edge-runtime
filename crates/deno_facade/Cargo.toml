@@ -39,7 +39,6 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 url.workspace = true
-urlencoding.workspace = true
 
 dashmap = "5.5.3"
 hashlink = "0.8"

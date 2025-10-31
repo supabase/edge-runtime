@@ -1892,6 +1892,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "twox-hash",
+ "urlencoding",
  "winapi",
 ]
 
@@ -2172,7 +2173,6 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
- "urlencoding",
 ]
 
 [[package]]

@@ -78,6 +78,7 @@ pub use deno_resolver;
 pub use node_resolver;
 
 pub use deno_permissions::PermissionsContainer;
+pub use versions::edge_runtime_version;
 
 pub fn version() -> &'static str {
   env!("CARGO_PKG_VERSION")

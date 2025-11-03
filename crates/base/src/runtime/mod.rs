@@ -31,6 +31,7 @@ use cooked_waker::WakeRef;
 use cpu_timer::CPUTimer;
 use ctor::ctor;
 use deno::args::CacheSetting;
+use deno::args::TypeCheckMode;
 use deno::deno_crypto;
 use deno::deno_fetch;
 use deno::deno_fs;
@@ -591,6 +592,7 @@ where
             builder.set_entrypoint(Some(module_url.to_file_path().unwrap()));
           }
           builder
+            .set_type_check_mode(is_user_worker.then_some(TypeCheckMode::Local))
             .set_no_npm(no_npm)
             .set_import_map_path(maybe_import_map_path.clone());
 

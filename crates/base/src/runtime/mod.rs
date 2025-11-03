@@ -3048,7 +3048,10 @@ mod test {
       .to_vec();
     assert_eq!(
       deno_version_array.first().unwrap().as_str().unwrap(),
-      "supabase-edge-runtime-0.1.0 (compatible with Deno vUNKNOWN)"
+      format!(
+        "supabase-edge-runtime-0.1.0 (compatible with Deno v{})",
+        deno::version()
+      )
     );
     assert_eq!(
       deno_version_array.get(1).unwrap().as_str().unwrap(),

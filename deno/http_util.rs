@@ -1,7 +1,7 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 use crate::auth_tokens::AuthToken;
-use crate::versions::get_user_agent;
+use crate::versions::user_agent;
 
 use cache_control::Cachability;
 use cache_control::CacheControl;
@@ -245,7 +245,7 @@ impl HttpClientProvider {
       Entry::Occupied(entry) => Ok(HttpClient::new(entry.get().clone())),
       Entry::Vacant(entry) => {
         let client = create_http_client(
-          get_user_agent(),
+          user_agent(),
           CreateHttpClientOptions {
             root_cert_store: match &self.root_cert_store_provider {
               Some(provider) => Some(provider.get_or_try_init()?.clone()),

@@ -1,15 +1,26 @@
 use std::borrow::Cow;
 
 use deno_telemetry::OtelRuntimeConfig;
+use once_cell::sync::Lazy;
 
 use crate::version;
 
-pub fn deno() -> &'static str {
-  concat!("Supa:", "0")
+pub fn edge_runtime_version() -> &'static str {
+  option_env!("GIT_V_TAG").unwrap_or("0.1.0")
 }
 
-pub fn get_user_agent() -> &'static str {
-  concat!("Supa:", "0")
+pub fn user_agent() -> &'static str {
+  static VALUE: Lazy<String> = Lazy::new(|| {
+    let deno_version = version();
+    let edge_runtime_version = edge_runtime_version();
+    format!(
+      // TODO: It should be changed to a well-known name for the ecosystem.
+      "Deno/{} (variant; SupabaseEdgeRuntime/{})",
+      deno_version, edge_runtime_version
+    )
+  });
+
+  VALUE.as_str()
 }
 
 pub fn is_canary() -> bool {

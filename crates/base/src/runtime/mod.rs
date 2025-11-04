@@ -133,17 +133,6 @@ pub mod permissions;
 
 const DEFAULT_ALLOC_CHECK_INT_MSEC: u64 = 1000;
 
-static SUPABASE_UA: Lazy<String> = Lazy::new(|| {
-  let deno_version =
-    MAYBE_DENO_VERSION.get().map(|it| &**it).unwrap_or("1.0.0");
-  let supabase_version = option_env!("GIT_V_TAG").unwrap_or("0.1.0");
-  format!(
-    // TODO: It should be changed to a well-known name for the ecosystem.
-    "Deno/{} (variant; SupabaseEdgeRuntime/{})",
-    deno_version, supabase_version
-  )
-});
-
 static ALLOC_CHECK_DUR: Lazy<Duration> = Lazy::new(|| {
   std::env::var("EDGE_RUNTIME_ALLOC_CHECK_INT")
     .ok()
@@ -159,7 +148,6 @@ pub static SHOULD_USE_VERBOSE_DEPRECATED_API_WARNING: OnceCell<bool> =
   OnceCell::new();
 pub static SHOULD_INCLUDE_MALLOCED_MEMORY_ON_MEMCHECK: OnceCell<bool> =
   OnceCell::new();
-pub static MAYBE_DENO_VERSION: OnceCell<String> = OnceCell::new();
 
 pub static MAIN_WORKER_INITIAL_HEAP_SIZE_MIB: OnceCell<u64> = OnceCell::new();
 pub static MAIN_WORKER_MAX_HEAP_SIZE_MIB: OnceCell<u64> = OnceCell::new();
@@ -242,7 +230,6 @@ pub trait GetRuntimeContext {
     conf: &WorkerRuntimeOpts,
     use_inspector: bool,
     migrated: bool,
-    version: Option<&str>,
     otel_config: Option<OtelConfig>,
   ) -> impl Serialize {
     serde_json::json!({
@@ -252,11 +239,8 @@ pub trait GetRuntimeContext {
       "inspector": use_inspector,
       "migrated": migrated,
       "version": {
-        "runtime": version.unwrap_or("0.1.0"),
-        "deno": MAYBE_DENO_VERSION
-          .get()
-          .map(|it| &**it)
-          .unwrap_or("UNKNOWN"),
+        "runtime": deno::edge_runtime_version(),
+        "deno": deno::version(),
       },
       "flags": {
         "SHOULD_DISABLE_DEPRECATED_API_WARNING":
@@ -770,13 +754,13 @@ where
           deno_canvas::deno_canvas::init_ops(),
           deno_fetch::deno_fetch::init_ops::<PermissionsContainer>(
             deno_fetch::Options {
-              user_agent: SUPABASE_UA.clone(),
+              user_agent: deno::versions::user_agent().to_string(),
               root_cert_store_provider: Some(root_cert_store_provider.clone()),
               ..Default::default()
             },
           ),
           deno_websocket::deno_websocket::init_ops::<PermissionsContainer>(
-            SUPABASE_UA.clone(),
+            deno::versions::user_agent().to_string(),
             Some(root_cert_store_provider.clone()),
             None,
           ),
@@ -1036,7 +1020,6 @@ where
                 &conf,
                 has_inspector,
                 migrated,
-                option_env!("GIT_V_TAG"),
                 maybe_otel_config,
               ));
 
@@ -3065,7 +3048,10 @@ mod test {
       .to_vec();
     assert_eq!(
       deno_version_array.first().unwrap().as_str().unwrap(),
-      "supabase-edge-runtime-0.1.0 (compatible with Deno vUNKNOWN)"
+      format!(
+        "supabase-edge-runtime-0.1.0 (compatible with Deno v{})",
+        deno::version()
+      )
     );
     assert_eq!(
       deno_version_array.get(1).unwrap().as_str().unwrap(),

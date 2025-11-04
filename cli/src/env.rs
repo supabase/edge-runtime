@@ -33,8 +33,6 @@ pub(super) fn resolve_deno_runtime_env() {
     })
   };
 
-  runtime::MAYBE_DENO_VERSION.get_or_init(|| deno::version().to_string());
-
   resolve_boolish_env(
     "DENO_NO_DEPRECATION_WARNINGS",
     &runtime::SHOULD_DISABLE_DEPRECATED_API_WARNING,

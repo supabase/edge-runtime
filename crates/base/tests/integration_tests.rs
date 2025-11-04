@@ -21,6 +21,7 @@ use base::integration_test;
 use base::integration_test_listen_fut;
 use base::integration_test_with_server_flag;
 use base::server::Builder;
+use base::server::RequestIdleTimeout;
 use base::server::ServerEvent;
 use base::server::ServerFlags;
 use base::server::ServerHealth;
@@ -1860,7 +1861,7 @@ async fn test_request_idle_timeout_no_streamed_response(
 
   integration_test_with_server_flag!(
     ServerFlags {
-      request_idle_timeout_ms: Some(1000),
+      request_idle_timeout: RequestIdleTimeout::from_millis(None, Some(1000)),
       ..Default::default()
     },
     "./test_cases/main",
@@ -1918,7 +1919,7 @@ async fn test_request_idle_timeout_streamed_response(maybe_tls: Option<Tls>) {
 
   integration_test_with_server_flag!(
     ServerFlags {
-      request_idle_timeout_ms: Some(2000),
+      request_idle_timeout: RequestIdleTimeout::from_millis(None, Some(2000)),
       ..Default::default()
     },
     "./test_cases/main",
@@ -1991,7 +1992,7 @@ async fn test_request_idle_timeout_streamed_response_first_chunk_timeout(
 
   integration_test_with_server_flag!(
     ServerFlags {
-      request_idle_timeout_ms: Some(1000),
+      request_idle_timeout: RequestIdleTimeout::from_millis(None, Some(1000)),
       ..Default::default()
     },
     "./test_cases/main",
@@ -2079,7 +2080,7 @@ async fn test_request_idle_timeout_websocket_deno(
 
   integration_test_with_server_flag!(
     ServerFlags {
-      request_idle_timeout_ms: Some(1000),
+      request_idle_timeout: RequestIdleTimeout::from_millis(None, Some(1000)),
       ..Default::default()
     },
     "./test_cases/main",

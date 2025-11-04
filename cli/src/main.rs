@@ -13,6 +13,7 @@ use anyhow::Context;
 use anyhow::Error;
 use base::server;
 use base::server::Builder;
+use base::server::RequestIdleTimeout;
 use base::server::ServerFlags;
 use base::server::Tls;
 use base::utils::units::percentage_value;
@@ -180,8 +181,12 @@ fn main() -> Result<ExitCode, anyhow::Error> {
           sub_matches.get_one::<usize>("max-parallelism").cloned();
         let maybe_request_wait_timeout =
           sub_matches.get_one::<u64>("request-wait-timeout").cloned();
-        let maybe_request_idle_timeout =
-          sub_matches.get_one::<u64>("request-idle-timeout").cloned();
+        let maybe_main_worker_request_idle_timeout = sub_matches
+          .get_one::<u64>("main-worker-request-idle-timeout")
+          .cloned();
+        let maybe_user_worker_request_idle_timeout = sub_matches
+          .get_one::<u64>("user-worker-request-idle-timeout")
+          .cloned();
         let maybe_request_read_timeout =
           sub_matches.get_one::<u64>("request-read-timeout").cloned();
 
@@ -249,7 +254,10 @@ fn main() -> Result<ExitCode, anyhow::Error> {
           graceful_exit_keepalive_deadline_ms,
           event_worker_exit_deadline_sec,
           request_wait_timeout_ms: maybe_request_wait_timeout,
-          request_idle_timeout_ms: maybe_request_idle_timeout,
+          request_idle_timeout: RequestIdleTimeout::from_millis(
+            maybe_main_worker_request_idle_timeout,
+            maybe_user_worker_request_idle_timeout,
+          ),
           request_read_timeout_ms: maybe_request_read_timeout,
           request_buffer_size: Some(request_buffer_size),
 

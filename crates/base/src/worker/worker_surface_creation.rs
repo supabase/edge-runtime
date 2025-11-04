@@ -70,7 +70,7 @@ mod request {
     duplex_stream_tx: mpsc::UnboundedSender<DuplexStreamEntry>,
     msg: WorkerRequestMsg,
   ) -> Result<(), anyhow::Error> {
-    let request_idle_timeout_ms = flags.request_idle_timeout_ms;
+    let request_idle_timeout_dur = flags.request_idle_timeout.get(worker_kind);
     let request_buf_size = flags.request_buffer_size.unwrap_or_else(|| {
       const KIB: usize = 1024;
       static CHECK: Lazy<AtomicFlag> = Lazy::new(AtomicFlag::default);
@@ -125,7 +125,7 @@ mod request {
                   tokio::spawn(relay_upgraded_request_and_response(
                     req_upgrade,
                     parts,
-                    request_idle_timeout_ms,
+                    request_idle_timeout_dur,
                   ));
 
                   return;
@@ -144,8 +144,8 @@ mod request {
     tokio::task::yield_now().await;
 
     let maybe_cancel_fut = async move {
-      if let Some(timeout_ms) = request_idle_timeout_ms {
-        sleep(Duration::from_millis(timeout_ms)).await;
+      if let Some(dur) = request_idle_timeout_dur {
+        sleep(dur).await;
       } else {
         pending::<()>().await;
         unreachable!()
@@ -185,18 +185,17 @@ mod request {
       }
     }
 
-    if let Some(timeout_ms) = flags.request_idle_timeout_ms {
+    if let Some(dur) = request_idle_timeout_dur {
       let headers = res.headers();
       let is_streamed_response =
         !headers.contains_key(http_v02::header::CONTENT_LENGTH);
 
       if is_streamed_response {
-        let duration = Duration::from_millis(timeout_ms);
         let (parts, body) = res.into_parts();
 
         drop(res_tx.send(Ok(Response::from_parts(
           parts,
-          Body::wrap_stream(CancelOnWriteTimeout::new(body, duration)),
+          Body::wrap_stream(CancelOnWriteTimeout::new(body, dur)),
         ))));
 
         return Ok(());
@@ -210,14 +209,11 @@ mod request {
   async fn relay_upgraded_request_and_response(
     downstream: OnUpgrade,
     parts: http1::Parts<io::DuplexStream>,
-    maybe_idle_timeout: Option<u64>,
+    maybe_idle_timeout: Option<Duration>,
   ) {
     let upstream = Upgraded2::new(parts.io, parts.read_buf);
-    let mut upstream = if let Some(timeout_ms) = maybe_idle_timeout {
-      ReadTimeoutStream::with_timeout(
-        upstream,
-        Duration::from_millis(timeout_ms),
-      )
+    let mut upstream = if let Some(dur) = maybe_idle_timeout {
+      ReadTimeoutStream::with_timeout(upstream, dur)
     } else {
       ReadTimeoutStream::with_bypass(upstream)
     };

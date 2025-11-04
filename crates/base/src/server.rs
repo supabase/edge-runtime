@@ -22,6 +22,7 @@ use either::Either::Left;
 use either::Either::Right;
 use enum_as_inner::EnumAsInner;
 use ext_runtime::SharedMetricSource;
+use ext_workers::context::WorkerKind;
 use ext_workers::context::WorkerRequestMsg;
 use futures_util::future::poll_fn;
 use futures_util::future::BoxFuture;
@@ -278,6 +279,29 @@ pub enum OtelKind {
   Both,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RequestIdleTimeout {
+  main: Option<Duration>,
+  user: Option<Duration>,
+}
+
+impl RequestIdleTimeout {
+  pub fn from_millis(main: Option<u64>, user: Option<u64>) -> Self {
+    Self {
+      main: main.map(Duration::from_millis),
+      user: user.map(Duration::from_millis),
+    }
+  }
+
+  pub fn get(&self, kind: WorkerKind) -> Option<Duration> {
+    match kind {
+      WorkerKind::MainWorker => self.main,
+      WorkerKind::UserWorker => self.user,
+      WorkerKind::EventsWorker => None,
+    }
+  }
+}
+
 #[derive(Debug, Default, Clone, Copy)]
 pub struct ServerFlags {
   pub otel: Option<OtelKind>,
@@ -291,8 +315,8 @@ pub struct ServerFlags {
   pub graceful_exit_keepalive_deadline_ms: Option<u64>,
   pub event_worker_exit_deadline_sec: u64,
   pub request_wait_timeout_ms: Option<u64>,
-  pub request_idle_timeout_ms: Option<u64>,
   pub request_read_timeout_ms: Option<u64>,
+  pub request_idle_timeout: RequestIdleTimeout,
   pub request_buffer_size: Option<u64>,
 
   pub beforeunload_wall_clock_pct: Option<u8>,

@@ -208,7 +208,15 @@ fn get_start_command() -> Command {
         .value_parser(value_parser!(u64)),
     )
     .arg(
-      arg!(--"request-idle-timeout" <MILLISECONDS>)
+      arg!(--"main-worker-request-idle-timeout" <MILLISECONDS>)
+        .help(concat!(
+          "Maximum time in milliseconds that can be waited from when a ",
+          "worker takes over the request (disabled by default)"
+        ))
+        .value_parser(value_parser!(u64)),
+    )
+    .arg(
+      arg!(--"user-worker-request-idle-timeout" <MILLISECONDS>)
         .help(concat!(
           "Maximum time in milliseconds that can be waited from when a ",
           "worker takes over the request (disabled by default)"

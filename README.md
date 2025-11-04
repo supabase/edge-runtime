@@ -42,7 +42,7 @@ We welcome contributions to Supabase Edge Runtime!
 
 To get started either open an issue on
 [GitHub](https://github.com/supabase/edge-runtime/issues) or drop us a message
-on [Discord](https://discord.com/invite/R7bSpeBSJE)
+on [Discord](https://discord.supabase.com)
 
 Edge Runtime follows Supabase's
 [Code of Conduct](https://github.com/supabase/.github/blob/main/CODE_OF_CONDUCT.md).

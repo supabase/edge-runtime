@@ -42,9 +42,6 @@ use deno::deno_package_json;
 use deno::deno_telemetry;
 use deno::deno_telemetry::OtelConfig;
 use deno::deno_tls;
-use deno::deno_tls::deno_native_certs::load_native_certs;
-use deno::deno_tls::rustls::RootCertStore;
-use deno::deno_tls::RootCertStoreProvider;
 use deno::deno_url;
 use deno::deno_web;
 use deno::deno_webidl;
@@ -70,6 +67,7 @@ use deno_core::OpState;
 use deno_core::PollEventLoopOptions;
 use deno_core::ResolutionKind;
 use deno_core::RuntimeOptions;
+use deno_facade::cert_provider::get_root_cert_store_provider;
 use deno_facade::generate_binary_eszip;
 use deno_facade::metadata::Entrypoint;
 use deno_facade::migrate::MigrateOptions;
@@ -82,7 +80,6 @@ use either::Either;
 use either::Either::Left;
 use either::Either::Right;
 use ext_event_worker::events::WorkerEventWithMetadata;
-use ext_runtime::cert::ValueRootCertStoreProvider;
 use ext_runtime::external_memory::CustomAllocator;
 use ext_runtime::MemCheckWaker;
 use ext_runtime::PromiseMetrics;
@@ -2237,53 +2234,6 @@ fn terminate_execution_if_cancelled(
       v.cancel();
     }),
   )
-}
-
-fn get_root_cert_store_provider(
-) -> Result<Arc<dyn RootCertStoreProvider>, AnyError> {
-  // Create and populate a root cert store based on environment variable.
-  // Reference: https://github.com/denoland/deno/blob/v1.37.0/cli/args/mod.rs#L467
-  let mut root_cert_store = RootCertStore::empty();
-  let ca_stores: Vec<String> = (|| {
-    let env_ca_store = std::env::var("DENO_TLS_CA_STORE").ok()?;
-    Some(
-      env_ca_store
-        .split(',')
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect(),
-    )
-  })()
-  .unwrap_or_else(|| vec!["mozilla".to_string()]);
-
-  for store in ca_stores.iter() {
-    match store.as_str() {
-      "mozilla" => {
-        root_cert_store = deno_tls::create_default_root_cert_store();
-      }
-      "system" => {
-        let roots = load_native_certs().expect("could not load platform certs");
-        for root in roots {
-          root_cert_store
-            .add((&*root.0).into())
-            .expect("Failed to add platform cert to root cert store");
-        }
-      }
-      _ => {
-        bail!(
-          concat!(
-            "Unknown certificate store \"{0}\" specified ",
-            "(allowed: \"system,mozilla\")"
-          ),
-          store
-        );
-      }
-    }
-  }
-
-  Ok(Arc::new(ValueRootCertStoreProvider::new(
-    root_cert_store.clone(),
-  )))
 }
 
 fn set_v8_flags() {

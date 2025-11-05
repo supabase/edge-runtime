@@ -161,9 +161,9 @@ class UserWorker {
     } catch (err) {
       if (TRACING_ENABLED) {
         try {
-          span.setStatus(2, JSON.stringify(err));
+          span.setStatus({ code: 2, message: JSON.stringify(err) });
         } catch {
-          span.setStatus(2, "unknown");
+          span.setStatus({ code: 2, message: "unknown" });
         }
       }
       throw err;

@@ -50,11 +50,10 @@ async fn create_module_path(
   output_folder: &Path,
 ) -> PathBuf {
   let cleaned_specifier = strip_file_scheme(global_specifier);
-  let cleaned_specifier =
-    cleaned_specifier.replace(entry_path.to_str().unwrap(), "");
-  let module_path = PathBuf::from(cleaned_specifier);
+  let cleaned_path =
+    pathdiff::diff_paths(&*cleaned_specifier, entry_path).unwrap();
 
-  if let Some(parent) = module_path.parent() {
+  if let Some(parent) = cleaned_path.parent() {
     if parent.parent().is_some() {
       let output_folder_and_mod_folder = output_folder.join(
         parent
@@ -68,9 +67,9 @@ async fn create_module_path(
   }
 
   output_folder.join(
-    module_path
+    cleaned_path
       .strip_prefix("/")
-      .unwrap_or_else(|_| ensure_unix_relative_path(&module_path)),
+      .unwrap_or_else(|_| ensure_unix_relative_path(&cleaned_path)),
   )
 }
 

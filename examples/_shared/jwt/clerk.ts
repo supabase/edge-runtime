@@ -1,9 +1,9 @@
-// Clerk Provider JWT verification
+// Clerk as a third-party provider alongside Supabase Auth.
 // Use this template to validate tokens issued by Clerk integration
-
 import * as jose from "https://deno.land/x/jose@v4.14.4/index.ts";
 
-// Users must supply this value from function env
+// Obtain from https://clerk.com/setup/supabase
+// Must supply this value from function env
 const AUTH_THIRD_PARTY_CLERK_DOMAIN = Deno.env.get(
   "AUTH_THIRD_PARTY_CLERK_DOMAIN",
 );

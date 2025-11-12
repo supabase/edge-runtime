@@ -3,6 +3,7 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::error::Error;
 use std::io;
 use std::io::BufRead;
 use std::io::Cursor;
@@ -4244,6 +4245,49 @@ async fn test_pin_package_version_correctly() {
     }),
     TerminationToken::new()
   );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_drop_socket_when_http_handler_returns_an_invalid_value() {
+  {
+    integration_test!(
+      "./test_cases/main",
+      NON_SECURE_PORT,
+      "return-invalid-resp",
+      None,
+      None,
+      None,
+      (|resp| async {
+        let err = resp.unwrap_err();
+        let source = err.source();
+        let hyper_err = source
+          .and_then(|err| err.downcast_ref::<hyper::Error>())
+          .unwrap();
+        assert!(hyper_err.is_incomplete_message());
+      }),
+      TerminationToken::new()
+    );
+  }
+  {
+    integration_test!(
+      "./test_cases/main",
+      NON_SECURE_PORT,
+      "return-invalid-resp-2",
+      None,
+      None,
+      None,
+      (|resp| async {
+        let err = resp.unwrap_err();
+        let source = err.source();
+        let hyper_err = source
+          .and_then(|err| err.downcast_ref::<hyper::Error>())
+          .unwrap();
+        assert!(hyper_err.is_incomplete_message());
+      }),
+      TerminationToken::new()
+    );
+  }
 }
 
 #[derive(Deserialize)]

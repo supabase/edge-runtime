@@ -1251,8 +1251,8 @@ async fn req_failure_case_op_cancel_from_server_due_to_cpu_resource_limit() {
     120 * MB,
     None,
     |resp| async {
-      if resp.is_err() {
-        assert_connection_aborted(resp.unwrap_err());
+      if let Err(err) = resp {
+        assert_connection_aborted(err);
       } else {
         let res = resp.unwrap();
 
@@ -1283,8 +1283,8 @@ async fn req_failure_case_op_cancel_from_server_due_to_cpu_resource_limit_2() {
     10 * MB,
     Some("image/png"),
     |resp| async {
-      if resp.is_err() {
-        assert_connection_aborted(resp.unwrap_err());
+      if let Err(err) = resp {
+        assert_connection_aborted(err);
       } else {
         let res = resp.unwrap();
 

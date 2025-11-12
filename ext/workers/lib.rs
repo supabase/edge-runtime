@@ -566,7 +566,7 @@ pub async fn op_user_worker_fetch_send(
     .map(Rc::try_unwrap);
 
   let conn_token = match conn_token {
-    Some(Ok(it)) => it.get(),
+    Some(Ok(it)) => it.into_inner(),
     Some(Err(_)) => {
       error!("failed to unwrap connection watcher");
       None

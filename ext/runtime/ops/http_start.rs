@@ -39,14 +39,10 @@ fn op_http_start(
 
     // set a hardcoded address
     let addr: std::net::SocketAddr = "0.0.0.0:9999".parse().unwrap();
-    let conn = http_create_conn_resource(
-      state,
-      DuplexStream2::new(stream, token.clone()),
-      addr,
-      "http",
-    );
-
-    let conn_watcher = state.resource_table.add(ConnWatcher(token));
+    let stream = DuplexStream2::new(stream, token.clone());
+    let written = stream.written.clone();
+    let conn = http_create_conn_resource(state, stream, addr, "http");
+    let conn_watcher = state.resource_table.add(ConnWatcher(token, written));
 
     return Ok((conn, conn_watcher));
   }

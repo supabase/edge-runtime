@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::cell::RefCell;
 use std::pin::Pin;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::task::Poll;
 
 use anyhow::bail;
@@ -9,6 +10,7 @@ use anyhow::Context;
 use deno_core::error::custom_error;
 use deno_core::error::AnyError;
 use deno_core::op2;
+use deno_core::unsync::sync::AtomicFlag;
 use deno_core::ByteString;
 use deno_core::OpState;
 use deno_core::RcRef;
@@ -59,6 +61,9 @@ enum StreamState {
   Dropped,
 }
 
+// 스트림으로 아무것도 안썼으면서 ConnWatcher 가 드롭되려 하면 뭔가 문제생긴거니
+// ConnWatcher 에 있는 토큰 취소시켜서 커넥션 끊어버려.
+
 pub(crate) struct Stream2<S>
 where
   S: AsyncWrite + AsyncRead + Send + Unpin + 'static,
@@ -66,6 +71,7 @@ where
   io: Option<(S, Option<CancellationToken>)>,
   state: StreamState,
   wait_fut: Option<BoxFuture<'static, ()>>,
+  pub written: Arc<AtomicFlag>,
 }
 
 impl<S> Drop for Stream2<S>
@@ -107,6 +113,7 @@ where
       io: Some((stream, token)),
       state: StreamState::Normal,
       wait_fut: None,
+      written: Arc::default(),
     }
   }
 
@@ -145,8 +152,13 @@ where
     cx: &mut std::task::Context<'_>,
     buf: &[u8],
   ) -> Poll<Result<usize, std::io::Error>> {
+    let written = self.written.clone();
     if let Some((stream, _)) = Pin::into_inner(self).io.as_mut() {
-      Pin::new(stream).poll_write(cx, buf)
+      let ret = ready!(Pin::new(stream).poll_write(cx, buf));
+      if ret.is_ok() {
+        written.raise();
+      }
+      Poll::Ready(ret)
     } else {
       Poll::Ready(Err(std::io::Error::from(std::io::ErrorKind::BrokenPipe)))
     }
@@ -157,8 +169,13 @@ where
     cx: &mut std::task::Context<'_>,
     bufs: &[std::io::IoSlice<'_>],
   ) -> Poll<Result<usize, std::io::Error>> {
+    let written = self.written.clone();
     if let Some((stream, _)) = Pin::into_inner(self).io.as_mut() {
-      Pin::new(stream).poll_write_vectored(cx, bufs)
+      let ret = ready!(Pin::new(stream).poll_write_vectored(cx, bufs));
+      if ret.is_ok() {
+        written.raise();
+      }
+      Poll::Ready(ret)
     } else {
       Poll::Ready(Err(std::io::Error::from(std::io::ErrorKind::BrokenPipe)))
     }

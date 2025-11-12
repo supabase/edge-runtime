@@ -225,6 +225,16 @@ impl Service<Request<Body>> for WorkerService {
         }
       };
 
+      // If the token has already been canceled, drop the socket connection
+      // without sending a response.
+      if cancel.is_cancelled() {
+        error!("connection aborted (uri: {:?})", req_uri.to_string());
+        return Err(anyhow!(std::io::Error::new(
+          std::io::ErrorKind::ConnectionAborted,
+          "connection aborted"
+        )));
+      }
+
       let res = match res {
         Ok(res) => {
           let (parts, body) = res.into_parts();

@@ -256,6 +256,12 @@ Deno.serve(async (req: Request) => {
 
         // return await callWorker();
       }
+      if (e instanceof Deno.errors.InvalidWorkerResponse) {
+        if (e.message === "connection closed before message completed") {
+          // Give up on handling response and close http connection
+          return;
+        }
+      }
 
       const error = { msg: e.toString() };
       return new Response(

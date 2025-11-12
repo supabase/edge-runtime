@@ -61,9 +61,6 @@ enum StreamState {
   Dropped,
 }
 
-// 스트림으로 아무것도 안썼으면서 ConnWatcher 가 드롭되려 하면 뭔가 문제생긴거니
-// ConnWatcher 에 있는 토큰 취소시켜서 커넥션 끊어버려.
-
 pub(crate) struct Stream2<S>
 where
   S: AsyncWrite + AsyncRead + Send + Unpin + 'static,

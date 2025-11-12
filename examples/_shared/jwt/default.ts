@@ -6,7 +6,7 @@ import * as jose from "https://deno.land/x/jose@v4.14.4/index.ts";
 // Automatically supplied by Supabase
 const JWT_SECRET = Deno.env.get("JWT_SECRET");
 
-function getAuthToken(req: Request) {
+export function getAuthToken(req: Request) {
   const authHeader = req.headers.get("authorization");
   if (!authHeader) {
     throw new Error("Missing authorization header");

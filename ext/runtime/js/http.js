@@ -5,6 +5,7 @@ import { RequestPrototype } from "ext:deno_fetch/23_request.js";
 import {
   fromInnerResponse,
   newInnerResponse,
+  ResponsePrototype,
 } from "ext:deno_fetch/23_response.js";
 import { upgradeWebSocket } from "ext:deno_http/02_websocket.ts";
 import { HttpConn } from "ext:runtime/01_http.js";
@@ -245,7 +246,7 @@ async function respond(requestEvent, httpConn, options, snapshot) {
       }
     }
 
-    if (span) {
+    if (ObjectPrototypeIsPrototypeOf(ResponsePrototype, response) && span) {
       updateSpanFromResponse(span, response);
     }
 

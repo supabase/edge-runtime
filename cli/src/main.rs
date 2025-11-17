@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::bail;
 use anyhow::Context;
@@ -34,6 +35,7 @@ use flags::EszipV2ChecksumKind;
 use flags::OtelConsoleConfig;
 use flags::OtelKind;
 use log::warn;
+use tokio::time::timeout;
 
 mod env;
 mod flags;
@@ -319,6 +321,10 @@ fn main() -> Result<ExitCode, anyhow::Error> {
           } else {
             vec![]
           };
+        let timeout_dur = sub_matches
+          .get_one::<u64>("timeout")
+          .cloned()
+          .map(Duration::from_secs);
 
         if import_map_path.is_some() {
           warn!(concat!(
@@ -382,14 +388,24 @@ fn main() -> Result<ExitCode, anyhow::Error> {
         emitter_factory.set_deno_options(builder.build()?);
 
         let mut metadata = Metadata::default();
-        let eszip = generate_binary_eszip(
+        let eszip_fut = generate_binary_eszip(
           &mut metadata,
           Arc::new(emitter_factory),
           None,
           maybe_checksum_kind,
           Some(static_patterns),
-        )
-        .await?;
+        );
+
+        let eszip = if let Some(dur) = timeout_dur {
+          match timeout(dur, eszip_fut).await {
+            Ok(eszip) => eszip,
+            Err(_) => {
+              bail!("Failed to complete the bundle within the given time.")
+            }
+          }
+        } else {
+          eszip_fut.await
+        }?;
 
         let bin = eszip.into_bytes();
 

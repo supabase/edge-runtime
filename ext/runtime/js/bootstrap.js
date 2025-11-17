@@ -595,7 +595,7 @@ globalThis.bootstrapSBEdge = (opts, ctx) => {
     ObjectDefineProperties(globalThis, {
       console: nonEnumerable(
         new console.Console((msg, level) => {
-          return ops.op_user_worker_log(msg, level > 1);
+          return ops.op_user_worker_log(msg, level);
         }),
       ),
     });
@@ -680,6 +680,7 @@ globalThis.bootstrapSBEdge = (opts, ctx) => {
       "readTextFile": true,
       "mkdir": true,
       "makeTempDir": true,
+      "makeTempFile": true,
       "readDir": true,
 
       "kill": "mock",
@@ -696,6 +697,7 @@ globalThis.bootstrapSBEdge = (opts, ctx) => {
       "readTextFileSync": "allowIfRuntimeIsInInit",
       "mkdirSync": "allowIfRuntimeIsInInit",
       "makeTempDirSync": "allowIfRuntimeIsInInit",
+      "makeTempFileSync": "allowIfRuntimeIsInInit",
       "readDirSync": "allowIfRuntimeIsInInit",
 
       // TODO: use a non-hardcoded path

@@ -52,6 +52,7 @@ use futures::AsyncReadExt;
 use futures::AsyncSeekExt;
 use futures::FutureExt;
 use glob::glob;
+use indexmap::IndexMap;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use scopeguard::ScopeGuard;
@@ -773,7 +774,7 @@ pub async fn generate_binary_eszip(
   let root_dir_url = EszipRelativeFileBaseUrl::new(&root_dir_url);
   let root_path = root_dir_url.inner().to_file_path().unwrap();
 
-  let mut contents = HashMap::new();
+  let mut contents = IndexMap::new();
   let mut vfs_count = 0;
   let mut vfs_content_callback_fn = |_path: &_, _key: &_, content: Vec<u8>| {
     let key = format!("vfs://{}", vfs_count);

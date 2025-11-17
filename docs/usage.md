@@ -2,9 +2,9 @@
 
 ## The edge-runtime CLI
 
-Edge runtime is based on [Deno](https://deno.land) and try to follows the same
-concepts of it. One of them is the edge-runtime is primary a CLI based app and
-have different commands as well parameters.
+Edge runtime is based on [Deno](https://deno.land) and try to follows the same concepts of it.
+One of them is the edge-runtime is also a **CLI** based app and can run particular file code.
+> Just like `deno run` but with some differences
 
 The easiest way to use edge-runtime is by running it from docker:
 
@@ -38,13 +38,12 @@ Options:
 
 </details>
 
+Since edge-runtime is Open Source you can also clone this repository and compile the binary by yourself, see [Developers](../DEVELOPERS.md).
+
 ### `start` command
 
-The start command allows you to run JavaScript/TypeScript code in a similar way of standard Deno.
-But with the difference that it expects a main-service entrypoint with the given format: `path/index.ts`
-
-<details>
-  <summary>Example</summary>
+The start command allows you to run JavaScript/TypeScript code in a similar way of standard `deno run`.
+But with the difference that you should supply a "folder path" which contains an entrypoint `"index.ts"` file.
 
 ```ts
 // main.ts
@@ -58,9 +57,6 @@ Running it from docker by using `--main-service` parameter:
 docker run --rm -it -v $(pwd)/main.ts:/home/deno/main/index.ts supabase/edge-runtime:v1.69.9 start --main-service /home/deno/main
 ```
 
-In the command above we did first map our local `main.ts` script to an `index.ts` file located at `/home/deno/main` in the docker volume.
-So that we only need to supply this path as "main-service" entrypoint.
-
 Edge runtime will then run the script and print the following output:
 
 ```
@@ -68,16 +64,35 @@ Hello from Edge Runtime!!
 main worker has been destroyed
 ```
 
-Notice that a *"main worker has been destroyed"* was printed out.
-It means that our main service worker has nothing more to execute so the process will be finished.
+> Notice that a *"main worker has been destroyed"* was printed out.
+> It means that our main service worker has nothing more to execute so the process will be finished.
 
-</details>
+In the command above we did first map our local `main.ts` script to an `index.ts` file located at `/home/deno/main` in the docker volume.
+
+Local folder:
+
+```bash
+.
+└── main.ts
+```
+
+Docker container:
+
+```bash
+/home/deno
+└── main
+    └── index.ts
+```
 
 ## Edge functions
 
 In the previous section we discussed in how `edge-runtime` cli can be used to run a JavaScript/TypeScript code.
+Edge Runtime haves a lot of HTTP server features, but will not serve your edge-functions by default.
 
-**But how about serving edge functions?** In order to achieve that we must first understand the edge-runtime execution flow.
+**But how about serving edge functions?**
+In order that you should implement the http `serve` and function routing by yourself from JavaScript land.
+
+An edge-functions server can be done by intercepting the incomming http request in the **Main Worker** and then spawn an **User Worker** to handle it.
 
 <p align="center">
   <picture>
@@ -87,21 +102,55 @@ In the previous section we discussed in how `edge-runtime` cli can be used to ru
   </picture>
 </p>
 
-### Main Service
+<details>
+  <summary>Rust internals</summary>
 
-The main service is the initial script supplied on `start` command and it's should acts as root level of edge functions. By intercepting the incomming http request and spawing an **User Worker** to handle it.
+- **Hyper**: A HTTP low-level library for Rust.
+- **Sb. Interceptors**: Supabase's http interceptors built on top of hyper.
+- **Deno core**: Adds base deno runtime features like event loop and javascript execution.
+- **Sb. Extensions**: Supabase's custom Deno extensions, adds extra functionality on top of Deno core.
+- **Sb. Worker Isolate**: Supabase's untrusted code isolation, main layer used to orchestrate and manage "User Workers".
 
-All code execution here is more permisse, it means that main scope can access filesystem as well other privilegied APIs - like a `sudo` mode!
+Some internals will expose JavaScript APIs to be used from **Main Worker** and **User Worker**.
+
+</details>
+
+### Main Worker
+
+The main worker is the initial script supplied on `start` command and it's should acts as root level of edge functions.
+All code execution here is more permissive, it means that main scope can access filesystem as well other privilegied APIs.
+
+The core idea of this worker is to behave as you server endpoint and use `EdgeRuntime.*` APIs to orchestrate **User Workers** to execute untrusted code.
+
+```ts
+// spawning a user worker
+const worker = await EdgeRuntime.userWorkers.create({
+  servicePath: edgeFunctionFilepath,
+});
+```
 
 > When using Supabase Hosting Platform you don't have access to **Main Service** since its implicit managed by Supabase team.
+> For Self-Hosted environment you can use the [default template](https://github.com/supabase/supabase/blob/master/docker/volumes/functions/main/index.ts).
 
 ### User Worker
 
-Here's where your edge functions will really be executed!
+The user worker is a more restricted and isolated environment, great to put user-specific/untrusted code.
+Also, differently from Main Worker, the code execution must be an HTTP base endpoint.
+To communicate with an User Worker you must call the `UserWorker.fetch()`
 
-The user worker is a more restricted and isolated environment, great to put user-specific code.
+```ts
+// spawning a user worker
+const worker = await EdgeRuntime.userWorkers.create({
+  servicePath: edgeFunctionFilepath,
+});
+
+const request = new Request();
+const response = await worker.fetch(request);
+```
 
 > When using `supabase functions deploy`, in a Supabase Hosting Platform, all your function code will be executed inside an **User Worker**.
+
+Check the [Self-Hosting](#self-hosting) section for a complete example.
 
 ### API Comparison
 
@@ -244,8 +293,7 @@ To self-host edge-functions you should manage the main service as well the user 
 
 The core idea is to have a root level `Deno.serve()` inside the main service and then foward the request to an user worker.
 
-<details>
-  <summary>Example</summary>
+#### Example
 
 Creating a edge function to say hello!
 

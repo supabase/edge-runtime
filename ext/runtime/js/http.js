@@ -99,7 +99,17 @@ function serveHttp(conn) {
       streamRid: nextRequest.streamRid,
     };
 
-    return nextRequest;
+    return {
+      ...nextRequest,
+      respondWith: async function (resp) {
+        try {
+          return await nextRequest.respondWith(resp);
+        } catch (error) {
+          console.error(error);
+          throw error;
+        }
+      },
+    };
   };
 
   httpConn.close = () => {
@@ -271,7 +281,6 @@ async function respond(requestEvent, httpConn, options, snapshot) {
             }),
           );
         } catch (error) {
-          console.error(error);
           closeHttpConn(httpConn);
         }
       });

@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --allow-all
+#!/usr/bin/env -S deno run --allow-write --allow-read --allow-run --allow-net
 // Copyright 2018-2025 the Deno authors. MIT license.
 
 import { dirname, fromFileUrl, join } from "jsr:@std/path";

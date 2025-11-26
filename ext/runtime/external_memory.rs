@@ -59,6 +59,7 @@ unsafe extern "C" fn allocate(
   let count_loaded = allocator.count.load(Ordering::SeqCst);
 
   if count_loaded > allocator.max {
+    allocator.count.fetch_sub(n, Ordering::SeqCst);
     return std::ptr::null::<*mut [u8]>() as *mut c_void;
   }
 
@@ -78,6 +79,7 @@ unsafe extern "C" fn allocate_uninitialized(
   let count_loaded = allocator.count.load(Ordering::SeqCst);
 
   if count_loaded > allocator.max {
+    allocator.count.fetch_sub(n, Ordering::SeqCst);
     return std::ptr::null::<*mut [u8]>() as *mut c_void;
   }
 
@@ -114,6 +116,9 @@ unsafe extern "C" fn reallocate(
   let count_loaded = allocator.count.load(Ordering::SeqCst);
 
   if count_loaded > allocator.max {
+    allocator
+      .count
+      .fetch_sub(newlen.wrapping_sub(oldlen), Ordering::SeqCst);
     return std::ptr::null::<*mut [u8]>() as *mut c_void;
   }
 

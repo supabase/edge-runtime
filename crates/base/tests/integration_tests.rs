@@ -4267,7 +4267,8 @@ async fn test_drop_socket_when_http_handler_returns_an_invalid_value() {
       None,
       None,
       (|resp| async {
-        assert_connection_aborted(resp.unwrap_err());
+        let res = resp.unwrap();
+        assert!(res.status().as_u16() == 502);
       }),
       TerminationToken::new()
     );
@@ -4281,7 +4282,8 @@ async fn test_drop_socket_when_http_handler_returns_an_invalid_value() {
       None,
       None,
       (|resp| async {
-        assert_connection_aborted(resp.unwrap_err());
+        let res = resp.unwrap();
+        assert!(res.status().as_u16() == 502);
       }),
       TerminationToken::new()
     );

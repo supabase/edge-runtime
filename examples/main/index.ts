@@ -236,6 +236,7 @@ Deno.serve(async (req: Request) => {
 
       return await worker.fetch(req, { signal });
     } catch (e) {
+      console.log("hit", e);
       if (e instanceof Deno.errors.WorkerAlreadyRetired) {
         return await callWorker();
       }
@@ -255,12 +256,6 @@ Deno.serve(async (req: Request) => {
         // `fetch` again.
 
         // return await callWorker();
-      }
-      if (e instanceof Deno.errors.InvalidWorkerResponse) {
-        if (e.message === "connection closed before message completed") {
-          // Give up on handling response and close http connection
-          return;
-        }
       }
 
       const error = { msg: e.toString() };

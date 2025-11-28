@@ -52,33 +52,11 @@ const RAW_UPGRADE_RESPONSE_SENTINEL = fromInnerResponse(
 );
 
 function internalServerError() {
-  // "Internal Server Error"
-  return new Response(
-    new Uint8Array([
-      73,
-      110,
-      116,
-      101,
-      114,
-      110,
-      97,
-      108,
-      32,
-      83,
-      101,
-      114,
-      118,
-      101,
-      114,
-      32,
-      69,
-      114,
-      114,
-      111,
-      114,
-    ]),
-    { status: 500 },
-  );
+  return new Response("Internal Server Error", { status: 500 });
+}
+
+function badGatewayError() {
+  return new Response("Bad Gateway", { status: 502 });
 }
 
 function serveHttp(conn) {
@@ -102,11 +80,22 @@ function serveHttp(conn) {
     return {
       ...nextRequest,
       respondWith: async function (resp) {
+        let needThrow = true;
         try {
+          resp = await resp;
+          if (!(ObjectPrototypeIsPrototypeOf(ResponsePrototype, resp))) {
+            needThrow = false;
+            await nextRequest.respondWith(badGatewayError());
+            throw new TypeError(
+              "First argument to 'respondWith' must be a Response or a promise resolving to a Response",
+            );
+          }
           return await nextRequest.respondWith(resp);
         } catch (error) {
           console.error(error);
-          throw error;
+          if (needThrow) {
+            throw error;
+          }
         }
       },
     };

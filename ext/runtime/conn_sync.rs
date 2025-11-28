@@ -6,6 +6,8 @@ use tokio_util::sync::CancellationToken;
 
 pub struct ConnWatcher(pub Option<CancellationToken>, pub Arc<AtomicFlag>);
 
+// FIXME(Nyannyacha): Comment it out for now. Not confident if it is ok cancel
+// the token here.
 // impl Drop for ConnWatcher {
 //   fn drop(&mut self) {
 //     if let Some(token) = self.0.as_ref() {

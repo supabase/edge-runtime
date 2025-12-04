@@ -1,10 +1,9 @@
-use std::sync::Arc;
-
 use anyhow::Result;
 use deno_core::serde_v8::to_v8;
 use deno_core::ToV8;
 use ort::session::Session;
 use reqwest::Url;
+use std::sync::Arc;
 
 use super::session::get_session;
 use super::session::load_session_from_bytes;
@@ -31,29 +30,33 @@ pub struct Model {
 }
 
 impl Model {
-  fn new(session_with_id: SessionWithId) -> Self {
-    let input_names = session_with_id
-      .session
-      .inputs
-      .iter()
-      .map(|input| input.name.clone())
-      .collect::<Vec<_>>();
+  fn new(session_with_id: SessionWithId) -> Result<Self> {
+    let (input_names, output_names) = {
+      let session = { session_with_id.session.clone() };
 
-    let output_names = session_with_id
-      .session
-      .outputs
-      .iter()
-      .map(|output| output.name.clone())
-      .collect::<Vec<_>>();
+      let input_names = session
+        .inputs
+        .iter()
+        .map(|input| input.name.clone())
+        .collect::<Vec<_>>();
 
-    Self {
+      let output_names = session
+        .outputs
+        .iter()
+        .map(|output| output.name.clone())
+        .collect::<Vec<_>>();
+
+      (input_names, output_names)
+    };
+
+    Ok(Self {
       info: ModelInfo {
         id: session_with_id.id,
         input_names,
         output_names,
       },
       session: session_with_id.session,
-    }
+    })
   }
 
   pub fn get_info(&self) -> ModelInfo {
@@ -65,18 +68,27 @@ impl Model {
   }
 
   pub async fn from_id(id: &str) -> Option<Self> {
-    get_session(id)
-      .await
-      .map(|it| SessionWithId::from((id.to_string(), it)))
-      .map(Self::new)
+    let session = {
+      get_session(id)
+        .await
+        .map(|it| SessionWithId::from((id.to_string(), it)))
+    };
+
+    let session = session?;
+
+    Self::new(session).ok()
   }
 
   pub async fn from_url(model_url: Url) -> Result<Self> {
-    load_session_from_url(model_url).await.map(Self::new)
+    let session = load_session_from_url(model_url).await?;
+
+    Self::new(session)
   }
 
   pub async fn from_bytes(model_bytes: &[u8]) -> Result<Self> {
-    load_session_from_bytes(model_bytes).await.map(Self::new)
+    let session = load_session_from_bytes(model_bytes).await?;
+
+    Self::new(session)
   }
 }
 

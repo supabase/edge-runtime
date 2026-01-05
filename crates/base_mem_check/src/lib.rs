@@ -17,6 +17,13 @@ pub struct WorkerHeapStatistics {
   pub peak_malloced_memory: usize,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkerHeapStatisticsWithServicePath {
+  pub service_path: String,
+  pub stats: Option<WorkerHeapStatistics>,
+}
+
 impl From<&'_ v8::HeapStatistics> for WorkerHeapStatistics {
   fn from(value: &v8::HeapStatistics) -> Self {
     Self {

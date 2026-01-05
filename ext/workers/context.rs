@@ -2,9 +2,12 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
+use std::sync::RwLock;
 
 use anyhow::anyhow;
 use anyhow::Error;
+use base_mem_check::MemCheckState;
+use base_mem_check::WorkerHeapStatisticsWithServicePath;
 use deno::deno_permissions::PermissionsOptions;
 use deno_core::unsync::sync::AtomicFlag;
 use deno_core::FastString;
@@ -149,6 +152,7 @@ pub struct UserWorkerProfile {
   pub cancel: CancellationToken,
   pub status: TimingStatus,
   pub exit: WorkerExit,
+  pub mem_check: Arc<RwLock<MemCheckState>>,
 }
 
 #[derive(Debug, Clone)]
@@ -285,6 +289,9 @@ pub enum UserWorkerMsgs {
   Idle(Uuid),
   Shutdown(Uuid),
   TryCleanupIdleWorkers(usize, oneshot::Sender<usize>),
+  InqueryMemoryUsage(
+    oneshot::Sender<HashMap<Uuid, WorkerHeapStatisticsWithServicePath>>,
+  ),
 }
 
 pub type SendRequestResult = (Response<Body>, mpsc::UnboundedSender<()>);

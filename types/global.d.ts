@@ -108,6 +108,11 @@ interface HeapStatistics {
   peakMallocedMemory: number;
 }
 
+interface WorkerHeapStatisticsWithServicePath {
+  servicePath: string;
+  stats?: HeapStatistics;
+}
+
 interface RuntimeMetrics {
   mainWorkerHeapStats: HeapStatistics;
   eventWorkerHeapStats?: HeapStatistics;
@@ -138,6 +143,9 @@ declare namespace EdgeRuntime {
 
     static create(opts: UserWorkerCreateOptions): Promise<UserWorker>;
     static tryCleanupIdleWorkers(timeoutMs: number): Promise<number>;
+    static memStats(): Promise<
+      Map<string, WorkerHeapStatisticsWithServicePath>
+    >;
   }
 
   export function scheduleTermination(): void;

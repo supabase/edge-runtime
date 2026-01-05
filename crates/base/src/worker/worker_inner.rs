@@ -1,7 +1,9 @@
 use std::future::ready;
 use std::sync::Arc;
+use std::sync::RwLock;
 
 use anyhow::Error;
+use base_mem_check::MemCheckState;
 use base_rt::error::CloneableError;
 use deno_core::unsync::MaskFutureAsSend;
 use ext_event_worker::events::EventMetadata;
@@ -204,13 +206,14 @@ impl std::ops::Deref for Worker {
   }
 }
 
+pub type BooterSignalArgs =
+  (MetricSource, Arc<RwLock<MemCheckState>>, CancellationToken);
+
 impl Worker {
   pub fn start(
     self,
     eager_module_init: bool,
-    booter_signal: oneshot::Sender<
-      Result<(MetricSource, CancellationToken), Error>,
-    >,
+    booter_signal: oneshot::Sender<Result<BooterSignalArgs, Error>>,
     exit: WorkerExit,
   ) {
     let worker_name = self.worker_name.clone();
@@ -271,8 +274,11 @@ impl Worker {
         }
       };
 
-      let _ =
-        booter_signal.send(Ok((metric_src, new_runtime.drop_token.clone())));
+      let _ = booter_signal.send(Ok((
+        metric_src,
+        new_runtime.mem_check_state(),
+        new_runtime.drop_token.clone(),
+      )));
 
       let span = debug_span!(
         "poll",
@@ -383,4 +389,5 @@ pub struct WorkerSurface {
   pub msg_tx: mpsc::UnboundedSender<WorkerRequestMsg>,
   pub exit: WorkerExit,
   pub cancel: CancellationToken,
+  pub mem_check: Arc<RwLock<MemCheckState>>,
 }

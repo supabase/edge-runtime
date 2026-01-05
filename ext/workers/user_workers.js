@@ -18,6 +18,7 @@ const {
   op_user_worker_fetch_send,
   op_user_worker_create,
   op_user_worker_cleanup_idle_workers,
+  op_user_worker_mem_stats,
 } = ops;
 
 const NO_SUPABASE_TAG_WARN_MSG =
@@ -174,6 +175,10 @@ class UserWorker {
 
   static async tryCleanupIdleWorkers(timeoutMs) {
     return await op_user_worker_cleanup_idle_workers(timeoutMs);
+  }
+
+  static async memStats() {
+    return await op_user_worker_mem_stats();
   }
 }
 

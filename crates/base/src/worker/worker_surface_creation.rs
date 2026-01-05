@@ -20,10 +20,10 @@ use ext_workers::context::WorkerRequestMsg;
 use ext_workers::context::WorkerRuntimeOpts;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
-use tokio_util::sync::CancellationToken;
 
 use crate::inspector_server::Inspector;
 use crate::server::ServerFlags;
+use crate::worker::worker_inner::BooterSignalArgs;
 
 use super::driver::WorkerDriver;
 use super::pool::SupervisorPolicy;
@@ -381,9 +381,8 @@ impl WorkerSurfaceBuilder {
       eager_module_init,
     } = self;
 
-    let (worker_boot_result_tx, worker_boot_result_rx) = oneshot::channel::<
-      Result<(MetricSource, CancellationToken), anyhow::Error>,
-    >();
+    let (worker_boot_result_tx, worker_boot_result_rx) =
+      oneshot::channel::<Result<BooterSignalArgs, anyhow::Error>>();
 
     let flags = flags.unwrap_or_default();
     let init_opts = init_opts.context("init_opts must be specified")?;
@@ -433,7 +432,7 @@ impl WorkerSurfaceBuilder {
 
     // wait for worker to be successfully booted
     match worker_boot_result_rx.await? {
-      Ok((metric, cancel)) => {
+      Ok((metric, mem_check_state, cancel)) => {
         let elapsed = cx.worker_boot_start_time.elapsed().as_millis();
 
         send_event_if_event_worker_available(
@@ -449,6 +448,7 @@ impl WorkerSurfaceBuilder {
           msg_tx: worker_req_tx,
           exit,
           cancel,
+          mem_check: mem_check_state,
         })
       }
 

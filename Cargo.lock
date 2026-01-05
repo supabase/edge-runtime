@@ -3348,6 +3348,7 @@ name = "ext_workers"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base_mem_check",
  "bytes",
  "deno",
  "deno_config",

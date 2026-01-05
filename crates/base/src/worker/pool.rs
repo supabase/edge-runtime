@@ -12,6 +12,7 @@ use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Context;
 use anyhow::Error;
+use base_mem_check::WorkerHeapStatisticsWithServicePath;
 use deno::util::sync::AtomicFlag;
 use either::Either::Left;
 use enum_as_inner::EnumAsInner;
@@ -489,6 +490,7 @@ impl WorkerPool {
             permit: permit.map(Arc::new),
             status: status.clone(),
             exit: surface.exit,
+            mem_check: surface.mem_check.clone(),
             cancel,
           };
 
@@ -742,6 +744,32 @@ impl WorkerPool {
       }
     }
   }
+
+  fn memory_usage(
+    &self,
+    tx: Sender<HashMap<Uuid, WorkerHeapStatisticsWithServicePath>>,
+  ) {
+    let mem_checks = self
+      .user_workers
+      .iter()
+      .map(|it| (*it.0, (it.1.service_path.clone(), it.1.mem_check.clone())))
+      .collect::<Vec<_>>();
+
+    drop(tokio::task::spawn_blocking(move || {
+      let mut results = HashMap::new();
+      for (uuid, (service_path, mem_check)) in mem_checks {
+        results.insert(
+          uuid,
+          WorkerHeapStatisticsWithServicePath {
+            service_path,
+            stats: mem_check.read().ok().map(|it| it.current),
+          },
+        );
+      }
+
+      let _ = tx.send(results);
+    }));
+  }
 }
 
 pub async fn create_user_worker_pool(
@@ -834,6 +862,10 @@ pub async fn create_user_worker_pool(
 
               Some(UserWorkerMsgs::TryCleanupIdleWorkers(timeout_ms, res_tx)) => {
                 let _ = res_tx.send(worker_pool.try_cleanup_idle_workers(timeout_ms).await);
+              }
+
+              Some(UserWorkerMsgs::InqueryMemoryUsage(tx)) => {
+                worker_pool.memory_usage(tx);
               }
             }
           }

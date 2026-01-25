@@ -75,7 +75,7 @@ jobs:
           sudo apt-get -y install libblas-dev liblapack-dev libopenblas-dev
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@cargo-llvm-cov
 
       - name: Remove unwanted software
         run: |

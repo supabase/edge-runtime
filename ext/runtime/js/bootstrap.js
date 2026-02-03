@@ -263,6 +263,7 @@ const globalScope = {
   performance: writable(performance.performance),
 
   // messagePort
+  MessagePort: nonEnumerable(messagePort.MessagePort),
   MessageChannel: nonEnumerable(messagePort.MessageChannel),
   structuredClone: writable(messagePort.structuredClone),
 

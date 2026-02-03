@@ -768,7 +768,6 @@ globalThis.bootstrapSBEdge = (opts, ctx) => {
     });
   }
 
-  const nodeBootstrap = globalThis.nodeBootstrap;
   if (nodeBootstrap) {
     nodeBootstrap({
       runningOnMainThread: true,
@@ -783,6 +782,8 @@ globalThis.bootstrapSBEdge = (opts, ctx) => {
   delete globalThis.bootstrapSBEdge;
 };
 
+const nodeBootstrap = globalThis.nodeBootstrap;
+
 globalThis.bootstrap = {
   dispatchLoadEvent,
   dispatchUnloadEvent,
@@ -794,3 +795,4 @@ globalThis.bootstrap = {
 
 core.setUnhandledPromiseRejectionHandler(processUnhandledPromiseRejection);
 core.setHandledPromiseRejectionHandler(processRejectionHandled);
+nodeBootstrap({ warmup: true });

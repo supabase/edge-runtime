@@ -30,8 +30,11 @@
 // TODO(petamoriken): enable prefer-primordials for node polyfills
 // deno-lint-ignore-file prefer-primordials
 
-import { core } from "ext:core/mod.js";
+import { core, primordials } from "ext:core/mod.js";
 const { internalRidSymbol } = core;
+const {
+  PromiseResolve,
+} = primordials;
 import { op_can_write_vectored, op_raw_write_vectored } from "ext:core/ops";
 
 import { TextEncoder } from "ext:deno_web/08_text_encoding.js";
@@ -319,6 +322,12 @@ export class LibuvStreamWrap extends HandleWrap {
 
   /** Internal method for reading from the attached stream. */
   async #read() {
+    // Queue the read operation and allow TLS upgrades to complete.
+    //
+    // This is done to ensure that the resource is not locked up by
+    // op_read.
+    await PromiseResolve();
+
     let buf = this.#buf;
 
     let nread: number | null;

@@ -43,7 +43,7 @@ jobs:
     name: 'fmt'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
@@ -55,7 +55,7 @@ jobs:
     name: 'cargo clippy'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install deps
         run: |
           sudo apt-get update
@@ -88,7 +88,7 @@ jobs:
           sudo apt-get remove --purge -y man-db
           sudo apt-get remove 'clang-13*' 'clang-14*' 'clang-15*' 'llvm-13*' 'llvm-14*' 'llvm-15*' 'lld-13*' 'lld-14*' 'lld-15*'
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - run: rustup show
       - uses: Swatinem/rust-cache@v2
 
@@ -106,7 +106,7 @@ jobs:
             github.event_name != 'pull_request'
             || github.event.pull_request.head.repo.full_name == github.repository
           )
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: ${{ env.ESZIP_TESTDATA_REPO }}
           path: ./edge-runtime-test-eszip

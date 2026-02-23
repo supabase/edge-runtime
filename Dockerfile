@@ -33,6 +33,8 @@ FROM debian:bookworm-slim as edge-runtime-base
 
 RUN apt-get update && apt-get install -y libssl-dev \
     libblas-dev liblapack-dev libopenblas-dev \
+    ca-certificates \
+    && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 RUN apt-get remove -y perl && apt-get autoremove -y
@@ -55,6 +57,10 @@ RUN ./scripts/install_onnx.sh $ONNXRUNTIME_VERSION linux $TARGETPLATFORM /root/o
 
 # With CUDA
 FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04 as edge-runtime-cuda
+
+RUN apt-get update && apt-get install -y ca-certificates \
+    && update-ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY --from=edge-runtime-base /usr/local/bin/edge-runtime /usr/local/bin/edge-runtime
 COPY --from=builder /root/edge-runtime.debug /usr/local/bin/edge-runtime.debug

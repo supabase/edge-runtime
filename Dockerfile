@@ -33,6 +33,8 @@ FROM debian:bookworm-slim as edge-runtime-base
 
 RUN apt-get update && apt-get install -y libssl-dev \
     libblas-dev liblapack-dev libopenblas-dev \
+    ca-certificates \
+    && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 RUN apt-get remove -y perl && apt-get autoremove -y

@@ -36,6 +36,7 @@ env:
   ORT_DYLIB_PATH: /tmp/onnxruntime/lib/libonnxruntime.so
   RUST_LOG: ext_event_worker=trace
   ESZIP_TESTDATA_REPO: supabase/edge-runtime-test-eszip
+  EXT_AI_CACHE_DIR: /home/runner/.cache/ext-ai-cache
 
 jobs:
   cargo-fmt:

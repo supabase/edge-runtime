@@ -1,7 +1,10 @@
 // https://huggingface.co/tasks/text-generation
 
-import { env, pipeline } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.1';
-import SampleInput from './sample_input.json' with { type: 'json' };
+import {
+  env,
+  pipeline,
+} from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.1";
+import SampleInput from "./sample_input.json" with { type: "json" };
 
 // Browser cache is supported by `deno_cache`
 // env.useBrowserCache = true; -> Default config
@@ -12,9 +15,9 @@ env.allowLocalModels = false;
 // There's a little bug in pipeline that can't resolve the model name by itself
 // So we need to explicit pass it
 const pipe = await pipeline(
-  'text-generation',
-  'Xenova/gpt2',
-  { device: 'auto', model_file_name: 'decoder_model_merged_quantized' },
+  "text-generation",
+  "Xenova/gpt2",
+  { device: "auto", model_file_name: "decoder_model_merged_quantized" },
 );
 
 type Payload = {

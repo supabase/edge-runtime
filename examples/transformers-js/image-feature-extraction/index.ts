@@ -7,20 +7,20 @@ import {
   MagickColors,
   MagickFormat,
   MagickGeometry,
-} from 'npm:@imagemagick/magick-wasm@0.0.30';
+} from "npm:@imagemagick/magick-wasm@0.0.30";
 
 import {
   env,
   pipeline,
   RawImage,
-} from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1';
+} from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1";
 
-import SampleInput from './sample_input.json' with { type: 'json' };
+import SampleInput from "./sample_input.json" with { type: "json" };
 
 const wasmBytes = await Deno.readFile(
   new URL(
-    'magick.wasm',
-    import.meta.resolve('npm:@imagemagick/magick-wasm@0.0.30'),
+    "magick.wasm",
+    import.meta.resolve("npm:@imagemagick/magick-wasm@0.0.30"),
   ),
 );
 
@@ -35,10 +35,10 @@ await initializeImageMagick(
 env.allowLocalModels = false;
 
 const pipe = await pipeline(
-  'image-feature-extraction',
-  'Xenova/clip-vit-base-patch32',
+  "image-feature-extraction",
+  "Xenova/clip-vit-base-patch32",
   {
-    device: 'auto',
+    device: "auto",
   },
 );
 

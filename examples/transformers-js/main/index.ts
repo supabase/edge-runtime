@@ -1,4 +1,4 @@
-import * as path from 'jsr:@std/path';
+import * as path from "jsr:@std/path";
 
 const handle = setInterval(async () => {
   try {
@@ -6,13 +6,13 @@ const handle = setInterval(async () => {
     if (cleanupCount == 0) {
       return;
     }
-    console.log('EdgeRuntime.ai.tryCleanupUnusedSession', cleanupCount);
+    console.log("EdgeRuntime.ai.tryCleanupUnusedSession", cleanupCount);
   } catch (e) {
     console.error(e.toString());
   }
 }, 100);
 
-addEventListener('beforeunload', () => {
+addEventListener("beforeunload", () => {
   clearInterval(handle);
 });
 
@@ -23,15 +23,15 @@ Deno.serve(async (req: Request) => {
   const service_name = pathname;
   console.log(service_name);
 
-  if (!service_name || service_name === '') {
-    const error = { msg: 'missing function name in request' };
+  if (!service_name || service_name === "") {
+    const error = { msg: "missing function name in request" };
     return new Response(
       JSON.stringify(error),
-      { status: 400, headers: { 'Content-Type': 'application/json' } },
+      { status: 400, headers: { "Content-Type": "application/json" } },
     );
   }
 
-  const servicePath = path.join('./examples/transformers-js', pathname);
+  const servicePath = path.join("./examples/transformers-js", pathname);
 
   const createWorker = async () => {
     const memoryLimitMb = 1500;
@@ -63,7 +63,7 @@ Deno.serve(async (req: Request) => {
       const error = { msg: e.toString() };
       return new Response(
         JSON.stringify(error),
-        { status: 500, headers: { 'Content-Type': 'application/json' } },
+        { status: 500, headers: { "Content-Type": "application/json" } },
       );
     }
   };

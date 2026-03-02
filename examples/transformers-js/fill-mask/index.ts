@@ -1,7 +1,10 @@
 // https://huggingface.co/tasks/fill-mask
 
-import { env, pipeline } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1';
-import SampleInput from './sample_input.json' with { type: 'json' };
+import {
+  env,
+  pipeline,
+} from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1";
+import SampleInput from "./sample_input.json" with { type: "json" };
 
 // Browser cache is supported by `deno_cache`
 // env.useBrowserCache = true; -> Default config
@@ -10,7 +13,7 @@ import SampleInput from './sample_input.json' with { type: 'json' };
 env.allowLocalModels = false;
 
 // using `null` to keep default model,
-const pipe = await pipeline('fill-mask', null, { device: 'auto' });
+const pipe = await pipeline("fill-mask", null, { device: "auto" });
 
 type Payload = {
   input: string;

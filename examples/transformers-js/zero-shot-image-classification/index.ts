@@ -1,3 +1,5 @@
+// https://huggingface.co/tasks/zero-shot-image-classification
+
 import {
   Gravity,
   ImageMagick,
@@ -99,5 +101,6 @@ Deno.serve(async (req: Request) => {
 
   const output = await pipe(imageInput, labels);
 
+  // use '__snapshot__' to assert results
   return Response.json(output);
 });

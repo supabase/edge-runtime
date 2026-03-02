@@ -1,3 +1,5 @@
+// https://huggingface.co/tasks/image-feature-extraction
+
 import {
   Gravity,
   ImageMagick,
@@ -98,5 +100,6 @@ Deno.serve(async (req: Request) => {
 
   const output = await pipe(imageInput);
 
+  // use '__snapshot__' to assert results
   return Response.json(output.data);
 });

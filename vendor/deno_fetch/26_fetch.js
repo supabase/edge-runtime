@@ -389,7 +389,14 @@ function fetch(input, init = { __proto__: null }) {
       // 3.
       const request = toInnerRequest(requestObject);
 
-      // Rate limit check
+      // 4.
+      if (requestObject.signal.aborted) {
+        reject(abortFetch(request, null, requestObject.signal.reason));
+        return;
+      }
+
+      // Rate limit check — placed after abort so cancelled requests don't
+      // consume budget.
       const traceId = internals.getRequestTraceId?.();
       const isTraced = traceId !== null && traceId !== undefined;
       const rlKey = isTraced ? traceId : "";
@@ -403,12 +410,6 @@ function fetch(input, init = { __proto__: null }) {
           ? `Rate limit exceeded for trace ${rlKey}`
           : `Rate limit exceeded for function`;
         reject(new Deno.errors.RateLimitError(msg));
-        return;
-      }
-
-      // 4.
-      if (requestObject.signal.aborted) {
-        reject(abortFetch(request, null, requestObject.signal.reason));
         return;
       }
       // 7.

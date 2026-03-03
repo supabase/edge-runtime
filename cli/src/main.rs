@@ -233,7 +233,9 @@ fn main() -> Result<ExitCode, anyhow::Error> {
           .get_one::<u64>("rate-limit-table-cleanup-interval")
           .copied()
           .unwrap_or(60);
-
+        if rate_limit_cleanup_interval_sec == 0 {
+          bail!("--rate-limit-table-cleanup-interval must be >= 1 second");
+        }
         let flags = ServerFlags {
           otel: if !enable_otel.is_empty() {
             if enable_otel.len() > 1 {

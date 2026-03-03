@@ -1,4 +1,5 @@
 import { core, internals, primordials } from "ext:core/mod.js";
+import "ext:runtime/request_context.js";
 
 import * as abortSignal from "ext:deno_web/03_abort_signal.js";
 import * as base64 from "ext:deno_web/05_base64.js";
@@ -599,6 +600,16 @@ globalThis.bootstrapSBEdge = (opts, ctx) => {
           return ops.op_user_worker_log(msg, level);
         }),
       ),
+    });
+  }
+
+  if (ctx?.exposeRequestTraceId) {
+    ObjectDefineProperty(globalThis, "getRequestTraceId", {
+      get() {
+        return internals.getRequestTraceId;
+      },
+      configurable: true,
+      enumerable: false,
     });
   }
 

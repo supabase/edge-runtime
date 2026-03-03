@@ -56,6 +56,7 @@ const DOMExceptionInvalidCharacterError = buildDomErrorClass(
   "InvalidCharacterError",
 );
 const DOMExceptionDataError = buildDomErrorClass("DOMExceptionDataError");
+const RateLimitError = buildErrorClass("RateLimitError");
 
 function registerErrors() {
   core.registerErrorClass("InvalidWorkerResponse", InvalidWorkerResponse);
@@ -107,6 +108,7 @@ function registerErrors() {
     "DOMExceptionDataError",
     DOMExceptionDataError,
   );
+  core.registerErrorClass("RateLimitError", RateLimitError);
 }
 
 const errors = knownErrors;

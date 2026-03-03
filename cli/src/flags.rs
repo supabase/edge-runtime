@@ -233,6 +233,15 @@ fn get_start_command() -> Command {
         .value_parser(value_parser!(u64)),
     )
     .arg(
+      arg!(--"rate-limit-table-cleanup-interval" <SECONDS>)
+        .help(concat!(
+          "Interval in seconds between sweeps of the outbound rate-limit ",
+          "table to remove expired entries (default: 60)"
+        ))
+        .default_value("60")
+        .value_parser(value_parser!(u64)),
+    )
+    .arg(
       arg!(--"inspect"[HOST_AND_PORT])
         .help("Activate inspector on host:port")
         .num_args(0..=1)

@@ -10,8 +10,9 @@
 /// <reference path="./lib.deno_fetch.d.ts" />
 /// <reference lib="esnext" />
 
-import { core, primordials } from "ext:core/mod.js";
+import { core, internals, primordials } from "ext:core/mod.js";
 import {
+  op_check_outbound_rate_limit,
   op_fetch,
   op_fetch_promise_is_settled,
   op_fetch_send,
@@ -387,6 +388,24 @@ function fetch(input, init = { __proto__: null }) {
 
       // 3.
       const request = toInnerRequest(requestObject);
+
+      // Rate limit check
+      const traceId = internals.getRequestTraceId?.();
+      const isTraced = traceId !== null && traceId !== undefined;
+      const rlKey = isTraced ? traceId : "";
+      const allowed = op_check_outbound_rate_limit(
+        requestObject.url,
+        rlKey,
+        isTraced,
+      );
+      if (!allowed) {
+        const msg = isTraced
+          ? `Rate limit exceeded for trace ${rlKey}`
+          : `Rate limit exceeded for function`;
+        reject(new Deno.errors.RateLimitError(msg));
+        return;
+      }
+
       // 4.
       if (requestObject.signal.aborted) {
         reject(abortFetch(request, null, requestObject.signal.reason));

@@ -1,6 +1,7 @@
 import "ext:deno_http/01_http.js";
 
 import { core, internals, primordials } from "ext:core/mod.js";
+import { enterRequestContext } from "ext:runtime/request_context.js";
 import { RequestPrototype } from "ext:deno_fetch/23_request.js";
 import {
   fromInnerResponse,
@@ -28,6 +29,7 @@ const ops = core.ops;
 const {
   BadResourcePrototype,
   internalRidSymbol,
+  setAsyncContext,
 } = core;
 const {
   ArrayPrototypeFind,
@@ -223,66 +225,82 @@ async function respond(requestEvent, httpConn, options, snapshot) {
   const mapped = async function (requestEvent, httpConn, options, span) {
     /** @type {Response} */
     let response;
+
+    const traceParent = requestEvent.request.headers.get("traceparent");
+    let traceId = null;
+    if (traceParent) {
+      // traceparent format: 00-{trace-id}-{parent-id}-{flags}
+      const parts = traceParent.split("-");
+      if (parts.length >= 4 && parts[1].length === 32) {
+        traceId = parts[1];
+      }
+    }
+    const prevCtx = enterRequestContext(traceId);
+
     try {
-      if (span) {
-        updateSpanFromRequest(span, requestEvent.request);
-      }
-
-      response = await options["handler"](requestEvent.request, {
-        remoteAddr: {
-          port: options.port,
-          hostname: options.hostname,
-          transport: options.transport,
-        },
-      });
-    } catch (error) {
-      if (options["onError"] !== void 0) {
-        /** @throwable */
-        response = await options["onError"](error);
-      } else {
-        console.error(error);
-        response = internalServerError();
-      }
-    }
-
-    if (ObjectPrototypeIsPrototypeOf(ResponsePrototype, response) && span) {
-      updateSpanFromResponse(span, response);
-    }
-
-    if (response === internals.RAW_UPGRADE_RESPONSE_SENTINEL) {
-      const { fenceRid } = getSupabaseTag(requestEvent.request);
-
-      if (fenceRid === void 0) {
-        throw TypeError("Cannot find a fence for upgrading response");
-      }
-
-      setTimeout(async () => {
-        const {
-          status,
-          headers,
-        } = await ops.op_http_upgrade_raw2_fence(fenceRid);
-
-        try {
-          await requestEvent.respondWith(
-            new Response(null, {
-              headers,
-              status,
-            }),
-          );
-        } catch (error) {
-          closeHttpConn(httpConn);
-        }
-      });
-    } else {
       try {
-        // send the response
-        await requestEvent.respondWith(response);
-      } catch {
-        // respondWith() fails when the connection has already been closed,
-        // or there is some other error with responding on this connection
-        // that prompts us to close it and open a new connection.
-        return closeHttpConn(httpConn);
+        if (span) {
+          updateSpanFromRequest(span, requestEvent.request);
+        }
+
+        response = await options["handler"](requestEvent.request, {
+          remoteAddr: {
+            port: options.port,
+            hostname: options.hostname,
+            transport: options.transport,
+          },
+        });
+      } catch (error) {
+        if (options["onError"] !== void 0) {
+          /** @throwable */
+          response = await options["onError"](error);
+        } else {
+          console.error(error);
+          response = internalServerError();
+        }
       }
+
+      if (ObjectPrototypeIsPrototypeOf(ResponsePrototype, response) && span) {
+        updateSpanFromResponse(span, response);
+      }
+
+      if (response === internals.RAW_UPGRADE_RESPONSE_SENTINEL) {
+        const { fenceRid } = getSupabaseTag(requestEvent.request);
+
+        if (fenceRid === void 0) {
+          throw TypeError("Cannot find a fence for upgrading response");
+        }
+
+        setTimeout(async () => {
+          const {
+            status,
+            headers,
+          } = await ops.op_http_upgrade_raw2_fence(fenceRid);
+
+          try {
+            await requestEvent.respondWith(
+              new Response(null, {
+                headers,
+                status,
+              }),
+            );
+          } catch (error) {
+            closeHttpConn(httpConn);
+          }
+        });
+      } else {
+        try {
+          // send the response
+          await requestEvent.respondWith(response);
+        } catch {
+          // respondWith() fails when the connection has already been closed,
+          // or there is some other error with responding on this connection
+          // that prompts us to close it and open a new connection.
+          return closeHttpConn(httpConn);
+        }
+      }
+    } finally {
+      setAsyncContext(prevCtx);
     }
   };
 

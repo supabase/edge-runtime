@@ -23,6 +23,7 @@ base_rt.workspace = true
 
 anyhow.workspace = true
 bytes.workspace = true
+dashmap.workspace = true
 enum-as-inner.workspace = true
 futures.workspace = true
 http.workspace = true
@@ -31,6 +32,7 @@ hyper.workspace = true
 hyper_v014.workspace = true
 log.workspace = true
 once_cell.workspace = true
+regex.workspace = true
 scopeguard.workspace = true
 serde.workspace = true
 thiserror.workspace = true

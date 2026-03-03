@@ -38,6 +38,7 @@ use deno_telemetry::OtelConsoleConfig;
 use deno_telemetry::OtelPropagators;
 use errors::WorkerError;
 use ext_runtime::conn_sync::ConnWatcher;
+use ext_runtime::TraceRateLimitRule;
 use fs::s3_fs::S3FsConfig;
 use fs::tmp_fs::TmpFsConfig;
 use http_utils::utils::get_upgrade_type;
@@ -134,6 +135,15 @@ pub struct UserWorkerCreateOptions {
   context: Option<JsonMap>,
   #[serde(default)]
   static_patterns: Vec<String>,
+  trace_rate_limit_options: Option<JsTraceRateLimitOptions>,
+}
+
+#[derive(Deserialize, Serialize, Default, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct JsTraceRateLimitOptions {
+  pub key: String,
+  #[serde(default)]
+  pub rules: Vec<TraceRateLimitRule>,
 }
 
 /// It is identical to [`PermissionsOptions`], except for `prompt`.
@@ -220,6 +230,7 @@ pub async fn op_user_worker_create(
 
       context,
       static_patterns,
+      trace_rate_limit_options,
     } = opts;
 
     let maybe_otel_config = maybe_otel_config.map(|it| OtelConfig {
@@ -259,6 +270,16 @@ pub async fn op_user_worker_create(
             .map(JsPermissionsOptions::into_permissions_options),
 
           context,
+          rate_limiter: match trace_rate_limit_options {
+            None => ext_runtime::RateLimiterOpts::Disabled,
+            Some(opts) if opts.rules.is_empty() => {
+              ext_runtime::RateLimiterOpts::Disabled
+            }
+            Some(opts) => ext_runtime::RateLimiterOpts::Rules {
+              rules: opts.rules,
+              global_key: opts.key,
+            },
+          },
 
           ..Default::default()
         }

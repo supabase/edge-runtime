@@ -6,8 +6,10 @@ import {
 
 import { round6 } from "../util.ts";
 
-// Ensure we do not use browser cache
-env.useBrowserCache = false;
+// Browser cache is supported by `deno_cache`
+// env.useBrowserCache = true; -> Default config
+
+// Ensure we do not use local models
 env.allowLocalModels = false;
 
 const pipe = await pipeline("feature-extraction", "supabase/gte-small", {

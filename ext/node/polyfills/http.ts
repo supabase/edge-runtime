@@ -5,6 +5,7 @@
 
 import { core, internals, primordials } from "ext:core/mod.js";
 import {
+  op_check_outbound_rate_limit,
   op_http_upgrade_raw2,
   op_node_http_fetch_response_upgrade,
   op_node_http_fetch_send,
@@ -493,6 +494,21 @@ class ClientRequest extends OutgoingMessage {
           span.setAttribute("url.query", parsedUrl.search.slice(1));
         }
 
+        const traceId = internals.getRequestTraceId?.();
+        const isTraced = traceId !== null && traceId !== undefined;
+        const rlKey = isTraced ? traceId : "";
+        const allowed = op_check_outbound_rate_limit(
+          parsedUrl.href,
+          rlKey,
+          isTraced,
+        );
+        if (!allowed) {
+          const msg = isTraced
+            ? `Rate limit exceeded for trace ${rlKey}`
+            : `Rate limit exceeded for function`;
+          throw new Deno.errors.RateLimitError(msg);
+        }
+
         this._req = op_node_http_request(
           this.method,
           url,
@@ -598,7 +614,7 @@ class ClientRequest extends OutgoingMessage {
           updateSpanFromError(span, err);
         }
 
-        if (this._req.cancelHandleRid !== null) {
+        if (this._req !== undefined && this._req.cancelHandleRid !== null) {
           core.tryClose(this._req.cancelHandleRid);
         }
 

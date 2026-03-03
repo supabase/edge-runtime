@@ -37,6 +37,7 @@ use base::utils::test_utils::TestBedBuilder;
 use base::worker;
 use base::worker::TerminationToken;
 use base::WorkerKind;
+use deno::deno_telemetry::OtelConfig;
 use deno::DenoOptionsBuilder;
 use deno_core::error::AnyError;
 use deno_core::serde_json::json;
@@ -105,6 +106,18 @@ const MB: usize = 1024 * 1024;
 const NON_SECURE_PORT: u16 = 8498;
 const SECURE_PORT: u16 = 4433;
 const TESTBED_DEADLINE_SEC: u64 = 20;
+
+static OTEL_INIT: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+
+fn init_otel() {
+  OTEL_INIT.get_or_init(|| {
+    deno::deno_telemetry::init(
+      deno::versions::otel_runtime_config(),
+      OtelConfig::default(),
+    )
+    .unwrap();
+  });
+}
 
 const TLS_LOCALHOST_ROOT_CA: &[u8] =
   include_bytes!("./fixture/tls/root-ca.pem");
@@ -4154,6 +4167,196 @@ async fn test_brotli_async() {
       assert_eq!(resp.status().as_u16(), 200);
       assert_eq!(resp.text().await.unwrap().as_str(), "meow");
     }),
+    TerminationToken::new()
+  );
+}
+
+async fn assert_rate_limit_error(
+  resp: Result<reqwest::Response, reqwest::Error>,
+) {
+  let res = resp.unwrap();
+  assert_eq!(
+    res.status().as_u16(),
+    StatusCode::INTERNAL_SERVER_ERROR,
+    "expected the chain to be rate-limited"
+  );
+  let body = res.text().await.unwrap();
+  assert!(
+    body.contains("RateLimitError"),
+    "expected RateLimitError in body, got: {body}"
+  );
+}
+
+/// Verifies that the local (traced) budget cuts off A→B→A circular chains.
+async fn test_outbound_rate_limit_circular(http_mode: &'static str) {
+  const TRACEPARENT: &str =
+    "00-12345678901234567890123456789012-1234567890123456-01";
+
+  init_otel();
+
+  integration_test_with_server_flag!(
+    ServerFlags {
+      rate_limit_cleanup_interval_sec: 60,
+      request_wait_timeout_ms: Some(30_000),
+      ..Default::default()
+    },
+    "./test_cases/rate-limit-main",
+    NON_SECURE_PORT,
+    "rate-limit-a",
+    None,
+    Some(
+      reqwest::Client::new()
+        .get(format!("http://localhost:{}/rate-limit-a", NON_SECURE_PORT))
+        .header("traceparent", TRACEPARENT)
+        .header("x-http-mode", http_mode)
+        .header(
+          "x-test-server-url",
+          format!("http://localhost:{}", NON_SECURE_PORT),
+        )
+    ),
+    None::<Tls>,
+    (|resp| async { assert_rate_limit_error(resp).await }),
+    TerminationToken::new()
+  );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_outbound_rate_limit_circular_fetch() {
+  test_outbound_rate_limit_circular("fetch").await;
+}
+
+#[tokio::test]
+#[serial]
+async fn test_outbound_rate_limit_circular_node_http() {
+  test_outbound_rate_limit_circular("node").await;
+}
+
+/// Verifies that the global (untraced) budget cuts off a self-calling worker.
+async fn test_outbound_rate_limit_global(http_mode: &'static str) {
+  init_otel();
+
+  integration_test_with_server_flag!(
+    ServerFlags {
+      rate_limit_cleanup_interval_sec: 60,
+      request_wait_timeout_ms: Some(30_000),
+      ..Default::default()
+    },
+    "./test_cases/rate-limit-main",
+    NON_SECURE_PORT,
+    "rate-limit-untraced",
+    None,
+    Some(
+      reqwest::Client::new()
+        .get(format!(
+          "http://localhost:{}/rate-limit-untraced",
+          NON_SECURE_PORT
+        ))
+        .header("x-http-mode", http_mode)
+        .header(
+          "x-test-server-url",
+          format!("http://localhost:{}", NON_SECURE_PORT),
+        )
+    ),
+    None::<Tls>,
+    (|resp| async { assert_rate_limit_error(resp).await }),
+    TerminationToken::new()
+  );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_outbound_rate_limit_global_budget_fetch() {
+  test_outbound_rate_limit_global("fetch").await;
+}
+
+#[tokio::test]
+#[serial]
+async fn test_outbound_rate_limit_global_budget_node_http() {
+  test_outbound_rate_limit_global("node").await;
+}
+
+/// Verifies that `AsyncVariable` isolates trace IDs per request.
+///
+/// Sends N concurrent requests to the `rate-limit-echo` worker, each carrying
+/// a distinct `traceparent`.  The worker reads the `AsyncVariable` set by
+/// `http.js` and echoes the trace ID back.  If any response contains a trace
+/// ID that does not match the one sent in that request, context has leaked.
+#[tokio::test]
+#[serial]
+async fn test_request_trace_id_isolation() {
+  const N: usize = 20;
+
+  init_otel();
+
+  integration_test_with_server_flag!(
+    ServerFlags {
+      rate_limit_cleanup_interval_sec: 60,
+      request_wait_timeout_ms: Some(30_000),
+      ..Default::default()
+    },
+    "./test_cases/rate-limit-main",
+    NON_SECURE_PORT,
+    "rate-limit-echo",
+    None,
+    None::<reqwest::RequestBuilder>,
+    None::<Tls>,
+    (
+      |(port, _url, _req_builder, _event_rx, _metric_src)| async move {
+        let client = std::sync::Arc::new(reqwest::Client::new());
+        let base = std::sync::Arc::new(format!(
+          "http://localhost:{}/rate-limit-echo",
+          port
+        ));
+
+        // Build N futures, each with a unique trace ID.
+        let futs: Vec<_> = (0..N)
+          .map(|i| {
+            let client = client.clone();
+            let base = base.clone();
+            // Each trace ID is a 32-hex-char string unique to this request.
+            let trace_id = format!("{:032x}", i);
+            let traceparent = format!("00-{}-1234567890123456-01", trace_id);
+            async move {
+              let resp = client
+                .get(base.as_str())
+                .header("traceparent", &traceparent)
+                .send()
+                .await
+                .unwrap();
+              assert!(
+                resp.status().is_success(),
+                "request {i} failed with status {}",
+                resp.status()
+              );
+              let body: serde_json::Value = resp.json().await.unwrap();
+              let returned = body["traceId"].as_str().unwrap_or("").to_string();
+              (trace_id, returned)
+            }
+          })
+          .collect();
+
+        // Run all requests concurrently.
+        let results = futures_util::future::join_all(futs).await;
+
+        for (expected, got) in &results {
+          assert_eq!(
+            expected, got,
+            "AsyncVariable context leaked: expected trace_id={expected} but worker saw {got}"
+          );
+        }
+
+        // Return the last response to satisfy the macro's type requirement.
+        Some(Ok(
+          reqwest::Client::new()
+            .get(base.as_str())
+            .send()
+            .await
+            .unwrap(),
+        ))
+      },
+      |_resp| async {}
+    ),
     TerminationToken::new()
   );
 }

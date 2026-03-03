@@ -29,6 +29,13 @@ pub mod cert;
 pub mod conn_sync;
 pub mod external_memory;
 pub mod ops;
+pub mod rate_limit;
+
+pub use rate_limit::RateLimiterOpts;
+pub use rate_limit::SharedRateLimitTable;
+pub use rate_limit::TraceRateLimitRule;
+pub use rate_limit::TraceRateLimiter;
+pub use rate_limit::TraceRateLimiterConfig;
 
 pub use ops::bootstrap::runtime_bootstrap;
 pub use ops::http::runtime_http;
@@ -442,6 +449,19 @@ pub fn op_bootstrap_unstable_args(_state: &mut OpState) -> Vec<String> {
   vec![]
 }
 
+#[op2(fast)]
+pub fn op_check_outbound_rate_limit(
+  state: &mut OpState,
+  #[string] url: &str,
+  #[string] key: &str,
+  is_traced: bool,
+) -> bool {
+  let Some(limiter) = state.try_borrow::<TraceRateLimiter>() else {
+    return true;
+  };
+  limiter.check_and_increment(url, key, is_traced)
+}
+
 deno_core::extension!(
   runtime,
   ops = [
@@ -459,6 +479,7 @@ deno_core::extension!(
     op_raise_segfault,
     op_tap_promise_metrics,
     op_cancel_drop_token,
+    op_check_outbound_rate_limit,
   ],
   esm_entry_point = "ext:runtime/bootstrap.js",
   esm = [
@@ -472,6 +493,7 @@ deno_core::extension!(
     "errors.js",
     "fieldUtils.js",
     "http.js",
+    "request_context.js",
     "namespaces.js",
     "navigator.js",
     "permissions.js",

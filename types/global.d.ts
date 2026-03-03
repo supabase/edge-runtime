@@ -64,6 +64,8 @@ interface UserWorkerCreateContext {
   otel?: {
     [attribute: string]: string;
   };
+
+  exposeRequestTraceId?: boolean | null;
 }
 
 interface UserWorkerCreateOptions {
@@ -93,6 +95,42 @@ interface UserWorkerCreateOptions {
   otelConfig?: OtelConfig | null;
 
   context?: UserWorkerCreateContext | null;
+  traceRateLimitOptions?: TraceRateLimitOptions | null;
+}
+
+/** Per-URL budget split between traced (local) and untraced (global) requests. */
+interface TraceRateLimitBudget {
+  /** Max outbound requests allowed per trace ID within the TTL window. */
+  local: number;
+  /** Max outbound requests allowed across all untraced requests within the TTL window. */
+  global: number;
+}
+
+/** A single rate-limit rule applied to outbound URLs matching `matches`. */
+interface TraceRateLimitRule {
+  /** Regular expression matched against the outbound request URL. */
+  matches: string;
+  /** Window duration in seconds. The counter resets after this period. */
+  ttl: number;
+  budget: TraceRateLimitBudget;
+}
+
+/**
+ * Rate-limit configuration for outbound HTTP requests made by a user worker.
+ *
+ * Rules are evaluated in order; the first matching rule applies.
+ * Traced requests (those carrying a `traceparent` header) share a budget
+ * identified by their trace ID (`local` budget).  Untraced requests share a
+ * single global budget identified by `key` (`global` budget).
+ */
+interface TraceRateLimitOptions {
+  /**
+   * Stable identifier shared across all instances of the same function.
+   * Used as the rate-limit key for untraced requests so the global budget
+   * accumulates correctly regardless of how many worker instances exist.
+   */
+  key: string;
+  rules: TraceRateLimitRule[];
 }
 
 interface HeapStatistics {
@@ -214,5 +252,8 @@ declare namespace Deno {
   export namespace errors {
     class WorkerRequestCancelled extends Error {}
     class WorkerAlreadyRetired extends Error {}
+
+    /** Thrown when an outbound HTTP request is blocked by the rate limiter. */
+    class RateLimitError extends Error {}
   }
 }

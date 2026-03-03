@@ -12,7 +12,9 @@ use ext_event_worker::events::UncaughtExceptionEvent;
 use ext_event_worker::events::WorkerEventWithMetadata;
 use ext_event_worker::events::WorkerEvents;
 use ext_runtime::MetricSource;
+use ext_runtime::RateLimiterOpts;
 use ext_runtime::RuntimeMetricSource;
+use ext_runtime::TraceRateLimiter;
 use ext_runtime::WorkerMetricSource;
 use ext_workers::context::UserWorkerMsgs;
 use ext_workers::context::WorkerContextInitOpts;
@@ -270,6 +272,20 @@ impl Worker {
           state_mut.put(metric_src.clone());
           MetricSource::Runtime(metric_src)
         } else {
+          if let Some(opts) = new_runtime.conf.as_user_worker().cloned() {
+            if let RateLimiterOpts::Configured(config) = opts.rate_limiter {
+              match TraceRateLimiter::new(config) {
+                Ok(limiter) => {
+                  let state = new_runtime.js_runtime.op_state();
+                  let mut state_mut = state.borrow_mut();
+                  state_mut.put(limiter);
+                }
+                Err(err) => {
+                  error!("failed to compile rate limit rules: {err}");
+                }
+              }
+            }
+          }
           MetricSource::Worker(metric_src)
         }
       };

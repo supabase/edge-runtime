@@ -17,6 +17,7 @@ use enum_as_inner::EnumAsInner;
 use ext_event_worker::events::UncaughtExceptionEvent;
 use ext_event_worker::events::WorkerEventWithMetadata;
 use ext_runtime::MetricSource;
+use ext_runtime::RateLimiterOpts;
 use ext_runtime::SharedMetricSource;
 use fs::s3_fs::S3FsConfig;
 use fs::tmp_fs::TmpFsConfig;
@@ -92,6 +93,7 @@ pub struct UserWorkerRuntimeOpts {
   pub permissions: Option<PermissionsOptions>,
 
   pub context: Option<crate::JsonMap>,
+  pub rate_limiter: RateLimiterOpts,
 }
 
 impl Default for UserWorkerRuntimeOpts {
@@ -135,6 +137,7 @@ impl Default for UserWorkerRuntimeOpts {
       permissions: None,
 
       context: None,
+      rate_limiter: RateLimiterOpts::Disabled,
     }
   }
 }

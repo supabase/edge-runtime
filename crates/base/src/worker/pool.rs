@@ -18,6 +18,8 @@ use either::Either::Left;
 use enum_as_inner::EnumAsInner;
 use ext_event_worker::events::WorkerEventWithMetadata;
 use ext_runtime::SharedMetricSource;
+use ext_runtime::SharedRateLimitTable;
+use ext_runtime::TraceRateLimiterConfig;
 use ext_workers::context::CreateUserWorkerResult;
 use ext_workers::context::SendRequestResult;
 use ext_workers::context::Timing;
@@ -235,6 +237,7 @@ pub struct WorkerPool {
   pub flags: Arc<ServerFlags>,
   pub policy: WorkerPoolPolicy,
   pub metric_src: SharedMetricSource,
+  pub shared_rate_limit_table: SharedRateLimitTable,
   pub user_workers: HashMap<Uuid, UserWorkerProfile>,
   pub active_workers: HashMap<String, ActiveWorkerRegistry>,
   pub worker_pool_msgs_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
@@ -253,11 +256,19 @@ impl WorkerPool {
     worker_event_sender: Option<UnboundedSender<WorkerEventWithMetadata>>,
     worker_pool_msgs_tx: mpsc::UnboundedSender<UserWorkerMsgs>,
     inspector: Option<Inspector>,
+    cancel: CancellationToken,
   ) -> Self {
+    let shared_rate_limit_table = SharedRateLimitTable::default();
+    shared_rate_limit_table.spawn_cleanup_task(
+      Duration::from_secs(flags.rate_limit_cleanup_interval_sec),
+      cancel,
+    );
+
     Self {
       flags,
       policy,
       metric_src,
+      shared_rate_limit_table,
       worker_event_sender,
       user_workers: HashMap::new(),
       active_workers: HashMap::new(),
@@ -384,6 +395,7 @@ impl WorkerPool {
     let worker_pool_msgs_tx = self.worker_pool_msgs_tx.clone();
     let events_msg_tx = self.worker_event_sender.clone();
     let supervisor_policy = self.policy.supervisor_policy;
+    let shared_rate_limit_table = self.shared_rate_limit_table.clone();
 
     drop(tokio::spawn(async move {
       let (permit, tx) = match wait_fence_fut.await {
@@ -461,6 +473,17 @@ impl WorkerPool {
       user_worker_rt_opts.pool_msg_tx = Some(worker_pool_msgs_tx.clone());
       user_worker_rt_opts.events_msg_tx = events_msg_tx;
       user_worker_rt_opts.cancel = Some(cancel.clone());
+
+      if let ext_runtime::RateLimiterOpts::Rules { rules, global_key } =
+        std::mem::take(&mut user_worker_rt_opts.rate_limiter)
+      {
+        user_worker_rt_opts.rate_limiter =
+          ext_runtime::RateLimiterOpts::Configured(TraceRateLimiterConfig {
+            table: shared_rate_limit_table,
+            rules,
+            global_key: Some(global_key),
+          });
+      }
 
       worker_options.timing = Some(Timing {
         early_drop_rx,
@@ -792,6 +815,7 @@ pub async fn create_user_worker_pool(
     async move {
       let token = termination_token.as_ref();
       let mut termination_requested = false;
+      let cleanup_cancel = token.map(|t| t.inbound.clone()).unwrap_or_default();
       let mut worker_pool = WorkerPool::new(
         flags,
         policy,
@@ -799,6 +823,7 @@ pub async fn create_user_worker_pool(
         worker_event_sender,
         user_worker_msgs_tx_clone,
         inspector,
+        cleanup_cancel,
       );
 
       // Note: Keep this loop non-blocking. Spawn a task to run blocking calls.

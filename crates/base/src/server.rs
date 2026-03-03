@@ -332,6 +332,8 @@ pub struct ServerFlags {
   pub beforeunload_wall_clock_pct: Option<u8>,
   pub beforeunload_cpu_pct: Option<u8>,
   pub beforeunload_memory_pct: Option<u8>,
+
+  pub rate_limit_cleanup_interval_sec: u64,
 }
 
 #[derive(Debug)]

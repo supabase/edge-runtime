@@ -395,8 +395,7 @@ function fetch(input, init = { __proto__: null }) {
         return;
       }
 
-      // Rate limit check — placed after abort so cancelled requests don't
-      // consume budget.
+      // Rate limit check.
       const traceId = internals.getRequestTraceId?.();
       const isTraced = traceId !== null && traceId !== undefined;
       const rlKey = isTraced ? traceId : "";
@@ -412,6 +411,7 @@ function fetch(input, init = { __proto__: null }) {
         reject(new Deno.errors.RateLimitError(msg));
         return;
       }
+
       // 7.
       let responseObject = null;
       // 9.

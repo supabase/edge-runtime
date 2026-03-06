@@ -396,16 +396,22 @@ function fetch(input, init = { __proto__: null }) {
       }
 
       // Rate limit check.
+      // Inject x-er-fetch-trace-id so the next hop can read the rate-limit
+      // key independently of the OTel traceparent (which user code can alter).
       const traceId = internals.getRequestTraceId?.();
       const isTraced = traceId !== null && traceId !== undefined;
+      if (isTraced) {
+        requestObject.headers.set(internals.FETCH_TRACE_ID_HEADER, traceId);
+      }
       const rlKey = isTraced ? traceId : "";
+      const effectivelyTraced = isTraced;
       const allowed = op_check_outbound_rate_limit(
         requestObject.url,
         rlKey,
-        isTraced,
+        effectivelyTraced,
       );
       if (!allowed) {
-        const msg = isTraced
+        const msg = effectivelyTraced
           ? `Rate limit exceeded for trace ${rlKey}`
           : `Rate limit exceeded for function`;
         reject(new Deno.errors.RateLimitError(msg));

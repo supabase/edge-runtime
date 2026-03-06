@@ -1,7 +1,10 @@
 import "ext:deno_http/01_http.js";
 
 import { core, internals, primordials } from "ext:core/mod.js";
-import { enterRequestContext } from "ext:runtime/request_context.js";
+import {
+  enterRequestContext,
+  FETCH_TRACE_ID_HEADER,
+} from "ext:runtime/request_context.js";
 import { RequestPrototype } from "ext:deno_fetch/23_request.js";
 import {
   fromInnerResponse,
@@ -226,13 +229,20 @@ async function respond(requestEvent, httpConn, options, snapshot) {
     /** @type {Response} */
     let response;
 
-    const traceParent = requestEvent.request.headers.get("traceparent");
-    let traceId = null;
-    if (traceParent) {
-      // traceparent format: 00-{trace-id}-{parent-id}-{flags}
-      const parts = traceParent.split("-");
-      if (parts.length >= 4 && parts[1].length === 32) {
-        traceId = parts[1];
+    // x-er-fetch-trace-id takes priority: injected by the runtime's fetch /
+    // node:http into every outbound request, so it is tamper-proof once set.
+    // On the very first hop it won't be present, so we fall back to parsing
+    // the W3C traceparent header.
+    let traceId =
+      requestEvent.request.headers.get(FETCH_TRACE_ID_HEADER) ?? null;
+    if (traceId === null) {
+      const traceParent = requestEvent.request.headers.get("traceparent");
+      if (traceParent) {
+        // traceparent format: 00-{trace-id}-{parent-id}-{flags}
+        const parts = traceParent.split("-");
+        if (parts.length >= 4 && parts[1].length === 32) {
+          traceId = parts[1];
+        }
       }
     }
     const prevCtx = enterRequestContext(traceId);

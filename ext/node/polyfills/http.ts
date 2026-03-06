@@ -496,14 +496,18 @@ class ClientRequest extends OutgoingMessage {
 
         const traceId = internals.getRequestTraceId?.();
         const isTraced = traceId !== null && traceId !== undefined;
+        if (isTraced) {
+          (headers as [string, string][]).push([internals.FETCH_TRACE_ID_HEADER, traceId]);
+        }
         const rlKey = isTraced ? traceId : "";
+        const effectivelyTraced = isTraced;
         const allowed = op_check_outbound_rate_limit(
           parsedUrl.href,
           rlKey,
-          isTraced,
+          effectivelyTraced,
         );
         if (!allowed) {
-          const msg = isTraced
+          const msg = effectivelyTraced
             ? `Rate limit exceeded for trace ${rlKey}`
             : `Rate limit exceeded for function`;
           throw new Deno.errors.RateLimitError(msg);

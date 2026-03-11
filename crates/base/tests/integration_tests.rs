@@ -4414,7 +4414,11 @@ async fn test_rate_limit_retry_after_ms() {
       },
       |resp| async move {
         let res = resp.unwrap();
-        assert_eq!(res.status().as_u16(), 429, "expected 429 from rate-limited request");
+        assert_eq!(
+          res.status().as_u16(),
+          429,
+          "expected 429 from rate-limited request"
+        );
         let body: serde_json::Value = res.json().await.unwrap();
         assert_eq!(
           body["name"].as_str().unwrap_or(""),

@@ -63,7 +63,9 @@ const RateLimitError = (() => {
       this.name = "RateLimitError";
       // Number of milliseconds until the rate-limit window resets.
       // May be 0 if the server could not determine the reset time.
-      this.retryAfterMs = typeof retryAfterMs === "number" ? retryAfterMs : null;
+      this.retryAfterMs = typeof retryAfterMs === "number"
+        ? retryAfterMs
+        : null;
     }
   };
   cls.getName = () => "RateLimitError";

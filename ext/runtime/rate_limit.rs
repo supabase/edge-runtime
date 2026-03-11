@@ -100,7 +100,8 @@ impl SharedRateLimitTable {
     );
 
     if !allowed {
-      let retry_after_ms = entry.expires_at.saturating_duration_since(now).as_millis() as u64;
+      let retry_after_ms =
+        entry.expires_at.saturating_duration_since(now).as_millis() as u64;
       return Err(retry_after_ms);
     }
 

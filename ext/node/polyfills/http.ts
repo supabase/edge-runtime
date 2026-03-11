@@ -505,7 +505,9 @@ class ClientRequest extends OutgoingMessage {
         );
         if (rlResult !== 0xFFFFFFFF) {
           const retryAfterMs = rlResult;
-          const retryHint = retryAfterMs > 0 ? ` Retry after ${retryAfterMs}ms.` : "";
+          const retryHint = retryAfterMs > 0
+            ? ` Retry after ${retryAfterMs}ms.`
+            : "";
           const msg = isTraced
             ? `Rate limit exceeded for trace ${rlKey}.${retryHint}`
             : `Rate limit exceeded for function.${retryHint}`;

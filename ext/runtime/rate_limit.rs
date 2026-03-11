@@ -62,12 +62,14 @@ impl SharedRateLimitTable {
     });
   }
 
+  /// Returns `Ok(())` when the request is allowed, or `Err(retry_after_ms)`
+  /// with the number of milliseconds until the window resets when denied.
   pub fn check_and_increment(
     &self,
     key: &str,
     budget: u32,
     ttl: Duration,
-  ) -> bool {
+  ) -> Result<(), u64> {
     let now = Instant::now();
 
     let mut entry =
@@ -98,11 +100,13 @@ impl SharedRateLimitTable {
     );
 
     if !allowed {
-      return false;
+      let retry_after_ms =
+        entry.expires_at.saturating_duration_since(now).as_millis() as u64;
+      return Err(retry_after_ms);
     }
 
     entry.count += 1;
-    true
+    Ok(())
   }
 }
 
@@ -166,16 +170,18 @@ impl TraceRateLimiter {
     })
   }
 
+  /// Returns `Ok(())` when the request is allowed, or `Err(retry_after_ms)`
+  /// with the number of milliseconds until the window resets when denied.
   pub fn check_and_increment(
     &self,
     url: &str,
     key: &str,
     is_traced: bool,
-  ) -> bool {
+  ) -> Result<(), u64> {
     let rule = self.rules.iter().find(|r| r.matches.is_match(url));
 
     let Some(rule) = rule else {
-      return true;
+      return Ok(());
     };
 
     if is_traced {
@@ -187,7 +193,7 @@ impl TraceRateLimiter {
       // budget accumulates correctly across worker instances.  Deny the request
       // if the caller did not supply one.
       let Some(fid) = self.global_key.as_deref() else {
-        return false;
+        return Err(0);
       };
       self
         .table

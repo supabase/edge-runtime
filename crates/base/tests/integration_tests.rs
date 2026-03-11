@@ -4361,6 +4361,83 @@ async fn test_request_trace_id_isolation() {
   );
 }
 
+/// Verifies that `RateLimitError.retryAfterMs` is a positive number when the
+/// global (untraced) budget is exhausted.
+#[tokio::test]
+#[serial]
+async fn test_rate_limit_retry_after_ms() {
+  init_otel();
+
+  // The budget in rate-limit-main is 10.  Send 11 requests; the last one
+  // should come back as 429 with a positive retryAfterMs value.
+  const BUDGET: usize = 10;
+
+  integration_test_with_server_flag!(
+    ServerFlags {
+      rate_limit_cleanup_interval_sec: 60,
+      request_wait_timeout_ms: Some(30_000),
+      ..Default::default()
+    },
+    "./test_cases/rate-limit-main",
+    NON_SECURE_PORT,
+    "rate-limit-retry-after",
+    None,
+    None::<reqwest::RequestBuilder>,
+    None::<Tls>,
+    (
+      |(port, _url, _req_builder, _event_rx, _metric_src)| async move {
+        let client = reqwest::Client::new();
+        let url = format!("http://localhost:{}/rate-limit-retry-after", port);
+        let server_url = format!("http://localhost:{}", port);
+
+        // Exhaust the budget.
+        for _ in 0..BUDGET {
+          let resp = client
+            .get(&url)
+            .header("x-test-server-url", &server_url)
+            .send()
+            .await
+            .unwrap();
+          // Each of these may itself trigger an inner fetch that is counted
+          // against the budget; we only care about the final one below.
+          let _ = resp;
+        }
+
+        // This request should be rate-limited.
+        let resp = client
+          .get(&url)
+          .header("x-test-server-url", &server_url)
+          .send()
+          .await;
+
+        Some(resp)
+      },
+      |resp| async move {
+        let res = resp.unwrap();
+        assert_eq!(
+          res.status().as_u16(),
+          429,
+          "expected 429 from rate-limited request"
+        );
+        let body: serde_json::Value = res.json().await.unwrap();
+        assert_eq!(
+          body["name"].as_str().unwrap_or(""),
+          "RateLimitError",
+          "expected RateLimitError in body, got: {body}"
+        );
+        let retry_after_ms = body["retryAfterMs"]
+          .as_u64()
+          .expect("retryAfterMs should be a non-null number");
+        assert!(
+          retry_after_ms > 0,
+          "retryAfterMs should be positive, got {retry_after_ms}"
+        );
+      }
+    ),
+    TerminationToken::new()
+  );
+}
+
 #[derive(Deserialize)]
 struct ErrorResponsePayload {
   msg: String,

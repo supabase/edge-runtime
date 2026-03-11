@@ -497,16 +497,21 @@ class ClientRequest extends OutgoingMessage {
         const traceId = internals.getRequestTraceId?.();
         const isTraced = traceId !== null && traceId !== undefined;
         const rlKey = isTraced ? traceId : "";
-        const allowed = op_check_outbound_rate_limit(
+        // op returns u32::MAX when allowed, or retry_after_ms (< 0xFFFFFFFF) when denied.
+        const rlResult = op_check_outbound_rate_limit(
           parsedUrl.href,
           rlKey,
           isTraced,
         );
-        if (!allowed) {
+        if (rlResult !== 0xFFFFFFFF) {
+          const retryAfterMs = rlResult;
+          const retryHint = retryAfterMs > 0
+            ? ` Retry after ${retryAfterMs}ms.`
+            : "";
           const msg = isTraced
-            ? `Rate limit exceeded for trace ${rlKey}`
-            : `Rate limit exceeded for function`;
-          throw new Deno.errors.RateLimitError(msg);
+            ? `Rate limit exceeded for trace ${rlKey}.${retryHint}`
+            : `Rate limit exceeded for function.${retryHint}`;
+          throw new Deno.errors.RateLimitError(msg, retryAfterMs);
         }
 
         this._req = op_node_http_request(

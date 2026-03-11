@@ -450,16 +450,21 @@ pub fn op_bootstrap_unstable_args(_state: &mut OpState) -> Vec<String> {
 }
 
 #[op2(fast)]
+/// Returns `u32::MAX` when the request is allowed, or the number of
+/// milliseconds until the rate-limit window resets when denied (< u32::MAX).
 pub fn op_check_outbound_rate_limit(
   state: &mut OpState,
   #[string] url: &str,
   #[string] key: &str,
   is_traced: bool,
-) -> bool {
+) -> u32 {
   let Some(limiter) = state.try_borrow::<TraceRateLimiter>() else {
-    return true;
+    return u32::MAX;
   };
-  limiter.check_and_increment(url, key, is_traced)
+  match limiter.check_and_increment(url, key, is_traced) {
+    Ok(()) => u32::MAX,
+    Err(retry_after_ms) => retry_after_ms.min(u32::MAX as u64 - 1) as u32,
+  }
 }
 
 deno_core::extension!(

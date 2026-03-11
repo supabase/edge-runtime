@@ -56,7 +56,20 @@ const DOMExceptionInvalidCharacterError = buildDomErrorClass(
   "InvalidCharacterError",
 );
 const DOMExceptionDataError = buildDomErrorClass("DOMExceptionDataError");
-const RateLimitError = buildErrorClass("RateLimitError");
+const RateLimitError = (() => {
+  const cls = class RateLimitError extends Error {
+    constructor(msg, retryAfterMs) {
+      super(msg);
+      this.name = "RateLimitError";
+      // Number of milliseconds until the rate-limit window resets.
+      // May be 0 if the server could not determine the reset time.
+      this.retryAfterMs = typeof retryAfterMs === "number" ? retryAfterMs : null;
+    }
+  };
+  cls.getName = () => "RateLimitError";
+  knownErrors["RateLimitError"] = cls;
+  return cls;
+})();
 
 function registerErrors() {
   core.registerErrorClass("InvalidWorkerResponse", InvalidWorkerResponse);

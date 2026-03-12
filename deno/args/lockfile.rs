@@ -214,11 +214,14 @@ impl CliLockfile {
     opts: CliLockfileReadFromPathOptions,
   ) -> Result<CliLockfile, AnyError> {
     let lockfile = match std::fs::read_to_string(&opts.file_path) {
-      Ok(text) => Lockfile::new(deno_lockfile::NewLockfileOptions {
-        file_path: opts.file_path,
-        content: &text,
-        overwrite: false,
-      })?,
+      Ok(text) => {
+        let text = downgrade_lockfile_v5_to_v4_if_needed(text);
+        Lockfile::new(deno_lockfile::NewLockfileOptions {
+          file_path: opts.file_path,
+          content: &text,
+          overwrite: false,
+        })?
+      }
       Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
         Lockfile::new_empty(opts.file_path, false)
       }
@@ -254,5 +257,197 @@ impl CliLockfile {
     } else {
       Ok(())
     }
+  }
+}
+
+fn downgrade_lockfile_v5_to_v4_if_needed(text: String) -> String {
+  let Ok(mut json) =
+    serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&text)
+  else {
+    return text;
+  };
+  if json.get("version").and_then(|v| v.as_str()) != Some("5") {
+    return text;
+  }
+
+  json.insert(
+    "version".to_string(),
+    serde_json::Value::String("4".to_string()),
+  );
+
+  if let Some(serde_json::Value::Object(npm)) = json.get_mut("npm") {
+    for pkg in npm.values_mut() {
+      let serde_json::Value::Object(pkg_obj) = pkg else {
+        continue;
+      };
+      let mut all_deps: Vec<serde_json::Value> = Vec::new();
+      if let Some(serde_json::Value::Array(deps)) =
+        pkg_obj.remove("dependencies")
+      {
+        all_deps.extend(deps);
+      }
+      if let Some(serde_json::Value::Array(opt_deps)) =
+        pkg_obj.remove("optionalDependencies")
+      {
+        all_deps.extend(opt_deps);
+      }
+      pkg_obj.remove("optionalPeers");
+      pkg_obj.remove("os");
+      pkg_obj.remove("cpu");
+      pkg_obj.remove("tarball");
+      pkg_obj.remove("deprecated");
+      pkg_obj.remove("scripts");
+      pkg_obj.remove("bin");
+      if !all_deps.is_empty() {
+        pkg_obj.insert(
+          "dependencies".to_string(),
+          serde_json::Value::Array(all_deps),
+        );
+      }
+    }
+  }
+
+  serde_json::to_string_pretty(&json).unwrap_or(text)
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn test_v4_passthrough() {
+    let v4 = r#"{
+  "version": "4",
+  "npm": {
+    "hono@4.12.7": {
+      "integrity": "sha512-abc",
+      "dependencies": []
+    }
+  }
+}"#
+    .to_string();
+    let result = downgrade_lockfile_v5_to_v4_if_needed(v4.clone());
+    assert_eq!(result, v4);
+  }
+
+  #[test]
+  fn test_v5_basic_downgrade() {
+    let v5 = r#"{
+  "version": "5",
+  "npm": {
+    "hono@4.12.7": {
+      "integrity": "sha512-abc"
+    }
+  }
+}"#
+    .to_string();
+    let result = downgrade_lockfile_v5_to_v4_if_needed(v5);
+    let json: serde_json::Value = serde_json::from_str(&result).unwrap();
+    assert_eq!(json["version"], "4");
+  }
+
+  // Mirrors real esbuild v5 lockfile structure with os/cpu/optionalDependencies/scripts/bin
+  #[test]
+  fn test_v5_esbuild_like_downgrade() {
+    let v5 = r#"{
+  "version": "5",
+  "specifiers": {
+    "npm:esbuild@0.25": "0.25.12"
+  },
+  "npm": {
+    "@esbuild/linux-arm64@0.25.12": {
+      "integrity": "sha512-arm64",
+      "os": ["linux"],
+      "cpu": ["arm64"]
+    },
+    "@esbuild/darwin-arm64@0.25.12": {
+      "integrity": "sha512-darwin",
+      "os": ["darwin"],
+      "cpu": ["arm64"]
+    },
+    "esbuild@0.25.12": {
+      "integrity": "sha512-esbuild",
+      "optionalDependencies": [
+        "@esbuild/linux-arm64",
+        "@esbuild/darwin-arm64"
+      ],
+      "scripts": true,
+      "bin": true
+    }
+  }
+}"#
+    .to_string();
+
+    let result = downgrade_lockfile_v5_to_v4_if_needed(v5);
+    let json: serde_json::Value = serde_json::from_str(&result).unwrap();
+
+    assert_eq!(json["version"], "4");
+
+    // optionalDependencies should be merged into dependencies
+    let esbuild_deps = &json["npm"]["esbuild@0.25.12"]["dependencies"];
+    assert!(esbuild_deps.is_array());
+    let deps: Vec<&str> = esbuild_deps
+      .as_array()
+      .unwrap()
+      .iter()
+      .map(|v| v.as_str().unwrap())
+      .collect();
+    assert!(deps.contains(&"@esbuild/linux-arm64"));
+    assert!(deps.contains(&"@esbuild/darwin-arm64"));
+
+    // v5-only fields should be removed
+    assert!(json["npm"]["esbuild@0.25.12"]["scripts"].is_null());
+    assert!(json["npm"]["esbuild@0.25.12"]["bin"].is_null());
+    assert!(json["npm"]["esbuild@0.25.12"]["optionalDependencies"].is_null());
+    assert!(json["npm"]["@esbuild/linux-arm64@0.25.12"]["os"].is_null());
+    assert!(json["npm"]["@esbuild/linux-arm64@0.25.12"]["cpu"].is_null());
+  }
+
+  // Both dependencies and optionalDependencies should be merged into a single array
+  #[test]
+  fn test_v5_merge_deps_and_optional_deps() {
+    let v5 = r#"{
+  "version": "5",
+  "npm": {
+    "pkg@1.0.0": {
+      "integrity": "sha512-xyz",
+      "dependencies": ["dep-a"],
+      "optionalDependencies": ["opt-b", "opt-c"]
+    }
+  }
+}"#
+    .to_string();
+
+    let result = downgrade_lockfile_v5_to_v4_if_needed(v5);
+    let json: serde_json::Value = serde_json::from_str(&result).unwrap();
+
+    let deps: Vec<&str> = json["npm"]["pkg@1.0.0"]["dependencies"]
+      .as_array()
+      .unwrap()
+      .iter()
+      .map(|v| v.as_str().unwrap())
+      .collect();
+    assert_eq!(deps, vec!["dep-a", "opt-b", "opt-c"]);
+  }
+
+  // Packages with no deps should not have a dependencies field at all
+  #[test]
+  fn test_v5_no_deps_field_when_empty() {
+    let v5 = r#"{
+  "version": "5",
+  "npm": {
+    "pkg@1.0.0": {
+      "integrity": "sha512-xyz",
+      "bin": true
+    }
+  }
+}"#
+    .to_string();
+
+    let result = downgrade_lockfile_v5_to_v4_if_needed(v5);
+    let json: serde_json::Value = serde_json::from_str(&result).unwrap();
+
+    assert!(json["npm"]["pkg@1.0.0"]["dependencies"].is_null());
+    assert!(json["npm"]["pkg@1.0.0"]["bin"].is_null());
   }
 }

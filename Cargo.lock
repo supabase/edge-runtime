@@ -1887,6 +1887,7 @@ dependencies = [
  "reqwest 0.12.7",
  "ring 0.17.14",
  "serde",
+ "serde_json",
  "tar",
  "thiserror 2.0.8",
  "tokio",

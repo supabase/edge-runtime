@@ -325,7 +325,7 @@ mod tests {
     }
   }
 }"#
-    .to_string();
+      .to_string();
     let result = downgrade_lockfile_v5_to_v4_if_needed(v4.clone());
     assert_eq!(result, v4);
   }
@@ -340,7 +340,7 @@ mod tests {
     }
   }
 }"#
-    .to_string();
+      .to_string();
     let result = downgrade_lockfile_v5_to_v4_if_needed(v5);
     let json: serde_json::Value = serde_json::from_str(&result).unwrap();
     assert_eq!(json["version"], "4");
@@ -376,7 +376,7 @@ mod tests {
     }
   }
 }"#
-    .to_string();
+      .to_string();
 
     let result = downgrade_lockfile_v5_to_v4_if_needed(v5);
     let json: serde_json::Value = serde_json::from_str(&result).unwrap();
@@ -416,7 +416,7 @@ mod tests {
     }
   }
 }"#
-    .to_string();
+      .to_string();
 
     let result = downgrade_lockfile_v5_to_v4_if_needed(v5);
     let json: serde_json::Value = serde_json::from_str(&result).unwrap();
@@ -442,7 +442,7 @@ mod tests {
     }
   }
 }"#
-    .to_string();
+      .to_string();
 
     let result = downgrade_lockfile_v5_to_v4_if_needed(v5);
     let json: serde_json::Value = serde_json::from_str(&result).unwrap();

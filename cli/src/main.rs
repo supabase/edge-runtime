@@ -91,6 +91,7 @@ fn main() -> Result<ExitCode, anyhow::Error> {
           deno::versions::otel_runtime_config(),
           OtelConfig::default(),
         )?;
+        base::runtime::otel::init_if_needed();
 
         let ip = sub_matches.get_one::<String>("ip").cloned().unwrap();
         let ip = IpAddr::from_str(&ip)

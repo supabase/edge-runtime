@@ -909,6 +909,9 @@ dependencies = [
  "notify",
  "num-traits",
  "once_cell",
+ "opentelemetry",
+ "opentelemetry-otlp",
+ "opentelemetry_sdk",
  "pin-project",
  "reqwest 0.11.27",
  "rustls-pemfile 2.1.0",
@@ -5722,6 +5725,8 @@ dependencies = [
  "rand",
  "serde_json",
  "thiserror 1.0.62",
+ "tokio",
+ "tokio-stream",
  "tracing",
 ]
 

@@ -5666,6 +5666,7 @@ dependencies = [
  "bytes",
  "http 1.2.0",
  "opentelemetry",
+ "reqwest 0.12.7",
 ]
 
 [[package]]
@@ -5682,6 +5683,7 @@ dependencies = [
  "opentelemetry-proto",
  "opentelemetry_sdk",
  "prost",
+ "reqwest 0.12.7",
  "serde_json",
  "thiserror 1.0.62",
  "tokio",
@@ -6575,6 +6577,7 @@ dependencies = [
  "async-compression",
  "base64 0.22.1",
  "bytes",
+ "futures-channel",
  "futures-core",
  "futures-util",
  "h2 0.4.7",

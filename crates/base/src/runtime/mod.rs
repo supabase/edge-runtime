@@ -80,6 +80,7 @@ use deno_facade::Metadata;
 use either::Either;
 use either::Either::Left;
 use either::Either::Right;
+use ext_event_worker::events::EventMetadata;
 use ext_event_worker::events::WorkerEventWithMetadata;
 use ext_runtime::external_memory::CustomAllocator;
 use ext_runtime::MemCheckWaker;
@@ -127,6 +128,7 @@ use crate::worker::Worker;
 mod ops;
 mod unsync;
 
+pub mod otel;
 pub mod permissions;
 
 const DEFAULT_ALLOC_CHECK_INT_MSEC: u64 = 1000;
@@ -1312,6 +1314,15 @@ where
       };
     }
 
+    let otel_attrs = {
+      let op_state = self.js_runtime.op_state();
+      let op_state_ref = op_state.borrow();
+      op_state_ref
+        .try_borrow::<EventMetadata>()
+        .map(otel::WorkerSpanAttrs::from_event_metadata)
+        .unwrap_or_default()
+    };
+
     let inspector = self.inspector();
     let mod_fut_ret = unsafe {
       if let Err(err) = self.init_main_module().await {
@@ -1371,7 +1382,10 @@ where
               op_state,
               &maybe_cpu_usage_metrics_tx,
               &mut accumulated_cpu_time_ns,
-              || locker.js_runtime.mod_evaluate(main_module_id),
+              || {
+                let _span = otel::start_span("v8.mod_evaluate", &otel_attrs);
+                locker.js_runtime.mod_evaluate(main_module_id)
+              },
             ))
           }
           .instrument(span),
@@ -1449,7 +1463,11 @@ where
             locker.js_runtime.op_state(),
             &maybe_cpu_usage_metrics_tx,
             &mut accumulated_cpu_time_ns,
-            || MaybeDenoRuntime::DenoRuntime(*locker).dispatch_load_event(),
+            || {
+              let _span =
+                otel::start_span("v8.dispatch_load_event", &otel_attrs);
+              MaybeDenoRuntime::DenoRuntime(*locker).dispatch_load_event()
+            },
           ) {
             return (Err(err), get_accumulated_cpu_time_ms!());
           }
@@ -1482,7 +1500,10 @@ where
         locker.js_runtime.op_state(),
         &maybe_cpu_usage_metrics_tx,
         &mut accumulated_cpu_time_ns,
-        || MaybeDenoRuntime::DenoRuntime(&mut locker).dispatch_unload_event(),
+        || {
+          let _span = otel::start_span("v8.dispatch_unload_event", &otel_attrs);
+          MaybeDenoRuntime::DenoRuntime(&mut locker).dispatch_unload_event()
+        },
       ) {
         return (Err(err), get_accumulated_cpu_time_ms!());
       }
@@ -1505,6 +1526,16 @@ where
     let has_inspector = self.inspector().is_some();
     let is_user_worker = self.conf.is_user_worker();
     let global_waker = self.waker.clone();
+
+    // Collect worker identity for OTLP spans.
+    let otel_attrs = {
+      let op_state = self.js_runtime.op_state();
+      let op_state_ref = op_state.borrow();
+      op_state_ref
+        .try_borrow::<EventMetadata>()
+        .map(otel::WorkerSpanAttrs::from_event_metadata)
+        .unwrap_or_default()
+    };
 
     let mut termination_request_fut = self
       .termination_request_token
@@ -1573,6 +1604,7 @@ where
           Cow::Borrowed(waker)
         };
 
+        let _poll_span = otel::start_span("v8.poll_event_loop", &otel_attrs);
         js_runtime.poll_event_loop(
           &mut std::task::Context::from_waker(waker.as_ref()),
           PollEventLoopOptions {

@@ -42,7 +42,7 @@ pub fn init_if_needed() {
 }
 
 /// Worker identity and custom otel attributes collected once at `run()` entry.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct WorkerSpanAttrs(Vec<KeyValue>);
 
 impl WorkerSpanAttrs {
@@ -65,12 +65,13 @@ impl WorkerSpanAttrs {
   }
 }
 
-/// Start a named span with worker attributes. Returns `None` if OTLP is not
-/// configured.
+/// Start a named span with worker attributes.
+/// Returns `None` if OTLP is not configured or `attrs` is `None`.
 pub fn start_span(
   name: &'static str,
-  attrs: &WorkerSpanAttrs,
+  attrs: Option<&WorkerSpanAttrs>,
 ) -> Option<OtelSpanGuard> {
+  let attrs = attrs?;
   let provider = PROVIDER.get()?.as_ref()?;
   let tracer = provider.tracer("edge-runtime");
   let mut span = tracer

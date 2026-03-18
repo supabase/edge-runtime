@@ -1320,7 +1320,6 @@ where
       op_state_ref
         .try_borrow::<EventMetadata>()
         .map(otel::WorkerSpanAttrs::from_event_metadata)
-        .unwrap_or_default()
     };
 
     let inspector = self.inspector();
@@ -1383,7 +1382,8 @@ where
               &maybe_cpu_usage_metrics_tx,
               &mut accumulated_cpu_time_ns,
               || {
-                let _span = otel::start_span("v8.mod_evaluate", &otel_attrs);
+                let _span =
+                  otel::start_span("v8.mod_evaluate", otel_attrs.as_ref());
                 locker.js_runtime.mod_evaluate(main_module_id)
               },
             ))
@@ -1465,7 +1465,7 @@ where
             &mut accumulated_cpu_time_ns,
             || {
               let _span =
-                otel::start_span("v8.dispatch_load_event", &otel_attrs);
+                otel::start_span("v8.dispatch_load_event", otel_attrs.as_ref());
               MaybeDenoRuntime::DenoRuntime(*locker).dispatch_load_event()
             },
           ) {
@@ -1501,7 +1501,8 @@ where
         &maybe_cpu_usage_metrics_tx,
         &mut accumulated_cpu_time_ns,
         || {
-          let _span = otel::start_span("v8.dispatch_unload_event", &otel_attrs);
+          let _span =
+            otel::start_span("v8.dispatch_unload_event", otel_attrs.as_ref());
           MaybeDenoRuntime::DenoRuntime(&mut locker).dispatch_unload_event()
         },
       ) {
@@ -1526,15 +1527,12 @@ where
     let has_inspector = self.inspector().is_some();
     let is_user_worker = self.conf.is_user_worker();
     let global_waker = self.waker.clone();
-
-    // Collect worker identity for OTLP spans.
     let otel_attrs = {
       let op_state = self.js_runtime.op_state();
       let op_state_ref = op_state.borrow();
       op_state_ref
         .try_borrow::<EventMetadata>()
         .map(otel::WorkerSpanAttrs::from_event_metadata)
-        .unwrap_or_default()
     };
 
     let mut termination_request_fut = self
@@ -1604,7 +1602,8 @@ where
           Cow::Borrowed(waker)
         };
 
-        let _poll_span = otel::start_span("v8.poll_event_loop", &otel_attrs);
+        let _poll_span =
+          otel::start_span("v8.poll_event_loop", otel_attrs.as_ref());
         js_runtime.poll_event_loop(
           &mut std::task::Context::from_waker(waker.as_ref()),
           PollEventLoopOptions {

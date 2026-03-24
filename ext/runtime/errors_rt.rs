@@ -143,3 +143,113 @@ pub fn get_error_class_name(e: &AnyError) -> Option<&'static str> {
         .map(get_url_parse_error_class)
     })
 }
+
+#[cfg(test)]
+mod test {
+  use super::*;
+
+  #[test]
+  fn io_error_not_found() {
+    let err = io::Error::new(io::ErrorKind::NotFound, "file not found");
+    assert_eq!(get_io_error_class(&err), "NotFound");
+  }
+
+  #[test]
+  fn io_error_permission_denied() {
+    let err = io::Error::new(io::ErrorKind::PermissionDenied, "denied");
+    assert_eq!(get_io_error_class(&err), "PermissionDenied");
+  }
+
+  #[test]
+  fn io_error_connection_refused() {
+    let err = io::Error::new(io::ErrorKind::ConnectionRefused, "refused");
+    assert_eq!(get_io_error_class(&err), "ConnectionRefused");
+  }
+
+  #[test]
+  fn io_error_connection_reset() {
+    let err = io::Error::new(io::ErrorKind::ConnectionReset, "reset");
+    assert_eq!(get_io_error_class(&err), "ConnectionReset");
+  }
+
+  #[test]
+  fn io_error_timed_out() {
+    let err = io::Error::new(io::ErrorKind::TimedOut, "timeout");
+    assert_eq!(get_io_error_class(&err), "TimedOut");
+  }
+
+  #[test]
+  fn io_error_addr_in_use() {
+    let err = io::Error::new(io::ErrorKind::AddrInUse, "in use");
+    assert_eq!(get_io_error_class(&err), "AddrInUse");
+  }
+
+  #[test]
+  fn io_error_broken_pipe() {
+    let err = io::Error::new(io::ErrorKind::BrokenPipe, "broken");
+    assert_eq!(get_io_error_class(&err), "BrokenPipe");
+  }
+
+  #[test]
+  fn io_error_invalid_input() {
+    let err = io::Error::new(io::ErrorKind::InvalidInput, "bad input");
+    assert_eq!(get_io_error_class(&err), "TypeError");
+  }
+
+  #[test]
+  fn io_error_other() {
+    let err = io::Error::new(io::ErrorKind::Other, "other");
+    assert_eq!(get_io_error_class(&err), "Error");
+  }
+
+  #[test]
+  fn env_var_not_present() {
+    let err = env::VarError::NotPresent;
+    assert_eq!(get_env_var_error_class(&err), "NotFound");
+  }
+
+  #[test]
+  fn url_parse_error() {
+    let err = url::ParseError::EmptyHost;
+    assert_eq!(get_url_parse_error_class(&err), "URIError");
+  }
+
+  #[test]
+  fn module_resolution_error() {
+    let err = ModuleResolutionError::InvalidBaseUrl(url::ParseError::EmptyHost);
+    assert_eq!(get_module_resolution_error_class(&err), "URIError");
+  }
+
+  #[test]
+  fn serde_json_syntax_error() {
+    let err = serde_json::from_str::<serde_json::Value>("{invalid")
+      .unwrap_err();
+    assert_eq!(get_serde_json_error_class(&err), "SyntaxError");
+  }
+
+  #[test]
+  fn get_error_class_name_io_error() {
+    let io_err = io::Error::new(io::ErrorKind::NotFound, "file not found");
+    let err: AnyError = io_err.into();
+    assert_eq!(get_error_class_name(&err), Some("NotFound"));
+  }
+
+  #[test]
+  fn get_error_class_name_env_var_error() {
+    let err: AnyError = env::VarError::NotPresent.into();
+    assert_eq!(get_error_class_name(&err), Some("NotFound"));
+  }
+
+  #[test]
+  fn get_error_class_name_url_parse_error() {
+    let err: AnyError = url::ParseError::EmptyHost.into();
+    assert_eq!(get_error_class_name(&err), Some("URIError"));
+  }
+
+  #[test]
+  fn get_error_class_name_unknown_error() {
+    let err = deno_core::anyhow::anyhow!("some unknown error");
+    // Unknown errors should return None (not classified)
+    assert!(get_error_class_name(&err).is_none());
+  }
+}

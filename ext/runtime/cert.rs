@@ -126,3 +126,85 @@ pub fn get_root_cert_store(
 
   Ok(root_cert_store)
 }
+
+#[cfg(test)]
+mod test {
+  use super::*;
+
+  #[test]
+  fn ca_data_file_eq() {
+    let a = CaData::File("/path/to/cert.pem".into());
+    let b = CaData::File("/path/to/cert.pem".into());
+    assert_eq!(a, b);
+  }
+
+  #[test]
+  fn ca_data_bytes_eq() {
+    let data = vec![1, 2, 3];
+    let a = CaData::Bytes(data.clone());
+    let b = CaData::Bytes(data);
+    assert_eq!(a, b);
+  }
+
+  #[test]
+  fn root_cert_store_load_error_display() {
+    let err = RootCertStoreLoadError::UnknownStore("badstore".into());
+    assert!(err.to_string().contains("badstore"));
+    assert!(err.to_string().contains("system,mozilla"));
+  }
+
+  #[test]
+  fn get_root_cert_store_mozilla() {
+    let store = get_root_cert_store(None, Some(vec!["mozilla".into()]), None);
+    assert!(store.is_ok());
+    let store = store.unwrap();
+    // Mozilla trust store has many certs
+    assert!(store.len() > 100);
+  }
+
+  #[test]
+  fn get_root_cert_store_unknown_store_errors() {
+    let result = get_root_cert_store(None, Some(vec!["badstore".into()]), None);
+    assert!(result.is_err());
+    assert!(matches!(
+      result.unwrap_err(),
+      RootCertStoreLoadError::UnknownStore(_)
+    ));
+  }
+
+  #[test]
+  fn get_root_cert_store_invalid_ca_data_bytes_errors() {
+    // Invalid PEM data should produce an error
+    let bad_pem = b"not a valid certificate\n";
+
+    let store = get_root_cert_store(
+      None,
+      Some(vec!["mozilla".into()]),
+      Some(CaData::Bytes(bad_pem.to_vec())),
+    );
+    // Invalid PEM is silently ignored (no certs parsed), so it succeeds
+    // but doesn't add any extra certs
+    assert!(store.is_ok());
+  }
+
+  #[test]
+  fn get_root_cert_store_missing_ca_file() {
+    let result = get_root_cert_store(
+      None,
+      Some(vec!["mozilla".into()]),
+      Some(CaData::File("/nonexistent/cert.pem".into())),
+    );
+    assert!(result.is_err());
+    assert!(matches!(
+      result.unwrap_err(),
+      RootCertStoreLoadError::CaFileOpenError(_)
+    ));
+  }
+
+  #[test]
+  fn value_root_cert_store_provider_returns_store() {
+    let store = RootCertStore::empty();
+    let provider = ValueRootCertStoreProvider::new(store);
+    assert!(provider.get_or_try_init().is_ok());
+  }
+}

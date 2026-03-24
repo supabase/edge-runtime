@@ -311,3 +311,133 @@ pub struct WorkerRequestMsg {
   pub res_tx: oneshot::Sender<Result<Response<Body>, hyper_v014::Error>>,
   pub conn_token: Option<CancellationToken>,
 }
+
+#[cfg(test)]
+mod test {
+  use super::*;
+  use deno_core::serde_json;
+
+  // -- WorkerKind --
+
+  #[test]
+  fn worker_kind_display() {
+    assert_eq!(WorkerKind::UserWorker.to_string(), "user");
+    assert_eq!(WorkerKind::MainWorker.to_string(), "main");
+    assert_eq!(WorkerKind::EventsWorker.to_string(), "event");
+  }
+
+  #[test]
+  fn worker_kind_equality() {
+    assert_eq!(WorkerKind::UserWorker, WorkerKind::UserWorker);
+    assert_ne!(WorkerKind::UserWorker, WorkerKind::MainWorker);
+  }
+
+  // -- WorkerRuntimeOpts --
+
+  #[test]
+  fn worker_runtime_opts_to_worker_kind() {
+    let user = WorkerRuntimeOpts::UserWorker(Default::default());
+    assert_eq!(user.to_worker_kind(), WorkerKind::UserWorker);
+    assert!(user.is_user_worker());
+
+    let (tx, _rx) = mpsc::unbounded_channel();
+    let main = WorkerRuntimeOpts::MainWorker(MainWorkerRuntimeOpts {
+      worker_pool_tx: tx,
+      shared_metric_src: None,
+      event_worker_metric_src: None,
+      context: None,
+    });
+    assert_eq!(main.to_worker_kind(), WorkerKind::MainWorker);
+    assert!(main.is_main_worker());
+  }
+
+  #[test]
+  fn worker_runtime_opts_context() {
+    let mut map = serde_json::Map::new();
+    map.insert(
+      "key".to_string(),
+      serde_json::Value::String("value".to_string()),
+    );
+
+    let user = WorkerRuntimeOpts::UserWorker(UserWorkerRuntimeOpts {
+      context: Some(map.clone()),
+      ..Default::default()
+    });
+    assert_eq!(
+      user.context().unwrap().get("key").unwrap().as_str(),
+      Some("value")
+    );
+
+    let user_none = WorkerRuntimeOpts::UserWorker(Default::default());
+    assert!(user_none.context().is_none());
+  }
+
+  #[test]
+  fn worker_kind_from_runtime_opts() {
+    let opts = WorkerRuntimeOpts::UserWorker(Default::default());
+    let kind: WorkerKind = (&opts).into();
+    assert_eq!(kind, WorkerKind::UserWorker);
+  }
+
+  // -- UserWorkerRuntimeOpts defaults --
+
+  #[test]
+  fn user_worker_defaults_match_env_limits() {
+    let defaults = UserWorkerRuntimeOpts::default();
+
+    // These come from .cargo/config.toml env vars
+    assert_eq!(defaults.memory_limit_mb, 256);
+    assert_eq!(defaults.low_memory_multiplier, 5);
+    assert_eq!(defaults.cpu_time_soft_limit_ms, 1000);
+    assert_eq!(defaults.cpu_time_hard_limit_ms, 2000);
+    assert_eq!(defaults.worker_timeout_ms, 400000);
+    assert!(!defaults.force_create);
+    assert!(defaults.allow_remote_modules);
+    assert!(matches!(
+      defaults.rate_limiter,
+      RateLimiterOpts::Disabled
+    ));
+  }
+
+  // -- WorkerExitStatus --
+
+  #[test]
+  fn worker_exit_status_default_is_normal() {
+    let status = WorkerExitStatus::default();
+    assert!(matches!(status, WorkerExitStatus::Normal));
+  }
+
+  #[tokio::test]
+  async fn worker_exit_normal_has_no_error() {
+    let exit = WorkerExit::default();
+    assert!(exit.error().await.is_none());
+  }
+
+  #[tokio::test]
+  async fn worker_exit_with_exception_has_error() {
+    let exit = WorkerExit::default();
+    exit
+      .set(WorkerExitStatus::WithUncaughtException(
+        UncaughtExceptionEvent {
+          exception: "test error".to_string(),
+          cpu_time_used: 0,
+        },
+      ))
+      .await;
+    let err = exit.error().await;
+    assert!(err.is_some());
+    assert!(err.unwrap().to_string().contains("test error"));
+  }
+
+  // -- TimingStatus --
+
+  #[test]
+  fn timing_status_default() {
+    let status = TimingStatus::default();
+    assert_eq!(
+      status.demand.load(std::sync::atomic::Ordering::Relaxed),
+      0
+    );
+    assert!(!status.is_retired.is_raised());
+  }
+}

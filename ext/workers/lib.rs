@@ -740,3 +740,121 @@ impl Stream for BodyStream {
     self.0.poll_recv(cx)
   }
 }
+
+#[cfg(test)]
+mod test {
+  use super::*;
+
+  // -- JsPermissionsOptions --
+
+  #[test]
+  fn js_permissions_options_default_is_restrictive() {
+    let opts = JsPermissionsOptions::default();
+    assert!(opts.allow_all.is_none());
+    assert!(opts.allow_env.is_none());
+    assert!(opts.allow_net.is_none());
+    assert!(opts.allow_read.is_none());
+    assert!(opts.allow_write.is_none());
+    assert!(opts.allow_run.is_none());
+    assert!(opts.allow_sys.is_none());
+    assert!(opts.allow_ffi.is_none());
+    assert!(opts.allow_import.is_none());
+  }
+
+  #[test]
+  fn js_permissions_into_permissions_options_maps_fields() {
+    let js_opts = JsPermissionsOptions {
+      allow_all: Some(true),
+      allow_env: Some(vec!["HOME".to_string()]),
+      deny_net: Some(vec!["evil.com".to_string()]),
+      allow_read: Some(vec!["/tmp".to_string()]),
+      ..Default::default()
+    };
+
+    let perm_opts = js_opts.into_permissions_options();
+
+    assert!(perm_opts.allow_all);
+    assert!(!perm_opts.prompt); // Always false
+    assert_eq!(
+      perm_opts.allow_env,
+      Some(vec!["HOME".to_string()])
+    );
+    assert_eq!(
+      perm_opts.deny_net,
+      Some(vec!["evil.com".to_string()])
+    );
+    assert_eq!(
+      perm_opts.allow_read,
+      Some(vec!["/tmp".to_string()])
+    );
+  }
+
+  #[test]
+  fn js_permissions_prompt_always_false() {
+    let opts = JsPermissionsOptions {
+      allow_all: Some(true),
+      ..Default::default()
+    };
+    let result = opts.into_permissions_options();
+    assert!(!result.prompt);
+  }
+
+  // -- UserWorkerCreateOptions --
+
+  #[test]
+  fn user_worker_create_options_default() {
+    let opts = UserWorkerCreateOptions::default();
+    assert_eq!(opts.service_path, "");
+    assert!(opts.env_vars.is_empty());
+    assert!(!opts.no_module_cache);
+    assert!(!opts.force_create);
+    assert!(!opts.allow_remote_modules);
+    assert!(opts.maybe_eszip.is_none());
+    assert!(opts.maybe_entrypoint.is_none());
+    assert!(opts.maybe_module_code.is_none());
+    assert!(opts.memory_limit_mb.is_none());
+    assert!(opts.static_patterns.is_empty());
+  }
+
+  // -- UserWorkerCreateOptions serialization --
+
+  #[test]
+  fn user_worker_create_options_deserialize() {
+    let json = serde_json::json!({
+      "servicePath": "/app/functions/hello",
+      "envVars": [["KEY", "VALUE"]],
+      "noModuleCache": false,
+      "forceCreate": true,
+      "allowRemoteModules": true,
+      "staticPatterns": ["*.js"],
+    });
+
+    let opts: UserWorkerCreateOptions =
+      serde_json::from_value(json).unwrap();
+    assert_eq!(opts.service_path, "/app/functions/hello");
+    assert_eq!(opts.env_vars, vec![("KEY".into(), "VALUE".into())]);
+    assert!(opts.force_create);
+    assert!(opts.allow_remote_modules);
+    assert_eq!(opts.static_patterns, vec!["*.js"]);
+  }
+
+  // -- RateLimiterOpts from JsTraceRateLimitOptions --
+
+  #[test]
+  fn rate_limiter_opts_disabled_when_no_rules() {
+    let js_opts = JsTraceRateLimitOptions {
+      key: "func-id".to_string(),
+      rules: vec![],
+    };
+    // Empty rules = disabled
+    let opts = if js_opts.rules.is_empty() {
+      ext_runtime::RateLimiterOpts::Disabled
+    } else {
+      ext_runtime::RateLimiterOpts::Rules {
+        rules: js_opts.rules,
+        global_key: js_opts.key,
+      }
+    };
+    assert!(matches!(opts, ext_runtime::RateLimiterOpts::Disabled));
+  }
+}

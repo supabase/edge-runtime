@@ -214,10 +214,7 @@ mod test {
   #[test]
   fn resolved_npmrc_with_scopes() {
     let mut scopes = HashMap::new();
-    scopes.insert(
-      "@myorg".to_string(),
-      "https://npm.myorg.com/".to_string(),
-    );
+    scopes.insert("@myorg".to_string(), "https://npm.myorg.com/".to_string());
 
     let meta = Metadata {
       npmrc_scopes: Some(scopes),
@@ -257,9 +254,7 @@ mod test {
   #[test]
   fn static_assets_lookup_maps_specifiers() {
     let meta = Metadata {
-      static_asset_specifiers: vec![
-        "file:///app/static/index.html".to_string(),
-      ],
+      static_asset_specifiers: vec!["file:///app/static/index.html".to_string()],
       ..Default::default()
     };
 

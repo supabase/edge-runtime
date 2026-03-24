@@ -775,18 +775,9 @@ mod test {
 
     assert!(perm_opts.allow_all);
     assert!(!perm_opts.prompt); // Always false
-    assert_eq!(
-      perm_opts.allow_env,
-      Some(vec!["HOME".to_string()])
-    );
-    assert_eq!(
-      perm_opts.deny_net,
-      Some(vec!["evil.com".to_string()])
-    );
-    assert_eq!(
-      perm_opts.allow_read,
-      Some(vec!["/tmp".to_string()])
-    );
+    assert_eq!(perm_opts.allow_env, Some(vec!["HOME".to_string()]));
+    assert_eq!(perm_opts.deny_net, Some(vec!["evil.com".to_string()]));
+    assert_eq!(perm_opts.allow_read, Some(vec!["/tmp".to_string()]));
   }
 
   #[test]
@@ -829,8 +820,7 @@ mod test {
       "staticPatterns": ["*.js"],
     });
 
-    let opts: UserWorkerCreateOptions =
-      serde_json::from_value(json).unwrap();
+    let opts: UserWorkerCreateOptions = serde_json::from_value(json).unwrap();
     assert_eq!(opts.service_path, "/app/functions/hello");
     assert_eq!(opts.env_vars, vec![("KEY".into(), "VALUE".into())]);
     assert!(opts.force_create);

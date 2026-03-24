@@ -222,8 +222,8 @@ mod test {
 
   #[test]
   fn serde_json_syntax_error() {
-    let err = serde_json::from_str::<serde_json::Value>("{invalid")
-      .unwrap_err();
+    let err =
+      serde_json::from_str::<serde_json::Value>("{invalid").unwrap_err();
     assert_eq!(get_serde_json_error_class(&err), "SyntaxError");
   }
 

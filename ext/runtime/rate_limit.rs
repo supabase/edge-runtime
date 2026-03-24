@@ -307,11 +307,9 @@ mod test {
     let limiter = make_limiter(1, 1, 60, r"^https://api\.example\.com", None);
 
     // URL doesn't match the rule pattern
-    assert!(
-      limiter
-        .check_and_increment("https://other.com/path", "key1", true)
-        .is_ok()
-    );
+    assert!(limiter
+      .check_and_increment("https://other.com/path", "key1", true)
+      .is_ok());
   }
 
   #[test]
@@ -319,21 +317,15 @@ mod test {
     let limiter = make_limiter(2, 100, 60, r".*", Some("global"));
 
     // Traced requests use local budget (2)
-    assert!(
-      limiter
-        .check_and_increment("https://api.example.com", "key1", true)
-        .is_ok()
-    );
-    assert!(
-      limiter
-        .check_and_increment("https://api.example.com", "key1", true)
-        .is_ok()
-    );
-    assert!(
-      limiter
-        .check_and_increment("https://api.example.com", "key1", true)
-        .is_err()
-    );
+    assert!(limiter
+      .check_and_increment("https://api.example.com", "key1", true)
+      .is_ok());
+    assert!(limiter
+      .check_and_increment("https://api.example.com", "key1", true)
+      .is_ok());
+    assert!(limiter
+      .check_and_increment("https://api.example.com", "key1", true)
+      .is_err());
   }
 
   #[test]
@@ -341,21 +333,15 @@ mod test {
     let limiter = make_limiter(100, 2, 60, r".*", Some("func-id"));
 
     // Untraced requests use global budget (2)
-    assert!(
-      limiter
-        .check_and_increment("https://api.example.com", "key1", false)
-        .is_ok()
-    );
-    assert!(
-      limiter
-        .check_and_increment("https://api.example.com", "key2", false)
-        .is_ok()
-    );
-    assert!(
-      limiter
-        .check_and_increment("https://api.example.com", "key3", false)
-        .is_err()
-    );
+    assert!(limiter
+      .check_and_increment("https://api.example.com", "key1", false)
+      .is_ok());
+    assert!(limiter
+      .check_and_increment("https://api.example.com", "key2", false)
+      .is_ok());
+    assert!(limiter
+      .check_and_increment("https://api.example.com", "key3", false)
+      .is_err());
   }
 
   #[test]
@@ -382,18 +368,14 @@ mod test {
     limiter
       .check_and_increment("https://a.com", "trace-key", true)
       .unwrap();
-    assert!(
-      limiter
-        .check_and_increment("https://a.com", "trace-key", true)
-        .is_err()
-    );
+    assert!(limiter
+      .check_and_increment("https://a.com", "trace-key", true)
+      .is_err());
 
     // Global budget should still be available
-    assert!(
-      limiter
-        .check_and_increment("https://a.com", "any", false)
-        .is_ok()
-    );
+    assert!(limiter
+      .check_and_increment("https://a.com", "any", false)
+      .is_ok());
   }
 
   #[test]

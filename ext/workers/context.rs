@@ -393,10 +393,7 @@ mod test {
     assert_eq!(defaults.worker_timeout_ms, 400000);
     assert!(!defaults.force_create);
     assert!(defaults.allow_remote_modules);
-    assert!(matches!(
-      defaults.rate_limiter,
-      RateLimiterOpts::Disabled
-    ));
+    assert!(matches!(defaults.rate_limiter, RateLimiterOpts::Disabled));
   }
 
   // -- WorkerExitStatus --
@@ -434,10 +431,7 @@ mod test {
   #[test]
   fn timing_status_default() {
     let status = TimingStatus::default();
-    assert_eq!(
-      status.demand.load(std::sync::atomic::Ordering::Relaxed),
-      0
-    );
+    assert_eq!(status.demand.load(std::sync::atomic::Ordering::Relaxed), 0);
     assert!(!status.is_retired.is_raised());
   }
 }

@@ -119,11 +119,9 @@ mod test {
       outbound.cancel();
     });
 
-    let result = tokio::time::timeout(
-      Duration::from_secs(1),
-      token.cancel_and_wait(),
-    )
-    .await;
+    let result =
+      tokio::time::timeout(Duration::from_secs(1), token.cancel_and_wait())
+        .await;
 
     assert!(result.is_ok());
     assert!(token.inbound.is_cancelled());

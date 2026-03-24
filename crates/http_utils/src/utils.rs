@@ -72,10 +72,7 @@ mod test {
     let mut headers = HeaderMap::new();
     headers.insert(header::CONNECTION, HeaderValue::from_static("Upgrade"));
     headers.insert(header::UPGRADE, HeaderValue::from_static("websocket"));
-    assert_eq!(
-      get_upgrade_type(&headers),
-      Some("websocket".to_string())
-    );
+    assert_eq!(get_upgrade_type(&headers), Some("websocket".to_string()));
   }
 
   #[test]
@@ -93,26 +90,21 @@ mod test {
   fn emit_status_code_with_empty_body() {
     let resp = emit_status_code(StatusCode::OK, None, false);
     assert_eq!(resp.status(), StatusCode::OK);
-    assert_eq!(
-      resp.headers().get(header::CONTENT_LENGTH).unwrap(),
-      "0"
-    );
+    assert_eq!(resp.headers().get(header::CONTENT_LENGTH).unwrap(), "0");
   }
 
   #[test]
   fn emit_status_code_with_connection_close() {
     let resp = emit_status_code(StatusCode::BAD_GATEWAY, None, true);
     assert_eq!(resp.status(), StatusCode::BAD_GATEWAY);
-    assert_eq!(
-      resp.headers().get(header::CONNECTION).unwrap(),
-      "close"
-    );
+    assert_eq!(resp.headers().get(header::CONNECTION).unwrap(), "close");
   }
 
   #[test]
   fn emit_status_code_with_body() {
     let body = Body::from("error message");
-    let resp = emit_status_code(StatusCode::INTERNAL_SERVER_ERROR, Some(body), false);
+    let resp =
+      emit_status_code(StatusCode::INTERNAL_SERVER_ERROR, Some(body), false);
     assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
     // Should not have content-length: 0 when body is provided
     assert!(resp.headers().get(header::CONTENT_LENGTH).is_none());

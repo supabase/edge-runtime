@@ -44,8 +44,8 @@ jobs:
     name: 'fmt'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v6
-      - uses: denoland/setup-deno@v2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282 # v2.0.4
         with:
           deno-version: v2.x
       - run: rustup show
@@ -56,13 +56,13 @@ jobs:
     name: 'cargo clippy'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Install deps
         run: |
           sudo apt-get update
           sudo apt-get -y install libblas-dev liblapack-dev libopenblas-dev
       - run: rustup show
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - run: ./scripts/clippy.sh
 
   cargo-test:
@@ -76,7 +76,9 @@ jobs:
           sudo apt-get -y install libblas-dev liblapack-dev libopenblas-dev
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@cargo-llvm-cov
+        uses: taiki-e/install-action@328a871ad8f62ecac78390391f463ccabc974b72 # v2.69.9
+        with:
+          tool: cargo-llvm-cov
 
       - name: Remove unwanted software
         run: |
@@ -89,11 +91,11 @@ jobs:
           sudo apt-get remove --purge -y man-db
           sudo apt-get remove 'clang-13*' 'clang-14*' 'clang-15*' 'llvm-13*' 'llvm-14*' 'llvm-15*' 'lld-13*' 'lld-14*' 'lld-15*'
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - run: rustup show
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
-      - uses: cardinalby/export-env-action@v2
+      - uses: cardinalby/export-env-action@b16a08b396d047e3f9e1446e3946440e2be02a73 # 2.2.2
         with:
           envFile: '.env'
 
@@ -107,7 +109,7 @@ jobs:
             github.event_name != 'pull_request'
             || github.event.pull_request.head.repo.full_name == github.repository
           )
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           repository: ${{ env.ESZIP_TESTDATA_REPO }}
           path: ./edge-runtime-test-eszip
@@ -154,7 +156,7 @@ jobs:
         shell: bash
 
       - name: Cache AI models
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ env.EXT_AI_CACHE_DIR }}
           key: ext-ai-cache-${{ runner.os }}-v1
@@ -166,7 +168,7 @@ jobs:
         run: |
           cargo llvm-cov test --workspace --no-fail-fast --lcov -j 1 --output-path lcov.info
       - name: Coveralls upload
-        uses: coverallsapp/github-action@v2
+        uses: coverallsapp/github-action@5cbfd81b66ca5d10c19b062c04de0199c215fb6e # v2.3.7
         with:
           fail-on-error: false
           github-token: ${{ secrets.GITHUB_TOKEN }}

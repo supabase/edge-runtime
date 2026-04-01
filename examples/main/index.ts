@@ -240,6 +240,15 @@ Deno.serve(async (req: Request) => {
       if (e instanceof Deno.errors.WorkerAlreadyRetired) {
         return await callWorker();
       }
+      if (e instanceof Deno.errors.WorkerRequestIdleTimeout) {
+        return new Response(
+          JSON.stringify({ msg: e.toString() }),
+          {
+            status: STATUS_CODE.GatewayTimeout,
+            headers,
+          },
+        );
+      }
       if (e instanceof Deno.errors.WorkerRequestCancelled) {
         headers.append("Connection", "close");
 

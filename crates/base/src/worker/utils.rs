@@ -1,4 +1,7 @@
 use std::collections::HashMap;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
 
 use anyhow::anyhow;
 use anyhow::bail;
@@ -63,10 +66,12 @@ pub async fn send_user_worker_request(
 ) -> Result<Response<Body>, anyhow::Error> {
   let (res_tx, res_rx) =
     oneshot::channel::<Result<Response<Body>, hyper_v014::Error>>();
+  let idle_timed_out = Arc::new(AtomicBool::new(false));
   let msg = WorkerRequestMsg {
     req,
     res_tx,
     conn_token,
+    idle_timed_out: idle_timed_out.clone(),
   };
 
   // send the message to worker
@@ -88,7 +93,9 @@ pub async fn send_user_worker_request(
 
   match res {
     Ok(v) => {
-      // send the response back to the caller
+      if idle_timed_out.load(Ordering::Relaxed) {
+        bail!(WorkerError::RequestIdleTimeout)
+      }
       Ok(v)
     }
 

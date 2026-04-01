@@ -158,7 +158,7 @@ pub async fn op_net_accept(
   };
 
   let Some(rx) = rx else {
-    return Err(bad_resource("duplex stream receiver is already used"));
+    return Err(bad_resource("duplex stream receiver is not available"));
   };
 
   let mut rx = scopeguard::guard(rx, {

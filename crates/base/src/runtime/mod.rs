@@ -299,7 +299,7 @@ pub enum WillTerminateReason {
 #[derive(Debug)]
 pub struct RunOptions {
   wait_termination_request_token: bool,
-  duplex_stream_rx: mpsc::UnboundedReceiver<DuplexStreamEntry>,
+  duplex_stream_rx: Option<mpsc::UnboundedReceiver<DuplexStreamEntry>>,
   maybe_cpu_usage_metrics_tx: Option<mpsc::UnboundedSender<CPUUsageMetrics>>,
 }
 
@@ -351,11 +351,6 @@ impl RunOptionsBuilder {
       duplex_stream_rx,
       maybe_cpu_usage_metrics_tx,
     } = self;
-
-    // TODO(Nyannyacha): Make this as optional.
-    let Some(duplex_stream_rx) = duplex_stream_rx else {
-      return Err(anyhow!("stream_rx can't be empty"));
-    };
 
     Ok(RunOptions {
       wait_termination_request_token,
@@ -1291,8 +1286,10 @@ where
       let op_state_rc = self.js_runtime.op_state();
       let mut op_state = op_state_rc.borrow_mut();
 
-      op_state
-        .put::<mpsc::UnboundedReceiver<DuplexStreamEntry>>(duplex_stream_rx);
+      if let Some(duplex_stream_rx) = duplex_stream_rx {
+        op_state
+          .put::<mpsc::UnboundedReceiver<DuplexStreamEntry>>(duplex_stream_rx);
+      }
 
       if self.conf.is_main_worker() {
         op_state.put::<mpsc::UnboundedSender<UserWorkerMsgs>>(
@@ -2338,7 +2335,6 @@ mod test {
 
   use crate::runtime::DenoRuntime;
   use crate::runtime::JsRuntimeLockerGuard;
-  use crate::worker::DuplexStreamEntry;
   use crate::worker::WorkerBuilder;
 
   use super::GetRuntimeContext;
@@ -3201,13 +3197,10 @@ mod test {
     .build()
     .await;
 
-    let (_tx, duplex_stream_rx) =
-      mpsc::unbounded_channel::<DuplexStreamEntry>();
     let (result, _) = user_rt
       .run(
         RunOptionsBuilder::new()
           .wait_termination_request_token(false)
-          .stream_rx(duplex_stream_rx)
           .build()
           .unwrap(),
       )
@@ -3231,13 +3224,10 @@ mod test {
     .build()
     .await;
 
-    let (_tx, duplex_stream_rx) =
-      mpsc::unbounded_channel::<DuplexStreamEntry>();
     let (result, _) = user_rt
       .run(
         RunOptionsBuilder::new()
           .wait_termination_request_token(false)
-          .stream_rx(duplex_stream_rx)
           .build()
           .unwrap(),
       )
@@ -3259,8 +3249,6 @@ mod test {
     memory_limit_mb: u64,
     worker_timeout_ms: u64,
   ) {
-    let (_duplex_stream_tx, duplex_stream_rx) =
-      mpsc::unbounded_channel::<DuplexStreamEntry>();
     let (callback_tx, mut callback_rx) = mpsc::unbounded_channel::<()>();
     let mut user_rt = create_basic_user_runtime_builder(
       path,
@@ -3286,7 +3274,6 @@ mod test {
         .run(
           RunOptionsBuilder::new()
             .wait_termination_request_token(false)
-            .stream_rx(duplex_stream_rx)
             .build()
             .unwrap(),
         )
@@ -3393,13 +3380,10 @@ mod test {
     .build()
     .await;
 
-    let (_tx, duplex_stream_rx) = mpsc::unbounded_channel();
-
     user_rt
       .run(
         RunOptionsBuilder::new()
           .wait_termination_request_token(false)
-          .stream_rx(duplex_stream_rx)
           .build()
           .unwrap(),
       )
@@ -3425,13 +3409,10 @@ mod test {
       .build()
       .await;
 
-    let (_tx, duplex_stream_rx) = mpsc::unbounded_channel();
-
     user_rt
       .run(
         RunOptionsBuilder::new()
           .wait_termination_request_token(false)
-          .stream_rx(duplex_stream_rx)
           .build()
           .unwrap(),
       )

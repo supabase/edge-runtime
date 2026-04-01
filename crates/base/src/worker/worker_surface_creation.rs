@@ -35,6 +35,7 @@ use super::WorkerSurface;
 mod request {
   use std::future::pending;
   use std::io::ErrorKind;
+  use std::sync::atomic::Ordering;
   use std::sync::Arc;
   use std::time::Duration;
 
@@ -90,6 +91,7 @@ mod request {
       mut req,
       res_tx,
       conn_token,
+      idle_timed_out,
     } = msg;
 
     let _ = duplex_stream_tx.send((theirs, conn_token.clone()));
@@ -155,6 +157,7 @@ mod request {
     let res = tokio::select! {
       resp = request_sender.send_request(req) => resp,
       _ = maybe_cancel_fut => {
+        idle_timed_out.store(true, Ordering::Relaxed);
         Ok(emit_status_code(
           http_v02::StatusCode::GATEWAY_TIMEOUT,
           None,

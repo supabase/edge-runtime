@@ -12,6 +12,7 @@ use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -265,6 +266,7 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
     req,
     res_tx,
     conn_token: Some(conn_token.clone()),
+    idle_timed_out: Arc::new(AtomicBool::new(false)),
   };
 
   let _ = surface.msg_tx.send(msg);
@@ -549,6 +551,7 @@ async fn test_main_worker_user_worker_mod_evaluate_exception() {
     req,
     res_tx,
     conn_token: Some(conn_token.clone()),
+    idle_timed_out: Arc::new(AtomicBool::new(false)),
   };
 
   let _ = surface.msg_tx.send(msg);
@@ -1893,7 +1896,15 @@ async fn test_request_idle_timeout_no_streamed_response(
     request_builder,
     maybe_tls,
     (|resp| async {
-      assert_eq!(resp.unwrap().status().as_u16(), StatusCode::GATEWAY_TIMEOUT);
+      let resp = resp.unwrap();
+      assert_eq!(resp.status().as_u16(), StatusCode::GATEWAY_TIMEOUT);
+      let body = resp.bytes().await.unwrap();
+      assert!(
+        std::str::from_utf8(&body)
+          .unwrap()
+          .contains("WorkerRequestIdleTimeout"),
+        "expected WorkerRequestIdleTimeout in body"
+      );
     }),
     TerminationToken::new()
   );

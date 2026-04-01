@@ -154,6 +154,10 @@ interface WorkerHeapStatisticsWithServicePath {
 interface RuntimeMetrics {
   mainWorkerHeapStats: HeapStatistics;
   eventWorkerHeapStats?: HeapStatistics;
+  activeUserWorkersCount: number;
+  retiredUserWorkersCount: number;
+  receivedRequestsCount: number;
+  handledRequestsCount: number;
 }
 
 interface MemInfo {
@@ -252,6 +256,7 @@ declare namespace Deno {
   export namespace errors {
     class WorkerRequestCancelled extends Error {}
     class WorkerAlreadyRetired extends Error {}
+    class WorkerRequestIdleTimeout extends Error {}
 
     /** Thrown when an outbound HTTP request is blocked by the rate limiter. */
     class RateLimitError extends Error {

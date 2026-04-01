@@ -4,6 +4,7 @@ use std::future::Future;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::str;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::task::Poll;
 use std::time::Duration;
@@ -196,6 +197,7 @@ impl Service<Request<Body>> for WorkerService {
         req,
         res_tx,
         conn_token: Some(cancel.clone()),
+        idle_timed_out: Arc::new(AtomicBool::new(false)),
       };
 
       worker_req_tx.send(msg)?;

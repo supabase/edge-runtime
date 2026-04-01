@@ -111,6 +111,14 @@ Deno.serve(async (req: Request) => {
       // 	return await callWorker();
       // }
 
+      if (e instanceof Deno.errors.WorkerRequestIdleTimeout) {
+        const error = { msg: e.toString() };
+        return new Response(
+          JSON.stringify(error),
+          { status: 504, headers: { "Content-Type": "application/json" } },
+        );
+      }
+
       const error = { msg: e.toString() };
       return new Response(
         JSON.stringify(error),

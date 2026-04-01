@@ -3,6 +3,7 @@
 use std::marker::PhantomPinned;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::task::ready;
 use std::task::Poll;
@@ -297,6 +298,7 @@ impl TestBed {
       req,
       res_tx,
       conn_token: Some(conn_token.clone()),
+      idle_timed_out: Arc::new(AtomicBool::new(false)),
     });
 
     let Ok(res) = res_rx.await else {

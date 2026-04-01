@@ -6,4 +6,6 @@ pub enum WorkerError {
   RequestCancelledBySupervisor,
   #[error("request cannot be handled because the worker has already retired")]
   WorkerAlreadyRetired,
+  #[error("request timed out")]
+  RequestIdleTimeout,
 }

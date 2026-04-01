@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::sync::RwLock;
@@ -310,4 +311,5 @@ pub struct WorkerRequestMsg {
   pub req: Request<Body>,
   pub res_tx: oneshot::Sender<Result<Response<Body>, hyper_v014::Error>>,
   pub conn_token: Option<CancellationToken>,
+  pub idle_timed_out: Arc<AtomicBool>,
 }

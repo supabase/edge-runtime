@@ -613,8 +613,6 @@ globalThis.bootstrapSBEdge = (opts, ctx) => {
     });
   }
 
-  bootstrapOtel(otel);
-
   ObjectDefineProperty(globalThis, "Deno", readOnly(denoOverrides));
 
   setNumCpus(1); // explicitly setting no of CPUs to 1 (since we don't allow workers)
@@ -636,6 +634,8 @@ globalThis.bootstrapSBEdge = (opts, ctx) => {
     if (ObjectHasOwn(main, "default")) {
       registerDeclarativeServer(main.default);
     }
+
+    bootstrapOtel(otel);
   });
 
   /// DISABLE SHARED MEMORY AND INSTALL MEM CHECK TIMING

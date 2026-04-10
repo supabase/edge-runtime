@@ -6,14 +6,16 @@ import { join } from "jsr:@std/path@^1.0";
 import { context, propagation } from "npm:@opentelemetry/api";
 import { W3CBaggagePropagator } from "npm:@opentelemetry/core@1";
 
-// @ts-ignore See https://github.com/denoland/deno/issues/28082
-if (globalThis[Symbol.for("opentelemetry.js.api.1")]) {
-  globalThis[Symbol.for("opentelemetry.js.api.1")].propagation =
-    new W3CBaggagePropagator();
-}
+addEventListener("load", () => {
+  console.log("main function started");
+  console.log(Deno.version);
 
-console.log("main function started");
-console.log(Deno.version);
+  // @ts-ignore See https://github.com/denoland/deno/issues/28082
+  if (globalThis[Symbol.for("opentelemetry.js.api.1")]) {
+    globalThis[Symbol.for("opentelemetry.js.api.1")].propagation =
+      new W3CBaggagePropagator();
+  }
+});
 
 addEventListener("beforeunload", () => {
   console.log("main worker exiting");

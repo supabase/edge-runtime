@@ -231,6 +231,7 @@ declare namespace Supabase {
     }
 
     export class Session {
+      init: Promise<void>
       /**
        * Create a new model session using given model
        */

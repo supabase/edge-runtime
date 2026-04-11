@@ -172,6 +172,8 @@ impl TraceRateLimiter {
 
   /// Returns `Ok(())` when the request is allowed, or `Err(retry_after_ms)`
   /// with the number of milliseconds until the window resets when denied.
+  /// Returns `Ok(())` when the request is allowed, or `Err(retry_after_ms)`
+  /// with the number of milliseconds until the window resets when denied.
   pub fn check_and_increment(
     &self,
     url: &str,
@@ -199,5 +201,218 @@ impl TraceRateLimiter {
         .table
         .check_and_increment(fid, rule.budget.global, rule.ttl)
     }
+  }
+}
+
+#[cfg(test)]
+mod test {
+  use super::*;
+
+  fn make_table() -> SharedRateLimitTable {
+    SharedRateLimitTable::default()
+  }
+
+  fn make_limiter(
+    local_budget: u32,
+    global_budget: u32,
+    ttl_secs: u64,
+    pattern: &str,
+    global_key: Option<&str>,
+  ) -> TraceRateLimiter {
+    TraceRateLimiter::new(TraceRateLimiterConfig {
+      table: make_table(),
+      rules: vec![TraceRateLimitRule {
+        matches: pattern.to_string(),
+        ttl: ttl_secs,
+        budget: TraceRateLimitBudget {
+          local: local_budget,
+          global: global_budget,
+        },
+      }],
+      global_key: global_key.map(String::from),
+    })
+    .unwrap()
+  }
+
+  // -- SharedRateLimitTable --
+
+  #[test]
+  fn table_allows_requests_within_budget() {
+    let table = make_table();
+    let ttl = Duration::from_secs(60);
+
+    assert!(table.check_and_increment("key1", 3, ttl).is_ok());
+    assert!(table.check_and_increment("key1", 3, ttl).is_ok());
+    assert!(table.check_and_increment("key1", 3, ttl).is_ok());
+  }
+
+  #[test]
+  fn table_denies_requests_exceeding_budget() {
+    let table = make_table();
+    let ttl = Duration::from_secs(60);
+
+    for _ in 0..3 {
+      table.check_and_increment("key1", 3, ttl).unwrap();
+    }
+    let result = table.check_and_increment("key1", 3, ttl);
+    assert!(result.is_err());
+  }
+
+  #[test]
+  fn table_returns_retry_after_ms_on_denial() {
+    let table = make_table();
+    let ttl = Duration::from_secs(60);
+
+    for _ in 0..2 {
+      table.check_and_increment("key1", 2, ttl).unwrap();
+    }
+    let retry_after = table.check_and_increment("key1", 2, ttl).unwrap_err();
+    // Should be roughly 60 seconds (in ms), give some margin
+    assert!(retry_after > 0);
+    assert!(retry_after <= 60_000);
+  }
+
+  #[test]
+  fn table_resets_after_ttl_expires() {
+    let table = make_table();
+    let ttl = Duration::from_millis(1);
+
+    // Exhaust the budget
+    table.check_and_increment("key1", 1, ttl).unwrap();
+    assert!(table.check_and_increment("key1", 1, ttl).is_err());
+
+    // Wait for TTL to expire
+    std::thread::sleep(Duration::from_millis(5));
+
+    // Should be allowed again
+    assert!(table.check_and_increment("key1", 1, ttl).is_ok());
+  }
+
+  #[test]
+  fn table_tracks_keys_independently() {
+    let table = make_table();
+    let ttl = Duration::from_secs(60);
+
+    table.check_and_increment("key1", 1, ttl).unwrap();
+    assert!(table.check_and_increment("key1", 1, ttl).is_err());
+
+    // Different key should still be allowed
+    assert!(table.check_and_increment("key2", 1, ttl).is_ok());
+  }
+
+  // -- TraceRateLimiter --
+
+  #[test]
+  fn limiter_allows_unmatched_urls() {
+    let limiter = make_limiter(1, 1, 60, r"^https://api\.example\.com", None);
+
+    // URL doesn't match the rule pattern
+    assert!(limiter
+      .check_and_increment("https://other.com/path", "key1", true)
+      .is_ok());
+  }
+
+  #[test]
+  fn limiter_uses_local_budget_for_traced_requests() {
+    let limiter = make_limiter(2, 100, 60, r".*", Some("global"));
+
+    // Traced requests use local budget (2)
+    assert!(limiter
+      .check_and_increment("https://api.example.com", "key1", true)
+      .is_ok());
+    assert!(limiter
+      .check_and_increment("https://api.example.com", "key1", true)
+      .is_ok());
+    assert!(limiter
+      .check_and_increment("https://api.example.com", "key1", true)
+      .is_err());
+  }
+
+  #[test]
+  fn limiter_uses_global_budget_for_untraced_requests() {
+    let limiter = make_limiter(100, 2, 60, r".*", Some("func-id"));
+
+    // Untraced requests use global budget (2)
+    assert!(limiter
+      .check_and_increment("https://api.example.com", "key1", false)
+      .is_ok());
+    assert!(limiter
+      .check_and_increment("https://api.example.com", "key2", false)
+      .is_ok());
+    assert!(limiter
+      .check_and_increment("https://api.example.com", "key3", false)
+      .is_err());
+  }
+
+  #[test]
+  fn limiter_denies_untraced_without_global_key() {
+    let limiter = make_limiter(100, 100, 60, r".*", None);
+
+    // No global key → always denied for untraced
+    assert_eq!(
+      limiter
+        .check_and_increment("https://api.example.com", "key1", false)
+        .unwrap_err(),
+      0
+    );
+  }
+
+  #[test]
+  fn limiter_traced_and_untraced_budgets_are_independent() {
+    let limiter = make_limiter(2, 2, 60, r".*", Some("func-id"));
+
+    // Exhaust local budget for traced
+    limiter
+      .check_and_increment("https://a.com", "trace-key", true)
+      .unwrap();
+    limiter
+      .check_and_increment("https://a.com", "trace-key", true)
+      .unwrap();
+    assert!(limiter
+      .check_and_increment("https://a.com", "trace-key", true)
+      .is_err());
+
+    // Global budget should still be available
+    assert!(limiter
+      .check_and_increment("https://a.com", "any", false)
+      .is_ok());
+  }
+
+  #[test]
+  fn limiter_invalid_regex_returns_error() {
+    let result = TraceRateLimiter::new(TraceRateLimiterConfig {
+      table: make_table(),
+      rules: vec![TraceRateLimitRule {
+        matches: "[invalid".to_string(),
+        ttl: 60,
+        budget: TraceRateLimitBudget {
+          local: 1,
+          global: 1,
+        },
+      }],
+      global_key: None,
+    });
+    assert!(result.is_err());
+  }
+
+  #[tokio::test]
+  async fn table_cleanup_task_removes_expired_entries() {
+    let table = make_table();
+    let cancel = CancellationToken::new();
+    let ttl = Duration::from_millis(10);
+
+    // Add an entry
+    table.check_and_increment("key1", 100, ttl).unwrap();
+
+    // Start cleanup task with a fast interval
+    table.spawn_cleanup_task(Duration::from_millis(5), cancel.clone());
+
+    // Wait for entry to expire and cleanup to run
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // Entry should have been cleaned up; new request gets a fresh window
+    assert!(table.check_and_increment("key1", 1, ttl).is_ok());
+
+    cancel.cancel();
   }
 }

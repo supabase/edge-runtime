@@ -148,3 +148,144 @@ impl Metadata {
     Ok(())
   }
 }
+
+#[cfg(test)]
+mod test {
+  use super::*;
+
+  #[test]
+  fn metadata_default_has_no_entrypoint() {
+    let meta = Metadata::default();
+    assert!(meta.entrypoint.is_none());
+    assert!(meta.serialized_workspace_resolver_raw.is_none());
+    assert!(meta.npmrc_scopes.is_none());
+    assert!(meta.static_asset_specifiers.is_empty());
+    assert!(meta.virtual_dir.is_none());
+    assert!(meta.ca_stores.is_none());
+    assert!(meta.ca_data.is_none());
+    assert!(meta.node_modules.is_none());
+  }
+
+  #[test]
+  fn serialized_workspace_resolver_returns_default_when_none() {
+    let meta = Metadata::default();
+    let result = meta.serialized_workspace_resolver();
+    assert!(result.is_ok());
+  }
+
+  #[test]
+  fn serialized_workspace_resolver_invalid_json_errors() {
+    let meta = Metadata {
+      serialized_workspace_resolver_raw: Some(b"not valid json".to_vec()),
+      ..Default::default()
+    };
+    let result = meta.serialized_workspace_resolver();
+    assert!(result.is_err());
+  }
+
+  #[test]
+  fn node_modules_returns_none_when_absent() {
+    let meta = Metadata::default();
+    let result = meta.node_modules().unwrap();
+    assert!(result.is_none());
+  }
+
+  #[test]
+  fn node_modules_invalid_json_errors() {
+    let meta = Metadata {
+      node_modules: Some(b"bad json".to_vec()),
+      ..Default::default()
+    };
+    assert!(meta.node_modules().is_err());
+  }
+
+  #[test]
+  fn resolved_npmrc_default_uses_given_registry() {
+    let meta = Metadata::default();
+    let registry_url = Url::parse("https://registry.npmjs.org/").unwrap();
+    let result = meta.resolved_npmrc(&registry_url).unwrap();
+    assert_eq!(
+      result.default_config.registry_url.as_str(),
+      "https://registry.npmjs.org/"
+    );
+    assert!(result.scopes.is_empty());
+  }
+
+  #[test]
+  fn resolved_npmrc_with_scopes() {
+    let mut scopes = HashMap::new();
+    scopes.insert("@myorg".to_string(), "https://npm.myorg.com/".to_string());
+
+    let meta = Metadata {
+      npmrc_scopes: Some(scopes),
+      ..Default::default()
+    };
+
+    let registry_url = Url::parse("https://registry.npmjs.org/").unwrap();
+    let result = meta.resolved_npmrc(&registry_url).unwrap();
+    assert_eq!(result.scopes.len(), 1);
+    assert_eq!(
+      result.scopes["@myorg"].registry_url.as_str(),
+      "https://npm.myorg.com/"
+    );
+  }
+
+  #[test]
+  fn resolved_npmrc_invalid_scope_url_errors() {
+    let mut scopes = HashMap::new();
+    scopes.insert("@bad".to_string(), "not-a-url".to_string());
+
+    let meta = Metadata {
+      npmrc_scopes: Some(scopes),
+      ..Default::default()
+    };
+
+    let registry_url = Url::parse("https://registry.npmjs.org/").unwrap();
+    assert!(meta.resolved_npmrc(&registry_url).is_err());
+  }
+
+  #[test]
+  fn static_assets_lookup_empty() {
+    let meta = Metadata::default();
+    let result = meta.static_assets_lookup("/app");
+    assert!(result.is_empty());
+  }
+
+  #[test]
+  fn static_assets_lookup_maps_specifiers() {
+    let meta = Metadata {
+      static_asset_specifiers: vec!["file:///app/static/index.html".to_string()],
+      ..Default::default()
+    };
+
+    let result = meta.static_assets_lookup("/app");
+    assert_eq!(result.len(), 1);
+    // The key should be a normalized path
+    assert!(result.values().any(|v| v.contains("index.html")));
+  }
+
+  #[test]
+  fn static_assets_lookup_skips_invalid_specifiers() {
+    let meta = Metadata {
+      static_asset_specifiers: vec![":::invalid".to_string()],
+      ..Default::default()
+    };
+
+    let result = meta.static_assets_lookup("/app");
+    assert!(result.is_empty());
+  }
+
+  #[test]
+  fn entrypoint_key_debug() {
+    let ep = Entrypoint::Key("main.ts".to_string());
+    let debug = format!("{:?}", ep);
+    assert!(debug.contains("main.ts"));
+  }
+
+  #[test]
+  fn entrypoint_module_code_debug() {
+    let ep = Entrypoint::ModuleCode("console.log('hi')".to_string());
+    let debug = format!("{:?}", ep);
+    assert!(debug.contains("console.log"));
+  }
+}

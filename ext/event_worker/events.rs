@@ -129,3 +129,9 @@ pub struct IncomingEvent {
   data: Option<Vec<u8>>,
   done: bool,
 }
+
+// NOTE: Unit tests for this module live in the integration test suite
+// (crates/base/tests/) because the `uuid` workspace dependency lacks the
+// `serde` feature, so `ext_event_worker` cannot compile for `--lib` tests
+// in isolation. The serde feature is provided transitively at the workspace
+// level when building the full project.

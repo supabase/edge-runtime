@@ -110,6 +110,53 @@ pub async fn extract_from_file(
 }
 
 #[cfg(test)]
+mod test_utils {
+  use super::*;
+
+  #[test]
+  fn strip_file_scheme_removes_prefix() {
+    assert_eq!(
+      strip_file_scheme("file:///home/user/app.ts"),
+      "/home/user/app.ts"
+    );
+  }
+
+  #[test]
+  fn strip_file_scheme_no_prefix_passthrough() {
+    assert_eq!(
+      strip_file_scheme("https://example.com/mod.ts"),
+      "https://example.com/mod.ts"
+    );
+  }
+
+  #[test]
+  fn strip_file_scheme_returns_borrowed_for_non_file() {
+    let input = "some/path";
+    let result = strip_file_scheme(input);
+    assert!(matches!(result, Cow::Borrowed(_)));
+  }
+
+  #[test]
+  fn strip_file_scheme_returns_owned_for_file() {
+    let result = strip_file_scheme("file:///path");
+    assert!(matches!(result, Cow::Owned(_)));
+  }
+
+  #[test]
+  fn ensure_unix_relative_path_accepts_relative() {
+    let path = Path::new("src/main.rs");
+    assert_eq!(ensure_unix_relative_path(path), path);
+  }
+
+  #[test]
+  #[should_panic]
+  fn ensure_unix_relative_path_rejects_absolute() {
+    let path = Path::new("/absolute/path");
+    ensure_unix_relative_path(path);
+  }
+}
+
+#[cfg(test)]
 mod test {
   use std::fs::remove_dir_all;
   use std::path::PathBuf;

@@ -467,6 +467,120 @@ pub fn op_check_outbound_rate_limit(
   }
 }
 
+#[cfg(test)]
+mod test {
+  use super::*;
+
+  // -- SharedMetricSource --
+
+  #[test]
+  fn shared_metric_source_defaults_to_zero() {
+    let src = SharedMetricSource::default();
+    assert_eq!(src.active_io(), 0);
+    assert_eq!(src.received_requests(), 0);
+    assert_eq!(src.handled_requests(), 0);
+  }
+
+  #[test]
+  fn shared_metric_source_increments_and_decrements() {
+    let src = SharedMetricSource::default();
+
+    src.incl_active_user_workers();
+    src.incl_active_user_workers();
+    src.decl_active_user_workers();
+
+    src.incl_received_requests();
+    src.incl_received_requests();
+    src.incl_received_requests();
+    assert_eq!(src.received_requests(), 3);
+
+    src.incl_handled_requests();
+    assert_eq!(src.handled_requests(), 1);
+
+    src.incl_active_io();
+    src.incl_active_io();
+    src.decl_active_io();
+    assert_eq!(src.active_io(), 1);
+  }
+
+  #[test]
+  fn shared_metric_source_reset() {
+    let src = SharedMetricSource::default();
+
+    src.incl_received_requests();
+    src.incl_handled_requests();
+    src.incl_active_io();
+    src.incl_active_user_workers();
+    src.incl_retired_user_worker();
+
+    src.reset();
+
+    assert_eq!(src.received_requests(), 0);
+    assert_eq!(src.handled_requests(), 0);
+    assert_eq!(src.active_io(), 0);
+  }
+
+  // -- PromiseMetrics --
+
+  #[test]
+  fn promise_metrics_starts_resolved() {
+    let pm = PromiseMetrics::default();
+    assert!(pm.have_all_promises_been_resolved());
+    assert_eq!(pm.get_init_count(), 0);
+    assert_eq!(pm.get_resolve_count(), 0);
+  }
+
+  #[test]
+  fn promise_metrics_tracks_init_and_resolve() {
+    let pm = PromiseMetrics::default();
+
+    pm.init.fetch_add(3, Ordering::Release);
+    assert_eq!(pm.get_init_count(), 3);
+    assert!(!pm.have_all_promises_been_resolved());
+
+    pm.resolve.fetch_add(3, Ordering::Release);
+    assert!(pm.have_all_promises_been_resolved());
+  }
+
+  #[test]
+  fn promise_metrics_unresolved_when_init_exceeds_resolve() {
+    let pm = PromiseMetrics::default();
+
+    pm.init.fetch_add(5, Ordering::Release);
+    pm.resolve.fetch_add(3, Ordering::Release);
+
+    assert!(!pm.have_all_promises_been_resolved());
+    assert_eq!(pm.get_init_count(), 5);
+    assert_eq!(pm.get_resolve_count(), 3);
+  }
+
+  // -- RuntimeSharedStatistics --
+
+  #[test]
+  fn runtime_shared_statistics_from_metric_src() {
+    let src = SharedMetricSource::default();
+    src.incl_active_user_workers();
+    src.incl_retired_user_worker();
+    src.incl_received_requests();
+    src.incl_received_requests();
+    src.incl_handled_requests();
+
+    let stats = RuntimeSharedStatistics::from_shared_metric_src(&src);
+    assert_eq!(stats.active_user_workers_count, 1);
+    assert_eq!(stats.retired_user_workers_count, 1);
+    assert_eq!(stats.received_requests_count, 2);
+    assert_eq!(stats.handled_requests_count, 1);
+  }
+
+  // -- RateLimiterOpts --
+
+  #[test]
+  fn rate_limiter_opts_default_is_disabled() {
+    let opts = RateLimiterOpts::default();
+    assert!(matches!(opts, RateLimiterOpts::Disabled));
+  }
+}
+
 deno_core::extension!(
   runtime,
   ops = [

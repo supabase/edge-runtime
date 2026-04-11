@@ -53,3 +53,84 @@ where
     None
   }
 }
+
+#[cfg(test)]
+mod test {
+  use super::*;
+
+  // -- mib_to_bytes --
+
+  #[test]
+  fn mib_to_bytes_basic() {
+    assert_eq!(mib_to_bytes(1), 1_048_576);
+    assert_eq!(mib_to_bytes(256), 268_435_456);
+    assert_eq!(mib_to_bytes(0), 0);
+  }
+
+  // -- bytes_to_display --
+
+  #[test]
+  fn bytes_to_display_kib() {
+    assert_eq!(bytes_to_display(1024), "1.00KiB");
+    assert_eq!(bytes_to_display(512), "0.50KiB");
+    assert_eq!(bytes_to_display(0), "0.00KiB");
+  }
+
+  #[test]
+  fn bytes_to_display_mib() {
+    assert_eq!(bytes_to_display(MIB), "1.00MiB");
+    assert_eq!(bytes_to_display(MIB * 256), "256.00MiB");
+    assert_eq!(bytes_to_display(MIB + MIB / 2), "1.50MiB");
+  }
+
+  // -- human_elapsed --
+
+  #[test]
+  fn human_elapsed_milliseconds() {
+    assert_eq!(human_elapsed(0), "0ms");
+    assert_eq!(human_elapsed(500), "500ms");
+    assert_eq!(human_elapsed(999), "999ms");
+  }
+
+  #[test]
+  fn human_elapsed_seconds() {
+    assert_eq!(human_elapsed(1000), "1s");
+    assert_eq!(human_elapsed(5000), "5s");
+    assert_eq!(human_elapsed(59_999), "59s");
+  }
+
+  #[test]
+  fn human_elapsed_minutes() {
+    assert_eq!(human_elapsed(60_000), "1m0s");
+    assert_eq!(human_elapsed(90_000), "1m30s");
+    assert_eq!(human_elapsed(125_000), "2m5s");
+  }
+
+  // -- percentage_value --
+
+  #[test]
+  fn percentage_value_basic() {
+    assert_eq!(percentage_value(50u64, 1000u64), Some(500));
+    assert_eq!(percentage_value(100u64, 256u64), Some(256));
+  }
+
+  #[test]
+  fn percentage_value_caps_at_100() {
+    // percent > 100 should be capped
+    assert_eq!(percentage_value(200u64, 1000u64), Some(1000));
+  }
+
+  #[test]
+  fn percentage_value_zero_percent_returns_none() {
+    // 0% is not "normal" for f64 (it's subnormal), so returns None
+    assert_eq!(percentage_value::<u64, u64>(0, 1000), None);
+  }
+
+  // -- constants --
+
+  #[test]
+  fn constants_correct() {
+    assert_eq!(KIB, 1024);
+    assert_eq!(MIB, 1024 * 1024);
+  }
+}

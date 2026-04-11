@@ -2409,6 +2409,25 @@ async fn test_fetch_local_file_handler() {
   assert!(!body.is_empty());
 }
 
+// https://github.com/supabase/edge-runtime/issues/640
+#[tokio::test]
+#[serial]
+async fn test_wasm_module() {
+  integration_test!(
+    "./test_cases/main",
+    NON_SECURE_PORT,
+    "wasm-module",
+    None,
+    None,
+    None,
+    (|resp| async {
+      // Testing mod add(1, 2) === 3;
+      assert_eq!(resp.unwrap().text().await.unwrap(), "3");
+    }),
+    TerminationToken::new()
+  );
+}
+
 #[tokio::test]
 #[serial]
 async fn test_issue_208() {

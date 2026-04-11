@@ -1,4 +1,4 @@
-import { add } from './add-wasm/pkg/add_wasm.js';
+import { add } from "./add-wasm/pkg/add_wasm.js";
 
 Deno.serve(async (req) => {
   const { a, b } = await req.json();

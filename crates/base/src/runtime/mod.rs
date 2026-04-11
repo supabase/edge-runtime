@@ -752,6 +752,7 @@ where
             deno_fetch::Options {
               user_agent: deno::versions::user_agent().to_string(),
               root_cert_store_provider: Some(root_cert_store_provider.clone()),
+              file_fetch_handler: Rc::new(deno::deno_fetch::FsFetchHandler),
               ..Default::default()
             },
           ),
@@ -887,13 +888,6 @@ where
         };
 
         let mut js_runtime = JsRuntime::new(runtime_options);
-
-        {
-          let op_state = js_runtime.op_state();
-          let mut op_state = op_state.borrow_mut();
-          op_state.borrow_mut::<deno_fetch::Options>().file_fetch_handler =
-            Rc::new(deno_fetch::FsFetchHandler);
-        }
 
         let dispatch_fns = {
           let context = js_runtime.main_context();

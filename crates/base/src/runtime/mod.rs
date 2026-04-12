@@ -789,6 +789,7 @@ where
           ext_runtime::runtime_http_start::init_ops(),
           // NOTE(AndresP): Order is matters. Otherwise, it will lead to hard
           // errors such as SIGBUS depending on the platform.
+          deno_napi::deno_napi::init_ops::<PermissionsContainer>(),
           ext_node::deno_node::init_ops::<PermissionsContainer>(
             Some(node_services),
             fs,

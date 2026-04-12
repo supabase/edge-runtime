@@ -27,5 +27,8 @@ tracing-subscriber = { workspace = true, optional = true }
 
 env_logger = "=0.10.0"
 
+[build-dependencies]
+deno_napi.workspace = true
+
 [features]
 tracing = ["dep:tracing-subscriber", "dep:ext_event_worker"]

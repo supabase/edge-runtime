@@ -287,6 +287,7 @@ mod supabase_startup_snapshot {
       ext_runtime::runtime_net::init_ops_and_esm(),
       ext_runtime::runtime_http::init_ops_and_esm(),
       ext_runtime::runtime_http_start::init_ops_and_esm(),
+      deno_napi::deno_napi::init_ops_and_esm::<PermissionsContainer>(),
       ext_node::deno_node::init_ops_and_esm::<Permissions>(None, fs),
       // NOTE(kallebysantos):
       // Full `Web Cache API` via `SqliteBackedCache` is disabled. Cache flow is
@@ -333,4 +334,94 @@ fn main() {
   supabase_startup_snapshot::create_runtime_snapshot(
     runtime_snapshot_path.clone(),
   );
+
+  // Emit N-API symbol exports for integration test binaries so that native
+  // Node addons (e.g. DuckDB) can resolve napi_* symbols via dlopen.
+  // This mirrors what deno_napi::print_linker_flags does for the main binary
+  // but targets test binaries instead.
+  emit_napi_linker_flags_for_tests();
+}
+
+fn emit_napi_linker_flags_for_tests() {
+  // The deno_napi crate ships a platform-specific symbols export list.
+  // We locate it the same way deno_napi's own build.rs does, but from
+  // within the Cargo registry cache.
+  let symbols_file_name = match std::env::consts::OS {
+    "android" | "freebsd" | "openbsd" => {
+      "generated_symbol_exports_list_linux.def".to_string()
+    }
+    os => format!("generated_symbol_exports_list_{}.def", os),
+  };
+
+  // Cargo home defaults to ~/.cargo but can be overridden via CARGO_HOME.
+  let cargo_home = env::var("CARGO_HOME")
+    .map(PathBuf::from)
+    .unwrap_or_else(|_| {
+      let home = env::var("HOME")
+        .or_else(|_| env::var("USERPROFILE"))
+        .expect("cannot determine home directory");
+      PathBuf::from(home).join(".cargo")
+    });
+
+  // Walk the registry source directories to find deno_napi-*.
+  let registry_src = cargo_home.join("registry").join("src");
+  let symbols_path = find_napi_symbols_file(&registry_src, &symbols_file_name);
+
+  let Some(symbols_path) = symbols_path else {
+    // Symbols file not found – skip silently. Tests that load native addons
+    // will fail at runtime but the build will not break.
+    return;
+  };
+
+  let symbols_path = symbols_path.to_string_lossy();
+
+  #[cfg(target_os = "windows")]
+  println!("cargo:rustc-link-arg-tests=/DEF:{symbols_path}");
+
+  #[cfg(target_os = "macos")]
+  println!(
+    "cargo:rustc-link-arg-tests=-Wl,-exported_symbols_list,{symbols_path}"
+  );
+
+  #[cfg(any(
+    target_os = "linux",
+    target_os = "freebsd",
+    target_os = "openbsd"
+  ))]
+  println!(
+    "cargo:rustc-link-arg-tests=-Wl,--export-dynamic-symbol-list={symbols_path}"
+  );
+}
+
+fn find_napi_symbols_file(
+  registry_src: &PathBuf,
+  symbols_file_name: &str,
+) -> Option<PathBuf> {
+  // The registry may have multiple index directories (one per registry URL).
+  // Scan them all for a deno_napi-0.*.*/symbols file.
+  let Ok(indices) = std::fs::read_dir(registry_src) else {
+    return None;
+  };
+  for index_entry in indices.flatten() {
+    let index_path = index_entry.path();
+    if !index_path.is_dir() {
+      continue;
+    }
+    let Ok(packages) = std::fs::read_dir(&index_path) else {
+      continue;
+    };
+    for pkg_entry in packages.flatten() {
+      let pkg_path = pkg_entry.path();
+      let name = pkg_entry.file_name();
+      let name = name.to_string_lossy();
+      if !name.starts_with("deno_napi-") {
+        continue;
+      }
+      let candidate = pkg_path.join(symbols_file_name);
+      if candidate.exists() {
+        return Some(candidate);
+      }
+    }
+  }
+  None
 }

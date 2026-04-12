@@ -9,6 +9,7 @@ import {
   op_require_as_file_path,
   op_require_break_on_next_statement,
   op_require_can_parse_as_esm,
+  op_require_extract_node_addon,
   op_require_init_paths,
   op_require_is_deno_dir_package,
   op_require_is_maybe_cjs,
@@ -1127,13 +1128,18 @@ Module._extensions[".node"] = function (module, filename) {
   if (filename.endsWith("cpufeatures.node")) {
     throw new Error("Using cpu-features module is currently not supported");
   }
-  throw new Error("Not supported");
-  // module.exports = op_napi_open(
-  //   filename,
-  //   globalThis,
-  //   nodeGlobals.Buffer,
-  //   reportError,
-  // );
+  // The edge runtime stores npm packages in a virtual in-memory filesystem
+  // (VFS). dlopen (used by op_napi_open) is a raw system call that requires
+  // the file to exist on the real filesystem. op_require_extract_node_addon
+  // reads the binary from the VFS and writes it to a real temp directory,
+  // returning the real path for dlopen to use.
+  const realFilename = op_require_extract_node_addon(filename);
+  module.exports = op_napi_open(
+    realFilename,
+    globalThis,
+    nodeGlobals.Buffer,
+    reportError,
+  );
 };
 
 function createRequireFromPath(filename) {

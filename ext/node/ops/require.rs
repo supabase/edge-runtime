@@ -19,6 +19,9 @@ use node_resolver::ResolutionMode;
 use node_resolver::REQUIRE_CONDITIONS;
 use std::borrow::Cow;
 use std::cell::RefCell;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::Hash;
+use std::hash::Hasher;
 use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -684,4 +687,86 @@ pub fn op_require_can_parse_as_esm(
   );
   let mut source = v8::script_compiler::Source::new(source, Some(&origin));
   v8::script_compiler::compile_module(scope, &mut source).is_some()
+}
+
+/// Reads a `.node` native addon from the virtual filesystem and writes it to a
+/// real temporary directory so that `dlopen` can load it. Returns the real path.
+///
+/// The edge runtime packages npm files (including `.node` binaries) into an
+/// in-memory VFS. `dlopen` (called by `op_napi_open`) requires a real
+/// filesystem path, so we must materialize the binary before loading it.
+/// A stable path derived from a hash of the virtual path is used so the file
+/// is only written once per worker lifetime.
+///
+/// Shared library files (`.dylib`, `.so`, `.dll`) in the same VFS directory
+/// are also extracted so that `@rpath`/`RPATH`-relative dependencies resolve.
+#[op2]
+#[string]
+pub fn op_require_extract_node_addon<P>(
+  state: &mut OpState,
+  #[string] virtual_path: String,
+) -> Result<String, AnyError>
+where
+  P: NodePermissions + 'static,
+{
+  let vpath = PathBuf::from(&virtual_path);
+
+  // If the file already exists on the real filesystem, return it as-is.
+  if vpath.exists() {
+    return Ok(virtual_path);
+  }
+
+  let fs = state.borrow::<FileSystemRc>().clone();
+
+  // Derive a stable cache directory from the containing VFS directory path,
+  // so that all files from the same package land in the same temp directory
+  // (allowing @rpath/libduckdb.dylib etc. to resolve relative to the loader).
+  let vdir = vpath
+    .parent()
+    .ok_or_else(|| deno_core::error::generic_error("invalid .node path"))?;
+  let mut hasher = DefaultHasher::new();
+  vdir.hash(&mut hasher);
+  let hash = hasher.finish();
+  let extract_dir = std::env::temp_dir()
+    .join("sb-napi")
+    .join(format!("{hash:016x}"));
+  std::fs::create_dir_all(&extract_dir)?;
+
+  // Extract shared library siblings (needed for @rpath resolution) and the
+  // .node file itself from the VFS directory to real disk.
+  let entries = fs.read_dir_sync(vdir).unwrap_or_default();
+  for entry in &entries {
+    if !entry.is_file {
+      continue;
+    }
+    let ext = std::path::Path::new(&entry.name)
+      .extension()
+      .and_then(|e| e.to_str())
+      .unwrap_or("");
+    if !matches!(ext, "node" | "dylib" | "so" | "dll") {
+      continue;
+    }
+    let real_sibling = extract_dir.join(&entry.name);
+    if !real_sibling.exists() {
+      let vsibling = vdir.join(&entry.name);
+      let bytes = fs
+        .read_file_sync(&vsibling, None)
+        .map_err(|e| {
+          deno_core::error::generic_error(format!(
+            "Failed to read {}: {e}",
+            vsibling.display()
+          ))
+        })?
+        .into_owned();
+      std::fs::write(&real_sibling, &bytes)?;
+    }
+  }
+
+  let file_name = vpath
+    .file_name()
+    .ok_or_else(|| deno_core::error::generic_error("invalid .node path"))?
+    .to_string_lossy();
+  let real_path = extract_dir.join(file_name.as_ref());
+
+  Ok(real_path.to_string_lossy().into_owned())
 }

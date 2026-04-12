@@ -20,6 +20,7 @@ pub fn get_default_permissions(kind: WorkerKind) -> PermissionsOptions {
       allow_all: false,
       allow_env: Some(Default::default()),
       allow_net: Some(Default::default()),
+      allow_ffi: Some(Default::default()),
       allow_read: Some(Default::default()),
       allow_write: Some(Default::default()),
       allow_import: Some(Default::default()),

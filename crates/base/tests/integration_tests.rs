@@ -895,6 +895,28 @@ async fn test_user_imports_npm() {
 
 #[tokio::test]
 #[serial]
+async fn test_node_napi_duckdb() {
+  ensure_npm_package_installed("./test_cases/node-napi-duckdb").await;
+  integration_test!(
+    "./test_cases/main",
+    NON_SECURE_PORT,
+    "node-napi-duckdb",
+    None,
+    None,
+    None,
+    (|resp| async {
+      let resp = resp.unwrap();
+      assert_eq!(resp.status().as_u16(), 200);
+      let body: serde_json::Value = resp.json().await.unwrap();
+      assert_eq!(body["success"], true);
+      assert!(!body["rows"].as_array().unwrap().is_empty());
+    }),
+    TerminationToken::new()
+  );
+}
+
+#[tokio::test]
+#[serial]
 async fn test_worker_boot_invalid_imports() {
   let opts = WorkerContextInitOpts {
     service_path: "./test_cases/invalid_imports".into(),

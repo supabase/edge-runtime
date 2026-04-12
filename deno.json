@@ -1,7 +1,8 @@
 {
   "workspace": [
     "./examples",
-    "./crates/base/test_cases"
+    "./crates/base/test_cases",
+    "./crates/base/test_cases/node-napi-duckdb"
   ],
   "fmt": {
     "useTabs": false,

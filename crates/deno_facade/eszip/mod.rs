@@ -788,40 +788,48 @@ pub async fn generate_binary_eszip(
   let (mut vfs, node_modules, npm_snapshot) = match resolver.clone().as_inner()
   {
     InnerCliNpmResolverRef::Managed(managed) => {
-      let snapshot =
-        managed.serialized_valid_snapshot_for_system(&NpmSystemInfo::default());
-      if !snapshot.as_serialized().packages.is_empty() {
-        let npm_vfs_builder = build_npm_vfs(
-          VfsOpts {
-            root_path,
-            npm_resolver: resolver.clone(),
-          },
-          emitter_factory.deno_options()?.clone(),
-          &mut vfs_content_callback_fn,
-        )?;
-
-        (
-          npm_vfs_builder,
-          Some(NodeModules::Managed {
-            node_modules_dir: resolver.root_node_modules_path().map(|it| {
-              root_dir_url
-                .specifier_key(
-                  &ModuleSpecifier::from_directory_path(it).unwrap(),
-                )
-                .into_owned()
-            }),
-          }),
-          Some(
-            managed
-              .serialized_valid_snapshot_for_system(&NpmSystemInfo::default()),
-          ),
-        )
-      } else {
+      if graph.npm_packages.is_empty() {
         (
           VfsBuilder::new(root_path, &mut vfs_content_callback_fn)?,
           None,
           None,
         )
+      } else {
+        let snapshot = managed
+          .serialized_valid_snapshot_for_system(&NpmSystemInfo::default());
+        if !snapshot.as_serialized().packages.is_empty() {
+          let npm_vfs_builder = build_npm_vfs(
+            VfsOpts {
+              root_path,
+              npm_resolver: resolver.clone(),
+            },
+            emitter_factory.deno_options()?.clone(),
+            &mut vfs_content_callback_fn,
+          )?;
+
+          (
+            npm_vfs_builder,
+            Some(NodeModules::Managed {
+              node_modules_dir: resolver.root_node_modules_path().map(|it| {
+                root_dir_url
+                  .specifier_key(
+                    &ModuleSpecifier::from_directory_path(it).unwrap(),
+                  )
+                  .into_owned()
+              }),
+            }),
+            Some(
+              managed
+                .serialized_valid_snapshot_for_system(&NpmSystemInfo::default()),
+            ),
+          )
+        } else {
+          (
+            VfsBuilder::new(root_path, &mut vfs_content_callback_fn)?,
+            None,
+            None,
+          )
+        }
       }
     }
     InnerCliNpmResolverRef::Byonm(_) => {

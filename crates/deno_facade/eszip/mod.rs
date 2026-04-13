@@ -808,21 +808,21 @@ pub async fn generate_binary_eszip(
           )?;
 
           (
-          npm_vfs_builder,
-          Some(NodeModules::Managed {
-            node_modules_dir: resolver.root_node_modules_path().map(|it| {
-              root_dir_url
-                .specifier_key(
-                  &ModuleSpecifier::from_directory_path(it).unwrap(),
-                )
-                .into_owned()
+            npm_vfs_builder,
+            Some(NodeModules::Managed {
+              node_modules_dir: resolver.root_node_modules_path().map(|it| {
+                root_dir_url
+                  .specifier_key(
+                    &ModuleSpecifier::from_directory_path(it).unwrap(),
+                  )
+                  .into_owned()
+              }),
             }),
-          }),
-          Some(
-            managed
-              .serialized_valid_snapshot_for_system(&NpmSystemInfo::default()),
-          ),
-        )
+            Some(
+              managed
+                .serialized_valid_snapshot_for_system(&NpmSystemInfo::default()),
+            ),
+          )
         } else {
           (
             VfsBuilder::new(root_path, &mut vfs_content_callback_fn)?,

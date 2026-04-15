@@ -191,6 +191,7 @@ Deno.serve(async (req: Request) => {
     const cpuTimeHardLimitMs = 20000;
     const staticPatterns = [
       "./examples/**/*.html",
+      "./examples/**/*.wasm",
     ];
 
     return await EdgeRuntime.userWorkers.create({

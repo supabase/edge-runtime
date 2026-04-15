@@ -97,6 +97,7 @@ Deno.serve(async (req: Request) => {
       noNpm,
       envVars,
       context,
+      staticPatterns: ["**/*.wasm"],
     });
   };
 

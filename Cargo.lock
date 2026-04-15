@@ -2187,6 +2187,8 @@ dependencies = [
  "bytes",
  "data-url",
  "deno_core",
+ "deno_fs",
+ "deno_io",
  "deno_path_util",
  "deno_permissions",
  "deno_tls",

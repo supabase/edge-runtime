@@ -2373,6 +2373,63 @@ async fn test_declarative_style_fetch_handler() {
 
 #[tokio::test]
 #[serial]
+async fn test_fetch_local_file_handler() {
+  let (tx, mut rx) = mpsc::unbounded_channel();
+  let tb = TestBedBuilder::new("./test_cases/main")
+    .with_per_worker_policy(None)
+    .with_worker_event_sender(Some(tx))
+    .build()
+    .await;
+
+  let mut resp = tb
+    .request(|b| {
+      b.uri("/fetch-local-npm-file")
+        .body(Body::empty())
+        .context("can't make request")
+    })
+    .await
+    .unwrap();
+
+  let status = resp.status().as_u16();
+  let body = to_bytes(resp.body_mut()).await.unwrap();
+  let body = String::from_utf8_lossy(&body).to_string();
+
+  if status != 200 || body.is_empty() {
+    rx.close();
+    tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
+
+    while let Some(ev) = rx.recv().await {
+      if let WorkerEvents::Log(ev) = ev.event {
+        eprintln!("[worker-log] {}", ev.msg);
+      }
+    }
+  }
+
+  assert_eq!(status, 200);
+  assert!(!body.is_empty());
+}
+
+// https://github.com/supabase/edge-runtime/issues/640
+#[tokio::test]
+#[serial]
+async fn test_wasm_module() {
+  integration_test!(
+    "./test_cases/main",
+    NON_SECURE_PORT,
+    "wasm-module",
+    None,
+    None,
+    None,
+    (|resp| async {
+      // Testing mod add(1, 2) === 3;
+      assert_eq!(resp.unwrap().text().await.unwrap(), "3");
+    }),
+    TerminationToken::new()
+  );
+}
+
+#[tokio::test]
+#[serial]
 async fn test_issue_208() {
   async fn create_simple_server(
     tls: Option<Tls>,

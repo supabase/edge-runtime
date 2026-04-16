@@ -109,7 +109,7 @@ jobs:
 
       - name: Run tests
         run: |
-          result=$(curl -sf http://localhost:9998/)
+          result=$(curl -s http://localhost:9998/)
           echo "$result" | jq -r '
             .results[] |
             if .passed then

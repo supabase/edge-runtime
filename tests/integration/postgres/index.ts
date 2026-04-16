@@ -32,7 +32,11 @@ async function step(
   const t0 = performance.now();
   try {
     await fn(sql);
-    results.push({ name, passed: true, durationMs: Math.round(performance.now() - t0) });
+    results.push({
+      name,
+      passed: true,
+      durationMs: Math.round(performance.now() - t0),
+    });
     return true;
   } catch (e: unknown) {
     results.push({
@@ -59,12 +63,19 @@ async function assert(condition: boolean, message: string) {
 }
 
 function assertEquals<T>(actual: T, expected: T, message?: string) {
-  const same =
-    JSON.stringify(actual, (_k, v) => (typeof v === "bigint" ? v.toString() : v)) ===
-    JSON.stringify(expected, (_k, v) => (typeof v === "bigint" ? v.toString() : v));
+  const same = JSON.stringify(
+    actual,
+    (_k, v) => (typeof v === "bigint" ? v.toString() : v),
+  ) ===
+    JSON.stringify(
+      expected,
+      (_k, v) => (typeof v === "bigint" ? v.toString() : v),
+    );
   if (!same) {
     throw new Error(
-      `${message ?? "assertEquals"}: expected ${JSON.stringify(expected)} but got ${JSON.stringify(actual)}`,
+      `${message ?? "assertEquals"}: expected ${
+        JSON.stringify(expected)
+      } but got ${JSON.stringify(actual)}`,
     );
   }
 }
@@ -75,7 +86,11 @@ function assertExists(v: unknown, message?: string) {
   }
 }
 
-function assertGreater(a: number | bigint, b: number | bigint, message?: string) {
+function assertGreater(
+  a: number | bigint,
+  b: number | bigint,
+  message?: string,
+) {
   if (!(a > b)) {
     throw new Error(`${message ?? "assertGreater"}: ${a} is not > ${b}`);
   }
@@ -155,17 +170,20 @@ async function runAllTests(sql: Sql): Promise<TestResult[]> {
   }
 
   // --- 3. parameterised literals (injection safety) ---
-  await s("query: SQL-injection via parameter binding is escaped", async (sql) => {
-    const malicious = "'; DROP TABLE pg_demo_users; --";
-    const [row] = await sql`SELECT ${malicious}::TEXT AS val`;
-    assertEquals(row.val, malicious);
+  await s(
+    "query: SQL-injection via parameter binding is escaped",
+    async (sql) => {
+      const malicious = "'; DROP TABLE pg_demo_users; --";
+      const [row] = await sql`SELECT ${malicious}::TEXT AS val`;
+      assertEquals(row.val, malicious);
 
-    const [{ cnt }] = await sql`
+      const [{ cnt }] = await sql`
       SELECT COUNT(*)::INT AS cnt FROM pg_tables
       WHERE schemaname = 'public' AND tablename = 'pg_demo_users'
     `;
-    assertEquals(cnt, 1, "table must still exist");
-  });
+      assertEquals(cnt, 1, "table must still exist");
+    },
+  );
 
   // --- 4. INSERT / RETURNING ---
   await s("crud: insert two users with RETURNING", async (sql) => {
@@ -173,7 +191,13 @@ async function runAllTests(sql: Sql): Promise<TestResult[]> {
       INSERT INTO pg_demo_users (name, email, balance, metadata)
       VALUES (
         'Alice', 'alice@example.com', 1000,
-        ${sql.json({ role: "admin", tags: ["power-user", "beta"], address: { city: "Seoul", country: "KR" } })}
+        ${
+      sql.json({
+        role: "admin",
+        tags: ["power-user", "beta"],
+        address: { city: "Seoul", country: "KR" },
+      })
+    }
       )
       RETURNING *
     `;
@@ -206,7 +230,8 @@ async function runAllTests(sql: Sql): Promise<TestResult[]> {
 
   // --- 6. SELECT single row ---
   await s("crud: get user by id", async (sql) => {
-    const [u] = await sql`SELECT name, email FROM pg_demo_users WHERE id = ${aliceId}`;
+    const [u] =
+      await sql`SELECT name, email FROM pg_demo_users WHERE id = ${aliceId}`;
     assertEquals(u.name, "Alice");
     assertEquals(u.email, "alice@example.com");
   });
@@ -238,13 +263,16 @@ async function runAllTests(sql: Sql): Promise<TestResult[]> {
   // --- 9. Transaction: commit ---
   await s("transaction: commit path (sql.begin + FOR UPDATE)", async (sql) => {
     const { from, to } = await sql.begin(async (tx) => {
-      const [s] = await tx`SELECT balance FROM pg_demo_users WHERE id=${aliceId} FOR UPDATE`;
-      const [r] = await tx`SELECT balance FROM pg_demo_users WHERE id=${bobId}   FOR UPDATE`;
+      const [s] =
+        await tx`SELECT balance FROM pg_demo_users WHERE id=${aliceId} FOR UPDATE`;
+      const [r] =
+        await tx`SELECT balance FROM pg_demo_users WHERE id=${bobId}   FOR UPDATE`;
       await tx`UPDATE pg_demo_users SET balance=balance-100 WHERE id=${aliceId}`;
       await tx`UPDATE pg_demo_users SET balance=balance+100 WHERE id=${bobId}`;
       return { from: Number(s.balance) - 100, to: Number(r.balance) + 100 };
     });
-    const [a] = await sql`SELECT balance FROM pg_demo_users WHERE id=${aliceId}`;
+    const [a] =
+      await sql`SELECT balance FROM pg_demo_users WHERE id=${aliceId}`;
     const [b] = await sql`SELECT balance FROM pg_demo_users WHERE id=${bobId}`;
     assertEquals(Number(a.balance), from);
     assertEquals(Number(b.balance), to);
@@ -252,26 +280,35 @@ async function runAllTests(sql: Sql): Promise<TestResult[]> {
 
   // --- 10. Transaction: rollback ---
   await s("transaction: rollback on business-logic throw", async (sql) => {
-    const [before] = await sql`SELECT balance FROM pg_demo_users WHERE id=${aliceId}`;
+    const [before] =
+      await sql`SELECT balance FROM pg_demo_users WHERE id=${aliceId}`;
     let threw = false;
     try {
       await sql.begin(async (tx) => {
         await tx`UPDATE pg_demo_users SET balance=balance-999999 WHERE id=${aliceId}`;
-        const [row] = await tx`SELECT balance FROM pg_demo_users WHERE id=${aliceId}`;
+        const [row] =
+          await tx`SELECT balance FROM pg_demo_users WHERE id=${aliceId}`;
         if (Number(row.balance) < 0) throw new Error("insufficient balance");
       });
     } catch {
       threw = true;
     }
     assert(threw, "should have thrown");
-    const [after] = await sql`SELECT balance FROM pg_demo_users WHERE id=${aliceId}`;
-    assertEquals(Number(after.balance), Number(before.balance), "balance must be unchanged");
+    const [after] =
+      await sql`SELECT balance FROM pg_demo_users WHERE id=${aliceId}`;
+    assertEquals(
+      Number(after.balance),
+      Number(before.balance),
+      "balance must be unchanged",
+    );
   });
 
   // --- 11. JSONB ---
   await s("jsonb: @> containment query", async (sql) => {
     const admins = await sql`
-      SELECT name FROM pg_demo_users WHERE metadata @> ${{ role: "admin" }}::jsonb
+      SELECT name FROM pg_demo_users WHERE metadata @> ${{
+      role: "admin",
+    }}::jsonb
     `;
     assertEquals(admins.length, 1);
     assertEquals(admins[0].name, "Alice");
@@ -309,7 +346,9 @@ async function runAllTests(sql: Sql): Promise<TestResult[]> {
       body: `Content for batch post ${i + 1}. Testing full-text search.`,
     }));
     const inserted = await sql`
-      INSERT INTO pg_demo_posts ${sql(rows, "userId", "title", "body")} RETURNING id
+      INSERT INTO pg_demo_posts ${
+      sql(rows, "userId", "title", "body")
+    } RETURNING id
     `;
     assertEquals(inserted.length, 10);
   });
@@ -361,7 +400,8 @@ async function runAllTests(sql: Sql): Promise<TestResult[]> {
 
   // --- 15. Type handling ---
   await s("types: BIGSERIAL / COUNT returns BigInt", async (sql) => {
-    const [{ cnt }] = await sql`SELECT COUNT(*)::BIGINT AS cnt FROM pg_demo_users`;
+    const [{ cnt }] =
+      await sql`SELECT COUNT(*)::BIGINT AS cnt FROM pg_demo_users`;
     assertEquals(typeof cnt, "bigint");
     assertEquals(cnt, 2n);
   });
@@ -397,15 +437,18 @@ async function runAllTests(sql: Sql): Promise<TestResult[]> {
     assertEquals(code, "42P01");
   });
 
-  await s("error: 22P02 invalid_text_representation (bad cast)", async (sql) => {
-    let code: string | undefined;
-    try {
-      await sql`SELECT ${"not-a-number"}::INTEGER`;
-    } catch (e: unknown) {
-      code = (e as { code?: string }).code;
-    }
-    assertEquals(code, "22P02");
-  });
+  await s(
+    "error: 22P02 invalid_text_representation (bad cast)",
+    async (sql) => {
+      let code: string | undefined;
+      try {
+        await sql`SELECT ${"not-a-number"}::INTEGER`;
+      } catch (e: unknown) {
+        code = (e as { code?: string }).code;
+      }
+      assertEquals(code, "22P02");
+    },
+  );
 
   // --- 17. Upsert ---
   await s("upsert: ON CONFLICT DO UPDATE", async (sql) => {
@@ -462,6 +505,7 @@ Deno.serve(async (req: Request) => {
     idle_timeout: 30,
     connect_timeout: 15,
     transform: postgres.camel,
+    types: { bigint: postgres.BigInt },
   });
 
   const suiteStart = performance.now();

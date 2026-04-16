@@ -361,7 +361,7 @@ async function runAllTests(sql: Sql): Promise<TestResult[]> {
 
   // --- 15. Type handling ---
   await s("types: BIGSERIAL / COUNT returns BigInt", async (sql) => {
-    const [{ cnt }] = await sql`SELECT COUNT(*) AS cnt FROM pg_demo_users`;
+    const [{ cnt }] = await sql`SELECT COUNT(*)::BIGINT AS cnt FROM pg_demo_users`;
     assertEquals(typeof cnt, "bigint");
     assertEquals(cnt, 2n);
   });

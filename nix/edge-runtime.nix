@@ -9,12 +9,71 @@
   curl,
   fetchurl,
   cmake,
+  openssl,
+  zstd,
 }:
 let
+  system = stdenv.hostPlatform.system;
+
+  v8Artifacts = {
+    "aarch64-darwin" = {
+      archive = {
+        url = "https://github.com/supabase/rusty_v8/releases/download/v130.0.7/librusty_v8_release_aarch64-apple-darwin.a.gz";
+        sha256 = "sha256-VYWg+9WekcHBJWEq49eAAVpc6g/PPaoZDm/j2DKNQLY=";
+      };
+      binding = {
+        url = "https://github.com/supabase/rusty_v8/releases/download/v130.0.7/src_binding_release_aarch64-apple-darwin.rs";
+        sha256 = "sha256-ytcUCd4V1MQkinakmT3rJsdow1RLVWrGqtMjava4BaU=";
+      };
+    };
+
+    # TODO: Missing "x86_64-darwin" supabase/rusty_v8
+    #"x86_64-darwin" = {
+    #  archive = {
+    #    url = "https://github.com/supabase/rusty_v8/releases/download/v130.0.7/src_binding_release_x86_64-apple-darwin.rs";
+    #    sha256 = "sha256-VYWg+9WekcHBJWEq49eAAVpc6g/PPaoZDm/j2DKNQLY=";
+    #  };
+    #  binding = {
+    #    url = "https://github.com/supabase/rusty_v8/releases/download/v130.0.7/src_binding_release_x86_64-apple-darwin.rs";
+    #    sha256 = lib.fakeHash;
+    #  };
+    #};
+
+    "aarch64-linux" = {
+      archive = {
+        url = "https://github.com/supabase/rusty_v8/releases/download/v130.0.7/librusty_v8_release_aarch64-unknown-linux-gnu.a.gz";
+        sha256 = "sha256-8YupKkWyFn8oZ+RbEzcigdgwvIRjzE5GW7OSnmkIYHU=";
+      };
+      binding = {
+        url = "https://github.com/supabase/rusty_v8/releases/download/v130.0.7/src_binding_release_aarch64-unknown-linux-gnu.rs";
+        sha256 = "sha256-sq8JII71BvnI43jNMm5yCj8WgGQ1K9n7AcOCJsfklRQ=";
+      };
+    };
+    "x86_64-linux" = {
+      archive = {
+        url = "https://github.com/supabase/rusty_v8/releases/download/v130.0.7-patch.1/librusty_v8_release_x86_64-unknown-linux-gnu.a.gz";
+        sha256 = "sha256-4tF7bHXad7K1ADwv3r718HUawEixSEOR5fNoBYJkFsA=";
+      };
+      binding = {
+        url = "https://github.com/supabase/rusty_v8/releases/download/v130.0.7/src_binding_release_x86_64-unknown-linux-gnu.rs";
+        sha256 = "sha256-sq8JII71BvnI43jNMm5yCj8WgGQ1K9n7AcOCJsfklRQ=";
+      };
+    };
+  };
+
+  v8 = v8Artifacts.${system} or (throw "Unsupported system: ${system}");
+  v8Archive = fetchurl v8.archive;
+  v8Binding = fetchurl v8.binding;
+
   build_step = rustPlatform.buildRustPackage (finalAttrs: {
     pname = "edge_runtime_build";
     version = "v1.73.3";
     src = ../.;
+    nativeBuildInputs = [ pkg-config curl cmake ];
+    buildInputs = [ openblas onnxruntime openssl zstd ];
+    propagatedBuildInputs = [ onnxruntime ];
+    doCheck = false;
+
     cargoLock = {
       lockFile = ../Cargo.lock;
       outputHashes = {
@@ -25,21 +84,11 @@ let
     };
 
     RUSTY_V8_MIRROR="null";
-    RUST_BACKTRACE=1;
-    RUSTY_V8_SRC_BINDING_PATH = fetchurl {
-      url = "https://github.com/supabase/rusty_v8/releases/download/v130.0.7/src_binding_release_aarch64-apple-darwin.rs";
-      sha256 = "sha256-ytcUCd4V1MQkinakmT3rJsdow1RLVWrGqtMjava4BaU=";
-    };
-    RUSTY_V8_ARCHIVE= fetchurl {
-      url = "https://github.com/supabase/rusty_v8/releases/download/v130.0.7/librusty_v8_release_aarch64-apple-darwin.a.gz";
-      sha256 = "sha256-VYWg+9WekcHBJWEq49eAAVpc6g/PPaoZDm/j2DKNQLY=";
-    };
-    DYLD_LIBRARY_PATH = "${onnxruntime}/lib";
+    RUST_BACKTRACE="full";
 
-    nativeBuildInputs = [ pkg-config curl cmake ];
-    buildInputs = [ openblas onnxruntime ];
-    propagatedBuildInputs = [ onnxruntime ];
-    doCheck = false;
+    RUSTY_V8_ARCHIVE = v8Archive;
+    RUSTY_V8_SRC_BINDING_PATH = v8Binding;
+    DYLD_LIBRARY_PATH = "${onnxruntime}/lib";
   });
 in
 stdenv.mkDerivation {
@@ -234,6 +283,7 @@ WRAPPER_EOF
 
   meta = {
     description = "Supabae Edge Runtime for the Supabase CLI";
+
     license = lib.licenses.mit;
     platforms = lib.platforms.unix;
     maintainers = [ ];

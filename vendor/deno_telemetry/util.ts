@@ -9,14 +9,21 @@ export function updateSpanFromRequest(span: Span, request: Request) {
   span.updateName(request.method);
 
   span.setAttribute("http.request.method", request.method);
-  const url = new URL(request.url);
   span.setAttribute("url.full", request.url);
-  span.setAttribute(
-    "url.scheme",
-    StringPrototypeSlice(url.protocol, 0, -1),
-  );
-  span.setAttribute("url.path", url.pathname);
-  span.setAttribute("url.query", StringPrototypeSlice(url.search, 1));
+  // Malformed URLs (e.g. invalid hosts from internet scanners) would otherwise
+  // throw here and crash the request handler before it can respond. Record the
+  // raw URL above and skip the parsed attributes when parsing fails.
+  try {
+    const url = new URL(request.url);
+    span.setAttribute(
+      "url.scheme",
+      StringPrototypeSlice(url.protocol, 0, -1),
+    );
+    span.setAttribute("url.path", url.pathname);
+    span.setAttribute("url.query", StringPrototypeSlice(url.search, 1));
+  } catch {
+    span.setAttribute("url.parse_error", "true");
+  }
 }
 
 export function updateSpanFromResponse(span: Span, response: Response) {

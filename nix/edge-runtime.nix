@@ -85,6 +85,7 @@ let
 
     RUSTY_V8_MIRROR="null";
     RUST_BACKTRACE="full";
+    RUSTFLAGS = "-C debuginfo=0";
 
     RUSTY_V8_ARCHIVE = v8Archive;
     RUSTY_V8_SRC_BINDING_PATH = v8Binding;

@@ -1,9 +1,6 @@
 name: Release Native
 
 on:
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
 
 permissions:

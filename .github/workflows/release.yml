@@ -167,3 +167,20 @@ jobs:
           dst: |
             public.ecr.aws/supabase/edge-runtime:v${{ needs.release.outputs.version }}
             ghcr.io/supabase/edge-runtime:v${{ needs.release.outputs.version }}
+
+  trigger_native_release:
+    needs: [release, merge_manifest]
+    if: needs.release.outputs.published == 'true' && needs.merge_manifest.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger native release
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'release-native.yml',
+              ref: 'v${{ needs.release.outputs.version }}'
+            })

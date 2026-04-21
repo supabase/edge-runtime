@@ -27,10 +27,22 @@ use http_body_util::BodyExt;
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::thread::ThreadId;
 use std::time::Duration;
 use std::time::SystemTime;
 use thiserror::Error;
+
+static FETCH_TIMEOUT: OnceLock<Option<Duration>> = OnceLock::new();
+
+fn fetch_timeout() -> Option<Duration> {
+  *FETCH_TIMEOUT.get_or_init(|| {
+    std::env::var("DENO_FETCH_TIMEOUT_SECS")
+      .ok()
+      .and_then(|v| v.parse::<u64>().ok())
+      .map(Duration::from_secs)
+  })
+}
 
 // TODO(ry) HTTP headers are not unique key, value pairs. There may be more than
 // one header line with the same key. This should be changed to something like
@@ -391,13 +403,27 @@ impl HttpClient {
       let accepts_val = HeaderValue::from_str(&accept)?;
       request.headers_mut().insert(ACCEPT, accepts_val);
     }
-    let response = match self.client.clone().send(request).await {
-      Ok(resp) => resp,
-      Err(err) => {
-        if err.is_connect_error() {
-          return Ok(FetchOnceResult::RequestError(err.to_string()));
+    let response = {
+      let send_fut = self.client.clone().send(request);
+      let resp = if let Some(dur) = fetch_timeout() {
+        tokio::time::timeout(dur, send_fut).await.map_err(|_| {
+          anyhow::anyhow!(
+            "Fetch '{}' timed out after {}s",
+            args.url,
+            dur.as_secs()
+          )
+        })?
+      } else {
+        send_fut.await
+      };
+      match resp {
+        Ok(r) => r,
+        Err(err) => {
+          if err.is_connect_error() {
+            return Ok(FetchOnceResult::RequestError(err.to_string()));
+          }
+          return Err(err.into());
         }
-        return Err(err.into());
       }
     };
 
@@ -450,7 +476,19 @@ impl HttpClient {
       return Err(err);
     }
 
-    let body = get_response_body_with_progress(response).await?;
+    let body = if let Some(dur) = fetch_timeout() {
+      tokio::time::timeout(dur, get_response_body_with_progress(response))
+        .await
+        .map_err(|_| {
+          anyhow::anyhow!(
+            "Fetch '{}' body timed out after {}s",
+            args.url,
+            dur.as_secs()
+          )
+        })??
+    } else {
+      get_response_body_with_progress(response).await?
+    };
 
     Ok(FetchOnceResult::Code(body, result_headers))
   }

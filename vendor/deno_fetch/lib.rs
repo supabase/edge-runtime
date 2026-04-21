@@ -15,8 +15,21 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::task::Context;
 use std::task::Poll;
+
+static TCP_KEEPALIVE: OnceLock<std::time::Duration> = OnceLock::new();
+
+fn tcp_keepalive() -> std::time::Duration {
+  *TCP_KEEPALIVE.get_or_init(|| {
+    let secs = std::env::var("DENO_TCP_KEEPALIVE_SECS")
+      .ok()
+      .and_then(|v| v.parse::<u64>().ok())
+      .unwrap_or(30);
+    std::time::Duration::from_secs(secs)
+  })
+}
 
 use deno_core::futures::stream::Peekable;
 use deno_core::futures::Future;
@@ -1016,6 +1029,7 @@ pub fn create_http_client(
   let mut http_connector =
     HttpConnector::new_with_resolver(options.dns_resolver.clone());
   http_connector.enforce_http(false);
+  http_connector.set_keepalive(Some(tcp_keepalive()));
 
   let user_agent = user_agent.parse::<HeaderValue>().map_err(|_| {
     HttpClientCreateError::InvalidUserAgent(user_agent.to_string())

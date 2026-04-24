@@ -71,6 +71,8 @@ mod signal {
   pub use tokio::signal::unix;
 }
 
+const SERVED_BY: &str = concat!(env!("CARGO_PKG_NAME"), "/server");
+
 pub enum ServerEvent {
   ConnectionError(hyper_v014::Error),
   #[cfg(debug_assertions)]
@@ -226,7 +228,7 @@ impl Service<Request<Body>> for WorkerService {
           return Ok(
             Response::builder()
               .status(http_v02::StatusCode::INTERNAL_SERVER_ERROR)
-              .header("x-served-by", concat!(env!("CARGO_PKG_NAME"), "/server"))
+              .header("x-served-by", SERVED_BY)
               .body(Body::empty())
               .unwrap(),
           );
@@ -240,7 +242,7 @@ impl Service<Request<Body>> for WorkerService {
         return Ok(
           Response::builder()
             .status(http_v02::StatusCode::SERVICE_UNAVAILABLE)
-            .header("x-served-by", concat!(env!("CARGO_PKG_NAME"), "/server"))
+            .header("x-served-by", SERVED_BY)
             .body(Body::empty())
             .unwrap(),
         );

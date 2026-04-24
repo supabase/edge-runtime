@@ -71,6 +71,8 @@ mod signal {
   pub use tokio::signal::unix;
 }
 
+const SERVED_BY: &str = concat!(env!("CARGO_PKG_NAME"), "/server");
+
 pub enum ServerEvent {
   ConnectionError(hyper_v014::Error),
   #[cfg(debug_assertions)]
@@ -221,20 +223,29 @@ impl Service<Request<Body>> for WorkerService {
 
       let res = match res_rx.await {
         Ok(res) => res,
-        Err(err) => {
+        Err(_) => {
           metric_src.incl_handled_requests();
-          return Err(err.into());
+          return Ok(
+            Response::builder()
+              .status(http_v02::StatusCode::INTERNAL_SERVER_ERROR)
+              .header("x-served-by", SERVED_BY)
+              .body(Body::empty())
+              .unwrap(),
+          );
         }
       };
 
-      // If the token has already been canceled, drop the socket connection
-      // without sending a response.
+      // If the token has already been canceled, return 503 instead of
+      // dropping the socket connection without a response.
       if cancel.is_cancelled() {
         error!("connection aborted (uri: {:?})", req_uri.to_string());
-        return Err(anyhow!(std::io::Error::new(
-          std::io::ErrorKind::ConnectionAborted,
-          "connection aborted"
-        )));
+        return Ok(
+          Response::builder()
+            .status(http_v02::StatusCode::SERVICE_UNAVAILABLE)
+            .header("x-served-by", SERVED_BY)
+            .body(Body::empty())
+            .unwrap(),
+        );
       }
 
       let res = match res {

@@ -97,7 +97,7 @@ sha3 = { version = "0.10.8", features = ["oid"] }
 simd-json = "0.14.0"
 sm3 = "0.4.2"
 stable_deref_trait = "1.2.0"
-tokio-eld = "0.2"
+tokio-eld = "0.3"
 x25519-dalek = { version = "2.0.0", features = ["static_secrets"] }
 x509-parser = "0.15.0"
 

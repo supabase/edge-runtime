@@ -1043,7 +1043,7 @@ dependencies = [
  "bitflags 2.6.0",
  "cexpr",
  "clang-sys",
- "itertools 0.10.5",
+ "itertools 0.12.1",
  "log",
  "prettyplease",
  "proc-macro2",
@@ -1747,7 +1747,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b28bfe653d79bd16c77f659305b195b82bb5ce0c0eb2a4846b82ddbd77586813"
 dependencies = [
  "bitflags 2.6.0",
- "libloading 0.7.4",
+ "libloading 0.8.1",
  "winapi",
 ]
 
@@ -6220,7 +6220,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "157c5a9d7ea5c2ed2d9fb8f495b64759f7816c7eaea54ba3978f0d63000162e3"
 dependencies = [
  "anyhow",
- "itertools 0.10.5",
+ "itertools 0.12.1",
  "proc-macro2",
  "quote",
  "syn 2.0.90",
@@ -8377,9 +8377,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-eld"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9166030f05d6bc5642bdb8f8c2be31eb3c02cd465d662bcdc2df82d4aa41a584"
+checksum = "d06d816c6ab33079aa237f8d8a1f0f2018eb5cbd4096713f42c33aacf2502518"
 dependencies = [
  "hdrhistogram",
  "tokio",
@@ -9171,7 +9171,7 @@ dependencies = [
  "js-sys",
  "khronos-egl",
  "libc",
- "libloading 0.7.4",
+ "libloading 0.8.1",
  "log",
  "metal",
  "naga",

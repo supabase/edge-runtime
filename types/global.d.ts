@@ -196,6 +196,7 @@ declare namespace EdgeRuntime {
   export function applySupabaseTag(src: Request, dest: Request): void;
   export function systemMemoryInfo(): MemInfo;
   export function raiseSegfault(): void;
+  export function miCollect(): void;
 
   export { UserWorker as userWorkers };
 }

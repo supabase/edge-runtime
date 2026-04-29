@@ -4,9 +4,6 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-#[cfg(target_os = "linux")]
-use libc;
-
 use base_mem_check::WorkerHeapStatistics;
 use base_rt::DropToken;
 use base_rt::RuntimeState;

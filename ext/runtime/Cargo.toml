@@ -30,6 +30,7 @@ http.workspace = true
 httparse.workspace = true
 hyper.workspace = true
 hyper_v014.workspace = true
+libc.workspace = true
 log.workspace = true
 once_cell.workspace = true
 regex.workspace = true

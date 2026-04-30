@@ -3339,6 +3339,7 @@ dependencies = [
  "httparse",
  "hyper 0.14.28",
  "hyper 1.5.2",
+ "libc",
  "log",
  "memmem",
  "once_cell",

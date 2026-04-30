@@ -443,6 +443,31 @@ fn op_cancel_drop_token(
   Ok(())
 }
 
+#[op2(fast)]
+fn op_mi_collect() {
+  #[cfg(target_os = "linux")]
+  {
+    use std::sync::OnceLock;
+
+    type MiCollectFn = unsafe extern "C" fn(force: bool);
+
+    static MI_COLLECT: OnceLock<Option<MiCollectFn>> = OnceLock::new();
+
+    let f = MI_COLLECT.get_or_init(|| unsafe {
+      let sym = libc::dlsym(libc::RTLD_DEFAULT, c"mi_collect".as_ptr());
+      if sym.is_null() {
+        None
+      } else {
+        Some(std::mem::transmute::<*mut libc::c_void, MiCollectFn>(sym))
+      }
+    });
+
+    if let Some(mi_collect) = f {
+      unsafe { mi_collect(true) };
+    }
+  }
+}
+
 #[op2]
 #[serde]
 pub fn op_bootstrap_unstable_args(_state: &mut OpState) -> Vec<String> {
@@ -485,6 +510,7 @@ deno_core::extension!(
     op_tap_promise_metrics,
     op_cancel_drop_token,
     op_check_outbound_rate_limit,
+    op_mi_collect,
   ],
   esm_entry_point = "ext:runtime/bootstrap.js",
   esm = [

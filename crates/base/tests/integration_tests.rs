@@ -3255,6 +3255,25 @@ async fn test_commonjs() {
 
 #[tokio::test]
 #[serial]
+async fn test_commonjs_require_esm() {
+  integration_test!(
+    "./test_cases/main",
+    NON_SECURE_PORT,
+    "commonjs-require-esm",
+    None,
+    None,
+    None,
+    (|resp| async {
+      let resp = resp.unwrap();
+      assert_eq!(resp.status().as_u16(), 200);
+      assert_eq!(resp.text().await.unwrap().as_str(), "cjs require esm ok");
+    }),
+    TerminationToken::new()
+  );
+}
+
+#[tokio::test]
+#[serial]
 async fn test_commonjs_no_type_field_in_package_json() {
   integration_test!(
     "./test_cases/main",

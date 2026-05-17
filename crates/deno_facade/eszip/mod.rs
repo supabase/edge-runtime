@@ -754,6 +754,10 @@ pub async fn generate_binary_eszip(
     Arc::into_inner(create_graph(&args, emitter_factory.clone()).await?)
       .context("can't unwrap the graph")?;
 
+  // Align entrypoint with `create_graph`, which canonicalizes the path;
+  // otherwise symlinked entrypoints fail to load with "Module not found".
+  let path = std::fs::canonicalize(&path).unwrap_or(path);
+
   let specifier = ModuleSpecifier::parse(
     &Url::from_file_path(&path)
       .map(|it| Cow::Owned(it.to_string()))

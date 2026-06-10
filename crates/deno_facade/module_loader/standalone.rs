@@ -52,7 +52,6 @@ use deno::PermissionsContainer;
 use deno_config::workspace::MappedResolution;
 use deno_config::workspace::ResolverWorkspaceJsrPackage;
 use deno_config::workspace::WorkspaceResolver;
-use deno_core::error::generic_error;
 use deno_core::error::type_error;
 use deno_core::error::AnyError;
 use deno_core::futures::FutureExt;
@@ -148,28 +147,29 @@ pub struct EmbeddedModuleLoader {
   pub(crate) include_source_map: bool,
 }
 
+fn resolve_standalone_referrer(
+  referrer: &str,
+  root_path: &Path,
+) -> Result<ModuleSpecifier, AnyError> {
+  if referrer == "." {
+    return Ok(deno_core::resolve_path(".", root_path)?);
+  }
+
+  ModuleSpecifier::parse(referrer).map_err(|err| {
+    type_error(format!("Referrer uses invalid specifier: {}", err))
+  })
+}
+
 impl ModuleLoader for EmbeddedModuleLoader {
   #[instrument(level = "debug", skip(self))]
   fn resolve(
     &self,
     specifier: &str,
     referrer: &str,
-    kind: ResolutionKind,
+    _kind: ResolutionKind,
   ) -> Result<ModuleSpecifier, AnyError> {
-    let referrer = if referrer == "." {
-      if kind != ResolutionKind::MainModule {
-        return Err(generic_error(format!(
-          "Expected to resolve main module, got {:?} instead.",
-          kind
-        )));
-      }
-
-      deno_core::resolve_path(".", &self.shared.root_path)?
-    } else {
-      ModuleSpecifier::parse(referrer).map_err(|err| {
-        type_error(format!("Referrer uses invalid specifier: {}", err))
-      })?
-    };
+    let referrer =
+      resolve_standalone_referrer(referrer, &self.shared.root_path)?;
     let referrer_kind = if self
       .shared
       .cjs_tracker

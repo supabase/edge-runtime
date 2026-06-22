@@ -238,7 +238,7 @@ impl Service<Request<Body>> for WorkerService {
       // If the token has already been canceled, return 503 instead of
       // dropping the socket connection without a response.
       if cancel.is_cancelled() {
-        error!("connection aborted (uri: {:?})", req_uri.to_string());
+        error!("connection aborted (uri: {})", req_uri);
         return Ok(
           Response::builder()
             .status(http_v02::StatusCode::SERVICE_UNAVAILABLE)
@@ -262,8 +262,8 @@ impl Service<Request<Body>> for WorkerService {
 
         Err(err) => {
           error!(
-            "request failed (uri: {:?} reason: {:?})",
-            req_uri.to_string(),
+            "request failed (uri: {} reason: {:?})",
+            req_uri,
             err
           );
 

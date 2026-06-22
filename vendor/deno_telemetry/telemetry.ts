@@ -1515,16 +1515,21 @@ function parsePairKeyValue(
     BAGGAGE_KEY_PAIR_SEPARATOR,
   );
   if (separatorIndex <= 0) return;
-  const key = decodeURIComponent(
-    StringPrototypeTrim(
-      StringPrototypeSubstring(keyPairPart, 0, separatorIndex),
-    ),
-  );
-  const value = decodeURIComponent(
-    StringPrototypeTrim(
-      StringPrototypeSubstring(keyPairPart, separatorIndex + 1),
-    ),
-  );
+  let key, value;
+  try {
+    key = decodeURIComponent(
+      StringPrototypeTrim(
+        StringPrototypeSubstring(keyPairPart, 0, separatorIndex),
+      ),
+    );
+    value = decodeURIComponent(
+      StringPrototypeTrim(
+        StringPrototypeSubstring(keyPairPart, separatorIndex + 1),
+      ),
+    );
+  } catch {
+    return;
+  }
   let metadata;
   if (valueProps.length > 0) {
     metadata = baggageEntryMetadataFromString(

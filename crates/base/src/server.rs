@@ -261,11 +261,7 @@ impl Service<Request<Body>> for WorkerService {
         }
 
         Err(err) => {
-          error!(
-            "request failed (uri: {} reason: {:?})",
-            req_uri,
-            err
-          );
+          error!("request failed (uri: {} reason: {:?})", req_uri, err);
 
           let msg = err.message().to_string();
           let msg = err.into_cause().map(|it| it.to_string()).unwrap_or(msg);

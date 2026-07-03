@@ -654,7 +654,7 @@ pub async fn op_user_worker_fetch_send(
   for (key, value) in res.headers().iter() {
     headers.push((
       ByteString::from(key.as_str()),
-      ByteString::from(value.as_bytes()),
+      ByteString::from(value.to_str().unwrap_or_default()),
     ));
   }
 

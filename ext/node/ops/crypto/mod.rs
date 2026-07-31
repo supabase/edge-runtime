@@ -784,25 +784,34 @@ pub fn op_node_ecdh_generate_keys(
   }
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum EcdhError {
+  #[error("Public key is not valid for specified curve")]
+  InvalidPublicKey,
+  #[error("Private key is not valid for specified curve")]
+  InvalidPrivateKey,
+  #[error("Unsupported curve")]
+  UnsupportedCurve,
+}
+
 #[op2]
 pub fn op_node_ecdh_compute_secret(
   #[string] curve: &str,
   #[buffer] this_priv: Option<JsBuffer>,
   #[buffer] their_pub: &mut [u8],
   #[buffer] secret: &mut [u8],
-) {
+) -> Result<(), EcdhError> {
+  let this_priv = this_priv.ok_or(EcdhError::InvalidPrivateKey)?;
   match curve {
     "secp256k1" => {
       let their_public_key =
         elliptic_curve::PublicKey::<k256::Secp256k1>::from_sec1_bytes(
           their_pub,
         )
-        .expect("bad public key");
+        .map_err(|_| EcdhError::InvalidPublicKey)?;
       let this_private_key =
-        elliptic_curve::SecretKey::<k256::Secp256k1>::from_slice(
-          &this_priv.expect("must supply private key"),
-        )
-        .expect("bad private key");
+        elliptic_curve::SecretKey::<k256::Secp256k1>::from_slice(&this_priv)
+          .map_err(|_| EcdhError::InvalidPrivateKey)?;
       let shared_secret = elliptic_curve::ecdh::diffie_hellman(
         this_private_key.to_nonzero_scalar(),
         their_public_key.as_affine(),
@@ -812,11 +821,10 @@ pub fn op_node_ecdh_compute_secret(
     "prime256v1" | "secp256r1" => {
       let their_public_key =
         elliptic_curve::PublicKey::<NistP256>::from_sec1_bytes(their_pub)
-          .expect("bad public key");
-      let this_private_key = elliptic_curve::SecretKey::<NistP256>::from_slice(
-        &this_priv.expect("must supply private key"),
-      )
-      .expect("bad private key");
+          .map_err(|_| EcdhError::InvalidPublicKey)?;
+      let this_private_key =
+        elliptic_curve::SecretKey::<NistP256>::from_slice(&this_priv)
+          .map_err(|_| EcdhError::InvalidPrivateKey)?;
       let shared_secret = elliptic_curve::ecdh::diffie_hellman(
         this_private_key.to_nonzero_scalar(),
         their_public_key.as_affine(),
@@ -826,11 +834,10 @@ pub fn op_node_ecdh_compute_secret(
     "secp384r1" => {
       let their_public_key =
         elliptic_curve::PublicKey::<NistP384>::from_sec1_bytes(their_pub)
-          .expect("bad public key");
-      let this_private_key = elliptic_curve::SecretKey::<NistP384>::from_slice(
-        &this_priv.expect("must supply private key"),
-      )
-      .expect("bad private key");
+          .map_err(|_| EcdhError::InvalidPublicKey)?;
+      let this_private_key =
+        elliptic_curve::SecretKey::<NistP384>::from_slice(&this_priv)
+          .map_err(|_| EcdhError::InvalidPrivateKey)?;
       let shared_secret = elliptic_curve::ecdh::diffie_hellman(
         this_private_key.to_nonzero_scalar(),
         their_public_key.as_affine(),
@@ -840,19 +847,20 @@ pub fn op_node_ecdh_compute_secret(
     "secp224r1" => {
       let their_public_key =
         elliptic_curve::PublicKey::<NistP224>::from_sec1_bytes(their_pub)
-          .expect("bad public key");
-      let this_private_key = elliptic_curve::SecretKey::<NistP224>::from_slice(
-        &this_priv.expect("must supply private key"),
-      )
-      .expect("bad private key");
+          .map_err(|_| EcdhError::InvalidPublicKey)?;
+      let this_private_key =
+        elliptic_curve::SecretKey::<NistP224>::from_slice(&this_priv)
+          .map_err(|_| EcdhError::InvalidPrivateKey)?;
       let shared_secret = elliptic_curve::ecdh::diffie_hellman(
         this_private_key.to_nonzero_scalar(),
         their_public_key.as_affine(),
       );
       secret.copy_from_slice(shared_secret.raw_secret_bytes());
     }
-    &_ => todo!(),
+    _ => return Err(EcdhError::UnsupportedCurve),
   }
+
+  Ok(())
 }
 
 #[op2(fast)]
@@ -860,38 +868,40 @@ pub fn op_node_ecdh_compute_public_key(
   #[string] curve: &str,
   #[buffer] privkey: &[u8],
   #[buffer] pubkey: &mut [u8],
-) {
+) -> Result<(), EcdhError> {
   match curve {
     "secp256k1" => {
       let this_private_key =
         elliptic_curve::SecretKey::<k256::Secp256k1>::from_slice(privkey)
-          .expect("bad private key");
+          .map_err(|_| EcdhError::InvalidPrivateKey)?;
       let public_key = this_private_key.public_key();
       pubkey.copy_from_slice(public_key.to_sec1_bytes().as_ref());
     }
     "prime256v1" | "secp256r1" => {
       let this_private_key =
         elliptic_curve::SecretKey::<NistP256>::from_slice(privkey)
-          .expect("bad private key");
+          .map_err(|_| EcdhError::InvalidPrivateKey)?;
       let public_key = this_private_key.public_key();
       pubkey.copy_from_slice(public_key.to_sec1_bytes().as_ref());
     }
     "secp384r1" => {
       let this_private_key =
         elliptic_curve::SecretKey::<NistP384>::from_slice(privkey)
-          .expect("bad private key");
+          .map_err(|_| EcdhError::InvalidPrivateKey)?;
       let public_key = this_private_key.public_key();
       pubkey.copy_from_slice(public_key.to_sec1_bytes().as_ref());
     }
     "secp224r1" => {
       let this_private_key =
         elliptic_curve::SecretKey::<NistP224>::from_slice(privkey)
-          .expect("bad private key");
+          .map_err(|_| EcdhError::InvalidPrivateKey)?;
       let public_key = this_private_key.public_key();
       pubkey.copy_from_slice(public_key.to_sec1_bytes().as_ref());
     }
-    &_ => todo!(),
+    _ => return Err(EcdhError::UnsupportedCurve),
   }
+
+  Ok(())
 }
 
 #[inline]

@@ -1077,6 +1077,7 @@ mod node {
   pub use ext_node::ops::crypto::x509::X509Error;
   pub use ext_node::ops::crypto::DiffieHellmanError;
   pub use ext_node::ops::crypto::EcdhEncodePubKey;
+  pub use ext_node::ops::crypto::EcdhError;
   pub use ext_node::ops::crypto::HkdfError;
   pub use ext_node::ops::crypto::Pbkdf2Error;
   pub use ext_node::ops::crypto::PrivateEncryptDecryptError;
@@ -1528,6 +1529,10 @@ mod node {
     }
   }
 
+  pub fn get_ecdh_error(_: &EcdhError) -> &'static str {
+    "TypeError"
+  }
+
   pub fn get_diffie_hellman_error(_: &DiffieHellmanError) -> &'static str {
     "TypeError"
   }
@@ -1718,6 +1723,10 @@ pub fn get_error_class_name(e: &AnyError) -> Option<&'static str> {
     .or_else(|| {
       e.downcast_ref::<node::EcdhEncodePubKey>()
         .map(node::get_ecdh_encode_pub_key_error)
+    })
+    .or_else(|| {
+      e.downcast_ref::<node::EcdhError>()
+        .map(node::get_ecdh_error)
     })
     .or_else(|| {
       e.downcast_ref::<node::DiffieHellmanError>()

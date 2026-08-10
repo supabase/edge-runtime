@@ -34,10 +34,12 @@ FROM debian:bookworm-slim as edge-runtime-base
 RUN apt-get update && apt-get install -y libssl-dev \
     libblas-dev liblapack-dev libopenblas-dev \
     ca-certificates \
+    && apt-get upgrade -y openssl libssl3 \
     && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-RUN apt-get remove -y perl && apt-get autoremove -y
+RUN apt-get remove -y perl vim vim-common vim-runtime vim-tiny xxd 2>/dev/null; \
+    apt-get autoremove -y
 
 COPY --from=builder /root/edge-runtime /usr/local/bin/edge-runtime
 COPY --from=builder /root/edge-runtime.debug /usr/local/bin/edge-runtime.debug

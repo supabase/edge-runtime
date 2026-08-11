@@ -9,6 +9,12 @@
 
 ## How to run locally
 
+On macOS, install OpenBLAS before running the Edge Runtime:
+
+```sh
+brew install openblas
+```
+
 To serve all functions in the examples folder on port 9998, you can do this with
 the [example main service](./examples/main/index.ts) provided with this repo
 

@@ -1,3 +1,5 @@
+#![allow(unexpected_cfgs)] // ctor's implementation checks an internal feature in the caller.
+
 extern crate blas_src;
 
 mod consts;

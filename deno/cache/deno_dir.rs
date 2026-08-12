@@ -75,7 +75,7 @@ impl DenoDir {
   }
 
   /// The root directory of the DENO_DIR for display purposes only.
-  pub fn root_path_for_display(&self) -> std::path::Display {
+  pub fn root_path_for_display(&self) -> std::path::Display<'_> {
     self.root.display()
   }
 
@@ -184,7 +184,7 @@ pub mod dirs {
 
   pub fn home_dir() -> Option<PathBuf> {
     std::env::var_os("HOME")
-      .and_then(|h| if h.is_empty() { None } else { Some(h) })
+      .filter(|h| !h.is_empty())
       .or_else(|| {
         // TODO(bartlomieju):
         #[allow(clippy::undocumented_unsafe_blocks)]

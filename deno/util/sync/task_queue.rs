@@ -35,7 +35,7 @@ pub struct TaskQueue {
 impl TaskQueue {
   /// Acquires a permit where the tasks are executed one at a time
   /// and in the order that they were acquired.
-  pub fn acquire(&self) -> TaskQueuePermitAcquireFuture {
+  pub fn acquire(&self) -> TaskQueuePermitAcquireFuture<'_> {
     TaskQueuePermitAcquireFuture::new(self)
   }
 

@@ -239,7 +239,7 @@ impl CliResolver {
   pub fn create_graph_npm_resolver(
     &self,
     npm_caching: NpmCachingStrategy,
-  ) -> WorkerCliNpmGraphResolver {
+  ) -> WorkerCliNpmGraphResolver<'_> {
     WorkerCliNpmGraphResolver {
       npm_resolver: self.npm_resolver.as_ref(),
       found_package_json_dep_flag: &self.found_package_json_dep_flag,

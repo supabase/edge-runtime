@@ -63,6 +63,7 @@ pub enum LogLevel {
   Error,
 }
 
+#[allow(clippy::infallible_try_from)] // Keep the fallible API expected by event deserialization callers.
 impl TryFrom<u8> for LogLevel {
   type Error = Infallible;
 

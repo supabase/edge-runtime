@@ -1,6 +1,7 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
 #![allow(clippy::too_many_arguments)]
+#![allow(unexpected_cfgs)] // OpenTelemetry macros inspect private features from their defining crate.
 
 use std::borrow::Cow;
 use std::cell::RefCell;

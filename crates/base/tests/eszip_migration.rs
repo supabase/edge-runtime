@@ -96,7 +96,7 @@ where
   let buf = read(path.as_ref()).await?;
   let eszip = EszipPayloadKind::VecKind(buf.clone());
   let metadata_path =
-    PathBuf::from(format!("{}.metadata", &path.as_ref().to_string_lossy()));
+    PathBuf::from(format!("{}.metadata", path.as_ref().to_string_lossy()));
   let metadata = if metadata_path.exists() {
     let buf = read(metadata_path).await?;
     Some(serde_json::from_slice::<serde_json::Value>(&buf)?)

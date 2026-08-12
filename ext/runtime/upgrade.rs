@@ -33,7 +33,7 @@ pub(crate) struct UpgradeStream {
 }
 
 impl Resource for UpgradeStream {
-  fn name(&self) -> Cow<str> {
+  fn name(&self) -> Cow<'_, str> {
     "httpRawUpgradeStream2".into()
   }
 

@@ -56,7 +56,7 @@ impl<'a, T> std::ops::DerefMut for Guard<'a, T> {
 
 impl CliLockfile {
   /// Get the inner deno_lockfile::Lockfile.
-  pub fn lock(&self) -> Guard<Lockfile> {
+  pub fn lock(&self) -> Guard<'_, Lockfile> {
     Guard {
       guard: self.lockfile.lock(),
     }

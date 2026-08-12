@@ -5,7 +5,6 @@ use std::sync::Arc;
 
 use anyhow::Error;
 use tokio::sync::mpsc;
-use tokio::sync::Mutex;
 
 #[cfg(target_os = "linux")]
 mod linux {
@@ -131,7 +130,7 @@ impl CPUTimer {
   }
 
   pub async fn set_channel(&self) -> mpsc::UnboundedReceiver<()> {
-    let (tx, rx) = mpsc::unbounded_channel();
+    let (_tx, rx) = mpsc::unbounded_channel();
     #[cfg(target_os = "linux")]
     {
       let mut val = self.cpu_alarm_val.cpu_alarms_tx.lock().await;

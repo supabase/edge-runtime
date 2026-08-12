@@ -761,7 +761,7 @@ impl ModuleGraphBuilder {
     )
   }
 
-  fn create_graph_resolver(&self) -> Result<CliGraphResolver, AnyError> {
+  fn create_graph_resolver(&self) -> Result<CliGraphResolver<'_>, AnyError> {
     let jsx_import_source_config = self
       .options
       .workspace()
@@ -1118,8 +1118,8 @@ pub fn format_range_with_colors(referrer: &deno_graph::Range) -> String {
   format!(
     "{}:{}:{}",
     referrer.specifier.as_str(),
-    &(referrer.range.start.line + 1).to_string(),
-    &(referrer.range.start.character + 1).to_string()
+    (referrer.range.start.line + 1),
+    (referrer.range.start.character + 1)
   )
 }
 

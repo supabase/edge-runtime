@@ -138,7 +138,7 @@ where
       .clone()
       .map(Ok)
       .or_else(|| self.base_fs.as_ref().map(|it| it.tmp_dir()))
-      .unwrap_or_else(|| Err(FsError::NotSupported))
+      .unwrap_or(Err(FsError::NotSupported))
   }
 
   fn chdir(&self, path: &Path) -> FsResult<()> {

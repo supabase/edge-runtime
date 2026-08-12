@@ -87,7 +87,7 @@ impl Resource for TokioDuplexResource {
   deno_core::impl_readable_byob!();
   deno_core::impl_writable!();
 
-  fn name(&self) -> Cow<str> {
+  fn name(&self) -> Cow<'_, str> {
     "tokioDuplexStream".into()
   }
 

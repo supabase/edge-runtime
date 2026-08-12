@@ -346,7 +346,7 @@ pub struct UserWorkerResponse {
 struct UserWorkerRequestResource(Request<Body>);
 
 impl Resource for UserWorkerRequestResource {
-  fn name(&self) -> std::borrow::Cow<str> {
+  fn name(&self) -> std::borrow::Cow<'_, str> {
     "userWorkerRequest".into()
   }
 }
@@ -357,7 +357,7 @@ struct UserWorkerRequestBodyResource {
 }
 
 impl Resource for UserWorkerRequestBodyResource {
-  fn name(&self) -> std::borrow::Cow<str> {
+  fn name(&self) -> std::borrow::Cow<'_, str> {
     "userWorkerRequestBody".into()
   }
 
@@ -420,7 +420,7 @@ struct UserWorkerResponseBodyResource {
 }
 
 impl Resource for UserWorkerResponseBodyResource {
-  fn name(&self) -> std::borrow::Cow<str> {
+  fn name(&self) -> std::borrow::Cow<'_, str> {
     "userWorkerResponseBody".into()
   }
 
@@ -666,9 +666,8 @@ pub async fn op_user_worker_fetch_send(
     .to_string();
 
   let size = HttpBody::size_hint(res.body()).exact();
-  let stream: BytesStream = Box::pin(res.into_body().map(|r| {
-    r.map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))
-  }));
+  let stream: BytesStream =
+    Box::pin(res.into_body().map(|r| r.map_err(std::io::Error::other)));
 
   let mut op_state = state.borrow_mut();
 

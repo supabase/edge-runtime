@@ -499,7 +499,10 @@ pub fn init_global_template<'a>(
   let maybe_object_template_slot =
     scope.get_slot::<SlotContextifyGlobalTemplate>();
 
-  if maybe_object_template_slot.is_none() {
+  if let Some(object_template_slot) = maybe_object_template_slot {
+    let object_template_slot = object_template_slot.clone();
+    v8::Local::new(scope, object_template_slot.0)
+  } else {
     let global_object_template = init_global_template_inner(scope);
 
     if mode == ContextInitMode::UseSnapshot {
@@ -509,11 +512,6 @@ pub fn init_global_template<'a>(
       scope.set_slot(contextify_global_template_slot);
     }
     global_object_template
-  } else {
-    let object_template_slot = maybe_object_template_slot
-      .expect("ContextifyGlobalTemplate slot should be already populated.")
-      .clone();
-    v8::Local::new(scope, object_template_slot.0)
   }
 }
 

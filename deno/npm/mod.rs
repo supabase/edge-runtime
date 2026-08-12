@@ -177,7 +177,7 @@ pub trait CliNpmResolver: NpmPackageFolderResolver + CliNpmReqResolver {
 
   fn clone_snapshotted(&self) -> Arc<dyn CliNpmResolver>;
 
-  fn as_inner(&self) -> InnerCliNpmResolverRef;
+  fn as_inner(&self) -> InnerCliNpmResolverRef<'_>;
 
   fn as_managed(&self) -> Option<&ManagedCliNpmResolver> {
     match self.as_inner() {

@@ -591,7 +591,6 @@ struct LaxSingleProcessFsFlagInner {
 
 impl Drop for LaxSingleProcessFsFlagInner {
   fn drop(&mut self) {
-    use fs3::FileExt;
     // kill the poll thread
     self.finished_token.cancel();
     // release the file lock

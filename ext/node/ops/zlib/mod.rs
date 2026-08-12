@@ -237,7 +237,7 @@ struct Zlib {
 impl deno_core::GarbageCollected for Zlib {}
 
 impl deno_core::Resource for Zlib {
-  fn name(&self) -> Cow<str> {
+  fn name(&self) -> Cow<'_, str> {
     "zlib".into()
   }
 }

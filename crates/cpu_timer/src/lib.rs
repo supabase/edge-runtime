@@ -1,7 +1,11 @@
+#![cfg_attr(target_os = "linux", allow(unexpected_cfgs))]
+
 pub mod timerid;
 
 #[cfg(target_os = "linux")]
 use std::sync::Arc;
+#[cfg(target_os = "linux")]
+use tokio::sync::Mutex;
 
 use anyhow::Error;
 use tokio::sync::mpsc;
@@ -130,7 +134,9 @@ impl CPUTimer {
   }
 
   pub async fn set_channel(&self) -> mpsc::UnboundedReceiver<()> {
-    let (_tx, rx) = mpsc::unbounded_channel();
+    let (tx, rx) = mpsc::unbounded_channel();
+    #[cfg(not(target_os = "linux"))]
+    let _ = tx;
     #[cfg(target_os = "linux")]
     {
       let mut val = self.cpu_alarm_val.cpu_alarms_tx.lock().await;

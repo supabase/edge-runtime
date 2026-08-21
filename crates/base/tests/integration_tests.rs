@@ -4231,7 +4231,11 @@ async fn test_drop_socket_when_http_handler_returns_an_invalid_value() {
       None,
       (|resp| async {
         let res = resp.unwrap();
-        assert!(res.status().as_u16() == 502);
+        assert!(res.status().as_u16() == 500);
+        assert_eq!(
+          res.headers().get("x-edge-runtime-error").unwrap(),
+          "invalid-handler-response"
+        );
       }),
       TerminationToken::new()
     );
@@ -4246,7 +4250,11 @@ async fn test_drop_socket_when_http_handler_returns_an_invalid_value() {
       None,
       (|resp| async {
         let res = resp.unwrap();
-        assert!(res.status().as_u16() == 502);
+        assert!(res.status().as_u16() == 500);
+        assert_eq!(
+          res.headers().get("x-edge-runtime-error").unwrap(),
+          "invalid-handler-response"
+        );
       }),
       TerminationToken::new()
     );

@@ -138,6 +138,76 @@ async fn test_write_and_get_bytes(bytes: usize) {
 }
 
 #[cfg_attr(not(dotenv), ignore)]
+#[tokio::test]
+#[serial]
+async fn test_copy_file() {
+  remove("", true).await;
+
+  let source_path = get_path("copy/source.txt");
+  let destination_path = get_path("copy/destination.txt");
+  let sync_destination_path = get_path("copy/destination-sync.txt");
+  let body = b"copied from the source object";
+
+  {
+    let tb = get_tb_builder().build().await;
+    let resp = tb
+      .request(|b| {
+        b.uri(format!("/write/{source_path}"))
+          .method("POST")
+          .body(body.as_slice().into())
+          .context("can't make request")
+      })
+      .await
+      .unwrap();
+
+    assert_eq!(resp.status().as_u16(), StatusCode::OK);
+    tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
+  }
+
+  {
+    let tb = get_tb_builder().build().await;
+    for (destination_path, sync) in
+      [(&destination_path, false), (&sync_destination_path, true)]
+    {
+      let resp = tb
+        .request(|b| {
+          b.uri(format!(
+            "/copy/{source_path}?destination={destination_path}&sync={sync}"
+          ))
+          .method("POST")
+          .body(Body::empty())
+          .context("can't make request")
+        })
+        .await
+        .unwrap();
+
+      assert_eq!(resp.status().as_u16(), StatusCode::OK);
+    }
+
+    tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
+  }
+
+  {
+    for destination_path in [&destination_path, &sync_destination_path] {
+      let tb = get_tb_builder().build().await;
+      let mut resp = tb
+        .request(|b| {
+          b.uri(format!("/get/{destination_path}"))
+            .method("GET")
+            .body(Body::empty())
+            .context("can't make request")
+        })
+        .await
+        .unwrap();
+
+      assert_eq!(resp.status().as_u16(), StatusCode::OK);
+      assert_eq!(to_bytes(resp.body_mut()).await.unwrap().as_ref(), body);
+      tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
+    }
+  }
+}
+
+#[cfg_attr(not(dotenv), ignore)]
 #[serial]
 #[tokio::test]
 async fn test_write_and_get_various_bytes() {

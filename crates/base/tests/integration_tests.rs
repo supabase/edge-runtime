@@ -4077,6 +4077,56 @@ async fn test_user_workers_cleanup_idle_workers() {
 
 #[tokio::test]
 #[serial]
+async fn test_oneshot_retirement_drops_user_worker() {
+  let (tx, mut rx) = mpsc::unbounded_channel();
+  let tb = TestBedBuilder::new("./test_cases/main")
+    .with_oneshot_policy(None)
+    .with_worker_event_sender(Some(tx))
+    .build()
+    .await;
+  let metric = tb.metric_src.clone();
+
+  let mut resp = tb
+    .request(|b| {
+      b.uri("/empty-response")
+        .method("GET")
+        .body(Body::empty())
+        .context("can't make request")
+    })
+    .await
+    .unwrap();
+
+  assert_eq!(resp.status().as_u16(), StatusCode::NO_CONTENT);
+  let _ = to_bytes(resp.body_mut()).await;
+  drop(resp);
+
+  timeout(Duration::from_secs(10), async {
+    loop {
+      let Some(ev) = rx.recv().await else {
+        panic!("worker event channel closed before shutdown");
+      };
+      if matches!(ev.event, WorkerEvents::Shutdown(_)) {
+        break;
+      }
+    }
+  })
+  .await
+  .expect("oneshot worker did not retire");
+
+  timeout(Duration::from_secs(5), async {
+    while metric.active_user_workers() != 0 {
+      tokio::task::yield_now().await;
+    }
+  })
+  .await
+  .expect("retired isolate still counted as active");
+
+  assert!(metric.retired_user_workers() >= 1);
+  tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
+}
+
+#[tokio::test]
+#[serial]
 async fn test_no_npm() {
   async fn send_it(
     no_npm: bool,

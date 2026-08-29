@@ -819,7 +819,7 @@ impl deno_fs::FileSystem for S3Fs {
     self
       .client
       .copy_object()
-      .copy_source(copy_source(&source_bucket, &source_key))
+      .copy_source(to_encoded_copy_source_value(&source_bucket, &source_key))
       .bucket(destination_bucket)
       .key(destination_key)
       .send()
@@ -2073,7 +2073,7 @@ fn try_get_bucket_name_and_key(path: PathBuf) -> FsResult<(String, String)> {
 /// The bucket/key separator and key path separators must remain intact, while
 /// each key segment is URL-encoded so names containing spaces or reserved
 /// characters resolve to the original S3 object.
-fn copy_source(bucket: &str, key: &str) -> String {
+fn to_encoded_copy_source_value(bucket: &str, key: &str) -> String {
   let encoded_key = key
     .split('/')
     .map(urlencoding::encode)
@@ -2215,7 +2215,10 @@ mod test {
   #[test]
   fn copy_source_encodes_key_segments_without_changing_the_path() {
     assert_eq!(
-      super::copy_source("source-bucket", "reports/January 2026?#.pdf"),
+      super::to_encoded_copy_source_value(
+        "source-bucket",
+        "reports/January 2026?#.pdf"
+      ),
       "source-bucket/reports/January%202026%3F%23.pdf"
     );
   }

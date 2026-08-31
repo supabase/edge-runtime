@@ -2082,8 +2082,6 @@ checksum = "fe4dccb6147bb3f3ba0c7a48e993bfeb999d2c2e47a81badee80e2b370c8d695"
 [[package]]
 name = "deno_crypto"
 version = "0.196.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f01b6c50c829ae1579e4ff2ddd834d336027d1cb7f901a058d3d94416d08798d"
 dependencies = [
  "aes",
  "aes-gcm",

@@ -26,6 +26,7 @@ use aws_credential_types::credential_fn::provide_credentials_fn;
 use aws_credential_types::Credentials;
 use aws_sdk_s3::config::SharedCredentialsProvider;
 use aws_sdk_s3::config::SharedHttpClient;
+use aws_sdk_s3::error::ProvideErrorMetadata;
 use aws_sdk_s3::error::SdkError;
 use aws_sdk_s3::operation::head_object::HeadObjectError;
 use aws_sdk_s3::operation::upload_part::UploadPartError;
@@ -785,17 +786,56 @@ impl deno_fs::FileSystem for S3Fs {
     Ok(())
   }
 
-  fn copy_file_sync(&self, _oldpath: &Path, _newpath: &Path) -> FsResult<()> {
-    Err(FsError::NotSupported)
+  fn copy_file_sync(&self, oldpath: &Path, newpath: &Path) -> FsResult<()> {
+    std::thread::scope(|s| {
+      let oldpath = oldpath.to_path_buf();
+      let newpath = newpath.to_path_buf();
+      s.spawn(move || {
+        rt::IO_RT
+          .block_on(async move { self.copy_file_async(oldpath, newpath).await })
+      })
+      .join()
+      .unwrap()
+    })
   }
 
+  #[instrument(level = "trace", skip(self), err(Debug))]
   async fn copy_file_async(
     &self,
-    _oldpath: PathBuf,
-    _newpath: PathBuf,
+    oldpath: PathBuf,
+    newpath: PathBuf,
   ) -> FsResult<()> {
-    // TODO
-    Err(FsError::NotSupported)
+    self.flush_background_tasks().await;
+
+    let (source_bucket, source_key) =
+      try_get_bucket_name_and_key(oldpath.try_normalize()?)?;
+    let (destination_bucket, destination_key) =
+      try_get_bucket_name_and_key(newpath.try_normalize()?)?;
+
+    if source_key.is_empty() || destination_key.is_empty() {
+      return Err(FsError::Io(io::Error::from(io::ErrorKind::InvalidInput)));
+    }
+
+    self
+      .client
+      .copy_object()
+      .copy_source(to_encoded_copy_source_value(&source_bucket, &source_key))
+      .bucket(destination_bucket)
+      .key(destination_key)
+      .send()
+      .await
+      .map_err(|err| {
+        if matches!(
+          err.as_service_error().and_then(|it| it.code()),
+          Some("NoSuchKey" | "NoSuchBucket")
+        ) {
+          FsError::Io(io::Error::from(io::ErrorKind::NotFound))
+        } else {
+          FsError::Io(io::Error::other(err))
+        }
+      })?;
+
+    Ok(())
   }
 
   fn cp_sync(&self, _path: &Path, _new_path: &Path) -> FsResult<()> {
@@ -2028,6 +2068,21 @@ fn try_get_bucket_name_and_key(path: PathBuf) -> FsResult<(String, String)> {
   ))
 }
 
+/// Builds the `x-amz-copy-source` value required by S3's CopyObject API.
+///
+/// The bucket/key separator and key path separators must remain intact, while
+/// each key segment is URL-encoded so names containing spaces or reserved
+/// characters resolve to the original S3 object.
+fn to_encoded_copy_source_value(bucket: &str, key: &str) -> String {
+  let encoded_key = key
+    .split('/')
+    .map(urlencoding::encode)
+    .collect::<Vec<_>>()
+    .join("/");
+
+  format!("{bucket}/{encoded_key}")
+}
+
 #[inline(always)]
 fn to_msec(maybe_time: DateTime) -> Option<u64> {
   match SystemTime::try_from(maybe_time) {
@@ -2063,9 +2118,13 @@ mod test {
   use std::sync::Arc;
 
   use aws_config::BehaviorVersion;
+  use aws_sdk_s3::primitives::SdkBody;
   use aws_sdk_s3::{self as s3};
   use aws_smithy_runtime::client::http::test_util::ReplayEvent;
   use aws_smithy_runtime::client::http::test_util::StaticReplayClient;
+  use aws_smithy_runtime_api::http::Request;
+  use aws_smithy_runtime_api::http::Response;
+  use aws_smithy_runtime_api::http::StatusCode;
   use deno_fs::FileSystem;
   use deno_fs::OpenOptions;
   use once_cell::sync::Lazy;
@@ -2124,6 +2183,43 @@ mod test {
         .unwrap()
         .kind(),
       io::ErrorKind::InvalidInput
+    );
+  }
+
+  #[tokio::test]
+  async fn copy_file_should_be_not_found_when_source_does_not_exist() {
+    let (fs, _) = get_s3_fs([ReplayEvent::new(
+      Request::empty(),
+      Response::new(
+        StatusCode::try_from(404).unwrap(),
+        SdkBody::from(
+          r#"<?xml version="1.0" encoding="UTF-8"?>
+<Error><Code>NoSuchKey</Code><Message>The specified key does not exist.</Message></Error>"#,
+        ),
+      ),
+    )]);
+
+    assert_eq!(
+      fs.copy_file_async(
+        PathBuf::from("meowmeow/source.txt"),
+        PathBuf::from("meowmeow/destination.txt"),
+      )
+      .await
+      .err()
+      .unwrap()
+      .kind(),
+      io::ErrorKind::NotFound
+    );
+  }
+
+  #[test]
+  fn copy_source_encodes_key_segments_without_changing_the_path() {
+    assert_eq!(
+      super::to_encoded_copy_source_value(
+        "source-bucket",
+        "reports/January 2026?#.pdf"
+      ),
+      "source-bucket/reports/January%202026%3F%23.pdf"
     );
   }
 }

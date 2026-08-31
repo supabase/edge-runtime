@@ -457,6 +457,7 @@ fn get_crypto_import_key_error_class(e: &ImportKeyError) -> &'static str {
 fn get_crypto_x448_error_class(e: &deno_crypto::X448Error) -> &'static str {
   match e {
     deno_crypto::X448Error::FailedExport => "DOMExceptionOperationError",
+    deno_crypto::X448Error::InvalidKeyLength => "DOMExceptionDataError",
     deno_crypto::X448Error::Der(_) => "Error",
   }
 }
@@ -464,6 +465,7 @@ fn get_crypto_x448_error_class(e: &deno_crypto::X448Error) -> &'static str {
 fn get_crypto_x25519_error_class(e: &deno_crypto::X25519Error) -> &'static str {
   match e {
     deno_crypto::X25519Error::FailedExport => "DOMExceptionOperationError",
+    deno_crypto::X25519Error::InvalidKeyLength => "DOMExceptionDataError",
     deno_crypto::X25519Error::Der(_) => "Error",
   }
 }

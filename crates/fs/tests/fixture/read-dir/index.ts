@@ -4,13 +4,18 @@ export default {
     const bucketName = Deno.env.get("S3FS_TEST_BUCKET_NAME")!;
     const key = url.pathname.split("/").slice(2).join("/");
 
-    const entries = await Deno.readDir(`/s3/${bucketName}/${key}`);
-    const result = [];
+    try {
+      const entries = await Deno.readDir(`/s3/${bucketName}/${key}`);
+      const result = [];
 
-    for await (const entry of entries) {
-      result.push(entry);
+      for await (const entry of entries) {
+        result.push(entry);
+      }
+
+      return Response.json(result);
+    } catch (e) {
+      console.error(e);
+      return Response.json({ msg: e.toString() }, { status: 500 });
     }
-
-    return Response.json(result);
   },
 };

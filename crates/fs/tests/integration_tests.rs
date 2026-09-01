@@ -66,9 +66,26 @@ fn get_tb_builder() -> TestBedBuilder {
     .with_oneshot_policy(None)
 }
 
+/// Asserts the response status, surfacing the response body on mismatch —
+/// worker errors come back as a JSON `msg` in a 500 body, which is the only
+/// diagnostic CI keeps.
+async fn assert_status(
+  resp: &mut hyper_v014::Response<Body>,
+  expected: StatusCode,
+) {
+  let status = resp.status();
+  if status != expected {
+    let body = to_bytes(resp.body_mut()).await.unwrap_or_default();
+    panic!(
+      "expected status {expected}, got {status} (body: {})",
+      String::from_utf8_lossy(&body)
+    );
+  }
+}
+
 async fn remove(path: &str, recursive: bool) {
   let tb = get_tb_builder().build().await;
-  let resp = tb
+  let mut resp = tb
     .request(|b| {
       b.uri(format!(
         "/remove/{}?recursive={}",
@@ -82,7 +99,7 @@ async fn remove(path: &str, recursive: bool) {
     .await
     .unwrap();
 
-  assert_eq!(resp.status().as_u16(), StatusCode::OK);
+  assert_status(&mut resp, StatusCode::OK).await;
   tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
 }
 
@@ -102,7 +119,7 @@ async fn test_write_and_get_bytes(bytes: usize) {
 
     rand::thread_rng().fill_bytes(&mut arr);
 
-    let resp = tb
+    let mut resp = tb
       .request(|b| {
         b.uri(format!("/write/{}", get_path("meow.bin")))
           .method("POST")
@@ -112,7 +129,7 @@ async fn test_write_and_get_bytes(bytes: usize) {
       .await
       .unwrap();
 
-    assert_eq!(resp.status().as_u16(), StatusCode::OK);
+    assert_status(&mut resp, StatusCode::OK).await;
     tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
   }
 
@@ -128,10 +145,11 @@ async fn test_write_and_get_bytes(bytes: usize) {
       .await
       .unwrap();
 
+    assert_status(&mut resp, StatusCode::OK).await;
+
     let buf = to_bytes(resp.body_mut()).await.unwrap();
     let buf = buf.as_ref();
 
-    assert_eq!(resp.status().as_u16(), StatusCode::OK);
     assert_eq!(arr, buf);
     tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
   }
@@ -145,12 +163,11 @@ async fn test_copy_file() {
 
   let source_path = get_path("copy/source.txt");
   let destination_path = get_path("copy/destination.txt");
-  let sync_destination_path = get_path("copy/destination-sync.txt");
   let body = b"copied from the source object";
 
   {
     let tb = get_tb_builder().build().await;
-    let resp = tb
+    let mut resp = tb
       .request(|b| {
         b.uri(format!("/write/{source_path}"))
           .method("POST")
@@ -160,50 +177,68 @@ async fn test_copy_file() {
       .await
       .unwrap();
 
-    assert_eq!(resp.status().as_u16(), StatusCode::OK);
+    assert_status(&mut resp, StatusCode::OK).await;
     tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
   }
 
   {
     let tb = get_tb_builder().build().await;
-    for (destination_path, sync) in
-      [(&destination_path, false), (&sync_destination_path, true)]
-    {
-      let resp = tb
-        .request(|b| {
-          b.uri(format!(
-            "/copy/{source_path}?destination={destination_path}&sync={sync}"
-          ))
-          .method("POST")
-          .body(Body::empty())
-          .context("can't make request")
-        })
-        .await
-        .unwrap();
+    let mut resp = tb
+      .request(|b| {
+        b.uri(format!(
+          "/copy/{source_path}?destination={destination_path}&sync=false"
+        ))
+        .method("POST")
+        .body(Body::empty())
+        .context("can't make request")
+      })
+      .await
+      .unwrap();
 
-      assert_eq!(resp.status().as_u16(), StatusCode::OK);
-    }
+    assert_status(&mut resp, StatusCode::OK).await;
+
+    // Sync file APIs are only allowed while the runtime is initializing, so
+    // `Deno.copyFileSync` inside a request handler must be rejected.
+    let mut resp = tb
+      .request(|b| {
+        b.uri(format!(
+          "/copy/{source_path}?destination={destination_path}&sync=true"
+        ))
+        .method("POST")
+        .body(Body::empty())
+        .context("can't make request")
+      })
+      .await
+      .unwrap();
+
+    assert_eq!(resp.status().as_u16(), StatusCode::INTERNAL_SERVER_ERROR);
+
+    let buf = to_bytes(resp.body_mut()).await.unwrap();
+    assert!(
+      String::from_utf8_lossy(&buf)
+        .contains("Deno.copyFileSync is blocklisted on the current context"),
+      "unexpected error body: {}",
+      String::from_utf8_lossy(&buf)
+    );
 
     tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
   }
 
   {
-    for destination_path in [&destination_path, &sync_destination_path] {
-      let tb = get_tb_builder().build().await;
-      let mut resp = tb
-        .request(|b| {
-          b.uri(format!("/get/{destination_path}"))
-            .method("GET")
-            .body(Body::empty())
-            .context("can't make request")
-        })
-        .await
-        .unwrap();
+    let tb = get_tb_builder().build().await;
+    let mut resp = tb
+      .request(|b| {
+        b.uri(format!("/get/{destination_path}"))
+          .method("GET")
+          .body(Body::empty())
+          .context("can't make request")
+      })
+      .await
+      .unwrap();
 
-      assert_eq!(resp.status().as_u16(), StatusCode::OK);
-      assert_eq!(to_bytes(resp.body_mut()).await.unwrap().as_ref(), body);
-      tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
-    }
+    assert_status(&mut resp, StatusCode::OK).await;
+    assert_eq!(to_bytes(resp.body_mut()).await.unwrap().as_ref(), body);
+    tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
   }
 }
 
@@ -241,7 +276,7 @@ async fn test_write_and_get_over_50_mib() {
       .build()
       .await;
 
-    let resp = tb
+    let mut resp = tb
       .request(|b| {
         b.uri(format!("/write/{}", get_path("meow.bin")))
           .method("POST")
@@ -251,7 +286,7 @@ async fn test_write_and_get_over_50_mib() {
       .await
       .unwrap();
 
-    assert_eq!(resp.status().as_u16(), StatusCode::OK);
+    assert_status(&mut resp, StatusCode::OK).await;
     tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
   }
 
@@ -262,7 +297,7 @@ async fn test_write_and_get_over_50_mib() {
       .build()
       .await;
 
-    let resp = tb
+    let mut resp = tb
       .request(|b| {
         b.uri(format!("/get/{}", get_path("meow.bin")))
           .method("GET")
@@ -272,7 +307,7 @@ async fn test_write_and_get_over_50_mib() {
       .await
       .unwrap();
 
-    assert_eq!(resp.status().as_u16(), StatusCode::INTERNAL_SERVER_ERROR);
+    assert_status(&mut resp, StatusCode::INTERNAL_SERVER_ERROR).await;
 
     tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
 
@@ -323,7 +358,7 @@ async fn test_mkdir_and_read_dir() {
 
   {
     let tb = get_tb_builder().build().await;
-    let resp = tb
+    let mut resp = tb
       .request(|b| {
         b.uri(format!("/mkdir/{}?recursive=true", get_path("a")))
           .method("GET")
@@ -333,7 +368,7 @@ async fn test_mkdir_and_read_dir() {
       .await
       .unwrap();
 
-    assert_eq!(resp.status().as_u16(), StatusCode::OK);
+    assert_status(&mut resp, StatusCode::OK).await;
     tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
   }
 
@@ -349,7 +384,7 @@ async fn test_mkdir_and_read_dir() {
       .await
       .unwrap();
 
-    assert_eq!(resp.status().as_u16(), StatusCode::OK);
+    assert_status(&mut resp, StatusCode::OK).await;
 
     let buf = to_bytes(resp.body_mut()).await.unwrap();
     let value = DenoDirEntry::from_json_unchecked(&buf);
@@ -369,7 +404,7 @@ async fn test_mkdir_recursive_and_read_dir() {
 
   {
     let tb = get_tb_builder().build().await;
-    let resp = tb
+    let mut resp = tb
       .request(|b| {
         b.uri(format!("/mkdir/{}?recursive=true", get_path("a/b/c/meow")))
           .method("GET")
@@ -379,7 +414,7 @@ async fn test_mkdir_recursive_and_read_dir() {
       .await
       .unwrap();
 
-    assert_eq!(resp.status().as_u16(), StatusCode::OK);
+    assert_status(&mut resp, StatusCode::OK).await;
     tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
   }
 
@@ -399,7 +434,7 @@ async fn test_mkdir_recursive_and_read_dir() {
         .await
         .unwrap();
 
-      assert_eq!(resp.status().as_u16(), StatusCode::OK);
+      assert_status(&mut resp, StatusCode::OK).await;
 
       let buf = to_bytes(resp.body_mut()).await.unwrap();
       let value = DenoDirEntry::from_json_unchecked(&buf);
@@ -420,7 +455,7 @@ async fn test_mkdir_with_no_recursive_opt_must_check_parent_path_exists() {
 
   {
     let tb = get_tb_builder().build().await;
-    let resp = tb
+    let mut resp = tb
       .request(|b| {
         b.uri(format!("/mkdir/{}?recursive=true", get_path("a")))
           .method("GET")
@@ -430,7 +465,7 @@ async fn test_mkdir_with_no_recursive_opt_must_check_parent_path_exists() {
       .await
       .unwrap();
 
-    assert_eq!(resp.status().as_u16(), StatusCode::OK);
+    assert_status(&mut resp, StatusCode::OK).await;
     tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
   }
 
@@ -440,7 +475,7 @@ async fn test_mkdir_with_no_recursive_opt_must_check_parent_path_exists() {
       .with_worker_event_sender(Some(tx))
       .build()
       .await;
-    let resp = tb
+    let mut resp = tb
       .request(|b| {
         b.uri(format!("/mkdir/{}", get_path("a/b/c")))
           .method("GET")
@@ -450,7 +485,7 @@ async fn test_mkdir_with_no_recursive_opt_must_check_parent_path_exists() {
       .await
       .unwrap();
 
-    assert_eq!(resp.status().as_u16(), StatusCode::INTERNAL_SERVER_ERROR);
+    assert_status(&mut resp, StatusCode::INTERNAL_SERVER_ERROR).await;
     tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
 
     let mut found_no_such_file_or_directory_error = false;
@@ -484,7 +519,7 @@ async fn test_mkdir_recursive_and_remove_recursive() {
 
   {
     let tb = get_tb_builder().build().await;
-    let resp = tb
+    let mut resp = tb
       .request(|b| {
         b.uri(format!("/mkdir/{}?recursive=true", get_path("a/b/c/meow")))
           .method("GET")
@@ -494,7 +529,7 @@ async fn test_mkdir_recursive_and_remove_recursive() {
       .await
       .unwrap();
 
-    assert_eq!(resp.status().as_u16(), StatusCode::OK);
+    assert_status(&mut resp, StatusCode::OK).await;
     tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
   }
 
@@ -508,7 +543,7 @@ async fn test_mkdir_recursive_and_remove_recursive() {
       .build()
       .await;
 
-    let resp = tb
+    let mut resp = tb
       .request(|b| {
         b.uri(format!("/write/{}", get_path("a/b/c/meeeeow.bin")))
           .method("POST")
@@ -518,7 +553,7 @@ async fn test_mkdir_recursive_and_remove_recursive() {
       .await
       .unwrap();
 
-    assert_eq!(resp.status().as_u16(), StatusCode::OK);
+    assert_status(&mut resp, StatusCode::OK).await;
     tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
   }
 
@@ -534,7 +569,7 @@ async fn test_mkdir_recursive_and_remove_recursive() {
       .await
       .unwrap();
 
-    assert_eq!(resp.status().as_u16(), StatusCode::OK);
+    assert_status(&mut resp, StatusCode::OK).await;
 
     let buf = to_bytes(resp.body_mut()).await.unwrap();
     let value = DenoDirEntry::from_json_unchecked(&buf);
@@ -572,7 +607,7 @@ async fn test_mkdir_recursive_and_remove_recursive() {
       .await
       .unwrap();
 
-    assert_eq!(resp.status().as_u16(), StatusCode::OK);
+    assert_status(&mut resp, StatusCode::OK).await;
 
     let buf = to_bytes(resp.body_mut()).await.unwrap();
     let value = DenoDirEntry::from_json_unchecked(&buf);
@@ -602,7 +637,7 @@ async fn test_mkdir_recursive_and_remove_recursive() {
       .await
       .unwrap();
 
-    assert_eq!(resp.status().as_u16(), StatusCode::OK);
+    assert_status(&mut resp, StatusCode::OK).await;
 
     let buf = to_bytes(resp.body_mut()).await.unwrap();
     let value = DenoDirEntry::from_json_unchecked(&buf);
@@ -636,7 +671,7 @@ async fn test_mkdir_recursive_and_remove_recursive() {
       .await
       .unwrap();
 
-    assert_eq!(resp.status().as_u16(), StatusCode::OK);
+    assert_status(&mut resp, StatusCode::OK).await;
 
     let buf = to_bytes(resp.body_mut()).await.unwrap();
     let value = DenoDirEntry::from_json_unchecked(&buf);
@@ -674,7 +709,7 @@ async fn test_ensure_using_sync_api_in_async_callback_is_not_allowed() {
 
     rand::thread_rng().fill_bytes(&mut arr);
 
-    let resp = tb
+    let mut resp = tb
       .request(|b| {
         b.uri(format!("/write/{}", get_path("meow.bin")))
           .method("POST")
@@ -684,13 +719,13 @@ async fn test_ensure_using_sync_api_in_async_callback_is_not_allowed() {
       .await
       .unwrap();
 
-    assert_eq!(resp.status().as_u16(), StatusCode::OK);
+    assert_status(&mut resp, StatusCode::OK).await;
     tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
   }
 
   {
     let tb = get_tb_builder().build().await;
-    let resp = tb
+    let mut resp = tb
       .request(|b| {
         b.uri(format!("/get/{}?sync=true", get_path("meow.bin")))
           .method("GET")
@@ -700,7 +735,7 @@ async fn test_ensure_using_sync_api_in_async_callback_is_not_allowed() {
       .await
       .unwrap();
 
-    assert_eq!(resp.status().as_u16(), StatusCode::INTERNAL_SERVER_ERROR);
+    assert_status(&mut resp, StatusCode::INTERNAL_SERVER_ERROR).await;
 
     tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
   }

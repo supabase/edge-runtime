@@ -694,6 +694,7 @@ globalThis.bootstrapSBEdge = (opts, ctx) => {
       "makeTempDir": true,
       "makeTempFile": true,
       "readDir": true,
+      "copyFile": true,
 
       "kill": "mock",
       "exit": "mock",
@@ -711,6 +712,7 @@ globalThis.bootstrapSBEdge = (opts, ctx) => {
       "makeTempDirSync": "allowIfRuntimeIsInInit",
       "makeTempFileSync": "allowIfRuntimeIsInInit",
       "readDirSync": "allowIfRuntimeIsInInit",
+      "copyFileSync": "allowIfRuntimeIsInInit",
 
       // TODO: use a non-hardcoded path
       "execPath": () => "/bin/edge-runtime",

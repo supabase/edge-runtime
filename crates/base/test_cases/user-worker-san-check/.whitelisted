@@ -9,3 +9,4 @@ readTextFileSync
 readFileSync
 makeTempDirSync
 makeTempFileSync
+copyFileSync

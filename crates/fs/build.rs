@@ -1,4 +1,5 @@
 use std::fs::File;
+use std::io::ErrorKind;
 use std::path::Path;
 
 fn main() {
@@ -9,8 +10,13 @@ fn main() {
 
   if env_path.exists() {
     println!("cargo:rustc-cfg=dotenv")
-  } else {
-    File::create_new(env_path).unwrap();
+  } else if let Err(err) = File::create_new(env_path) {
+    // A concurrent build (e.g. rust-analyzer checking the crate while cargo
+    // builds it from its own target dir) may have created the file between
+    // the `exists` check and here — that's fine, it exists either way.
+    if err.kind() != ErrorKind::AlreadyExists {
+      panic!("failed to create {env_file}: {err}");
+    }
   }
 
   println!("cargo::rerun-if-changed={}", env_file);

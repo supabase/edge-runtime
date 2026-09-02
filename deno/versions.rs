@@ -24,7 +24,6 @@ pub fn user_agent_comment(project_ref: Option<&str>) -> String {
   let ref_part = project_ref
     .map(|it| format!("; ref={it}"))
     .unwrap_or_default();
-
   format!(
     "(variant; SupabaseEdgeRuntime/{}{ref_part})",
     edge_runtime_version()
@@ -42,7 +41,6 @@ pub fn sanitize_project_ref(project_ref: &str) -> Option<&str> {
     && project_ref
       .bytes()
       .all(|it| it.is_ascii_alphanumeric() || it == b'-' || it == b'_');
-
   is_valid.then_some(project_ref)
 }
 

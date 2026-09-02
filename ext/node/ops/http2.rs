@@ -352,7 +352,9 @@ pub async fn op_http2_client_request(
       request_builder_hook(headers).map_err(Http2Error::Resource)?;
     }
     if let Ok(user_agent) = HeaderValue::from_str(&options.user_agent) {
-      headers.entry(http::header::USER_AGENT).or_insert(user_agent);
+      headers
+        .entry(http::header::USER_AGENT)
+        .or_insert(user_agent);
     }
   }
 

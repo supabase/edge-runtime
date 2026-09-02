@@ -27,7 +27,6 @@ pub fn stamping_hook(comment: &str) -> Option<RequestBuilderHook> {
   let comment = HeaderValue::from_str(comment)
     .ok()
     .filter(|it| !it.is_empty())?;
-
   Some(Arc::new(move |headers: &mut HeaderMap| {
     append_user_agent_comment(headers, &comment);
     Ok(())
@@ -41,9 +40,8 @@ fn append_user_agent_comment(headers: &mut HeaderMap, comment: &HeaderValue) {
     return;
   };
 
-  let current = entry.get().as_bytes();
-
   // Nothing to append to, and nothing to append twice to.
+  let current = entry.get().as_bytes();
   if current.is_empty() {
     entry.insert(comment.clone());
     return;
@@ -55,7 +53,6 @@ fn append_user_agent_comment(headers: &mut HeaderMap, comment: &HeaderValue) {
   }
 
   let mut value = Vec::with_capacity(current.len() + 1 + comment.len());
-
   value.extend_from_slice(current);
   value.push(b' ');
   value.extend_from_slice(comment.as_bytes());
@@ -73,7 +70,6 @@ mod tests {
   fn append(user_agent: Option<&str>) -> Option<String> {
     let comment = HeaderValue::from_static("(variant; ref=meow)");
     let mut headers = HeaderMap::new();
-
     if let Some(user_agent) = user_agent {
       headers.insert(USER_AGENT, HeaderValue::from_str(user_agent).unwrap());
     }

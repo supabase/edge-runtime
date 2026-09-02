@@ -4774,7 +4774,7 @@ async fn test_outbound_user_agent_is_stamped_with_project_ref() {
   // A function that sends no `User-Agent` of its own gets the runtime's, and
   // the project ref is part of it.
   {
-    let expected = deno::versions::user_agent_for_project(Some(PROJECT_REF));
+    let expected = deno::versions::user_agent(Some(PROJECT_REF));
 
     integration_test!(
       "./test_cases/main_with_project_ref",
@@ -4867,7 +4867,7 @@ async fn test_outbound_node_http_user_agent_is_stamped_with_project_ref() {
 
   // `node:http` sends no `User-Agent` of its own, so it gets the runtime's.
   {
-    let expected = deno::versions::user_agent_for_project(Some(PROJECT_REF));
+    let expected = deno::versions::user_agent(Some(PROJECT_REF));
 
     integration_test!(
       "./test_cases/main_with_project_ref",
@@ -4951,6 +4951,6 @@ async fn test_websocket_handshake_user_agent_is_stamped_with_project_ref() {
 
   assert_eq!(
     seen.as_slice(),
-    [deno::versions::user_agent_for_project(Some(PROJECT_REF)).to_string()]
+    [deno::versions::user_agent(Some(PROJECT_REF))]
   );
 }

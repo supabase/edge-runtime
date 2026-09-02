@@ -758,8 +758,7 @@ where
           deno_canvas::deno_canvas::init_ops(),
           deno_fetch::deno_fetch::init_ops::<PermissionsContainer>(
             deno_fetch::Options {
-              user_agent: deno::versions::user_agent_for_project(project_ref)
-                .into_owned(),
+              user_agent: deno::versions::user_agent(project_ref),
               request_builder_hook: project_ref
                 .map(|it| deno::versions::user_agent_comment(Some(it)))
                 .and_then(|it| user_agent::stamping_hook(&it)),
@@ -772,7 +771,7 @@ where
             // A handshake carries this as its `User-Agent`; one the caller adds
             // through `WebSocketStream` is appended after it, never in place of
             // it, so the project stays on the wire either way.
-            deno::versions::user_agent_for_project(project_ref).into_owned(),
+            deno::versions::user_agent(project_ref),
             Some(root_cert_store_provider.clone()),
             None,
           ),

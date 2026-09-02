@@ -1,7 +1,6 @@
 use std::borrow::Cow;
 
 use deno_telemetry::OtelRuntimeConfig;
-use once_cell::sync::Lazy;
 
 use crate::version;
 
@@ -9,44 +8,27 @@ pub fn edge_runtime_version() -> &'static str {
   option_env!("GIT_V_TAG").unwrap_or("0.1.0")
 }
 
-/// Comment identifying this runtime, and the project the worker belongs to
-/// when it is known.
-///
-/// The value is a single [RFC 9110 comment][1], so it can either close a
-/// `User-Agent` built by us or be appended to one supplied by the function.
+/// `User-Agent` sent by every worker, tagged with the project the worker
+/// belongs to when it is known.
+pub fn user_agent(project_ref: Option<&str>) -> String {
+  // TODO: It should be changed to a well-known name for the ecosystem.
+  format!("Deno/{} {}", version(), user_agent_comment(project_ref))
+}
+
+/// The comment part of [`user_agent`]: a single [RFC 9110 comment][1], so it
+/// can also be appended to a `User-Agent` supplied by the function itself (see
+/// `base`'s `user_agent` module).
 ///
 /// [1]: https://www.rfc-editor.org/rfc/rfc9110#name-user-agent
 pub fn user_agent_comment(project_ref: Option<&str>) -> String {
-  let edge_runtime_version = edge_runtime_version();
+  let ref_part = project_ref
+    .map(|it| format!("; ref={it}"))
+    .unwrap_or_default();
 
-  match project_ref {
-    Some(project_ref) => format!(
-      "(variant; SupabaseEdgeRuntime/{}; ref={})",
-      edge_runtime_version, project_ref
-    ),
-    None => format!("(variant; SupabaseEdgeRuntime/{})", edge_runtime_version),
-  }
-}
-
-pub fn user_agent() -> &'static str {
-  static VALUE: Lazy<String> = Lazy::new(|| {
-    // TODO: It should be changed to a well-known name for the ecosystem.
-    format!("Deno/{} {}", version(), user_agent_comment(None))
-  });
-
-  VALUE.as_str()
-}
-
-/// Same as [`user_agent`], but tagged with the project the worker belongs to.
-pub fn user_agent_for_project(project_ref: Option<&str>) -> Cow<'static, str> {
-  match project_ref {
-    Some(project_ref) => Cow::Owned(format!(
-      "Deno/{} {}",
-      version(),
-      user_agent_comment(Some(project_ref))
-    )),
-    None => Cow::Borrowed(user_agent()),
-  }
+  format!(
+    "(variant; SupabaseEdgeRuntime/{}{ref_part})",
+    edge_runtime_version()
+  )
 }
 
 /// Accepts a project ref only if it is safe to put in a header comment.
@@ -80,18 +62,24 @@ mod tests {
   use super::*;
 
   #[test]
-  fn test_user_agent_for_project() {
-    let expected = format!(
-      "Deno/{} (variant; SupabaseEdgeRuntime/{}; ref=abcdefghijklmnopqrst)",
-      version(),
-      edge_runtime_version()
+  fn test_user_agent() {
+    assert_eq!(
+      user_agent(Some("abcdefghijklmnopqrst")),
+      format!(
+        "Deno/{} (variant; SupabaseEdgeRuntime/{}; ref=abcdefghijklmnopqrst)",
+        version(),
+        edge_runtime_version()
+      )
     );
 
     assert_eq!(
-      user_agent_for_project(Some("abcdefghijklmnopqrst")),
-      expected
+      user_agent(None),
+      format!(
+        "Deno/{} (variant; SupabaseEdgeRuntime/{})",
+        version(),
+        edge_runtime_version()
+      )
     );
-    assert_eq!(user_agent_for_project(None), user_agent());
   }
 
   #[test]

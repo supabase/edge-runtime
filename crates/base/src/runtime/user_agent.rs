@@ -1,14 +1,12 @@
 use std::sync::Arc;
 
-use deno::deno_fetch::ReqBody;
 use deno_core::error::AnyError;
 use http::header::HeaderValue;
 use http::header::USER_AGENT;
 use http::HeaderMap;
-use http::Request;
 
 pub type RequestBuilderHook =
-  Arc<dyn Fn(&mut Request<ReqBody>) -> Result<(), AnyError> + Send + Sync>;
+  Arc<dyn Fn(&mut HeaderMap) -> Result<(), AnyError> + Send + Sync>;
 
 /// Builds the `deno_fetch` request hook that keeps `comment` on the
 /// `User-Agent` of every request a worker sends.
@@ -24,8 +22,8 @@ pub fn stamping_hook(comment: &str) -> Option<RequestBuilderHook> {
     .ok()
     .filter(|it| !it.is_empty())?;
 
-  Some(Arc::new(move |req: &mut Request<ReqBody>| {
-    append_user_agent_comment(req.headers_mut(), &comment);
+  Some(Arc::new(move |headers: &mut HeaderMap| {
+    append_user_agent_comment(headers, &comment);
     Ok(())
   }))
 }

@@ -111,6 +111,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::debug;
 use tracing::instrument;
 use tracing::trace;
+use tracing::warn;
 use tracing::Instrument;
 use tracing::Span;
 
@@ -743,7 +744,16 @@ where
         let project_ref = context
           .get("projectRef")
           .and_then(serde_json::Value::as_str)
-          .and_then(deno::versions::sanitize_project_ref);
+          .and_then(|it| {
+            let sanitized = deno::versions::sanitize_project_ref(it);
+            if sanitized.is_none() {
+              warn!(
+                project_ref = it,
+                "invalid project ref is not stamped into the user agent"
+              );
+            }
+            sanitized
+          });
 
         let extensions = vec![
           deno_telemetry::deno_telemetry::init_ops(),

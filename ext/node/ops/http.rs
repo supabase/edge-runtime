@@ -139,7 +139,7 @@ where
   {
     let options = state.borrow::<FetchOptions>();
     if let Some(request_builder_hook) = options.request_builder_hook.as_ref() {
-      request_builder_hook(&mut request)
+      request_builder_hook(request.headers_mut())
         .map_err(FetchError::RequestBuilderHook)?;
     }
   }

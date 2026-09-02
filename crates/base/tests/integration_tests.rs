@@ -4849,6 +4849,39 @@ async fn test_outbound_node_http_user_agent_is_stamped_with_project_ref() {
 
 #[tokio::test]
 #[serial]
+async fn test_outbound_node_http2_user_agent_is_stamped_with_project_ref() {
+  const PROJECT_REF: &str = "abcdefghijklmnopqrst";
+
+  let token = CancellationToken::new();
+  let (echo_url, _, server) = start_echo_user_agent_server(token.clone()).await;
+  let ref_comment = deno::versions::user_agent_comment(Some(PROJECT_REF));
+
+  // `node:http2` sends no `User-Agent` of its own, so it gets the runtime's.
+  assert_echoed_user_agent(
+    "user-agent-http2",
+    &echo_url,
+    Some(PROJECT_REF),
+    None,
+    deno::versions::user_agent(Some(PROJECT_REF)),
+  )
+  .await;
+
+  // One the caller set is kept, with the project appended to it.
+  assert_echoed_user_agent(
+    "user-agent-http2",
+    &echo_url,
+    Some(PROJECT_REF),
+    Some("curl/8.7.1"),
+    format!("curl/8.7.1 {ref_comment}"),
+  )
+  .await;
+
+  token.cancel();
+  server.await.unwrap();
+}
+
+#[tokio::test]
+#[serial]
 async fn test_websocket_handshake_user_agent_is_stamped_with_project_ref() {
   const PROJECT_REF: &str = "abcdefghijklmnopqrst";
 

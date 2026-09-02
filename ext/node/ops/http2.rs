@@ -340,6 +340,22 @@ pub async fn op_http2_client_request(
     );
   }
 
+  // Requests from here never pass through `deno_fetch`'s client, so both its
+  // default `User-Agent` and the stamping hook have to be applied by hand to
+  // keep `node:http2` traffic attributed like every other outbound path.
+  {
+    let state = state.borrow();
+    let options = state.borrow::<deno_fetch::Options>();
+    let headers = req.headers_mut().unwrap();
+
+    if let Some(request_builder_hook) = options.request_builder_hook.as_ref() {
+      request_builder_hook(headers).map_err(Http2Error::Resource)?;
+    }
+    if let Ok(user_agent) = HeaderValue::from_str(&options.user_agent) {
+      headers.entry(http::header::USER_AGENT).or_insert(user_agent);
+    }
+  }
+
   let request = req.body(()).unwrap();
 
   let resource = {

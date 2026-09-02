@@ -1,4 +1,5 @@
 use std::fs::File;
+use std::io::ErrorKind;
 use std::path::Path;
 
 fn main() {
@@ -7,10 +8,13 @@ fn main() {
 
   println!("cargo::rustc-check-cfg=cfg(dotenv)");
 
-  if env_path.exists() {
-    println!("cargo:rustc-cfg=dotenv")
-  } else {
-    File::create_new(env_path).unwrap();
+  // Create-or-detect in one syscall so concurrent builds can't race.
+  match File::create_new(env_path) {
+    Ok(_) => {}
+    Err(err) if err.kind() == ErrorKind::AlreadyExists => {
+      println!("cargo:rustc-cfg=dotenv")
+    }
+    Err(err) => panic!("failed to create {env_file}: {err}"),
   }
 
   println!("cargo::rerun-if-changed={}", env_file);

@@ -5,6 +5,12 @@ use http::header::HeaderValue;
 use http::header::USER_AGENT;
 use http::HeaderMap;
 
+/// Hook run for every outbound request a worker makes.
+///
+/// It takes the header map rather than the request: `fetch()` and `node:http`
+/// build `Request<ReqBody>` while `node:http2` builds `Request<()>`, and a
+/// `dyn Fn` cannot be generic over the body type. Headers are the surface all
+/// paths share — and the only thing stamping touches anyway.
 pub type RequestBuilderHook =
   Arc<dyn Fn(&mut HeaderMap) -> Result<(), AnyError> + Send + Sync>;
 

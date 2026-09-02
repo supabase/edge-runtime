@@ -116,9 +116,11 @@ pub struct Options {
   /// is sent.
   ///
   /// Unlike upstream, it is a closure rather than a plain `fn`, so a hook can
-  /// carry state of its own (the worker it belongs to, say), and it takes the
-  /// header map rather than the whole request, so paths that build requests
-  /// with other body types (`node:http2`, say) can run it too.
+  /// carry state of its own (the worker it belongs to, say). It also takes the
+  /// header map rather than the whole request: callers build requests with
+  /// different body types (`ReqBody` here, `()` in `node:http2`) and a
+  /// `dyn Fn` cannot be generic over them, while the headers are the surface
+  /// every path shares.
   #[allow(clippy::type_complexity)]
   pub request_builder_hook: Option<
     Arc<

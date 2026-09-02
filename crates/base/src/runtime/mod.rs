@@ -130,6 +130,7 @@ mod unsync;
 
 pub mod otel;
 pub mod permissions;
+pub mod user_agent;
 
 const DEFAULT_ALLOC_CHECK_INT_MSEC: u64 = 1000;
 
@@ -737,6 +738,13 @@ where
           Arc::new(DenoCompileFileSystem::from_rc(vfs))
         })?;
 
+        // Outbound requests carry the project they were made from, so traffic
+        // reported as abusive can be traced back to it.
+        let project_ref = context
+          .get("projectRef")
+          .and_then(serde_json::Value::as_str)
+          .and_then(deno::versions::sanitize_project_ref);
+
         let extensions = vec![
           deno_telemetry::deno_telemetry::init_ops(),
           deno_webidl::deno_webidl::init_ops(),
@@ -750,14 +758,21 @@ where
           deno_canvas::deno_canvas::init_ops(),
           deno_fetch::deno_fetch::init_ops::<PermissionsContainer>(
             deno_fetch::Options {
-              user_agent: deno::versions::user_agent().to_string(),
+              user_agent: deno::versions::user_agent_for_project(project_ref)
+                .into_owned(),
+              request_builder_hook: project_ref
+                .map(|it| deno::versions::user_agent_comment(Some(it)))
+                .and_then(|it| user_agent::stamping_hook(&it)),
               root_cert_store_provider: Some(root_cert_store_provider.clone()),
               file_fetch_handler: Rc::new(deno_fetch::FsFetchHandler),
               ..Default::default()
             },
           ),
           deno_websocket::deno_websocket::init_ops::<PermissionsContainer>(
-            deno::versions::user_agent().to_string(),
+            // A handshake carries this as its `User-Agent`; one the caller adds
+            // through `WebSocketStream` is appended after it, never in place of
+            // it, so the project stays on the wire either way.
+            deno::versions::user_agent_for_project(project_ref).into_owned(),
             Some(root_cert_store_provider.clone()),
             None,
           ),

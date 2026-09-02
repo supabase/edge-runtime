@@ -4675,3 +4675,297 @@ fn new_localhost_tls(secure: bool) -> Option<Tls> {
     Tls::new(SECURE_PORT, TLS_LOCALHOST_KEY, TLS_LOCALHOST_CERT).unwrap()
   })
 }
+
+/// Every `User-Agent` the echo server has been sent, in arrival order. Requests
+/// that never get a response of their own (a websocket handshake, say) are only
+/// observable this way.
+type SeenUserAgents = Arc<std::sync::Mutex<Vec<String>>>;
+
+/// Answers every request with the `User-Agent` it arrived with.
+async fn echo_user_agent_server(
+  listener: TcpListener,
+  token: CancellationToken,
+  seen: SeenUserAgents,
+) {
+  loop {
+    tokio::select! {
+      Ok((stream, _)) = listener.accept() => {
+        let seen = seen.clone();
+
+        tokio::spawn(async move {
+          hyper::server::conn::Http::new()
+            .serve_connection(
+              stream,
+              hyper::service::service_fn(move |req: Request<Body>| {
+                let seen = seen.clone();
+
+                async move {
+                  let user_agent = req
+                    .headers()
+                    .get(header::USER_AGENT)
+                    .and_then(|it| it.to_str().ok())
+                    .unwrap_or_default()
+                    .to_string();
+
+                  seen.lock().unwrap().push(user_agent.clone());
+
+                  Ok::<_, hyper::Error>(
+                    HttpResponse::new(Body::from(user_agent)),
+                  )
+                }
+              }),
+            )
+            .await
+            .ok();
+        });
+      }
+
+      _ = token.cancelled() => {
+        break;
+      }
+    }
+  }
+}
+
+/// Starts an echo server on a port of its own. The returned future runs it
+/// until the token is cancelled.
+async fn start_echo_user_agent_server(
+  token: CancellationToken,
+) -> (String, SeenUserAgents, tokio::task::JoinHandle<()>) {
+  let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+  let url = format!("http://{}", listener.local_addr().unwrap());
+  let seen = SeenUserAgents::default();
+  let server = tokio::spawn({
+    let seen = seen.clone();
+    async move {
+      echo_user_agent_server(listener, token, seen).await;
+    }
+  });
+
+  (url, seen, server)
+}
+
+#[tokio::test]
+#[serial]
+async fn test_outbound_user_agent_is_stamped_with_project_ref() {
+  const PROJECT_REF: &str = "abcdefghijklmnopqrst";
+
+  let token = CancellationToken::new();
+  let (echo_url, _, server) = start_echo_user_agent_server(token.clone()).await;
+
+  let request = |project_ref: Option<&str>,
+                 user_agent: Option<&str>,
+                 header_style: Option<&str>| {
+    let mut builder = Client::new()
+      .request(
+        Method::POST,
+        format!("http://localhost:{}/user-agent", NON_SECURE_PORT),
+      )
+      .header("x-echo-url", &echo_url);
+
+    if let Some(project_ref) = project_ref {
+      builder = builder.header("x-project-ref", project_ref);
+    }
+    if let Some(user_agent) = user_agent {
+      builder = builder.header("x-set-user-agent", user_agent);
+    }
+    if let Some(header_style) = header_style {
+      builder = builder.header("x-header-style", header_style);
+    }
+
+    builder
+  };
+
+  // A function that sends no `User-Agent` of its own gets the runtime's, and
+  // the project ref is part of it.
+  {
+    let expected = deno::versions::user_agent_for_project(Some(PROJECT_REF));
+
+    integration_test!(
+      "./test_cases/main_with_project_ref",
+      NON_SECURE_PORT,
+      "",
+      None,
+      Some(request(Some(PROJECT_REF), None, None)),
+      None,
+      (|resp| async move {
+        let resp = resp.unwrap();
+
+        assert_eq!(resp.status().as_u16(), StatusCode::OK);
+        assert_eq!(resp.text().await.unwrap(), expected);
+      }),
+      TerminationToken::new()
+    );
+  }
+
+  // A function that sets its own `User-Agent` keeps it, but cannot drop the
+  // project ref, no matter how it hands the header to `fetch`.
+  for header_style in [
+    "object",
+    "array",
+    "headers",
+    "request",
+    "request-overridden",
+  ] {
+    let expected = format!(
+      "curl/8.7.1 {}",
+      deno::versions::user_agent_comment(Some(PROJECT_REF))
+    );
+
+    integration_test!(
+      "./test_cases/main_with_project_ref",
+      NON_SECURE_PORT,
+      "",
+      None,
+      Some(request(
+        Some(PROJECT_REF),
+        Some("curl/8.7.1"),
+        Some(header_style)
+      )),
+      None,
+      (|resp| async move {
+        let resp = resp.unwrap();
+
+        assert_eq!(resp.status().as_u16(), StatusCode::OK);
+        assert_eq!(resp.text().await.unwrap(), expected, "{header_style}");
+      }),
+      TerminationToken::new()
+    );
+  }
+
+  // Without a project ref, nothing is stamped.
+  {
+    integration_test!(
+      "./test_cases/main_with_project_ref",
+      NON_SECURE_PORT,
+      "",
+      None,
+      Some(request(None, Some("curl/8.7.1"), None)),
+      None,
+      (|resp| async move {
+        let resp = resp.unwrap();
+
+        assert_eq!(resp.status().as_u16(), StatusCode::OK);
+        assert_eq!(resp.text().await.unwrap(), "curl/8.7.1");
+      }),
+      TerminationToken::new()
+    );
+  }
+
+  token.cancel();
+  server.await.unwrap();
+}
+
+#[tokio::test]
+#[serial]
+async fn test_outbound_node_http_user_agent_is_stamped_with_project_ref() {
+  const PROJECT_REF: &str = "abcdefghijklmnopqrst";
+
+  let token = CancellationToken::new();
+  let (echo_url, _, server) = start_echo_user_agent_server(token.clone()).await;
+
+  let request = |user_agent: Option<&str>| {
+    let mut builder = Client::new()
+      .request(
+        Method::POST,
+        format!("http://localhost:{}/user-agent-node", NON_SECURE_PORT),
+      )
+      .header("x-project-ref", PROJECT_REF)
+      .header("x-echo-url", &echo_url);
+
+    if let Some(user_agent) = user_agent {
+      builder = builder.header("x-set-user-agent", user_agent);
+    }
+
+    builder
+  };
+
+  // `node:http` sends no `User-Agent` of its own, so it gets the runtime's.
+  {
+    let expected = deno::versions::user_agent_for_project(Some(PROJECT_REF));
+
+    integration_test!(
+      "./test_cases/main_with_project_ref",
+      NON_SECURE_PORT,
+      "",
+      None,
+      Some(request(None)),
+      None,
+      (|resp| async move {
+        let resp = resp.unwrap();
+
+        assert_eq!(resp.status().as_u16(), StatusCode::OK);
+        assert_eq!(resp.text().await.unwrap(), expected);
+      }),
+      TerminationToken::new()
+    );
+  }
+
+  // One the caller set is kept, with the project appended to it.
+  {
+    let expected = format!(
+      "curl/8.7.1 {}",
+      deno::versions::user_agent_comment(Some(PROJECT_REF))
+    );
+
+    integration_test!(
+      "./test_cases/main_with_project_ref",
+      NON_SECURE_PORT,
+      "",
+      None,
+      Some(request(Some("curl/8.7.1"))),
+      None,
+      (|resp| async move {
+        let resp = resp.unwrap();
+
+        assert_eq!(resp.status().as_u16(), StatusCode::OK);
+        assert_eq!(resp.text().await.unwrap(), expected);
+      }),
+      TerminationToken::new()
+    );
+  }
+
+  token.cancel();
+  server.await.unwrap();
+}
+
+#[tokio::test]
+#[serial]
+async fn test_websocket_handshake_user_agent_is_stamped_with_project_ref() {
+  const PROJECT_REF: &str = "abcdefghijklmnopqrst";
+
+  let token = CancellationToken::new();
+  let (echo_url, seen, server) =
+    start_echo_user_agent_server(token.clone()).await;
+
+  let builder = Client::new()
+    .request(
+      Method::POST,
+      format!("http://localhost:{}/user-agent-websocket", NON_SECURE_PORT),
+    )
+    .header("x-project-ref", PROJECT_REF)
+    .header("x-echo-url", &echo_url);
+
+  integration_test!(
+    "./test_cases/main_with_project_ref",
+    NON_SECURE_PORT,
+    "",
+    None,
+    Some(builder),
+    None,
+    (|resp| async move {
+      assert_eq!(resp.unwrap().status().as_u16(), StatusCode::OK);
+    }),
+    TerminationToken::new()
+  );
+
+  token.cancel();
+  server.await.unwrap();
+
+  let seen = seen.lock().unwrap();
+
+  assert_eq!(
+    seen.as_slice(),
+    [deno::versions::user_agent_for_project(Some(PROJECT_REF)).to_string()]
+  );
+}

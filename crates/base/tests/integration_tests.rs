@@ -214,7 +214,7 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
   // create a user worker pool
   let (_, worker_pool_tx) = worker::create_user_worker_pool(
     Arc::default(),
-    test_utils::test_user_worker_pool_policy(),
+    test_user_worker_pool_policy(),
     None,
     Some(pool_termination_token.clone()),
     vec![],

@@ -5,7 +5,12 @@ export default {
     const recursive = url.searchParams.get("recursive") === "true";
     const key = url.pathname.split("/").slice(2).join("/");
 
-    await Deno.mkdir(`/s3/${bucketName}/${key}`, { recursive });
+    try {
+      await Deno.mkdir(`/s3/${bucketName}/${key}`, { recursive });
+    } catch (e) {
+      console.error(e);
+      return Response.json({ msg: e.toString() }, { status: 500 });
+    }
 
     return new Response(null, { status: 200 });
   },

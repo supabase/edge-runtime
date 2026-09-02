@@ -2,8 +2,6 @@ chmod
 chmodSync
 chown
 chownSync
-copyFile
-copyFileSync
 createSync
 fdatasync
 fdatasyncSync

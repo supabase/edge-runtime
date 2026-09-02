@@ -9,9 +9,14 @@ export default {
       return new Response(null, { status: 400 });
     }
 
-    const f = await Deno.create(`/s3/${bucketName}/${key}`);
+    try {
+      const f = await Deno.create(`/s3/${bucketName}/${key}`);
+      await stream.pipeTo(f.writable);
+    } catch (e) {
+      console.error(e);
+      return Response.json({ msg: e.toString() }, { status: 500 });
+    }
 
-    await stream.pipeTo(f.writable);
     return new Response(null, { status: 200 });
   },
 };

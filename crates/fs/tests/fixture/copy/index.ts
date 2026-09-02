@@ -13,10 +13,18 @@ export default {
     const source = `/s3/${bucketName}/${sourceKey}`;
     const destination = `/s3/${bucketName}/${destinationKey}`;
 
-    if (sync) {
-      Deno.copyFileSync(source, destination);
-    } else {
-      await Deno.copyFile(source, destination);
+    try {
+      if (sync) {
+        Deno.copyFileSync(source, destination);
+      } else {
+        await Deno.copyFile(source, destination);
+      }
+    } catch (e) {
+      // Surface the actual error in the response body — a bare throw ends up
+      // as an opaque plain-text 500, and worker console output is not visible
+      // in CI logs.
+      console.error(e);
+      return Response.json({ msg: e.toString() }, { status: 500 });
     }
 
     return new Response(null, { status: 200 });

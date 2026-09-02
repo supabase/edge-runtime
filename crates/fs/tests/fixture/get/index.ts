@@ -5,18 +5,18 @@ export default {
     const bucketName = Deno.env.get("S3FS_TEST_BUCKET_NAME")!;
     const key = url.pathname.split("/").slice(2).join("/");
 
-    if (sync) {
-      try {
+    try {
+      if (sync) {
         return new Response(Deno.readFileSync(`/s3/${bucketName}/${key}`), {
           status: 200,
         });
-      } catch (err) {
-        console.error(err);
-        return new Response(null, { status: 500 });
+      } else {
+        const f = await Deno.open(`/s3/${bucketName}/${key}`);
+        return new Response(f.readable, { status: 200 });
       }
-    } else {
-      const f = await Deno.open(`/s3/${bucketName}/${key}`);
-      return new Response(f.readable, { status: 200 });
+    } catch (e) {
+      console.error(e);
+      return Response.json({ msg: e.toString() }, { status: 500 });
     }
   },
 };

@@ -4681,54 +4681,8 @@ fn new_localhost_tls(secure: bool) -> Option<Tls> {
 /// observable this way.
 type SeenUserAgents = Arc<std::sync::Mutex<Vec<String>>>;
 
-/// Answers every request with the `User-Agent` it arrived with.
-async fn echo_user_agent_server(
-  listener: TcpListener,
-  token: CancellationToken,
-  seen: SeenUserAgents,
-) {
-  loop {
-    tokio::select! {
-      Ok((stream, _)) = listener.accept() => {
-        let seen = seen.clone();
-
-        tokio::spawn(async move {
-          hyper::server::conn::Http::new()
-            .serve_connection(
-              stream,
-              hyper::service::service_fn(move |req: Request<Body>| {
-                let seen = seen.clone();
-
-                async move {
-                  let user_agent = req
-                    .headers()
-                    .get(header::USER_AGENT)
-                    .and_then(|it| it.to_str().ok())
-                    .unwrap_or_default()
-                    .to_string();
-
-                  seen.lock().unwrap().push(user_agent.clone());
-
-                  Ok::<_, hyper::Error>(
-                    HttpResponse::new(Body::from(user_agent)),
-                  )
-                }
-              }),
-            )
-            .await
-            .ok();
-        });
-      }
-
-      _ = token.cancelled() => {
-        break;
-      }
-    }
-  }
-}
-
-/// Starts an echo server on a port of its own. The returned future runs it
-/// until the token is cancelled.
+/// Starts a server that answers every request with the `User-Agent` it arrived
+/// with, until the token is cancelled.
 async fn start_echo_user_agent_server(
   token: CancellationToken,
 ) -> (String, SeenUserAgents, tokio::task::JoinHandle<()>) {
@@ -4738,11 +4692,81 @@ async fn start_echo_user_agent_server(
   let server = tokio::spawn({
     let seen = seen.clone();
     async move {
-      echo_user_agent_server(listener, token, seen).await;
+      loop {
+        tokio::select! {
+          Ok((stream, _)) = listener.accept() => {
+            let seen = seen.clone();
+            tokio::spawn(async move {
+              hyper::server::conn::Http::new()
+                .serve_connection(
+                  stream,
+                  hyper::service::service_fn(move |req: Request<Body>| {
+                    let seen = seen.clone();
+                    async move {
+                      let user_agent = req
+                        .headers()
+                        .get(header::USER_AGENT)
+                        .and_then(|it| it.to_str().ok())
+                        .unwrap_or_default()
+                        .to_string();
+
+                      seen.lock().unwrap().push(user_agent.clone());
+                      Ok::<_, hyper::Error>(
+                        HttpResponse::new(Body::from(user_agent)),
+                      )
+                    }
+                  }),
+                )
+                .await
+                .ok();
+            });
+          }
+          _ = token.cancelled() => break,
+        }
+      }
     }
   });
 
   (url, seen, server)
+}
+
+/// Serves `path` from `main_with_project_ref` and asserts the function's
+/// outbound request reached the echo server with `expected` as `User-Agent`.
+async fn assert_echoed_user_agent(
+  path: &str,
+  echo_url: &str,
+  project_ref: Option<&str>,
+  user_agent: Option<&str>,
+  expected: String,
+) {
+  let mut builder = Client::new()
+    .request(
+      Method::POST,
+      format!("http://localhost:{}/{}", NON_SECURE_PORT, path),
+    )
+    .header("x-echo-url", echo_url);
+
+  if let Some(project_ref) = project_ref {
+    builder = builder.header("x-project-ref", project_ref);
+  }
+  if let Some(user_agent) = user_agent {
+    builder = builder.header("x-set-user-agent", user_agent);
+  }
+
+  integration_test!(
+    "./test_cases/main_with_project_ref",
+    NON_SECURE_PORT,
+    "",
+    None,
+    Some(builder),
+    None,
+    (|resp| async move {
+      let resp = resp.unwrap();
+      assert_eq!(resp.status().as_u16(), StatusCode::OK);
+      assert_eq!(resp.text().await.unwrap(), expected);
+    }),
+    TerminationToken::new()
+  );
 }
 
 #[tokio::test]
@@ -4752,90 +4776,39 @@ async fn test_outbound_user_agent_is_stamped_with_project_ref() {
 
   let token = CancellationToken::new();
   let (echo_url, _, server) = start_echo_user_agent_server(token.clone()).await;
-
-  let request = |project_ref: Option<&str>, user_agent: Option<&str>| {
-    let mut builder = Client::new()
-      .request(
-        Method::POST,
-        format!("http://localhost:{}/user-agent", NON_SECURE_PORT),
-      )
-      .header("x-echo-url", &echo_url);
-
-    if let Some(project_ref) = project_ref {
-      builder = builder.header("x-project-ref", project_ref);
-    }
-    if let Some(user_agent) = user_agent {
-      builder = builder.header("x-set-user-agent", user_agent);
-    }
-
-    builder
-  };
+  let ref_comment = deno::versions::user_agent_comment(Some(PROJECT_REF));
 
   // A function that sends no `User-Agent` of its own gets the runtime's, and
   // the project ref is part of it.
-  {
-    let expected = deno::versions::user_agent(Some(PROJECT_REF));
-
-    integration_test!(
-      "./test_cases/main_with_project_ref",
-      NON_SECURE_PORT,
-      "",
-      None,
-      Some(request(Some(PROJECT_REF), None)),
-      None,
-      (|resp| async move {
-        let resp = resp.unwrap();
-
-        assert_eq!(resp.status().as_u16(), StatusCode::OK);
-        assert_eq!(resp.text().await.unwrap(), expected);
-      }),
-      TerminationToken::new()
-    );
-  }
+  assert_echoed_user_agent(
+    "user-agent",
+    &echo_url,
+    Some(PROJECT_REF),
+    None,
+    deno::versions::user_agent(Some(PROJECT_REF)),
+  )
+  .await;
 
   // A function that sets its own `User-Agent` keeps it, but cannot drop the
   // project ref.
-  {
-    let expected = format!(
-      "curl/8.7.1 {}",
-      deno::versions::user_agent_comment(Some(PROJECT_REF))
-    );
-
-    integration_test!(
-      "./test_cases/main_with_project_ref",
-      NON_SECURE_PORT,
-      "",
-      None,
-      Some(request(Some(PROJECT_REF), Some("curl/8.7.1"))),
-      None,
-      (|resp| async move {
-        let resp = resp.unwrap();
-
-        assert_eq!(resp.status().as_u16(), StatusCode::OK);
-        assert_eq!(resp.text().await.unwrap(), expected);
-      }),
-      TerminationToken::new()
-    );
-  }
+  assert_echoed_user_agent(
+    "user-agent",
+    &echo_url,
+    Some(PROJECT_REF),
+    Some("curl/8.7.1"),
+    format!("curl/8.7.1 {ref_comment}"),
+  )
+  .await;
 
   // Without a project ref, nothing is stamped.
-  {
-    integration_test!(
-      "./test_cases/main_with_project_ref",
-      NON_SECURE_PORT,
-      "",
-      None,
-      Some(request(None, Some("curl/8.7.1"))),
-      None,
-      (|resp| async move {
-        let resp = resp.unwrap();
-
-        assert_eq!(resp.status().as_u16(), StatusCode::OK);
-        assert_eq!(resp.text().await.unwrap(), "curl/8.7.1");
-      }),
-      TerminationToken::new()
-    );
-  }
+  assert_echoed_user_agent(
+    "user-agent",
+    &echo_url,
+    None,
+    Some("curl/8.7.1"),
+    "curl/8.7.1".into(),
+  )
+  .await;
 
   token.cancel();
   server.await.unwrap();
@@ -4848,67 +4821,27 @@ async fn test_outbound_node_http_user_agent_is_stamped_with_project_ref() {
 
   let token = CancellationToken::new();
   let (echo_url, _, server) = start_echo_user_agent_server(token.clone()).await;
-
-  let request = |user_agent: Option<&str>| {
-    let mut builder = Client::new()
-      .request(
-        Method::POST,
-        format!("http://localhost:{}/user-agent-node", NON_SECURE_PORT),
-      )
-      .header("x-project-ref", PROJECT_REF)
-      .header("x-echo-url", &echo_url);
-
-    if let Some(user_agent) = user_agent {
-      builder = builder.header("x-set-user-agent", user_agent);
-    }
-
-    builder
-  };
+  let ref_comment = deno::versions::user_agent_comment(Some(PROJECT_REF));
 
   // `node:http` sends no `User-Agent` of its own, so it gets the runtime's.
-  {
-    let expected = deno::versions::user_agent(Some(PROJECT_REF));
-
-    integration_test!(
-      "./test_cases/main_with_project_ref",
-      NON_SECURE_PORT,
-      "",
-      None,
-      Some(request(None)),
-      None,
-      (|resp| async move {
-        let resp = resp.unwrap();
-
-        assert_eq!(resp.status().as_u16(), StatusCode::OK);
-        assert_eq!(resp.text().await.unwrap(), expected);
-      }),
-      TerminationToken::new()
-    );
-  }
+  assert_echoed_user_agent(
+    "user-agent-node",
+    &echo_url,
+    Some(PROJECT_REF),
+    None,
+    deno::versions::user_agent(Some(PROJECT_REF)),
+  )
+  .await;
 
   // One the caller set is kept, with the project appended to it.
-  {
-    let expected = format!(
-      "curl/8.7.1 {}",
-      deno::versions::user_agent_comment(Some(PROJECT_REF))
-    );
-
-    integration_test!(
-      "./test_cases/main_with_project_ref",
-      NON_SECURE_PORT,
-      "",
-      None,
-      Some(request(Some("curl/8.7.1"))),
-      None,
-      (|resp| async move {
-        let resp = resp.unwrap();
-
-        assert_eq!(resp.status().as_u16(), StatusCode::OK);
-        assert_eq!(resp.text().await.unwrap(), expected);
-      }),
-      TerminationToken::new()
-    );
-  }
+  assert_echoed_user_agent(
+    "user-agent-node",
+    &echo_url,
+    Some(PROJECT_REF),
+    Some("curl/8.7.1"),
+    format!("curl/8.7.1 {ref_comment}"),
+  )
+  .await;
 
   token.cancel();
   server.await.unwrap();
@@ -4947,10 +4880,8 @@ async fn test_websocket_handshake_user_agent_is_stamped_with_project_ref() {
   token.cancel();
   server.await.unwrap();
 
-  let seen = seen.lock().unwrap();
-
   assert_eq!(
-    seen.as_slice(),
+    seen.lock().unwrap().as_slice(),
     [deno::versions::user_agent(Some(PROJECT_REF))]
   );
 }

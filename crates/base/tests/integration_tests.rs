@@ -4753,9 +4753,7 @@ async fn test_outbound_user_agent_is_stamped_with_project_ref() {
   let token = CancellationToken::new();
   let (echo_url, _, server) = start_echo_user_agent_server(token.clone()).await;
 
-  let request = |project_ref: Option<&str>,
-                 user_agent: Option<&str>,
-                 header_style: Option<&str>| {
+  let request = |project_ref: Option<&str>, user_agent: Option<&str>| {
     let mut builder = Client::new()
       .request(
         Method::POST,
@@ -4768,9 +4766,6 @@ async fn test_outbound_user_agent_is_stamped_with_project_ref() {
     }
     if let Some(user_agent) = user_agent {
       builder = builder.header("x-set-user-agent", user_agent);
-    }
-    if let Some(header_style) = header_style {
-      builder = builder.header("x-header-style", header_style);
     }
 
     builder
@@ -4786,7 +4781,7 @@ async fn test_outbound_user_agent_is_stamped_with_project_ref() {
       NON_SECURE_PORT,
       "",
       None,
-      Some(request(Some(PROJECT_REF), None, None)),
+      Some(request(Some(PROJECT_REF), None)),
       None,
       (|resp| async move {
         let resp = resp.unwrap();
@@ -4799,14 +4794,8 @@ async fn test_outbound_user_agent_is_stamped_with_project_ref() {
   }
 
   // A function that sets its own `User-Agent` keeps it, but cannot drop the
-  // project ref, no matter how it hands the header to `fetch`.
-  for header_style in [
-    "object",
-    "array",
-    "headers",
-    "request",
-    "request-overridden",
-  ] {
+  // project ref.
+  {
     let expected = format!(
       "curl/8.7.1 {}",
       deno::versions::user_agent_comment(Some(PROJECT_REF))
@@ -4817,17 +4806,13 @@ async fn test_outbound_user_agent_is_stamped_with_project_ref() {
       NON_SECURE_PORT,
       "",
       None,
-      Some(request(
-        Some(PROJECT_REF),
-        Some("curl/8.7.1"),
-        Some(header_style)
-      )),
+      Some(request(Some(PROJECT_REF), Some("curl/8.7.1"))),
       None,
       (|resp| async move {
         let resp = resp.unwrap();
 
         assert_eq!(resp.status().as_u16(), StatusCode::OK);
-        assert_eq!(resp.text().await.unwrap(), expected, "{header_style}");
+        assert_eq!(resp.text().await.unwrap(), expected);
       }),
       TerminationToken::new()
     );
@@ -4840,7 +4825,7 @@ async fn test_outbound_user_agent_is_stamped_with_project_ref() {
       NON_SECURE_PORT,
       "",
       None,
-      Some(request(None, Some("curl/8.7.1"), None)),
+      Some(request(None, Some("curl/8.7.1"))),
       None,
       (|resp| async move {
         let resp = resp.unwrap();

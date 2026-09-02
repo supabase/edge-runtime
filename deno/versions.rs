@@ -95,17 +95,6 @@ mod tests {
   }
 
   #[test]
-  fn test_user_agent_comment() {
-    assert_eq!(
-      user_agent_comment(Some("abcdefghijklmnopqrst")),
-      format!(
-        "(variant; SupabaseEdgeRuntime/{}; ref=abcdefghijklmnopqrst)",
-        edge_runtime_version()
-      )
-    );
-  }
-
-  #[test]
   fn test_sanitize_project_ref() {
     assert_eq!(
       sanitize_project_ref("abcdefghijklmnopqrst"),

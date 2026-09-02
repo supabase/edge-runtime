@@ -186,6 +186,7 @@ pub struct NodeHttpFetchResponse {
 
 #[op2(async)]
 #[serde]
+#[allow(clippy::result_large_err)] // FetchError is owned by the vendored Deno fetch API.
 pub async fn op_node_http_fetch_send(
   state: Rc<RefCell<OpState>>,
   #[smi] rid: ResourceId,
@@ -264,6 +265,7 @@ pub async fn op_node_http_fetch_send(
 
 #[op2(async)]
 #[smi]
+#[allow(clippy::result_large_err)] // FetchError is owned by the vendored Deno fetch API.
 pub async fn op_node_http_fetch_response_upgrade(
   state: Rc<RefCell<OpState>>,
   #[smi] rid: ResourceId,

@@ -112,9 +112,22 @@ pub struct Options {
   ///
   /// For more info on what can be configured, see [`hyper_util::client::legacy::Builder`].
   pub client_builder_hook: Option<fn(HyperClientBuilder) -> HyperClientBuilder>,
+  /// A callback to customize the headers of every outbound request before it
+  /// is sent.
+  ///
+  /// Unlike upstream, it is a closure rather than a plain `fn`, so a hook can
+  /// carry state of its own (the worker it belongs to, say). It also takes the
+  /// header map rather than the whole request: callers build requests with
+  /// different body types (`ReqBody` here, `()` in `node:http2`) and a
+  /// `dyn Fn` cannot be generic over them, while the headers are the surface
+  /// every path shares.
   #[allow(clippy::type_complexity)]
   pub request_builder_hook: Option<
-    fn(&mut http::Request<ReqBody>) -> Result<(), deno_core::error::AnyError>,
+    Arc<
+      dyn Fn(&mut http::HeaderMap) -> Result<(), deno_core::error::AnyError>
+        + Send
+        + Sync,
+    >,
   >,
   pub unsafely_ignore_certificate_errors: Option<Vec<String>>,
   pub client_cert_chain_and_key: TlsKeys,
@@ -554,8 +567,9 @@ where
       }
 
       let options = state.borrow::<Options>();
-      if let Some(request_builder_hook) = options.request_builder_hook {
-        request_builder_hook(&mut request)
+      if let Some(request_builder_hook) = options.request_builder_hook.as_ref()
+      {
+        request_builder_hook(request.headers_mut())
           .map_err(FetchError::RequestBuilderHook)?;
       }
 

@@ -257,7 +257,7 @@ impl HttpClientProvider {
       Entry::Occupied(entry) => Ok(HttpClient::new(entry.get().clone())),
       Entry::Vacant(entry) => {
         let client = create_http_client(
-          user_agent(),
+          &user_agent(None),
           CreateHttpClientOptions {
             root_cert_store: match &self.root_cert_store_provider {
               Some(provider) => Some(provider.get_or_try_init()?.clone()),

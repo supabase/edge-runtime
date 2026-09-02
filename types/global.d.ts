@@ -55,6 +55,12 @@ interface PermissionsOptions {
 interface UserWorkerCreateContext {
   sourceMap?: boolean | null;
   importMapPath?: string | null;
+  /**
+   * Ref of the project the worker belongs to. Stamped into the `User-Agent` of
+   * every request the worker makes, so outbound traffic can be attributed back
+   * to the project.
+   */
+  projectRef?: string | null;
   shouldBootstrapMockFnThrowError?: boolean | null;
   suppressEszipMigrationWarning?: boolean | null;
   useReadSyncFileAPI?: boolean | null;

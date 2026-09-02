@@ -35,6 +35,7 @@ use deno_fetch::FetchError;
 use deno_fetch::FetchRequestResource;
 use deno_fetch::FetchReturn;
 use deno_fetch::HttpClientResource;
+use deno_fetch::Options as FetchOptions;
 use deno_fetch::ResBody;
 use http::header::HeaderMap;
 use http::header::HeaderName;
@@ -131,6 +132,16 @@ where
   }
   if let Some(len) = con_len {
     request.headers_mut().insert(CONTENT_LENGTH, len.into());
+  }
+
+  // `fetch()` runs this in `op_fetch`; node's client has its own op, so it has
+  // to run the hook itself to keep requests from here stamped the same way.
+  {
+    let options = state.borrow::<FetchOptions>();
+    if let Some(request_builder_hook) = options.request_builder_hook.as_ref() {
+      request_builder_hook(request.headers_mut())
+        .map_err(FetchError::RequestBuilderHook)?;
+    }
   }
 
   let cancel_handle = CancelHandle::new_rc();

@@ -50,6 +50,7 @@ pub extern "C" fn v8_handle_termination(
   }
 
   if data.should_terminate {
+    isolate.low_memory_notification();
     isolate.terminate_execution();
   }
 }

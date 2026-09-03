@@ -14,6 +14,7 @@ use anyhow::Context;
 use anyhow::Error;
 use either::Either::Right;
 use ext_event_worker::events::WorkerEventWithMetadata;
+use ext_runtime::SharedMetricSource;
 use ext_workers::context::MainWorkerRuntimeOpts;
 use ext_workers::context::Timing;
 use ext_workers::context::UserWorkerRuntimeOpts;
@@ -217,7 +218,7 @@ impl TestBedBuilder {
   }
 
   pub async fn build(self) -> TestBed {
-    let ((_, worker_pool_tx), pool_termination_token) = {
+    let ((metric_src, worker_pool_tx), pool_termination_token) = {
       let token = TerminationToken::new();
       (
         worker::create_user_worker_pool(
@@ -269,6 +270,7 @@ impl TestBedBuilder {
       pool_termination_token,
       main_termination_token,
       main_worker_surface,
+      metric_src,
     }
   }
 }
@@ -278,6 +280,7 @@ pub struct TestBed {
   pool_termination_token: TerminationToken,
   main_termination_token: TerminationToken,
   main_worker_surface: worker::WorkerSurface,
+  pub metric_src: SharedMetricSource,
 }
 
 impl TestBed {

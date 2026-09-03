@@ -337,7 +337,7 @@ pub struct UserWorkerBuiltRequest {
 #[serde(rename_all = "camelCase")]
 pub struct UserWorkerResponse {
   status: u16,
-  status_text: String,
+  status_text: &'static str,
   headers: Vec<(ByteString, ByteString)>,
   body_rid: ResourceId,
   size: Option<u64>,
@@ -662,8 +662,7 @@ pub async fn op_user_worker_fetch_send(
   let status_text = res
     .status()
     .canonical_reason()
-    .unwrap_or("<unknown status code>")
-    .to_string();
+    .unwrap_or("<unknown status code>");
 
   let size = HttpBody::size_hint(res.body()).exact();
   let stream: BytesStream =

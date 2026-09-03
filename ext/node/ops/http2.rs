@@ -40,7 +40,7 @@ pub struct Http2Client {
 }
 
 impl Resource for Http2Client {
-  fn name(&self) -> Cow<str> {
+  fn name(&self) -> Cow<'_, str> {
     "http2Client".into()
   }
 }
@@ -52,7 +52,7 @@ pub struct Http2ClientConn {
 }
 
 impl Resource for Http2ClientConn {
-  fn name(&self) -> Cow<str> {
+  fn name(&self) -> Cow<'_, str> {
     "http2ClientConnection".into()
   }
 
@@ -68,7 +68,7 @@ pub struct Http2ClientStream {
 }
 
 impl Resource for Http2ClientStream {
-  fn name(&self) -> Cow<str> {
+  fn name(&self) -> Cow<'_, str> {
     "http2ClientStream".into()
   }
 }
@@ -83,7 +83,7 @@ pub struct Http2ClientResponseBody {
 }
 
 impl Resource for Http2ClientResponseBody {
-  fn name(&self) -> Cow<str> {
+  fn name(&self) -> Cow<'_, str> {
     "http2ClientResponseBody".into()
   }
 }
@@ -94,7 +94,7 @@ pub struct Http2ServerConnection {
 }
 
 impl Resource for Http2ServerConnection {
-  fn name(&self) -> Cow<str> {
+  fn name(&self) -> Cow<'_, str> {
     "http2ServerConnection".into()
   }
 }
@@ -104,7 +104,7 @@ pub struct Http2ServerSendResponse {
 }
 
 impl Resource for Http2ServerSendResponse {
-  fn name(&self) -> Cow<str> {
+  fn name(&self) -> Cow<'_, str> {
     "http2ServerSendResponse".into()
   }
 }

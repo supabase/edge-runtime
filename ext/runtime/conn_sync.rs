@@ -19,7 +19,7 @@ pub struct ConnWatcher(pub Option<CancellationToken>, pub Arc<AtomicFlag>);
 // }
 
 impl Resource for ConnWatcher {
-  fn name(&self) -> std::borrow::Cow<str> {
+  fn name(&self) -> std::borrow::Cow<'_, str> {
     "connWatcher".into()
   }
 }

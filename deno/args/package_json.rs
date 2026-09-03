@@ -100,10 +100,8 @@ impl NpmInstallDepsProvider {
         let mut pkg_pkgs = Vec::with_capacity(
           deps.dependencies.len() + deps.dev_dependencies.len(),
         );
-        for (alias, dep) in deps
-          .dependencies
-          .into_iter()
-          .chain(deps.dev_dependencies.into_iter())
+        for (alias, dep) in
+          deps.dependencies.into_iter().chain(deps.dev_dependencies)
         {
           let dep = match dep {
             Ok(dep) => dep,

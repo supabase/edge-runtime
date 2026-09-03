@@ -1,3 +1,5 @@
+#![allow(clippy::result_large_err)] // Public errors are defined by the pinned Deno crates.
+
 use std::collections::HashMap;
 use std::env;
 use std::path::Path;

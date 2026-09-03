@@ -1,3 +1,5 @@
+#![allow(unexpected_cfgs)] // ctor's implementation checks an internal feature in the caller.
+
 use std::collections::HashMap;
 use std::path::Path;
 use std::time::Duration;

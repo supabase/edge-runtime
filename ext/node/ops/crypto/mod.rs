@@ -275,7 +275,7 @@ pub fn op_node_cipheriv_final(
     .map_err(cipher::CipherContextError::Resource)?;
   let context = Rc::try_unwrap(context)
     .map_err(|_| cipher::CipherContextError::ContextInUse)?;
-  context.r#final(auto_pad, input, output).map_err(Into::into)
+  context.r#final(auto_pad, input, output)
 }
 
 #[op2]
@@ -363,9 +363,7 @@ pub fn op_node_decipheriv_final(
     .map_err(cipher::DecipherContextError::Resource)?;
   let context = Rc::try_unwrap(context)
     .map_err(|_| cipher::DecipherContextError::ContextInUse)?;
-  context
-    .r#final(auto_pad, input, output, auth_tag)
-    .map_err(Into::into)
+  context.r#final(auto_pad, input, output, auth_tag)
 }
 
 #[op2]

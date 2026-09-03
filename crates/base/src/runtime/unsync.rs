@@ -16,6 +16,7 @@ impl<R> MaskValueAsSend<R> {
   }
 }
 
+#[allow(dead_code)] // Used by optional runtime configurations.
 pub struct MaskFutureAsSend<Fut> {
   pub fut: MaskValueAsSend<Fut>,
 }

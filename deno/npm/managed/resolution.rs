@@ -316,7 +316,9 @@ async fn add_package_reqs_to_snapshot(
   result
 }
 
-fn get_add_pkg_reqs_options(package_reqs: &[PackageReq]) -> AddPkgReqsOptions {
+fn get_add_pkg_reqs_options(
+  package_reqs: &[PackageReq],
+) -> AddPkgReqsOptions<'_> {
   AddPkgReqsOptions {
     package_reqs,
     // WARNING: When bumping this version, check if anything needs to be

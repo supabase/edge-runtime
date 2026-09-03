@@ -672,7 +672,7 @@ impl CliNpmResolver for ManagedCliNpmResolver {
     ))
   }
 
-  fn as_inner(&self) -> InnerCliNpmResolverRef {
+  fn as_inner(&self) -> InnerCliNpmResolverRef<'_> {
     InnerCliNpmResolverRef::Managed(self)
   }
 

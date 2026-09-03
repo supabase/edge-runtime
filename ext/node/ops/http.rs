@@ -52,6 +52,7 @@ use tokio::io::AsyncWriteExt;
 
 #[op2(stack_trace)]
 #[serde]
+#[allow(clippy::result_large_err)] // FetchError is owned by the vendored Deno fetch API.
 pub fn op_node_http_request<P>(
   state: &mut OpState,
   #[serde] method: ByteString,
@@ -185,6 +186,7 @@ pub struct NodeHttpFetchResponse {
 
 #[op2(async)]
 #[serde]
+#[allow(clippy::result_large_err)] // FetchError is owned by the vendored Deno fetch API.
 pub async fn op_node_http_fetch_send(
   state: Rc<RefCell<OpState>>,
   #[smi] rid: ResourceId,
@@ -263,6 +265,7 @@ pub async fn op_node_http_fetch_send(
 
 #[op2(async)]
 #[smi]
+#[allow(clippy::result_large_err)] // FetchError is owned by the vendored Deno fetch API.
 pub async fn op_node_http_fetch_response_upgrade(
   state: Rc<RefCell<OpState>>,
   #[smi] rid: ResourceId,
@@ -362,7 +365,7 @@ impl UpgradeStream {
 }
 
 impl Resource for UpgradeStream {
-  fn name(&self) -> Cow<str> {
+  fn name(&self) -> Cow<'_, str> {
     "fetchUpgradedStream".into()
   }
 
@@ -419,7 +422,7 @@ impl NodeHttpFetchResponseResource {
 }
 
 impl Resource for NodeHttpFetchResponseResource {
-  fn name(&self) -> Cow<str> {
+  fn name(&self) -> Cow<'_, str> {
     "fetchResponse".into()
   }
 
@@ -436,12 +439,12 @@ impl Resource for NodeHttpFetchResponseResource {
 
         match std::mem::take(&mut *reader) {
           NodeHttpFetchResponseReader::Start(resp) => {
-            let stream: BytesStream =
-              Box::pin(resp.into_body().into_data_stream().map(|r| {
-                r.map_err(|err| {
-                  std::io::Error::new(std::io::ErrorKind::Other, err)
-                })
-              }));
+            let stream: BytesStream = Box::pin(
+              resp
+                .into_body()
+                .into_data_stream()
+                .map(|r| r.map_err(std::io::Error::other)),
+            );
             *reader =
               NodeHttpFetchResponseReader::BodyReader(stream.peekable());
           }
@@ -475,7 +478,7 @@ impl Resource for NodeHttpFetchResponseResource {
       };
 
       let cancel_handle = RcRef::map(self, |r| &r.cancel);
-      fut.try_or_cancel(cancel_handle).await.map_err(Into::into)
+      fut.try_or_cancel(cancel_handle).await
     })
   }
 

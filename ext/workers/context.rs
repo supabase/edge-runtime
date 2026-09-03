@@ -34,16 +34,11 @@ use tokio::sync::OwnedSemaphorePermit;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum WorkerExitStatus {
+  #[default]
   Normal,
   WithUncaughtException(UncaughtExceptionEvent),
-}
-
-impl Default for WorkerExitStatus {
-  fn default() -> Self {
-    Self::Normal
-  }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -175,6 +170,7 @@ pub struct EventWorkerRuntimeOpts {
 }
 
 #[derive(Debug, EnumAsInner)]
+#[allow(clippy::large_enum_variant)] // Boxing would change the worker construction API.
 pub enum WorkerRuntimeOpts {
   UserWorker(UserWorkerRuntimeOpts),
   MainWorker(MainWorkerRuntimeOpts),
@@ -278,6 +274,7 @@ pub struct WorkerContextInitOpts {
 }
 
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)] // This is a low-frequency control channel; avoid API churn.
 pub enum UserWorkerMsgs {
   Create(
     WorkerContextInitOpts,

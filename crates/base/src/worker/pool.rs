@@ -52,16 +52,13 @@ use crate::inspector_server::Inspector;
 use crate::server::ServerFlags;
 use crate::worker::WorkerSurfaceBuilder;
 
-#[derive(Debug, Clone, Copy, EnumAsInner)]
+#[derive(Debug, Clone, Copy, EnumAsInner, Default)]
 pub enum SupervisorPolicy {
+  #[default]
   PerWorker,
-  PerRequest { oneshot: bool },
-}
-
-impl Default for SupervisorPolicy {
-  fn default() -> Self {
-    Self::PerWorker
-  }
+  PerRequest {
+    oneshot: bool,
+  },
 }
 
 impl FromStr for SupervisorPolicy {
@@ -294,7 +291,7 @@ impl WorkerPool {
     let force_create = worker_options
       .conf
       .as_user_worker()
-      .map_or(false, |it| !is_oneshot_policy && it.force_create);
+      .is_some_and(|it| !is_oneshot_policy && it.force_create);
 
     if let Some(ref active_worker_uuid) =
       self.maybe_active_worker(&service_path, force_create)

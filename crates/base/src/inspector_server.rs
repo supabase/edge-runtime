@@ -536,13 +536,13 @@ impl InspectorInfo {
   }
 
   pub fn get_websocket_debugger_url(&self, host: &str) -> String {
-    format!("ws://{}/ws/{}", host, &self.uuid)
+    format!("ws://{}/ws/{}", host, self.uuid)
   }
 
   fn get_frontend_url(&self, host: &str) -> String {
     format!(
             "devtools://devtools/bundled/js_app.html?ws={}/ws/{}&experiments=true&v8only=true",
-            host, &self.uuid
+            host, self.uuid
         )
   }
 

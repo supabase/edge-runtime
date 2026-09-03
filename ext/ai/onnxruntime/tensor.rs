@@ -116,6 +116,7 @@ pub enum JsTensorType {
 }
 
 #[derive(Serialize, Deserialize)]
+#[allow(dead_code)] // Serde helper used through its remote derive implementation.
 struct JsTensorTypeSerdeHelper(
   #[serde(with = "JsTensorType")] TensorElementType,
 );

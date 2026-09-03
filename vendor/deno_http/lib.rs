@@ -327,7 +327,7 @@ impl HttpConnResource {
 }
 
 impl Resource for HttpConnResource {
-  fn name(&self) -> Cow<str> {
+  fn name(&self) -> Cow<'_, str> {
     "httpConn".into()
   }
 
@@ -443,7 +443,7 @@ impl HttpStreamReadResource {
 }
 
 impl Resource for HttpStreamReadResource {
-  fn name(&self) -> Cow<str> {
+  fn name(&self) -> Cow<'_, str> {
     "httpReadStream".into()
   }
 
@@ -522,7 +522,7 @@ impl HttpStreamWriteResource {
 }
 
 impl Resource for HttpStreamWriteResource {
-  fn name(&self) -> Cow<str> {
+  fn name(&self) -> Cow<'_, str> {
     "httpWriteStream".into()
   }
 }

@@ -41,7 +41,7 @@ impl CliNpmResolver for CliByonmNpmResolver {
     Arc::new(self.clone())
   }
 
-  fn as_inner(&self) -> InnerCliNpmResolverRef {
+  fn as_inner(&self) -> InnerCliNpmResolverRef<'_> {
     InnerCliNpmResolverRef::Byonm(self)
   }
 
@@ -56,7 +56,7 @@ impl CliNpmResolver for CliByonmNpmResolver {
   ) -> Result<Cow<'a, Path>, AnyError> {
     if !path
       .components()
-      .any(|c| c.as_os_str().to_ascii_lowercase() == "node_modules")
+      .any(|c| c.as_os_str().eq_ignore_ascii_case("node_modules"))
     {
       permissions.check_read_path(path).map_err(Into::into)
     } else {

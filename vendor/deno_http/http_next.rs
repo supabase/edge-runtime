@@ -1034,7 +1034,7 @@ impl HttpJoinHandle {
 }
 
 impl Resource for HttpJoinHandle {
-  fn name(&self) -> Cow<str> {
+  fn name(&self) -> Cow<'_, str> {
     "http".into()
   }
 
@@ -1362,7 +1362,7 @@ impl UpgradeStream {
 }
 
 impl Resource for UpgradeStream {
-  fn name(&self) -> Cow<str> {
+  fn name(&self) -> Cow<'_, str> {
     "httpRawUpgradeStream".into()
   }
 

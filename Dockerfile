@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.4
 
-FROM rust:1.79.0-bookworm as builder
+FROM rust:1.98.0-bookworm as builder
 
 ARG TARGETPLATFORM
 ARG ONNXRUNTIME_VERSION

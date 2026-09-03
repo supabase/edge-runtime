@@ -26,6 +26,7 @@ impl CpuInfo {
 }
 
 #[cfg(target_os = "macos")]
+#[allow(deprecated)] // libc remains the source of the Mach types used below.
 pub fn cpu_info() -> Option<Vec<CpuInfo>> {
   let mut model: [u8; 512] = [0; 512];
   let mut size = std::mem::size_of_val(&model);
@@ -36,14 +37,14 @@ pub fn cpu_info() -> Option<Vec<CpuInfo>> {
     let ticks = libc::sysconf(libc::_SC_CLK_TCK);
     let multiplier = 1000u64 / ticks as u64;
     if libc::sysctlbyname(
-      "machdep.cpu.brand_string\0".as_ptr() as *const libc::c_char,
+      c"machdep.cpu.brand_string".as_ptr(),
       model.as_mut_ptr() as _,
       &mut size,
       std::ptr::null_mut(),
       0,
     ) != 0
       && libc::sysctlbyname(
-        "hw.model\0".as_ptr() as *const libc::c_char,
+        c"hw.model".as_ptr(),
         model.as_mut_ptr() as _,
         &mut size,
         std::ptr::null_mut(),
@@ -57,7 +58,7 @@ pub fn cpu_info() -> Option<Vec<CpuInfo>> {
     let mut cpu_speed_size = std::mem::size_of_val(&cpu_speed);
 
     libc::sysctlbyname(
-      "hw.cpufrequency\0".as_ptr() as *const libc::c_char,
+      c"hw.cpufrequency".as_ptr(),
       &mut cpu_speed as *mut _ as *mut libc::c_void,
       &mut cpu_speed_size,
       std::ptr::null_mut(),

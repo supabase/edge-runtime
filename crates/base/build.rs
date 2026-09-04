@@ -241,6 +241,61 @@ mod supabase_startup_snapshot {
     }
   }
 
+  /// Warmup script passed to `create_snapshot`, doubling as a tripwire: it
+  /// runs on a runtime booted from the freshly created snapshot (still in
+  /// snapshotting mode, so only one V8 initialization mode is ever used in
+  /// this process) and verifies, bit for bit, the `Math` constants baked
+  /// into the snapshot.
+  ///
+  /// V8 computes `Math.E`, `Math.LN10`, `Math.LN2`, `Math.LOG10E`, and
+  /// `Math.LOG2E` at snapshot-creation time, so a build environment that
+  /// corrupts those computations bakes the wrong values into every isolate
+  /// booted from the snapshot (supabase/edge-runtime#723). A mismatch throws
+  /// here, which fails `create_snapshot` -- and therefore the build --
+  /// before the snapshot is ever written to disk.
+  ///
+  /// Keep this script limited to ECMAScript intrinsics: it runs with ops
+  /// registered but without extension op state (`Extension::for_warmup`),
+  /// and everything it touches is re-serialized into the shipped (warmed)
+  /// snapshot.
+  static VERIFY_MATH_CONSTANTS_SCRIPT: &str = r#"
+    (() => {
+      const expected = {
+        E: "4005bf0a8b145769",
+        LN2: "3fe62e42fefa39ef",
+        LN10: "40026bb1bbb55516",
+        LOG2E: "3ff71547652b82fe",
+        LOG10E: "3fdbcb7b1526e50e",
+        PI: "400921fb54442d18",
+        SQRT1_2: "3fe6a09e667f3bcd",
+        SQRT2: "3ff6a09e667f3bcd",
+      };
+      const bits = (value) => {
+        const buf = new ArrayBuffer(8);
+        new DataView(buf).setFloat64(0, value, false);
+        return Array.from(new Uint8Array(buf))
+          .map((b) => b.toString(16).padStart(2, "0"))
+          .join("");
+      };
+      const mismatches = [];
+      for (const [name, want] of Object.entries(expected)) {
+        const got = bits(Math[name]);
+        if (got !== want) {
+          mismatches.push(
+            `Math.${name}: expected 0x${want}, got 0x${got} (${Math[name]})`,
+          );
+        }
+      }
+      if (mismatches.length > 0) {
+        throw new Error(
+          "the freshly created startup snapshot carries corrupted Math " +
+            `constants: ${mismatches.join("; ")}; refusing to continue ` +
+            "the build (see supabase/edge-runtime#723)",
+        );
+      }
+    })();
+  "#;
+
   pub fn create_runtime_snapshot(snapshot_path: PathBuf) {
     let user_agent = String::from("supabase");
     let fs = Arc::new(deno::deno_fs::RealFs);
@@ -307,7 +362,7 @@ mod supabase_startup_snapshot {
         skip_op_registration: false,
         with_runtime_cb: None,
       },
-      None,
+      Some(VERIFY_MATH_CONSTANTS_SCRIPT),
     );
 
     let output = snapshot.unwrap();

@@ -376,12 +376,15 @@ function fetch(input, init = { __proto__: null }) {
       if (span) {
         const context = ContextManager.active();
         for (const propagator of new SafeArrayIterator(PROPAGATORS)) {
+          if (
+            requestObject.headers.has("traceparent") &&
+            ArrayPrototypeIncludes(propagator.fields(), "traceparent")
+          ) {
+            continue;
+          }
           propagator.inject(context, requestObject.headers, {
             set(carrier, key, value) {
-              
-              if(!carrier.has(key)) {
-                carrier.set(key, value);
-              }
+              carrier.append(key, value);
             },
           });
         }

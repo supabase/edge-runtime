@@ -4961,6 +4961,7 @@ async fn test_fetch_preserves_explicit_trace_context() {
                 !traceparent_str.contains(','),
                 "Traceparent contains illegal comma: {traceparent_str}"
             );
+            assert_eq!(received["tracestate"], "foo=bar");
         }),
         TerminationToken::new()
     );

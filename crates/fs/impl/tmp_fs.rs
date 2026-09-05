@@ -533,7 +533,7 @@ impl deno_fs::FileSystem for TmpFs {
     RealFs
       .rename_async(
         self.root.path().join(oldpath.try_normalize()?),
-        self.root.path().join(newpath),
+        self.root.path().join(newpath.try_normalize()?),
       )
       .await
   }
@@ -1234,5 +1234,47 @@ mod test {
     let half = &vec[512 * KIB..];
 
     assert!(half.iter().all(|it| *it == 0));
+  }
+
+  #[tokio::test]
+  async fn rename_async_within_root() {
+    let fs = get_tmp_fs();
+    create_file(&fs, "meowmeow").await;
+
+    fs.rename_async(PathBuf::from("meowmeow"), PathBuf::from("purr"))
+      .await
+      .unwrap();
+
+    assert!(!fs.root.path().join("meowmeow").exists());
+    assert!(fs.root.path().join("purr").exists());
+  }
+
+  #[tokio::test]
+  async fn rename_async_rejects_destination_outside_root() {
+    let fs = get_tmp_fs();
+    create_file(&fs, "meowmeow").await;
+
+    // `..` and absolute destinations must be rejected like `rename_sync` does;
+    // `Path::join` would otherwise escape (or replace) the root.
+    let outside = std::env::temp_dir().join("tmp-fs-rename-escape");
+    for dest in [PathBuf::from("../meowmeow"), outside.clone()] {
+      assert_eq!(
+        fs.rename_async(PathBuf::from("meowmeow"), dest)
+          .await
+          .unwrap_err()
+          .kind(),
+        io::ErrorKind::InvalidInput
+      );
+    }
+    assert_eq!(
+      fs.rename_sync(Path::new("meowmeow"), Path::new("../meowmeow"))
+        .unwrap_err()
+        .kind(),
+      io::ErrorKind::InvalidInput
+    );
+
+    assert!(fs.root.path().join("meowmeow").exists());
+    assert!(!fs.root.path().parent().unwrap().join("meowmeow").exists());
+    assert!(!outside.exists());
   }
 }

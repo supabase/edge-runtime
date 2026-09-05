@@ -4917,3 +4917,51 @@ async fn test_websocket_handshake_user_agent_is_stamped_with_project_ref() {
     [deno::versions::user_agent(Some(PROJECT_REF))]
   );
 }
+
+#[tokio::test]
+#[serial]
+async fn test_fetch_preserves_explicit_trace_context() {
+    init_otel();
+
+    integration_test_with_server_flag!(
+        ServerFlags::default(),
+        "./test_cases/trace-context-main",
+        NON_SECURE_PORT,
+        "caller",
+        None,
+        Some(
+            reqwest::Client::new()
+                .get(format!("http://localhost:{NON_SECURE_PORT}/caller"))
+                .header(
+                    "traceparent",
+                    "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01",
+                )
+        ),
+        None::<Tls>,
+        (|resp| async {
+            let resp = resp.unwrap();
+            let status = resp.status();
+            let body = resp.text().await.unwrap();
+            assert_eq!(status.as_u16(), 200, "{body}");
+
+            let data: serde_json::Value = serde_json::from_str(&body).unwrap();
+            let received = &data["received"];
+
+            // 1. Must equal caller's exact explicit traceparent
+            assert_eq!(
+                received["traceparent"],
+                "00-b1e669305668dc82c96cc31ce2e6cd99-1a5b74eca03f769f-01",
+                "Traceparent was rewritten or appended with comma: {}",
+                received["traceparent"]
+            );
+
+            // 2. Must not contain comma-separated values
+            let traceparent_str = received["traceparent"].as_str().unwrap();
+            assert!(
+                !traceparent_str.contains(','),
+                "Traceparent contains illegal comma: {traceparent_str}"
+            );
+        }),
+        TerminationToken::new()
+    );
+}

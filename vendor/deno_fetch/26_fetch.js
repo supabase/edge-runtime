@@ -378,7 +378,10 @@ function fetch(input, init = { __proto__: null }) {
         for (const propagator of new SafeArrayIterator(PROPAGATORS)) {
           propagator.inject(context, requestObject.headers, {
             set(carrier, key, value) {
-              carrier.append(key, value);
+              
+              if(!carrier.has(key)) {
+                carrier.set(key, value);
+              }
             },
           });
         }

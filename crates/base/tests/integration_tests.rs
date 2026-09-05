@@ -2982,6 +2982,108 @@ async fn test_should_be_able_to_bundle_against_various_exts() {
   test_serve_simple_fn("tsx", REACT_RESULT.as_bytes()).await;
 }
 
+// Regression for supabase/edge-runtime#721: the worker pool reuses a warm
+// worker purely by `servicePath`. When a second `EdgeRuntime.userWorkers.create`
+// call for the same path carries a *different* code artifact (a redeploy, or a
+// host funnelling multiple functions through one path), the pool used to hand
+// back the worker still running the old bundle, silently serving code that was
+// never deployed for that request.
+//
+// This drives the real `EdgeRuntime.userWorkers.create()` path through the
+// `main_eszip` main worker, which derives `servicePath` from the request path
+// and takes the eszip bundle from the request body. Every request below hits
+// the same `servicePath`; only the bundle changes.
+#[tokio::test]
+#[serial]
+async fn test_user_worker_reuse_is_code_aware() {
+  async fn eszip_bundle_for(entrypoint: &str) -> Vec<u8> {
+    let mut emitter_factory = EmitterFactory::new();
+
+    emitter_factory.set_permissions_options(Some(get_default_permissions(
+      WorkerKind::UserWorker,
+    )));
+    emitter_factory.set_deno_options(
+      DenoOptionsBuilder::new()
+        .entrypoint(PathBuf::from(entrypoint))
+        .build()
+        .unwrap(),
+    );
+
+    let mut metadata = Metadata::default();
+    let eszip = generate_binary_eszip(
+      &mut metadata,
+      Arc::new(emitter_factory),
+      None,
+      None,
+      None,
+    )
+    .await
+    .unwrap();
+
+    eszip.into_bytes()
+  }
+
+  let eszip_a =
+    eszip_bundle_for("./test_cases/code-aware-worker-reuse/marker_a.ts").await;
+  let eszip_b =
+    eszip_bundle_for("./test_cases/code-aware-worker-reuse/marker_b.ts").await;
+
+  async fn serve(tb: &TestBed, bundle: Vec<u8>) -> String {
+    let mut resp = tb
+      .request(move |b| {
+        b.uri("/code-aware-worker-reuse")
+          .method("POST")
+          .body(Body::from(bundle))
+          .context("can't make request")
+      })
+      .await
+      .unwrap();
+
+    assert_eq!(resp.status().as_u16(), 200);
+
+    let body = to_bytes(resp.body_mut()).await.unwrap();
+    String::from_utf8_lossy(&body).to_string()
+  }
+
+  let (boot_tx, mut boot_rx) = mpsc::unbounded_channel();
+  let tb = TestBedBuilder::new("./test_cases/main_eszip")
+    .with_per_worker_policy(None)
+    .with_worker_event_sender(Some(boot_tx))
+    .build()
+    .await;
+
+  // 1. Deploy artifact A, confirm the worker serves "A".
+  assert_eq!(serve(&tb, eszip_a.clone()).await, "MARKER_A");
+
+  // 2. Same servicePath, same artifact: reuse is still allowed.
+  assert_eq!(serve(&tb, eszip_a.clone()).await, "MARKER_A");
+
+  // 3. Same servicePath, DIFFERENT artifact: the warm "A" worker must not be
+  //    reused; the new bundle has to execute.
+  assert_eq!(serve(&tb, eszip_b.clone()).await, "MARKER_B");
+
+  // 4. Back to artifact A: its worker was superseded in step 3, so this runs a
+  //    fresh worker built from A again.
+  assert_eq!(serve(&tb, eszip_a.clone()).await, "MARKER_A");
+
+  tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
+
+  // Dropping the test bed closes every worker event sender, so this drains.
+  // One boot for step 1 (A), none for step 2 (reused), one for step 3 (B),
+  // one for step 4 (A rebuilt) => three fresh workers total.
+  let mut boots = 0;
+  while let Some(ev) = boot_rx.recv().await {
+    if matches!(ev.event, WorkerEvents::Boot(_)) {
+      boots += 1;
+    }
+  }
+
+  assert_eq!(
+    boots, 3,
+    "expected fresh boots for A, then B, then A again (step 2 must reuse)"
+  );
+}
+
 #[tokio::test]
 #[serial]
 async fn test_private_npm_package_import() {

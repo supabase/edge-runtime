@@ -26,6 +26,7 @@ use ext_workers::context::Timing;
 use ext_workers::context::TimingStatus;
 use ext_workers::context::UserWorkerMsgs;
 use ext_workers::context::UserWorkerProfile;
+use ext_workers::context::WorkerCodeIdentity;
 use ext_workers::context::WorkerContextInitOpts;
 use ext_workers::context::WorkerRuntimeOpts;
 use ext_workers::errors::WorkerError;
@@ -155,6 +156,13 @@ pub struct ActiveWorkerRegistry {
   next: Option<usize>,
   notify_pair: (flume::Sender<Option<Uuid>>, flume::Receiver<Option<Uuid>>),
   sem: Arc<Semaphore>,
+
+  // Executable identity shared by every worker currently registered here.
+  // Reuse for this service path is only handed out when the incoming request
+  // resolves to the same identity; a mismatch retires these workers so the
+  // request falls through to normal creation (see supabase/edge-runtime#721).
+  // `None` until the first worker for the service path is registered.
+  code_identity: Option<WorkerCodeIdentity>,
 }
 
 impl ActiveWorkerRegistry {
@@ -164,6 +172,7 @@ impl ActiveWorkerRegistry {
       next: Option::default(),
       notify_pair: flume::unbounded(),
       sem: Arc::new(Semaphore::const_new(max_parallelism)),
+      code_identity: None,
     }
   }
 
@@ -293,8 +302,12 @@ impl WorkerPool {
       .as_user_worker()
       .is_some_and(|it| !is_oneshot_policy && it.force_create);
 
+    // Identity of the executable artifact this request carries. A warm worker
+    // is only eligible for reuse when it was built from the same artifact.
+    let code_identity = worker_options.code_identity();
+
     if let Some(ref active_worker_uuid) =
-      self.maybe_active_worker(&service_path, force_create)
+      self.maybe_active_worker(&service_path, force_create, code_identity)
     {
       if tx
         .send(Ok(CreateUserWorkerResult {
@@ -507,6 +520,7 @@ impl WorkerPool {
             early_drop_tx,
             timing_tx_pair: (req_start_timing_tx, req_end_timing_tx),
             service_path,
+            code_identity,
             permit: permit.map(Arc::new),
             status: status.clone(),
             exit: surface.exit,
@@ -541,16 +555,31 @@ impl WorkerPool {
   }
 
   pub fn add_user_worker(&mut self, key: Uuid, profile: UserWorkerProfile) {
-    let registry = self
+    let service_path = profile.service_path.clone();
+    let code_identity = profile.code_identity;
+
+    // A concurrent create for the same service path may have finished building
+    // a worker from a different artifact while this one was in flight. The
+    // most recently built worker reflects the newest request, so supersede the
+    // now-stale workers instead of pooling mismatched code under one key.
+    let supersedes_active = self
       .active_workers
-      .entry(profile.service_path.clone())
-      .or_insert_with(|| {
+      .get(&service_path)
+      .and_then(|it| it.code_identity)
+      .is_some_and(|current| !current.can_serve(&code_identity));
+
+    if supersedes_active {
+      self.retire_active_workers(&service_path);
+    }
+
+    let is_per_worker = self.policy.supervisor_policy.is_per_worker();
+    let registry =
+      self.active_workers.entry(service_path).or_insert_with(|| {
         ActiveWorkerRegistry::new(self.policy.max_parallelism)
       });
 
-    registry
-      .workers
-      .insert(WorkerId(key, self.policy.supervisor_policy.is_per_worker()));
+    registry.workers.insert(WorkerId(key, is_per_worker));
+    registry.code_identity = Some(code_identity);
 
     self.user_workers.insert(key, profile);
     self.metric_src.incl_active_user_workers();
@@ -735,12 +764,47 @@ impl WorkerPool {
     }
   }
 
+  /// Retire every worker currently registered as active for `service_path`.
+  ///
+  /// Used when an incoming code artifact supersedes what the pool is holding:
+  /// the stale workers are removed from the active registry (and stop being
+  /// handed out for reuse) while any in-flight requests already dispatched to
+  /// them by uuid keep running until they finish.
+  fn retire_active_workers(&mut self, service_path: &str) {
+    let Some(registry) = self.active_workers.get(service_path) else {
+      return;
+    };
+
+    let stale = registry.workers.iter().map(|it| it.0).collect::<Vec<_>>();
+    for key in stale {
+      self.retire(&key);
+    }
+  }
+
   fn maybe_active_worker(
     &mut self,
     service_path: &String,
     force_create: bool,
+    code_identity: WorkerCodeIdentity,
   ) -> Option<Uuid> {
     if force_create {
+      return None;
+    }
+
+    // Reject workers that were built from a different executable artifact. If
+    // we handed one back here it would serve code that was never deployed for
+    // this request (supabase/edge-runtime#721); retire it instead so the
+    // caller proceeds through normal creation.
+    if self
+      .active_workers
+      .get(service_path)
+      .and_then(|it| it.code_identity)
+      .is_some_and(|current| !current.can_serve(&code_identity))
+    {
+      self.retire_active_workers(service_path);
+      if let Some(registry) = self.active_workers.get_mut(service_path) {
+        registry.code_identity = Some(code_identity);
+      }
       return None;
     }
 
@@ -760,7 +824,7 @@ impl WorkerPool {
 
       _ => {
         self.retire(&worker_uuid);
-        self.maybe_active_worker(service_path, force_create)
+        self.maybe_active_worker(service_path, force_create, code_identity)
       }
     }
   }

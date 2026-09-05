@@ -33,6 +33,7 @@ use tokio::sync::Notify;
 use tokio::sync::OwnedSemaphorePermit;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
+use xxhash_rust::xxh3::Xxh3;
 
 #[derive(Debug, Clone, Default)]
 pub enum WorkerExitStatus {
@@ -138,6 +139,42 @@ impl Default for UserWorkerRuntimeOpts {
   }
 }
 
+/// Identity of the executable artifact a user worker was created from.
+///
+/// The pool keys warm-worker reuse by `service_path`, but the same
+/// `service_path` can be handed completely different executable code across
+/// `EdgeRuntime.userWorkers.create()` calls — a redeployed bundle, or a host
+/// that funnels several functions through one path. Reusing an already-active
+/// worker in that situation silently runs code that was never deployed for the
+/// incoming request (supabase/edge-runtime#721). The pool therefore also
+/// compares this identity and only reuses a worker whose artifact matches.
+///
+/// The digest is deterministic (content-derived, no pointer or process-random
+/// input) so the same bytes always map to the same identity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkerCodeIdentity {
+  /// A deterministic digest over the executable artifact (inline eszip bundle
+  /// or inline module code) together with the service path and any explicit
+  /// entrypoint override.
+  Digest(u64),
+  /// The artifact could not be reduced to a stable digest (e.g. a pre-parsed
+  /// eszip handed straight to the pool). Such a request is never considered
+  /// compatible with an existing worker, so it always gets a fresh one.
+  Opaque,
+}
+
+impl WorkerCodeIdentity {
+  /// Whether a worker created with `self` may serve a request carrying
+  /// `incoming`. Reuse is only sound when both sides resolve to the same
+  /// deterministic digest.
+  pub fn can_serve(&self, incoming: &WorkerCodeIdentity) -> bool {
+    matches!(
+      (self, incoming),
+      (Self::Digest(a), Self::Digest(b)) if a == b
+    )
+  }
+}
+
 #[derive(Debug, Clone)]
 pub struct UserWorkerProfile {
   pub worker_request_msg_tx: mpsc::UnboundedSender<WorkerRequestMsg>,
@@ -147,6 +184,7 @@ pub struct UserWorkerProfile {
     mpsc::UnboundedSender<()>,
   ),
   pub service_path: String,
+  pub code_identity: WorkerCodeIdentity,
   pub permit: Option<Arc<OwnedSemaphorePermit>>,
   pub cancel: CancellationToken,
   pub status: TimingStatus,
@@ -271,6 +309,109 @@ pub struct WorkerContextInitOpts {
   pub maybe_s3_fs_config: Option<S3FsConfig>,
   pub maybe_tmp_fs_config: Option<TmpFsConfig>,
   pub maybe_otel_config: Option<OtelConfig>,
+}
+
+impl WorkerContextInitOpts {
+  /// Derive the [`WorkerCodeIdentity`] for this creation request.
+  ///
+  /// This folds in every input that determines *which code* the worker will
+  /// run: the inline eszip bundle bytes, the inline module code, the service
+  /// path, and any explicit entrypoint override. It intentionally does not
+  /// depend on runtime knobs (memory/CPU limits, env vars, timing) — those may
+  /// legitimately differ between two requests that should still share a warm
+  /// worker.
+  pub fn code_identity(&self) -> WorkerCodeIdentity {
+    let mut hasher = Xxh3::new();
+
+    // The service path is the pool's reuse key already, but include it so a
+    // path-backed worker can never collide with an inline-artifact worker that
+    // happens to resolve to the same key.
+    hasher.update(self.service_path.to_string_lossy().as_bytes());
+
+    if let Some(entrypoint) = self.maybe_entrypoint.as_deref() {
+      hasher.update(b"\0entrypoint\0");
+      hasher.update(entrypoint.as_bytes());
+    }
+
+    match self.maybe_eszip.as_ref() {
+      Some(EszipPayloadKind::JsBufferKind(buf)) => {
+        hasher.update(b"\0eszip\0");
+        hasher.update(&buf[..]);
+      }
+      Some(EszipPayloadKind::VecKind(buf)) => {
+        hasher.update(b"\0eszip\0");
+        hasher.update(&buf[..]);
+      }
+      // A pre-parsed eszip does not expose its original bytes cheaply. This
+      // shape is not produced for pooled user workers, but stay conservative
+      // rather than risk treating two different bundles as equal.
+      Some(EszipPayloadKind::Eszip(_)) => return WorkerCodeIdentity::Opaque,
+      None => {}
+    }
+
+    if let Some(code) = self.maybe_module_code.as_ref() {
+      hasher.update(b"\0module\0");
+      hasher.update(code.as_str().as_bytes());
+    }
+
+    WorkerCodeIdentity::Digest(hasher.digest())
+  }
+}
+
+#[cfg(test)]
+mod code_identity_tests {
+  use super::*;
+
+  fn opts(
+    service_path: &str,
+    eszip: Option<Vec<u8>>,
+    module_code: Option<&str>,
+    entrypoint: Option<&str>,
+  ) -> WorkerContextInitOpts {
+    WorkerContextInitOpts {
+      service_path: std::path::PathBuf::from(service_path),
+      no_module_cache: false,
+      no_npm: None,
+      env_vars: HashMap::new(),
+      conf: WorkerRuntimeOpts::UserWorker(UserWorkerRuntimeOpts::default()),
+      static_patterns: vec![],
+      timing: None,
+      maybe_eszip: eszip.map(EszipPayloadKind::VecKind),
+      maybe_module_code: module_code.map(|it| it.to_string().into()),
+      maybe_entrypoint: entrypoint.map(str::to_string),
+      maybe_s3_fs_config: None,
+      maybe_tmp_fs_config: None,
+      maybe_otel_config: None,
+    }
+  }
+
+  #[test]
+  fn identity_is_deterministic_and_content_addressed() {
+    // Inline eszip: identical bytes may reuse, different bytes may not.
+    let a = opts("svc", Some(b"bundle-A".to_vec()), None, None);
+    let a_again = opts("svc", Some(b"bundle-A".to_vec()), None, None);
+    let b = opts("svc", Some(b"bundle-B".to_vec()), None, None);
+    assert!(a.code_identity().can_serve(&a_again.code_identity()));
+    assert!(!a.code_identity().can_serve(&b.code_identity()));
+
+    // Inline module code behaves the same way.
+    let m = opts("svc", None, Some("export default 1"), None);
+    let m_again = opts("svc", None, Some("export default 1"), None);
+    let m_changed = opts("svc", None, Some("export default 2"), None);
+    assert!(m.code_identity().can_serve(&m_again.code_identity()));
+    assert!(!m.code_identity().can_serve(&m_changed.code_identity()));
+
+    // Different artifact kinds for one service path never look equivalent.
+    assert!(!a.code_identity().can_serve(&m.code_identity()));
+
+    // An explicit entrypoint override is part of the executable identity.
+    let e1 = opts("svc", None, None, Some("a.ts"));
+    let e2 = opts("svc", None, None, Some("b.ts"));
+    assert!(!e1.code_identity().can_serve(&e2.code_identity()));
+
+    // A pre-parsed eszip cannot be digested, so it is never reusable.
+    assert!(!WorkerCodeIdentity::Opaque.can_serve(&WorkerCodeIdentity::Opaque));
+  }
 }
 
 #[derive(Debug)]

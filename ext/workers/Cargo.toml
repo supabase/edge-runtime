@@ -31,8 +31,8 @@ log.workspace = true
 once_cell.workspace = true
 scopeguard.workspace = true
 serde.workspace = true
+sha2.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 uuid.workspace = true
-xxhash-rust = { workspace = true, features = ["std", "xxh3"] }

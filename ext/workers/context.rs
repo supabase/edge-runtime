@@ -25,6 +25,8 @@ use fs::tmp_fs::TmpFsConfig;
 use hyper_v014::Body;
 use hyper_v014::Request;
 use hyper_v014::Response;
+use sha2::Digest as _;
+use sha2::Sha256;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::unbounded_channel;
 use tokio::sync::oneshot;
@@ -33,7 +35,6 @@ use tokio::sync::Notify;
 use tokio::sync::OwnedSemaphorePermit;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
-use xxhash_rust::xxh3::Xxh3;
 
 #[derive(Debug, Clone, Default)]
 pub enum WorkerExitStatus {
@@ -150,13 +151,16 @@ impl Default for UserWorkerRuntimeOpts {
 /// compares this identity and only reuses a worker whose artifact matches.
 ///
 /// The digest is deterministic (content-derived, no pointer or process-random
-/// input) so the same bytes always map to the same identity.
+/// input) so the same bytes always map to the same identity, and it is a full
+/// SHA-256 (`[u8; 32]`, never truncated) so two different executable artifacts
+/// cannot compare equal through a hash collision — worker identity is a
+/// correctness boundary, not a cache hint.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorkerCodeIdentity {
-  /// A deterministic digest over the executable artifact (inline eszip bundle
-  /// or inline module code) together with the service path and any explicit
-  /// entrypoint override.
-  Digest(u64),
+  /// A SHA-256 digest over the executable artifact (inline eszip bundle or
+  /// inline module code) together with the service path, any explicit
+  /// entrypoint override, and the effective import map path.
+  Digest([u8; 32]),
   /// The artifact could not be reduced to a stable digest (e.g. a pre-parsed
   /// eszip handed straight to the pool). Such a request is never considered
   /// compatible with an existing worker, so it always gets a fresh one.
@@ -316,12 +320,22 @@ impl WorkerContextInitOpts {
   ///
   /// This folds in every input that determines *which code* the worker will
   /// run: the inline eszip bundle bytes, the inline module code, the service
-  /// path, and any explicit entrypoint override. It intentionally does not
-  /// depend on runtime knobs (memory/CPU limits, env vars, timing) — those may
-  /// legitimately differ between two requests that should still share a warm
-  /// worker.
+  /// path, any explicit entrypoint override, and the effective import map path
+  /// (which steers module resolution both when the runtime builds the eszip and
+  /// when it loads a pre-built one). It intentionally does not depend on runtime
+  /// knobs (memory/CPU limits, env vars, timing) — those may legitimately differ
+  /// between two requests that should still share a warm worker.
+  ///
+  /// Filesystem source read from `service_path` is *not* hashed: a plain
+  /// file-backed worker keeps the pre-existing reuse semantics (a caller that
+  /// wants an on-disk edit picked up must pass `force_create`, exactly as
+  /// before this change). What the digest adds for that case is that a changed
+  /// entrypoint or import map path now correctly forces a fresh worker.
+  ///
+  /// The digest is SHA-256 and is never truncated, so two different artifacts
+  /// cannot be treated as compatible through a hash collision.
   pub fn code_identity(&self) -> WorkerCodeIdentity {
-    let mut hasher = Xxh3::new();
+    let mut hasher = Sha256::new();
 
     // The service path is the pool's reuse key already, but include it so a
     // path-backed worker can never collide with an inline-artifact worker that
@@ -331,6 +345,20 @@ impl WorkerContextInitOpts {
     if let Some(entrypoint) = self.maybe_entrypoint.as_deref() {
       hasher.update(b"\0entrypoint\0");
       hasher.update(entrypoint.as_bytes());
+    }
+
+    // The import map path is read out of the worker creation context
+    // (`context.importMapPath`) in `crates/base/src/runtime`. It changes how
+    // bare specifiers resolve, so the same source can produce a different
+    // executable under a different import map — it must be part of identity.
+    if let Some(import_map_path) = self
+      .conf
+      .context()
+      .and_then(|it| it.get("importMapPath"))
+      .and_then(|it| it.as_str())
+    {
+      hasher.update(b"\0import_map\0");
+      hasher.update(import_map_path.as_bytes());
     }
 
     match self.maybe_eszip.as_ref() {
@@ -354,7 +382,7 @@ impl WorkerContextInitOpts {
       hasher.update(code.as_str().as_bytes());
     }
 
-    WorkerCodeIdentity::Digest(hasher.digest())
+    WorkerCodeIdentity::Digest(hasher.finalize().into())
   }
 }
 
@@ -362,18 +390,37 @@ impl WorkerContextInitOpts {
 mod code_identity_tests {
   use super::*;
 
-  fn opts(
-    service_path: &str,
+  #[derive(Default)]
+  struct Artifact<'a> {
     eszip: Option<Vec<u8>>,
-    module_code: Option<&str>,
-    entrypoint: Option<&str>,
-  ) -> WorkerContextInitOpts {
+    module_code: Option<&'a str>,
+    entrypoint: Option<&'a str>,
+    import_map_path: Option<&'a str>,
+  }
+
+  fn opts(service_path: &str, artifact: Artifact<'_>) -> WorkerContextInitOpts {
+    let Artifact {
+      eszip,
+      module_code,
+      entrypoint,
+      import_map_path,
+    } = artifact;
+
+    let context = import_map_path.map(|path| {
+      let mut map = crate::JsonMap::new();
+      map.insert("importMapPath".to_string(), path.into());
+      map
+    });
+
     WorkerContextInitOpts {
       service_path: std::path::PathBuf::from(service_path),
       no_module_cache: false,
       no_npm: None,
       env_vars: HashMap::new(),
-      conf: WorkerRuntimeOpts::UserWorker(UserWorkerRuntimeOpts::default()),
+      conf: WorkerRuntimeOpts::UserWorker(UserWorkerRuntimeOpts {
+        context,
+        ..Default::default()
+      }),
       static_patterns: vec![],
       timing: None,
       maybe_eszip: eszip.map(EszipPayloadKind::VecKind),
@@ -385,19 +432,47 @@ mod code_identity_tests {
     }
   }
 
+  fn eszip(service_path: &str, bytes: &[u8]) -> WorkerContextInitOpts {
+    opts(
+      service_path,
+      Artifact {
+        eszip: Some(bytes.to_vec()),
+        ..Default::default()
+      },
+    )
+  }
+
   #[test]
   fn identity_is_deterministic_and_content_addressed() {
     // Inline eszip: identical bytes may reuse, different bytes may not.
-    let a = opts("svc", Some(b"bundle-A".to_vec()), None, None);
-    let a_again = opts("svc", Some(b"bundle-A".to_vec()), None, None);
-    let b = opts("svc", Some(b"bundle-B".to_vec()), None, None);
+    let a = eszip("svc", b"bundle-A");
+    let a_again = eszip("svc", b"bundle-A");
+    let b = eszip("svc", b"bundle-B");
     assert!(a.code_identity().can_serve(&a_again.code_identity()));
     assert!(!a.code_identity().can_serve(&b.code_identity()));
 
     // Inline module code behaves the same way.
-    let m = opts("svc", None, Some("export default 1"), None);
-    let m_again = opts("svc", None, Some("export default 1"), None);
-    let m_changed = opts("svc", None, Some("export default 2"), None);
+    let m = opts(
+      "svc",
+      Artifact {
+        module_code: Some("export default 1"),
+        ..Default::default()
+      },
+    );
+    let m_again = opts(
+      "svc",
+      Artifact {
+        module_code: Some("export default 1"),
+        ..Default::default()
+      },
+    );
+    let m_changed = opts(
+      "svc",
+      Artifact {
+        module_code: Some("export default 2"),
+        ..Default::default()
+      },
+    );
     assert!(m.code_identity().can_serve(&m_again.code_identity()));
     assert!(!m.code_identity().can_serve(&m_changed.code_identity()));
 
@@ -405,12 +480,84 @@ mod code_identity_tests {
     assert!(!a.code_identity().can_serve(&m.code_identity()));
 
     // An explicit entrypoint override is part of the executable identity.
-    let e1 = opts("svc", None, None, Some("a.ts"));
-    let e2 = opts("svc", None, None, Some("b.ts"));
+    let e1 = opts(
+      "svc",
+      Artifact {
+        entrypoint: Some("a.ts"),
+        ..Default::default()
+      },
+    );
+    let e2 = opts(
+      "svc",
+      Artifact {
+        entrypoint: Some("b.ts"),
+        ..Default::default()
+      },
+    );
     assert!(!e1.code_identity().can_serve(&e2.code_identity()));
 
     // A pre-parsed eszip cannot be digested, so it is never reusable.
     assert!(!WorkerCodeIdentity::Opaque.can_serve(&WorkerCodeIdentity::Opaque));
+  }
+
+  #[test]
+  fn import_map_path_is_part_of_identity() {
+    // `context.importMapPath` steers module resolution, so the same source
+    // under a different import map is a different executable and must not
+    // silently reuse a warm worker.
+    let base = eszip("svc", b"bundle-A");
+
+    let map_a = opts(
+      "svc",
+      Artifact {
+        eszip: Some(b"bundle-A".to_vec()),
+        import_map_path: Some("/etc/import_map_a.json"),
+        ..Default::default()
+      },
+    );
+    let map_a_again = opts(
+      "svc",
+      Artifact {
+        eszip: Some(b"bundle-A".to_vec()),
+        import_map_path: Some("/etc/import_map_a.json"),
+        ..Default::default()
+      },
+    );
+    let map_b = opts(
+      "svc",
+      Artifact {
+        eszip: Some(b"bundle-A".to_vec()),
+        import_map_path: Some("/etc/import_map_b.json"),
+        ..Default::default()
+      },
+    );
+
+    assert!(map_a
+      .code_identity()
+      .can_serve(&map_a_again.code_identity()));
+    assert!(!map_a.code_identity().can_serve(&map_b.code_identity()));
+    // Adding an import map to an otherwise identical request also changes it.
+    assert!(!base.code_identity().can_serve(&map_a.code_identity()));
+  }
+
+  #[test]
+  fn digest_uses_full_sha256() {
+    // The strong identity is the full 32-byte SHA-256, not a truncated hash.
+    let WorkerCodeIdentity::Digest(bytes) =
+      eszip("svc", b"bundle-A").code_identity()
+    else {
+      panic!("inline eszip must produce a digest");
+    };
+    assert_eq!(bytes.len(), 32);
+
+    // Known-answer: SHA-256 of the exact byte stream the hasher folds in for
+    // this request (service path, then the framed eszip bytes).
+    let mut expected = Sha256::new();
+    expected.update(b"svc");
+    expected.update(b"\0eszip\0");
+    expected.update(b"bundle-A");
+    let expected: [u8; 32] = expected.finalize().into();
+    assert_eq!(bytes, expected);
   }
 }
 

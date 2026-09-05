@@ -3373,11 +3373,11 @@ dependencies = [
  "once_cell",
  "scopeguard",
  "serde",
+ "sha2",
  "thiserror 2.0.8",
  "tokio",
  "tokio-util",
  "uuid",
- "xxhash-rust",
 ]
 
 [[package]]

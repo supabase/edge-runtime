@@ -376,6 +376,15 @@ function fetch(input, init = { __proto__: null }) {
       if (span) {
         const context = ContextManager.active();
         for (const propagator of new SafeArrayIterator(PROPAGATORS)) {
+          // Explicit trace context belongs to the caller. Appending another
+          // traceparent makes it invalid, and injecting the active tracestate
+          // would associate state from a different trace with that context.
+          if (
+            requestObject.headers.has("traceparent") &&
+            ArrayPrototypeIncludes(propagator.fields(), "traceparent")
+          ) {
+            continue;
+          }
           propagator.inject(context, requestObject.headers, {
             set(carrier, key, value) {
               carrier.append(key, value);

@@ -4271,6 +4271,87 @@ async fn test_brotli_async() {
   );
 }
 
+async fn assert_fetch_trace_context(tracing_enabled: bool) {
+  init_otel();
+  let caller = if tracing_enabled {
+    "caller"
+  } else {
+    "caller-untraced"
+  };
+
+  integration_test_with_server_flag!(
+    ServerFlags::default(),
+    "./test_cases/trace-context-main",
+    NON_SECURE_PORT,
+    caller,
+    None,
+    Some(
+      reqwest::Client::new()
+        .get(format!("http://localhost:{NON_SECURE_PORT}/{caller}"))
+        .header(
+          "traceparent",
+          "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01",
+        )
+        .header("tracestate", "upstream=value")
+        .header("baggage", "tenant=test")
+    ),
+    None::<Tls>,
+    (|resp| async {
+      let resp = resp.unwrap();
+      let status = resp.status();
+      let body = resp.text().await.unwrap();
+      assert_eq!(status.as_u16(), 200, "{body}");
+      let data: serde_json::Value = serde_json::from_str(&body).unwrap();
+      let results = data["results"].as_array().unwrap();
+      assert_eq!(results.len(), 9);
+      for result in results {
+        assert_eq!(
+          result["traceparent"],
+          "00-b1e669305668dc82c96cc31ce2e6cd99-1a5b74eca03f769f-01",
+          "{result}",
+        );
+        assert_eq!(result["custom"], result["traceparent"]);
+        match result["state"].as_str().unwrap() {
+          "present" => assert_eq!(result["tracestate"], "caller=value"),
+          "empty" => assert_eq!(result["tracestate"], ""),
+          "absent" => assert!(result["tracestate"].is_null()),
+          state => panic!("unexpected state: {state}"),
+        }
+        assert_eq!(result["baggage"], "caller=value");
+      }
+      let automatic = &data["automatic"];
+      if tracing_enabled {
+        let traceparent = automatic["traceparent"].as_str().unwrap();
+        let parts: Vec<_> = traceparent.split('-').collect();
+        assert_eq!(parts.len(), 4);
+        assert_eq!(parts[0], "00");
+        assert_eq!(parts[1], "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        assert_eq!(parts[2].len(), 16);
+        assert!(parts[2].bytes().all(|byte| byte.is_ascii_hexdigit()));
+        assert_ne!(parts[2], "0000000000000000");
+        assert_eq!(parts[3], "01");
+      } else {
+        assert!(automatic["traceparent"].is_null());
+        assert!(automatic["tracestate"].is_null());
+        assert!(automatic["baggage"].is_null());
+      }
+    }),
+    TerminationToken::new()
+  );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_fetch_preserves_explicit_trace_context() {
+  assert_fetch_trace_context(true).await;
+}
+
+#[tokio::test]
+#[serial]
+async fn test_fetch_preserves_explicit_trace_context_without_tracing() {
+  assert_fetch_trace_context(false).await;
+}
+
 async fn assert_rate_limit_error(
   resp: Result<reqwest::Response, reqwest::Error>,
 ) {

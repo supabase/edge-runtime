@@ -16,6 +16,7 @@ use base_mem_check::WorkerHeapStatisticsWithServicePath;
 use deno::util::sync::AtomicFlag;
 use either::Either::Left;
 use enum_as_inner::EnumAsInner;
+use ext_event_worker::events::ShutdownReason;
 use ext_event_worker::events::WorkerEventWithMetadata;
 use ext_runtime::SharedMetricSource;
 use ext_runtime::SharedRateLimitTable;
@@ -27,6 +28,7 @@ use ext_workers::context::TimingStatus;
 use ext_workers::context::UserWorkerMsgs;
 use ext_workers::context::UserWorkerProfile;
 use ext_workers::context::WorkerContextInitOpts;
+use ext_workers::context::WorkerExit;
 use ext_workers::context::WorkerRuntimeOpts;
 use ext_workers::errors::WorkerError;
 use futures_util::future::join_all;
@@ -225,6 +227,36 @@ impl ActiveWorkerRegistry {
 // every new worker gets a new UUID (can reuse execution_id)
 // user_workers - maintain a hashmap of (uuid - workerProfile (include service path))
 // active_workers - hashmap of (service_path - uuid)
+
+/// The error to fail an in-flight request with when its worker is stopped.
+///
+/// An uncaught exception wins, because it explains the failure in the user
+/// code's own terms. Otherwise the shutdown reason separates a worker that used
+/// up its own budget from one the host reclaimed, so an embedder can attribute
+/// the failure without parsing a message. A worker stopped before a reason was
+/// recorded falls back to the unqualified cancellation.
+async fn cancellation_error(exit: &WorkerExit) -> Error {
+  if let Some(err) = exit.error().await {
+    return err;
+  }
+
+  match exit.shutdown_reason().await {
+    Some(
+      ShutdownReason::CPUTime
+      | ShutdownReason::Memory
+      | ShutdownReason::WallClockTime,
+    ) => anyhow!(WorkerError::WorkerResourceExhausted),
+
+    Some(ShutdownReason::EarlyDrop | ShutdownReason::TerminationRequested) => {
+      anyhow!(WorkerError::WorkerReclaimed)
+    }
+
+    Some(ShutdownReason::EventLoopCompleted) | None => {
+      anyhow!(WorkerError::RequestCancelledBySupervisor)
+    }
+  }
+}
+
 // retire removed entry for uuid from active
 // shutdown removes uuid from both active and user_workers
 // create_worker returns true if an active_worker is available for service_path (force create
@@ -585,9 +617,7 @@ impl WorkerPool {
           let request_handler = async move {
             if !policy.is_per_worker() {
               if cancel.is_cancelled() {
-                bail!(exit.error().await.unwrap_or(anyhow!(
-                  WorkerError::RequestCancelledBySupervisor
-                )))
+                bail!(cancellation_error(&exit).await)
               }
 
               let fence = Arc::new(Notify::const_new());
@@ -611,14 +641,7 @@ impl WorkerPool {
               tokio::select! {
                 _ = fence.notified() => {}
                 _ = cancel.cancelled() => {
-                  bail!(
-                    exit
-                      .error()
-                      .await
-                      .unwrap_or(
-                        anyhow!(WorkerError::RequestCancelledBySupervisor)
-                      )
-                  )
+                  bail!(cancellation_error(&exit).await)
                 }
               }
             }

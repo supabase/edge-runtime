@@ -631,6 +631,12 @@ pub async fn op_user_worker_fetch_send(
         Some(err @ WorkerError::RequestCancelledBySupervisor) => {
           return Err(custom_error("WorkerRequestCancelled", err.to_string()));
         }
+        Some(err @ WorkerError::WorkerResourceExhausted) => {
+          return Err(custom_error("WorkerResourceExhausted", err.to_string()));
+        }
+        Some(err @ WorkerError::WorkerReclaimed) => {
+          return Err(custom_error("WorkerReclaimed", err.to_string()));
+        }
         Some(err @ WorkerError::WorkerAlreadyRetired) => {
           return Err(custom_error("WorkerAlreadyRetired", err.to_string()));
         }

@@ -408,7 +408,7 @@ impl WorkerPool {
             () = &mut wait_timeout => {
               if
                 tx
-                  .send(Err(anyhow!("worker did not respond in time")))
+                  .send(Err(anyhow!(WorkerError::WorkerCreationTimeout)))
                   .is_err()
               {
                 error!("main worker receiver dropped");

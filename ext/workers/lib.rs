@@ -302,17 +302,24 @@ pub async fn op_user_worker_create(
   };
 
   match result_rx.await {
+    // The pool dropped the sender, so no worker was produced and the module was
+    // never evaluated. Reported separately from a module that failed to
+    // evaluate, because only the latter is the caller's own code failing.
     Err(err) => Err(custom_error(
-      "InvalidWorkerCreation",
+      "WorkerUnavailable",
       format!(
         "{:#}",
         AnyError::from(err).context("failed to create worker")
       ),
     )),
 
-    Ok(Err(err)) => {
-      Err(custom_error("InvalidWorkerCreation", format!("{err:#}")))
-    }
+    Ok(Err(err)) => Err(match err.downcast_ref::<WorkerError>() {
+      Some(WorkerError::WorkerCreationTimeout) => {
+        custom_error("WorkerUnavailable", format!("{err:#}"))
+      }
+      // Anything else reaching here came out of evaluating the module.
+      _ => custom_error("InvalidWorkerCreation", format!("{err:#}")),
+    }),
     Ok(Ok(v)) => Ok((v.key.to_string(), v.reused)),
   }
 }
@@ -645,6 +652,12 @@ pub async fn op_user_worker_fetch_send(
             "WorkerRequestIdleTimeout",
             err.to_string(),
           ));
+        }
+        // Raised while creating a worker, so it cannot reach a request that
+        // already has one. Listed rather than folded into a wildcard so a new
+        // variant still has to be decided here.
+        Some(err @ WorkerError::WorkerCreationTimeout) => {
+          return Err(custom_error("InvalidWorkerResponse", err.to_string()));
         }
 
         None => {

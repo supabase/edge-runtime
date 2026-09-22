@@ -1003,8 +1003,8 @@ async fn req_failure_case_timeout() {
     if !found_timeout {
       let buf = to_bytes(res.body_mut()).await.unwrap();
       let status_500 = res.status() == StatusCode::INTERNAL_SERVER_ERROR;
-      let valid_output =
-                buf == "{\"msg\":\"InvalidWorkerCreation: worker did not respond in time\"}";
+      let valid_output = buf
+        == "{\"msg\":\"WorkerUnavailable: worker did not respond in time\"}";
 
       found_timeout = status_500 && valid_output;
     }
@@ -1181,7 +1181,7 @@ async fn req_failure_case_wall_clock_reached_less_than_100ms() {
 
   assert!(
     buf == "{\"msg\":\"InvalidWorkerResponse: user worker failed to respond\"}"
-    || buf == "{\"msg\":\"InvalidWorkerCreation: worker did not respond in time\"}"
+    || buf == "{\"msg\":\"WorkerUnavailable: worker did not respond in time\"}"
     || buf
       == "{\"msg\":\"WorkerRequestCancelled: request has been cancelled by supervisor\"}"
   );

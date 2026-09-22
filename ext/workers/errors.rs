@@ -15,4 +15,7 @@ pub enum WorkerError {
   WorkerAlreadyRetired,
   #[error("request timed out")]
   RequestIdleTimeout,
+  /// The worker did not come up before the pool gave up waiting for it.
+  #[error("worker did not respond in time")]
+  WorkerCreationTimeout,
 }

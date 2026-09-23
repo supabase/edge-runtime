@@ -69,6 +69,7 @@ interface UserWorkerCreateContext {
 }
 
 interface UserWorkerCreateOptions {
+  poolKey?: string | null;
   servicePath?: string | null;
   envVars?: string[][] | [string, string][] | null;
   noModuleCache?: boolean | null;

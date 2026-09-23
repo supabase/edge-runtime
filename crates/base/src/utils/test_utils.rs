@@ -241,6 +241,7 @@ impl TestBedBuilder {
       .sever_flags(Right(self.flags))
       .termination_token(main_termination_token.clone())
       .init_opts(WorkerContextInitOpts {
+        pool_key: None,
         service_path: self.main_service_path,
         no_module_cache: false,
         no_npm: None,

@@ -194,7 +194,10 @@ Deno.serve(async (req: Request) => {
       "./examples/**/*.wasm",
     ];
 
+    // const poolKey = `${service_name}:${req.headers.get('x-pool-key')}`;
+
     return await EdgeRuntime.userWorkers.create({
+      // poolKey,
       servicePath,
       memoryLimitMb,
       workerTimeoutMs,

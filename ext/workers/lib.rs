@@ -108,6 +108,7 @@ pub type JsonMap = serde_json::Map<String, serde_json::Value>;
 #[derive(Deserialize, Serialize, Default, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct UserWorkerCreateOptions {
+  pool_key: Option<String>,
   service_path: String,
   env_vars: Vec<(String, String)>,
   no_module_cache: bool,
@@ -204,6 +205,7 @@ pub async fn op_user_worker_create(
       oneshot::channel::<Result<CreateUserWorkerResult, Error>>();
 
     let UserWorkerCreateOptions {
+      pool_key,
       service_path,
       env_vars,
       no_module_cache,
@@ -241,6 +243,7 @@ pub async fn op_user_worker_create(
       ..Default::default()
     });
     let user_worker_options = WorkerContextInitOpts {
+      pool_key,
       service_path: PathBuf::from(service_path),
       no_module_cache,
       no_npm,

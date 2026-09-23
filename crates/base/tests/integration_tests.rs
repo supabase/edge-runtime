@@ -4278,6 +4278,53 @@ async fn test_brotli_async() {
   );
 }
 
+#[tokio::test]
+#[serial]
+async fn test_pool_key_async() {
+  let tb = TestBedBuilder::new("./test_cases/pool-key/main")
+    .with_per_worker_policy(None)
+    .build()
+    .await;
+
+  let resp = tb
+    .request(|b| {
+      b.uri("/hello-200")
+        .header("x-pool-key", "key200")
+        .body(Body::empty())
+        .context("can't make request")
+    })
+    .await
+    .unwrap();
+
+  assert_eq!(resp.status().as_u16(), StatusCode::OK);
+
+  // The same key will not spawn a new Worker, even when 'service_path' changed
+  let resp = tb
+    .request(|b| {
+      b.uri("/hello-201")
+        .header("x-pool-key", "key200")
+        .body(Body::empty())
+        .context("can't make request")
+    })
+    .await
+    .unwrap();
+
+  assert_eq!(resp.status().as_u16(), StatusCode::OK);
+
+  // Using different key doesn't reuse the same Worker
+  let resp = tb
+    .request(|b| {
+      b.uri("/hello-201")
+        .header("x-pool-key", "key201")
+        .body(Body::empty())
+        .context("can't make request")
+    })
+    .await
+    .unwrap();
+
+  assert_eq!(resp.status().as_u16(), StatusCode::CREATED);
+}
+
 async fn assert_rate_limit_error(
   resp: Result<reqwest::Response, reqwest::Error>,
 ) {

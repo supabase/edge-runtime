@@ -224,7 +224,7 @@ impl ActiveWorkerRegistry {
 
 // every new worker gets a new UUID (can reuse execution_id)
 // user_workers - maintain a hashmap of (uuid - workerProfile (include service path))
-// active_workers - hashmap of (service_path - uuid)
+// active_workers - hashmap of (pool_key - uuid)
 // retire removed entry for uuid from active
 // shutdown removes uuid from both active and user_workers
 // create_worker returns true if an active_worker is available for service_path (force create
@@ -286,6 +286,11 @@ impl WorkerPool {
       .unwrap_or("")
       .to_string();
 
+    let worker_pool_key = worker_options
+      .pool_key
+      .to_owned()
+      .unwrap_or(service_path.clone());
+
     let is_oneshot_policy = self.policy.supervisor_policy.is_oneshot();
     let inspector = self.maybe_inspector.clone();
     let force_create = worker_options
@@ -294,7 +299,7 @@ impl WorkerPool {
       .is_some_and(|it| !is_oneshot_policy && it.force_create);
 
     if let Some(ref active_worker_uuid) =
-      self.maybe_active_worker(&service_path, force_create)
+      self.maybe_active_worker(&worker_pool_key, force_create)
     {
       if tx
         .send(Ok(CreateUserWorkerResult {
@@ -320,7 +325,7 @@ impl WorkerPool {
     let wait_fence_fut = {
       let registry = self
         .active_workers
-        .entry(service_path.clone())
+        .entry(worker_pool_key.clone())
         .or_insert_with(|| {
           ActiveWorkerRegistry::new(self.policy.max_parallelism)
         });
@@ -399,6 +404,7 @@ impl WorkerPool {
         FlowAfterFence::Stop => return,
         FlowAfterFence::Resend(tx) => {
           let WorkerContextInitOpts {
+            pool_key: worker_pool_key,
             service_path,
             no_module_cache,
             no_npm,
@@ -417,6 +423,7 @@ impl WorkerPool {
           if worker_pool_msgs_tx
             .send(UserWorkerMsgs::Create(
               WorkerContextInitOpts {
+                pool_key: worker_pool_key,
                 service_path,
                 no_module_cache,
                 no_npm,
@@ -503,6 +510,7 @@ impl WorkerPool {
       match builder.build().await {
         Ok(surface) => {
           let profile = UserWorkerProfile {
+            pool_key: worker_pool_key,
             worker_request_msg_tx: surface.msg_tx,
             early_drop_tx,
             timing_tx_pair: (req_start_timing_tx, req_end_timing_tx),
@@ -543,7 +551,7 @@ impl WorkerPool {
   pub fn add_user_worker(&mut self, key: Uuid, profile: UserWorkerProfile) {
     let registry = self
       .active_workers
-      .entry(profile.service_path.clone())
+      .entry(profile.pool_key.clone())
       .or_insert_with(|| {
         ActiveWorkerRegistry::new(self.policy.max_parallelism)
       });
@@ -673,7 +681,7 @@ impl WorkerPool {
     if let Some(registry) = self
       .user_workers
       .get_mut(key)
-      .and_then(|it| self.active_workers.get_mut(&it.service_path))
+      .and_then(|it| self.active_workers.get_mut(&it.pool_key))
     {
       registry.mark_idle(key, self.policy.supervisor_policy);
     }
@@ -685,7 +693,7 @@ impl WorkerPool {
     let Some((notify_tx, _)) = self
       .user_workers
       .remove(key)
-      .and_then(|it| self.active_workers.get(&it.service_path))
+      .and_then(|it| self.active_workers.get(&it.pool_key))
       .map(|it| it.notify_pair.clone())
     else {
       return;
@@ -718,7 +726,7 @@ impl WorkerPool {
     if let Some(profile) = self.user_workers.get_mut(key) {
       let registry = self
         .active_workers
-        .get_mut(&profile.service_path)
+        .get_mut(&profile.pool_key)
         .expect("registry must be initialized at this point");
 
       let _ = profile.permit.take();
@@ -737,14 +745,14 @@ impl WorkerPool {
 
   fn maybe_active_worker(
     &mut self,
-    service_path: &String,
+    pool_key: &String,
     force_create: bool,
   ) -> Option<Uuid> {
     if force_create {
       return None;
     }
 
-    let registry = self.active_workers.get_mut(service_path)?;
+    let registry = self.active_workers.get_mut(pool_key)?;
     let policy = self.policy.supervisor_policy;
 
     let mut advance_fn =
@@ -760,7 +768,7 @@ impl WorkerPool {
 
       _ => {
         self.retire(&worker_uuid);
-        self.maybe_active_worker(service_path, force_create)
+        self.maybe_active_worker(pool_key, force_create)
       }
     }
   }

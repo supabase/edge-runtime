@@ -146,6 +146,7 @@ pub struct UserWorkerProfile {
     mpsc::UnboundedSender<Arc<Notify>>,
     mpsc::UnboundedSender<()>,
   ),
+  pub pool_key: String,
   pub service_path: String,
   pub permit: Option<Arc<OwnedSemaphorePermit>>,
   pub cancel: CancellationToken,
@@ -258,6 +259,7 @@ impl Default for Timing {
 // increasing complexity.
 #[derive(Debug)]
 pub struct WorkerContextInitOpts {
+  pub pool_key: Option<String>,
   pub service_path: PathBuf,
   pub no_module_cache: bool,
   pub no_npm: Option<bool>,

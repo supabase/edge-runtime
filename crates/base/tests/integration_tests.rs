@@ -225,6 +225,7 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
 
   let surface = worker::WorkerSurfaceBuilder::new()
     .init_opts(WorkerContextInitOpts {
+      pool_key: None,
       service_path: "./test_cases/slow_resp".into(),
       no_module_cache: false,
       no_npm: None,
@@ -386,6 +387,7 @@ async fn test_main_worker_boot_error() {
 
   let result = worker::WorkerSurfaceBuilder::new()
     .init_opts(WorkerContextInitOpts {
+      pool_key: None,
       service_path: "./test_cases/meow".into(),
       no_module_cache: false,
       no_npm: None,
@@ -510,6 +512,7 @@ async fn test_main_worker_user_worker_mod_evaluate_exception() {
 
   let surface = worker::WorkerSurfaceBuilder::new()
     .init_opts(WorkerContextInitOpts {
+      pool_key: None,
       service_path: "./test_cases/main".into(),
       no_module_cache: false,
       no_npm: None,
@@ -895,6 +898,7 @@ async fn test_user_imports_npm() {
 #[serial]
 async fn test_worker_boot_invalid_imports() {
   let opts = WorkerContextInitOpts {
+    pool_key: None,
     service_path: "./test_cases/invalid_imports".into(),
     no_module_cache: false,
     no_npm: None,
@@ -924,6 +928,7 @@ async fn test_worker_boot_invalid_imports() {
 #[serial]
 async fn test_worker_boot_with_0_byte_eszip() {
   let opts = WorkerContextInitOpts {
+    pool_key: None,
     service_path: "./test_cases/meow".into(),
     no_module_cache: false,
     no_npm: None,
@@ -952,6 +957,7 @@ async fn test_worker_boot_with_0_byte_eszip() {
 #[serial]
 async fn test_worker_boot_with_invalid_entrypoint() {
   let opts = WorkerContextInitOpts {
+    pool_key: None,
     service_path: "./test_cases/meow".into(),
     no_module_cache: false,
     no_npm: None,
@@ -4269,6 +4275,53 @@ async fn test_brotli_async() {
     }),
     TerminationToken::new()
   );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_pool_key_async() {
+  let tb = TestBedBuilder::new("./test_cases/pool-key/main")
+    .with_per_worker_policy(None)
+    .build()
+    .await;
+
+  let resp = tb
+    .request(|b| {
+      b.uri("/hello-200")
+        .header("x-pool-key", "key200")
+        .body(Body::empty())
+        .context("can't make request")
+    })
+    .await
+    .unwrap();
+
+  assert_eq!(resp.status().as_u16(), StatusCode::OK);
+
+  // The same key will not spawn a new Worker, even when 'service_path' changed
+  let resp = tb
+    .request(|b| {
+      b.uri("/hello-201")
+        .header("x-pool-key", "key200")
+        .body(Body::empty())
+        .context("can't make request")
+    })
+    .await
+    .unwrap();
+
+  assert_eq!(resp.status().as_u16(), StatusCode::OK);
+
+  // Using different key doesn't reuse the same Worker
+  let resp = tb
+    .request(|b| {
+      b.uri("/hello-201")
+        .header("x-pool-key", "key201")
+        .body(Body::empty())
+        .context("can't make request")
+    })
+    .await
+    .unwrap();
+
+  assert_eq!(resp.status().as_u16(), StatusCode::CREATED);
 }
 
 async fn assert_rate_limit_error(

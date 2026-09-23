@@ -9,7 +9,6 @@ use anyhow::anyhow;
 use anyhow::Error;
 use base_mem_check::MemCheckState;
 use base_mem_check::WorkerHeapStatisticsWithServicePath;
-use deno::deno_ast::view::Str;
 use deno::deno_permissions::PermissionsOptions;
 use deno_core::unsync::sync::AtomicFlag;
 use deno_core::FastString;

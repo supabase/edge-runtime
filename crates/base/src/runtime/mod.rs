@@ -2412,6 +2412,7 @@ mod test {
       DenoRuntime::new(
         WorkerBuilder::new(
           WorkerContextInitOpts {
+            pool_key: None,
             maybe_eszip: eszip,
             service_path: path
               .map(PathBuf::from)
@@ -2526,6 +2527,7 @@ mod test {
     DenoRuntime::<()>::new(
       WorkerBuilder::new(
         WorkerContextInitOpts {
+          pool_key: None,
           service_path: PathBuf::from("./test_cases/"),
           no_module_cache: false,
           no_npm: None,
@@ -2603,6 +2605,7 @@ mod test {
     let runtime = DenoRuntime::<()>::new(
       WorkerBuilder::new(
         WorkerContextInitOpts {
+          pool_key: None,
           service_path: PathBuf::from("./test_cases/"),
           no_module_cache: false,
           no_npm: None,
@@ -2692,6 +2695,7 @@ mod test {
     let runtime = DenoRuntime::<()>::new(
       WorkerBuilder::new(
         WorkerContextInitOpts {
+          pool_key: None,
           service_path,
           no_module_cache: false,
           no_npm: None,

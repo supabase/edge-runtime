@@ -121,6 +121,7 @@ where
     .termination_token(termination_token.clone())
     .eager_module_init(true)
     .init_opts(WorkerContextInitOpts {
+      pool_key: None,
       service_path: PathBuf::from("meow"),
       no_module_cache: false,
       no_npm: None,

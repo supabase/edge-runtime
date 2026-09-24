@@ -1,12 +1,16 @@
 use std::sync::Arc;
 
 use anyhow::bail;
-use deno::deno_tls;
 use deno::deno_tls::deno_native_certs::load_native_certs;
 use deno::deno_tls::rustls::RootCertStore;
+use deno::deno_tls::webpki_roots;
 use deno::deno_tls::RootCertStoreProvider;
 use deno_core::error::AnyError;
 use ext_runtime::cert::ValueRootCertStoreProvider;
+
+fn add_mozilla_roots(root_cert_store: &mut RootCertStore) {
+  root_cert_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+}
 
 pub fn get_root_cert_store_provider(
 ) -> Result<Arc<dyn RootCertStoreProvider>, AnyError> {
@@ -27,9 +31,7 @@ pub fn get_root_cert_store_provider(
 
   for store in ca_stores.iter() {
     match store.as_str() {
-      "mozilla" => {
-        root_cert_store = deno_tls::create_default_root_cert_store();
-      }
+      "mozilla" => add_mozilla_roots(&mut root_cert_store),
       "system" => {
         let roots = load_native_certs().expect("could not load platform certs");
         for root in roots {
@@ -53,4 +55,45 @@ pub fn get_root_cert_store_provider(
   Ok(Arc::new(ValueRootCertStoreProvider::new(
     root_cert_store.clone(),
   )))
+}
+
+#[cfg(test)]
+mod tests {
+  use deno::deno_tls::rustls::pki_types::Der;
+  use deno::deno_tls::rustls::pki_types::TrustAnchor;
+
+  use super::*;
+
+  fn add_test_root(
+    root_cert_store: &mut RootCertStore,
+    subject: &'static [u8],
+  ) {
+    root_cert_store.roots.push(TrustAnchor {
+      subject: Der::from_slice(subject),
+      subject_public_key_info: Der::from_slice(b"test-key"),
+      name_constraints: None,
+    });
+  }
+
+  fn has_root_with_subject(
+    root_cert_store: &RootCertStore,
+    subject: &[u8],
+  ) -> bool {
+    root_cert_store
+      .roots
+      .iter()
+      .any(|root| root.subject.as_ref() == subject)
+  }
+
+  #[test]
+  fn add_mozilla_roots_appends_to_existing_store() {
+    let mut root_cert_store = RootCertStore::empty();
+    add_test_root(&mut root_cert_store, b"system");
+    let root_count_before = root_cert_store.roots.len();
+
+    add_mozilla_roots(&mut root_cert_store);
+
+    assert!(root_cert_store.roots.len() > root_count_before);
+    assert!(has_root_with_subject(&root_cert_store, b"system"));
+  }
 }

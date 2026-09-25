@@ -85,6 +85,9 @@ dissimilar = "=1.0.4"
 hex = "0.4"
 pathdiff = "0.2.1"
 
+[dev-dependencies]
+tempfile.workspace = true
+
 [target.'cfg(windows)'.dependencies]
 junction.workspace = true
 winapi = { workspace = true, features = ["knownfolders", "mswsock", "objbase", "shlobj", "tlhelp32", "winbase", "winerror", "winsock2"] }

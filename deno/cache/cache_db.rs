@@ -13,6 +13,7 @@ use std::io::IsTerminal;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use super::common::FastInsecureHasher;
 
@@ -232,7 +233,7 @@ impl CacheDB {
     config: &CacheDBConfiguration,
     conn: &Connection,
     version: &str,
-  ) -> Result<(), AnyError> {
+  ) -> Result<(), rusqlite::Error> {
     let sql = config.create_combined_sql();
     conn.execute_batch(&sql)?;
 
@@ -265,7 +266,7 @@ impl CacheDB {
   fn open_connection_and_init(
     &self,
     path: Option<&Path>,
-  ) -> Result<Connection, AnyError> {
+  ) -> Result<Connection, rusqlite::Error> {
     let conn = self.actually_open_connection(path)?;
     Self::initialize_connection(self.config, &conn, self.version)?;
     Ok(conn)
@@ -368,7 +369,9 @@ impl CacheDB {
 fn open_connection(
   config: &CacheDBConfiguration,
   path: Option<&Path>,
-  open_connection_and_init: impl Fn(Option<&Path>) -> Result<Connection, AnyError>,
+  open_connection_and_init: impl Fn(
+    Option<&Path>,
+  ) -> Result<Connection, rusqlite::Error>,
 ) -> Result<ConnectionState, AnyError> {
   // Success on first try? We hope that this is the case.
   let err = match open_connection_and_init(path) {
@@ -379,7 +382,7 @@ fn open_connection(
   let Some(path) = path.as_ref() else {
     // If an in-memory DB fails, that's game over
     log::error!("Failed to initialize in-memory cache database.");
-    return Err(err);
+    return Err(err.into());
   };
 
   // ensure the parent directory exists
@@ -401,27 +404,102 @@ fn open_connection(
     path.to_string_lossy(),
   );
 
-  // Try a second time
-  let err = match open_connection_and_init(Some(path)) {
+  // Try a second time, and keep retrying while the failure is transient
+  let err = match retry_open_with_backoff(path, &open_connection_and_init) {
     Ok(conn) => return Ok(ConnectionState::Connected(conn)),
     Err(err) => err,
   };
 
-  // Failed, try deleting it
+  // Only delete a corrupt file: replacing a database that other connections
+  // in this process still have open makes SQLite truncate the shared-memory
+  // file they have mapped.
   let is_tty = std::io::stderr().is_terminal();
-  log::log!(
+  if is_corruption_error(&err) {
+    log::log!(
       if is_tty { log::Level::Warn } else { log::Level::Trace },
       "Could not initialize cache database '{}', deleting and retrying... ({err:?})",
       path.to_string_lossy()
     );
-  if std::fs::remove_file(path).is_ok() {
-    // Try a third time if we successfully deleted it
-    let res = open_connection_and_init(Some(path));
-    if let Ok(conn) = res {
-      return Ok(ConnectionState::Connected(conn));
-    };
+    if std::fs::remove_file(path).is_ok() {
+      // Try a third time if we successfully deleted it
+      let res = open_connection_and_init(Some(path));
+      if let Ok(conn) = res {
+        return Ok(ConnectionState::Connected(conn));
+      };
+    }
   }
 
+  log_failure_mode(path, is_tty, config);
+  handle_failure_mode(config, err, open_connection_and_init)
+}
+
+/// Returns whether the error means the database is temporarily locked by
+/// another connection rather than broken, so opening it should be retried.
+fn is_transient_error(err: &rusqlite::Error) -> bool {
+  matches!(
+    err,
+    rusqlite::Error::SqliteFailure(ffi_err, _)
+      if matches!(
+        ffi_err.code,
+        rusqlite::ErrorCode::DatabaseBusy
+          | rusqlite::ErrorCode::DatabaseLocked
+      )
+  )
+}
+
+/// Returns whether the error means the database file itself is unusable.
+fn is_corruption_error(err: &rusqlite::Error) -> bool {
+  matches!(
+    err,
+    rusqlite::Error::SqliteFailure(ffi_err, _)
+      if matches!(
+        ffi_err.code,
+        rusqlite::ErrorCode::DatabaseCorrupt
+          | rusqlite::ErrorCode::NotADatabase
+      )
+  )
+}
+
+/// Maximum number of delayed retries while opening fails transiently.
+const TRANSIENT_ERROR_RETRIES: u32 = 7;
+/// Delay before the first delayed retry; doubles on each subsequent retry up
+/// to [`TRANSIENT_ERROR_MAX_DELAY`]. The default schedule waits ~1.3s in total.
+const TRANSIENT_ERROR_BASE_DELAY: Duration = Duration::from_millis(10);
+const TRANSIENT_ERROR_MAX_DELAY: Duration = Duration::from_millis(1000);
+
+/// Open the database, retrying with exponential backoff while the failure is
+/// transient. Returns the first non-transient error, or the last error once
+/// [`TRANSIENT_ERROR_RETRIES`] delayed retries are exhausted.
+fn retry_open_with_backoff(
+  path: &Path,
+  open_connection_and_init: impl Fn(
+    Option<&Path>,
+  ) -> Result<Connection, rusqlite::Error>,
+) -> Result<Connection, rusqlite::Error> {
+  let mut delay = TRANSIENT_ERROR_BASE_DELAY;
+  let mut attempt = 0;
+  loop {
+    let err = match open_connection_and_init(Some(path)) {
+      Ok(conn) => return Ok(conn),
+      Err(err) => err,
+    };
+    if attempt == TRANSIENT_ERROR_RETRIES || !is_transient_error(&err) {
+      return Err(err);
+    }
+    attempt += 1;
+    log::trace!(
+      "Cache database '{}' is unavailable, retrying in {}ms (attempt {}/{})... ({err:?})",
+      path.to_string_lossy(),
+      delay.as_millis(),
+      attempt,
+      TRANSIENT_ERROR_RETRIES,
+    );
+    std::thread::sleep(delay);
+    delay = (delay * 2).min(TRANSIENT_ERROR_MAX_DELAY);
+  }
+}
+
+fn log_failure_mode(path: &Path, is_tty: bool, config: &CacheDBConfiguration) {
   match config.on_failure {
     CacheFailure::InMemory => {
       log::log!(
@@ -433,7 +511,6 @@ fn open_connection(
         "Failed to open cache file '{}', opening in-memory cache.",
         path.to_string_lossy()
       );
-      Ok(ConnectionState::Connected(open_connection_and_init(None)?))
     }
     CacheFailure::Blackhole => {
       log::log!(
@@ -445,14 +522,206 @@ fn open_connection(
         "Failed to open cache file '{}', performance may be degraded.",
         path.to_string_lossy()
       );
-      Ok(ConnectionState::Blackhole)
     }
     CacheFailure::Error => {
       log::error!(
         "Failed to open cache file '{}', expect further errors.",
         path.to_string_lossy()
       );
-      Err(err)
+    }
+  }
+}
+
+fn handle_failure_mode(
+  config: &CacheDBConfiguration,
+  err: rusqlite::Error,
+  open_connection_and_init: impl Fn(
+    Option<&Path>,
+  ) -> Result<Connection, rusqlite::Error>,
+) -> Result<ConnectionState, AnyError> {
+  match config.on_failure {
+    CacheFailure::InMemory => {
+      Ok(ConnectionState::Connected(open_connection_and_init(None)?))
+    }
+    CacheFailure::Blackhole => Ok(ConnectionState::Blackhole),
+    CacheFailure::Error => Err(err.into()),
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use std::os::unix::fs::MetadataExt;
+  use std::sync::atomic::AtomicUsize;
+  use std::sync::atomic::Ordering;
+  use std::sync::mpsc;
+
+  use super::*;
+
+  static TEST_DB: CacheDBConfiguration = CacheDBConfiguration {
+    table_initializer: "create table if not exists test(value TEXT);",
+    on_version_change: "delete from test;",
+    preheat_queries: &[],
+    on_failure: CacheFailure::InMemory,
+  };
+
+  fn sqlite_error(code: std::ffi::c_int) -> rusqlite::Error {
+    rusqlite::Error::SqliteFailure(rusqlite::ffi::Error::new(code), None)
+  }
+
+  fn values(conn: &Connection) -> Vec<String> {
+    let mut stmt = conn.prepare("select value from test order by 1").unwrap();
+    stmt
+      .query_map([], |row| row.get(0))
+      .unwrap()
+      .collect::<Result<_, _>>()
+      .unwrap()
+  }
+
+  #[tokio::test]
+  async fn contention_does_not_replace_a_database_in_use() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let path = temp_dir.path().join("data");
+    let holder = CacheDB::from_path(&TEST_DB, path.clone(), "1.0");
+    holder
+      .execute("insert into test values (?1)", ["a"])
+      .unwrap();
+    let inode = std::fs::metadata(&path).unwrap().ino();
+    holder.execute("BEGIN IMMEDIATE", []).unwrap();
+
+    let (release_tx, release_rx) = mpsc::channel::<()>();
+    let releaser = std::thread::spawn({
+      let holder = holder.clone();
+      move || {
+        release_rx.recv().unwrap();
+        holder.execute("COMMIT", []).unwrap();
+      }
+    });
+    let failures = AtomicUsize::new(0);
+    let state = open_connection(&TEST_DB, Some(&path), |maybe_path| {
+      let res = Connection::open(maybe_path.unwrap()).and_then(|conn| {
+        // SQLite skips the busy handler for some contention (e.g. a stale
+        // WAL snapshot), so fail fast the way those cases do. The version
+        // change makes initialization write.
+        conn.busy_timeout(Duration::ZERO)?;
+        CacheDB::initialize_connection(&TEST_DB, &conn, "2.0")?;
+        Ok(conn)
+      });
+      if res.is_err() && failures.fetch_add(1, Ordering::SeqCst) == 1 {
+        release_tx.send(()).unwrap();
+      }
+      res
+    })
+    .unwrap();
+    releaser.join().unwrap();
+
+    assert_eq!(std::fs::metadata(&path).unwrap().ino(), inode);
+    holder
+      .execute("insert into test values (?1)", ["b"])
+      .unwrap();
+    let holder_value = holder
+      .query_row("select value from test", [], |row| {
+        Ok(row.get::<_, String>(0).unwrap())
+      })
+      .unwrap();
+    assert_eq!(holder_value.as_deref(), Some("b"));
+    let ConnectionState::Connected(conn) = state else {
+      panic!("expected a connection");
+    };
+    assert_eq!(values(&conn), ["b"]);
+  }
+
+  #[tokio::test]
+  async fn open_error_then_contention_does_not_delete_the_database() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let path = temp_dir.path().join("data");
+    std::fs::write(&path, b"in use").unwrap();
+    let attempts = AtomicUsize::new(0);
+    let state = open_connection(&TEST_DB, Some(&path), |maybe_path| {
+      match (maybe_path, attempts.fetch_add(1, Ordering::SeqCst)) {
+        (Some(_), 0) => Err(sqlite_error(rusqlite::ffi::SQLITE_CANTOPEN)),
+        (Some(_), 1 | 2) => Err(sqlite_error(rusqlite::ffi::SQLITE_BUSY)),
+        (Some(path), _) => Connection::open(path),
+        (None, _) => Connection::open_in_memory(),
+      }
+    })
+    .unwrap();
+
+    assert!(matches!(state, ConnectionState::Connected(_)));
+    assert_eq!(attempts.load(Ordering::SeqCst), 4);
+    assert_eq!(std::fs::read(&path).unwrap(), b"in use");
+  }
+
+  #[tokio::test]
+  async fn unopenable_database_falls_back_immediately_without_deleting() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let path = temp_dir.path().join("data");
+    std::fs::write(&path, b"in use").unwrap();
+    let attempts = AtomicUsize::new(0);
+    let state =
+      open_connection(&TEST_DB, Some(&path), |maybe_path| match maybe_path {
+        Some(_) => {
+          attempts.fetch_add(1, Ordering::SeqCst);
+          Err(sqlite_error(rusqlite::ffi::SQLITE_CANTOPEN))
+        }
+        None => Connection::open_in_memory(),
+      })
+      .unwrap();
+
+    assert!(matches!(state, ConnectionState::Connected(_)));
+    assert_eq!(attempts.load(Ordering::SeqCst), 2);
+    assert_eq!(std::fs::read(&path).unwrap(), b"in use");
+  }
+
+  #[tokio::test]
+  async fn persistent_contention_falls_back_without_deleting() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let path = temp_dir.path().join("data");
+    std::fs::write(&path, b"in use").unwrap();
+    let state =
+      open_connection(&TEST_DB, Some(&path), |maybe_path| match maybe_path {
+        Some(_) => Err(sqlite_error(rusqlite::ffi::SQLITE_BUSY)),
+        None => Connection::open_in_memory(),
+      })
+      .unwrap();
+
+    assert!(matches!(state, ConnectionState::Connected(_)));
+    assert_eq!(std::fs::read(&path).unwrap(), b"in use");
+  }
+
+  #[tokio::test]
+  async fn corrupt_database_is_recreated_on_disk() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let path = temp_dir.path().join("data");
+    std::fs::write(&path, [b'x'; 4096]).unwrap();
+
+    let db = CacheDB::from_path(&TEST_DB, path.clone(), "1.0");
+    db.execute("insert into test values (?1)", ["a"]).unwrap();
+
+    let conn = Connection::open(&path).unwrap();
+    assert_eq!(values(&conn), ["a"]);
+  }
+
+  #[tokio::test]
+  async fn concurrent_initialization_shares_one_database() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let path = temp_dir.path().join("cache").join("data");
+    let dbs = (0..8)
+      .map(|_| CacheDB::from_path(&TEST_DB, path.clone(), "1.0"))
+      .collect::<Vec<_>>();
+    for db in &dbs {
+      db.ensure_connected().unwrap();
+    }
+
+    dbs[0]
+      .execute("insert into test values (?1)", ["a"])
+      .unwrap();
+    for db in &dbs {
+      let value = db
+        .query_row("select value from test", [], |row| {
+          Ok(row.get::<_, String>(0).unwrap())
+        })
+        .unwrap();
+      assert_eq!(value.as_deref(), Some("a"));
     }
   }
 }

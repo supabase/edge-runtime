@@ -143,8 +143,8 @@ class Session {
             stream,
             ...body,
           }),
+          signal,
         },
-        { signal },
       );
 
       if (!res.ok) {

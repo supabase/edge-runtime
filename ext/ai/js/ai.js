@@ -27,7 +27,9 @@ const parseJSON = async function* (itr, signal) {
         break;
       }
 
-      buffer += decoder.decode(value);
+      // Chunks can end in the middle of a multibyte character, so decode in
+      // streaming mode and let the decoder carry the partial bytes over.
+      buffer += decoder.decode(value, { stream: true });
 
       const parts = buffer.split("\n");
 
@@ -40,6 +42,8 @@ const parseJSON = async function* (itr, signal) {
       yield { error };
     }
   }
+
+  buffer += decoder.decode();
 
   for (const part of buffer.split("\n").filter((p) => p !== "")) {
     try {

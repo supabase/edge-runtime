@@ -213,14 +213,18 @@ declare namespace EdgeRuntime {
   /**
    * Returns the tracer backing the runtime's built-in OpenTelemetry support.
    *
-   * Only available in event workers.
+   * @remarks
+   * **Environment:** Event Worker only.
+   * This feature is only available when running as `--event-worker` environment.
    */
   export function builtinTracer(): import("npm:@opentelemetry/api").Tracer;
 
   /**
    * Makes the given span the current span of the active context.
    *
-   * Only available in event workers.
+   * @remarks
+   * **Environment:** Event Worker only.
+   * This feature is only available when running as `--event-worker` environment.
    */
   export function enterSpan(
     span: import("npm:@opentelemetry/api").Span,
@@ -229,14 +233,18 @@ declare namespace EdgeRuntime {
   /**
    * Whether OpenTelemetry metrics collection is enabled.
    *
-   * Only available in event workers.
+   * @remarks
+   * **Environment:** Event Worker only.
+   * This feature is only available when running as `--event-worker` environment.
    */
   export const METRICS_ENABLED: boolean;
 
   /**
    * Whether OpenTelemetry tracing is enabled.
    *
-   * Only available in event workers.
+   * @remarks
+   * **Environment:** Event Worker only.
+   * This feature is only available when running as `--event-worker` environment.
    */
   export const TRACING_ENABLED: boolean;
 

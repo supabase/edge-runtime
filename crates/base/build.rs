@@ -18,7 +18,9 @@ mod supabase_startup_snapshot {
   use deno_core::snapshot::create_snapshot;
   use deno_core::snapshot::CreateSnapshotOptions;
   use deno_core::url::Url;
+  use deno_core::v8;
   use deno_core::Extension;
+  use deno_core::JsRuntimeForSnapshot;
 
   use super::*;
 
@@ -241,60 +243,67 @@ mod supabase_startup_snapshot {
     }
   }
 
-  /// Warmup script passed to `create_snapshot`, doubling as a tripwire: it
-  /// runs on a runtime booted from the freshly created snapshot (still in
-  /// snapshotting mode, so only one V8 initialization mode is ever used in
-  /// this process) and verifies, bit for bit, the `Math` constants baked
-  /// into the snapshot.
+  /// IEEE-754 bit patterns of the `Math` constants that must be present in
+  /// the startup snapshot about to be serialized.
   ///
   /// V8 computes `Math.E`, `Math.LN10`, `Math.LN2`, `Math.LOG10E`, and
-  /// `Math.LOG2E` at snapshot-creation time, so a build environment that
-  /// corrupts those computations bakes the wrong values into every isolate
-  /// booted from the snapshot (supabase/edge-runtime#723). A mismatch throws
-  /// here, which fails `create_snapshot` -- and therefore the build --
-  /// before the snapshot is ever written to disk.
-  ///
-  /// Keep this script limited to ECMAScript intrinsics: it runs with ops
-  /// registered but without extension op state (`Extension::for_warmup`),
-  /// and everything it touches is re-serialized into the shipped (warmed)
-  /// snapshot.
-  static VERIFY_MATH_CONSTANTS_SCRIPT: &str = r#"
-    (() => {
-      const expected = {
-        E: "4005bf0a8b145769",
-        LN2: "3fe62e42fefa39ef",
-        LN10: "40026bb1bbb55516",
-        LOG2E: "3ff71547652b82fe",
-        LOG10E: "3fdbcb7b1526e50e",
-        PI: "400921fb54442d18",
-        SQRT1_2: "3fe6a09e667f3bcd",
-        SQRT2: "3ff6a09e667f3bcd",
-      };
-      const bits = (value) => {
-        const buf = new ArrayBuffer(8);
-        new DataView(buf).setFloat64(0, value, false);
-        return Array.from(new Uint8Array(buf))
-          .map((b) => b.toString(16).padStart(2, "0"))
-          .join("");
-      };
-      const mismatches = [];
-      for (const [name, want] of Object.entries(expected)) {
-        const got = bits(Math[name]);
-        if (got !== want) {
-          mismatches.push(
-            `Math.${name}: expected 0x${want}, got 0x${got} (${Math[name]})`,
-          );
-        }
+  /// `Math.LOG2E` at genesis, which only ever runs inside mksnapshot when
+  /// the V8 library is built; every runtime, including this build script,
+  /// inherits the values through V8's embedded default snapshot. A broken
+  /// V8 build therefore ships wrong constants to every isolate
+  /// (supabase/edge-runtime#723). `PI`, `SQRT1_2` and `SQRT2` are literals
+  /// in V8 and act as a control group.
+  const EXPECTED_MATH_CONSTANTS: [(&str, u64); 8] = [
+    ("E", 0x4005bf0a8b145769),
+    ("LN2", 0x3fe62e42fefa39ef),
+    ("LN10", 0x40026bb1bbb55516),
+    ("LOG2E", 0x3ff71547652b82fe),
+    ("LOG10E", 0x3fdbcb7b1526e50e),
+    ("PI", 0x400921fb54442d18),
+    ("SQRT1_2", 0x3fe6a09e667f3bcd),
+    ("SQRT2", 0x3ff6a09e667f3bcd),
+  ];
+
+  /// Tripwire run through `CreateSnapshotOptions::with_runtime_cb`, right
+  /// before the snapshotting runtime's context is serialized. It reads the
+  /// `Math` constants through the V8 API, so nothing is compiled or executed
+  /// in the isolate and nothing from the check ends up in the emitted
+  /// snapshot. A mismatch panics, which fails the build before the snapshot
+  /// is written to disk.
+  fn verify_math_constants(runtime: &mut JsRuntimeForSnapshot) {
+    let scope = &mut runtime.handle_scope();
+    let global = scope.get_current_context().global(scope);
+    let math_key = v8::String::new(scope, "Math").unwrap();
+    let math = global
+      .get(scope, math_key.into())
+      .and_then(|value| value.to_object(scope))
+      .expect("`Math` is not an object in the startup snapshot");
+
+    let mut mismatches = Vec::new();
+    for (name, want) in EXPECTED_MATH_CONSTANTS {
+      let key = v8::String::new(scope, name).unwrap();
+      let got = math
+        .get(scope, key.into())
+        .and_then(|value| value.number_value(scope))
+        .unwrap_or(f64::NAN)
+        .to_bits();
+      if got != want {
+        mismatches.push(format!(
+          "Math.{name}: expected 0x{want:016x}, got 0x{got:016x} ({})",
+          f64::from_bits(got)
+        ));
       }
-      if (mismatches.length > 0) {
-        throw new Error(
-          "the freshly created startup snapshot carries corrupted Math " +
-            `constants: ${mismatches.join("; ")}; refusing to continue ` +
-            "the build (see supabase/edge-runtime#723)",
-        );
-      }
-    })();
-  "#;
+    }
+
+    if !mismatches.is_empty() {
+      panic!(
+        "the startup snapshot about to be serialized carries corrupted Math \
+         constants: {}; refusing to continue the build \
+         (see supabase/edge-runtime#723)",
+        mismatches.join("; ")
+      );
+    }
+  }
 
   pub fn create_runtime_snapshot(snapshot_path: PathBuf) {
     let user_agent = String::from("supabase");
@@ -360,9 +369,9 @@ mod supabase_startup_snapshot {
           maybe_transpile_source(specifier, source)
         })),
         skip_op_registration: false,
-        with_runtime_cb: None,
+        with_runtime_cb: Some(Box::new(verify_math_constants)),
       },
-      Some(VERIFY_MATH_CONSTANTS_SCRIPT),
+      None,
     );
 
     let output = snapshot.unwrap();

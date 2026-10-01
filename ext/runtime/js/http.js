@@ -57,8 +57,11 @@ function internalServerError() {
   return new Response("Internal Server Error", { status: 500 });
 }
 
-function badGatewayError() {
-  return new Response("Bad Gateway", { status: 502 });
+function invalidHandlerResponseError() {
+  return new Response("Internal Server Error", {
+    status: 500,
+    headers: { "x-edge-runtime-error": "invalid-handler-response" },
+  });
 }
 
 function serveHttp(conn) {
@@ -87,7 +90,7 @@ function serveHttp(conn) {
           resp = await resp;
           if (!(ObjectPrototypeIsPrototypeOf(ResponsePrototype, resp))) {
             needThrow = false;
-            await nextRequest.respondWith(badGatewayError());
+            await nextRequest.respondWith(invalidHandlerResponseError());
             throw new TypeError(
               "First argument to 'respondWith' must be a Response or a promise resolving to a Response",
             );

@@ -1265,6 +1265,75 @@ async fn req_failure_case_intentional_peer_reset_secure() {
 
 #[tokio::test]
 #[serial]
+async fn req_failure_case_preserves_main_worker_response() {
+  integration_test!(
+    "./test_cases/main_worker_recovery",
+    NON_SECURE_PORT,
+    "cpu",
+    None,
+    None,
+    None,
+    (
+      |(port, _, _, _, ..)| async move {
+        for keep_alive in [false, true] {
+          let client = Client::builder()
+            .pool_max_idle_per_host(if keep_alive { 1 } else { 0 })
+            .timeout(Duration::from_secs(10))
+            .build()
+            .unwrap();
+          for scenario in
+            ["cpu", "retired", "throw", "retired", "rejection", "retired"]
+          {
+            let res = client
+              .post(format!("http://localhost:{port}/{scenario}"))
+              .header("content-type", "application/json")
+              .body(r#"{"base":100}"#)
+              .send()
+              .await
+              .unwrap();
+            assert_eq!(res.status().as_u16(), 500, "{scenario}");
+            assert_eq!(res.headers()["x-main-worker"], "recovered");
+            assert!(!res.headers().contains_key("x-served-by"));
+            let payload = res.json::<ErrorResponsePayload>().await.unwrap();
+            let expected = match scenario {
+              "cpu" => payload.msg.starts_with("WorkerRequestCancelled:"),
+              // The pool may have removed the worker, marked it retired, or
+              // still retain its original failure. Preserve the main response
+              // in each case, independently of pool cleanup timing.
+              "retired" => {
+                payload.msg.starts_with("WorkerAlreadyRetired:")
+                  || payload.msg.starts_with("InvalidWorkerResponse:")
+              }
+              _ => payload.msg.starts_with("InvalidWorkerResponse:"),
+            };
+            assert!(expected, "{scenario}: {}", payload.msg);
+          }
+        }
+        Some(
+          Client::new()
+            .get(format!("http://localhost:{port}/throw"))
+            .send()
+            .await,
+        )
+      },
+      |resp| async {
+        let res = resp.unwrap();
+        assert_eq!(res.status().as_u16(), 500);
+        assert_eq!(res.headers()["x-main-worker"], "recovered");
+        assert!(res
+          .json::<ErrorResponsePayload>()
+          .await
+          .unwrap()
+          .msg
+          .starts_with("InvalidWorkerResponse:"));
+      }
+    ),
+    TerminationToken::new()
+  );
+}
+
+#[tokio::test]
+#[serial]
 async fn req_failure_case_op_cancel_from_server_due_to_cpu_resource_limit() {
   test_oak_file_upload(
     Cow::Borrowed("./test_cases/main_small_cpu_time"),
@@ -1291,58 +1360,21 @@ async fn req_failure_case_op_cancel_from_server_due_to_cpu_resource_limit_2() {
   .await;
 }
 
-/// When the supervisor tears down a user worker that exceeded its CPU limit,
-/// two paths race each other and both outcomes are correct:
-///
-/// 1. The connection token is canceled before the main worker's response is
-///    handed back to the server, so the server serves 503 on its own.
-/// 2. The main worker's `WorkerRequestCancelled` handler wins the race, and its
-///    own 500 payload is relayed to the client untouched.
-///
-/// Which one wins depends on scheduling alone, so accept either, but keep
-/// asserting the shape of the response so that unrelated failures (most
-/// notably the request body being detached from its receiver) are still caught.
+/// Worker teardown can cancel the shared token before the main worker replies.
+/// A complete main-worker response must still reach the client in that order.
 async fn assert_op_cancel_from_server_response(
   resp: Result<Response, reqwest::Error>,
 ) {
   let res = resp.unwrap();
-  let status = res.status().as_u16();
-  let served_by = res
-    .headers()
-    .get("x-served-by")
-    .map(|v| v.to_str().unwrap().to_owned());
+  assert_eq!(res.status().as_u16(), 500);
+  assert!(!res.headers().contains_key("x-served-by"));
 
-  match status {
-    503 => {
-      assert_eq!(
-        served_by.as_deref(),
-        Some(concat!(env!("CARGO_PKG_NAME"), "/server"))
-      );
-    }
-
-    500 => {
-      assert_eq!(served_by, None);
-
-      let payload = res.json::<ErrorResponsePayload>().await;
-
-      assert!(payload.is_ok());
-
-      let msg = payload.unwrap().msg;
-
-      assert!(
-        !msg.starts_with("TypeError: request body receiver not connected"),
-        "unexpected error message: {msg}"
-      );
-      assert!(
-        msg
-          == "WorkerRequestCancelled: request has been cancelled by supervisor"
-          || msg == "broken pipe",
-        "unexpected error message: {msg}"
-      );
-    }
-
-    _ => panic!("unexpected status code: {status}"),
-  }
+  let msg = res.json::<ErrorResponsePayload>().await.unwrap().msg;
+  assert!(
+    msg == "WorkerRequestCancelled: request has been cancelled by supervisor"
+      || msg == "broken pipe",
+    "unexpected error message: {msg}"
+  );
 }
 
 async fn test_oak_file_upload<F, R>(

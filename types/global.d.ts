@@ -66,6 +66,7 @@ interface UserWorkerCreateContext {
   useReadSyncFileAPI?: boolean | null;
   supervisor?: {
     requestAbsentTimeoutMs?: number | null;
+    cleanupIdleGraceMs?: number | null;
   };
   otel?: {
     [attribute: string]: string;

@@ -4034,6 +4034,13 @@ async fn test_user_workers_cleanup_idle_workers() {
     .request(|b| {
       b.uri("/sleep-5000ms")
         .header("x-worker-timeout-ms", HeaderValue::from_static("3600000"))
+        // Disable the cleanup-idle grace period so the worker becomes
+        // eligible for cleanup as soon as this request is acknowledged,
+        // matching this test's assumption that it's dropped immediately.
+        .header(
+          "x-context-supervisor-cleanup-idle-grace-ms",
+          HeaderValue::from_static("0"),
+        )
         .body(Body::empty())
         .context("can't make request")
     })

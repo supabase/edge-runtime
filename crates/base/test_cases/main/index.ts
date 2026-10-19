@@ -84,6 +84,10 @@ Deno.serve(async (req: Request) => {
           req,
           "x-context-supervisor-request-absent-timeout-ms",
         ),
+        cleanupIdleGraceMs: parseIntFromHeadersOrDefault(
+          req,
+          "x-context-supervisor-cleanup-idle-grace-ms",
+        ),
       },
     };
 

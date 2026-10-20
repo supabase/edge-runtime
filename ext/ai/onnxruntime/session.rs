@@ -1,16 +1,14 @@
 use deno_core::error::AnyError;
-use futures::io::AllowStdIo;
 use once_cell::sync::Lazy;
 use reqwest::Url;
+use sha2::Digest;
+use sha2::Sha256;
 use std::collections::HashMap;
-use std::hash::Hasher;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tokio_util::compat::FuturesAsyncWriteCompatExt;
 use tracing::debug;
 use tracing::instrument;
 use tracing::trace;
-use xxhash_rust::xxh3::Xxh3;
 
 use anyhow::anyhow;
 use anyhow::Context;
@@ -125,18 +123,16 @@ fn create_session(model_bytes: &[u8]) -> Result<Arc<Session>, Error> {
 
 #[instrument(level = "debug", skip_all, fields(model_bytes = model_bytes.len()), err)]
 pub(crate) async fn load_session_from_bytes(
-  model_bytes: &[u8],
+  model_bytes: Box<[u8]>,
 ) -> Result<SessionWithId, Error> {
-  let session_id = {
-    let mut model_bytes = tokio::io::BufReader::new(model_bytes);
-    let mut hasher = AllowStdIo::new(Xxh3::new()).compat_write();
-    let _ = tokio::io::copy(&mut model_bytes, &mut hasher)
-      .await
-      .context("failed to calculate checksum")?;
-
-    let hasher = hasher.into_inner().into_inner();
-    faster_hex::hex_string(&hasher.finish().to_be_bytes())
-  };
+  // Hash off the isolate thread: this runs on every create(bytes) call, even
+  // on a cache hit, and would otherwise count toward the worker's CPU budget.
+  let (session_id, model_bytes) = tokio::task::spawn_blocking(move || {
+    let digest = Sha256::digest(&model_bytes);
+    (faster_hex::hex_string(&digest), model_bytes)
+  })
+  .await
+  .context("failed to calculate checksum")?;
 
   let mut sessions = SESSIONS.lock().await;
 
@@ -145,7 +141,7 @@ pub(crate) async fn load_session_from_bytes(
   }
 
   trace!(session_id, "new session");
-  let session = create_session(model_bytes)?;
+  let session = create_session(&model_bytes)?;
 
   sessions.insert(session_id.clone(), session.clone());
 
@@ -156,7 +152,7 @@ pub(crate) async fn load_session_from_bytes(
 pub(crate) async fn load_session_from_url(
   model_url: Url,
 ) -> Result<SessionWithId, Error> {
-  let session_id = fxhash::hash(model_url.as_str()).to_string();
+  let session_id = faster_hex::hex_string(&Sha256::digest(model_url.as_str()));
 
   let mut sessions = SESSIONS.lock().await;
 

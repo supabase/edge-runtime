@@ -1,4 +1,3 @@
-use std::hash::Hasher;
 use std::path::PathBuf;
 
 use anyhow::Context;
@@ -6,6 +5,8 @@ use deno_core::error::AnyError;
 use futures::io::AllowStdIo;
 use futures::StreamExt;
 use reqwest::Url;
+use sha2::Digest;
+use sha2::Sha256;
 use tokio::io::AsyncWriteExt;
 use tokio_util::compat::FuturesAsyncWriteCompatExt;
 use tracing::info;
@@ -13,7 +14,6 @@ use tracing::info_span;
 use tracing::instrument;
 use tracing::trace;
 use tracing::Instrument;
-use xxhash_rust::xxh3::Xxh3;
 
 #[instrument(fields(%kind, url = %url))]
 pub async fn fetch_and_cache_from_url(
@@ -21,7 +21,8 @@ pub async fn fetch_and_cache_from_url(
   url: Url,
   cache_id: Option<String>,
 ) -> Result<PathBuf, AnyError> {
-  let cache_id = cache_id.unwrap_or(fxhash::hash(url.as_str()).to_string());
+  let cache_id = cache_id
+    .unwrap_or_else(|| faster_hex::hex_string(&Sha256::digest(url.as_str())));
   let download_dir = std::env::var("EXT_AI_CACHE_DIR")
     .map_err(AnyError::from)
     .map(PathBuf::from)
@@ -63,10 +64,10 @@ pub async fn fetch_and_cache_from_url(
       let filepath = filepath.clone();
       let checksum = tokio::task::spawn_blocking(move || {
         let mut file = std::fs::File::open(filepath).ok()?;
-        let mut hasher = Xxh3::new();
+        let mut hasher = Sha256::new();
         let _ = std::io::copy(&mut file, &mut hasher).ok()?;
 
-        Some(hasher.finish().to_be_bytes())
+        Some(hasher.finalize())
       })
       .await;
 
@@ -106,7 +107,7 @@ pub async fn fetch_and_cache_from_url(
 
       let mut stream = resp.bytes_stream();
       let mut writer = tokio::io::BufWriter::new(file);
-      let mut hasher = AllowStdIo::new(Xxh3::new()).compat_write();
+      let mut hasher = AllowStdIo::new(Sha256::new()).compat_write();
       let mut written = 0;
 
       while let Some(chunk) = stream.next().await {
@@ -125,7 +126,7 @@ pub async fn fetch_and_cache_from_url(
 
       let checksum_str = {
         let hasher = hasher.into_inner().into_inner();
-        faster_hex::hex_string(&hasher.finish().to_be_bytes())
+        faster_hex::hex_string(&hasher.finalize())
       };
 
       info!({ bytes_written = written, checksum = &checksum_str }, "done");

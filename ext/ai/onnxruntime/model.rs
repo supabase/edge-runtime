@@ -75,7 +75,7 @@ impl Model {
     load_session_from_url(model_url).await.map(Self::new)
   }
 
-  pub async fn from_bytes(model_bytes: &[u8]) -> Result<Self> {
+  pub async fn from_bytes(model_bytes: Box<[u8]>) -> Result<Self> {
     load_session_from_bytes(model_bytes).await.map(Self::new)
   }
 }

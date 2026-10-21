@@ -12,7 +12,7 @@ import {
 
 const ops = core.ops;
 
-const { TypeError } = primordials;
+const { PromisePrototypeCatch, TypeError } = primordials;
 
 const {
   op_user_worker_fetch_send,
@@ -82,21 +82,29 @@ class UserWorker {
       tag.watcherRid,
     );
 
-    const [requestBodyPromiseResult, responsePromiseResult] = await Promise
-      .allSettled([
-        requestBodyPromise,
-        responsePromise,
-      ]);
-
-    if (requestBodyPromiseResult.status === "rejected") {
-      // console.warn(requestBodyPromiseResult.reason);
+    // The request body is streamed to the user worker in the background and
+    // its outcome is never exposed to the caller. It must not gate the
+    // response either: once the request has been answered or rejected, the
+    // body resource is cancelled and the pipe fails on its next write.
+    //
+    // Waiting for the pipe to settle can hang forever when `body` is a branch
+    // of a tee'd stream (e.g. `req.clone()`), because cancelling one branch
+    // does not resolve until the other branch is cancelled as well.
+    // See https://github.com/supabase/edge-runtime/issues/742
+    if (requestBodyPromise !== null) {
+      PromisePrototypeCatch(requestBodyPromise, () => {});
     }
 
-    if (responsePromiseResult.status === "rejected") {
-      throw responsePromiseResult.reason;
+    let result;
+
+    try {
+      result = await responsePromise;
+    } finally {
+      if (requestBodyRid !== null) {
+        core.tryClose(requestBodyRid);
+      }
     }
 
-    const result = responsePromiseResult.value;
     const response = {
       headers: result.headers,
       status: result.status,

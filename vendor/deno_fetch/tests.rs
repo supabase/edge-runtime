@@ -167,7 +167,7 @@ async fn create_https_server(allow_h2: bool) -> SocketAddr {
     .with_no_client_auth()
     .with_single_cert(
       vec![EXAMPLE_CRT.into()],
-      webpki::types::PrivateKeyDer::try_from(EXAMPLE_KEY).unwrap(),
+      deno_tls::rustls::pki_types::PrivateKeyDer::try_from(EXAMPLE_KEY).unwrap(),
     )
     .unwrap();
   if allow_h2 {
@@ -240,7 +240,7 @@ async fn create_https_proxy(src_addr: SocketAddr) -> SocketAddr {
     .with_no_client_auth()
     .with_single_cert(
       vec![EXAMPLE_CRT.into()],
-      webpki::types::PrivateKeyDer::try_from(EXAMPLE_KEY).unwrap(),
+      deno_tls::rustls::pki_types::PrivateKeyDer::try_from(EXAMPLE_KEY).unwrap(),
     )
     .unwrap();
   // Set ALPN, to check our proxy connector. But we shouldn't receive anything.

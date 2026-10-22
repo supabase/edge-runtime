@@ -11,6 +11,7 @@ import {
   op_node_x509_fingerprint256,
   op_node_x509_fingerprint512,
   op_node_x509_get_issuer,
+  op_node_x509_get_raw,
   op_node_x509_get_serial_number,
   op_node_x509_get_subject,
   op_node_x509_get_valid_from,
@@ -18,6 +19,7 @@ import {
   op_node_x509_key_usage,
   op_node_x509_parse,
   op_node_x509_public_key,
+  op_node_x509_to_string,
 } from "ext:core/ops";
 
 import {
@@ -154,9 +156,7 @@ export class X509Certificate {
   }
 
   get raw(): Buffer {
-    notImplemented("crypto.X509Certificate.prototype.raw");
-
-    return {} as Buffer;
+    return Buffer.from(op_node_x509_get_raw(this.#handle));
   }
 
   get serialNumber(): string {
@@ -180,7 +180,7 @@ export class X509Certificate {
   }
 
   toString(): string {
-    notImplemented("crypto.X509Certificate.prototype.toString");
+    return op_node_x509_to_string(this.#handle);
   }
 
   get validFrom(): string {

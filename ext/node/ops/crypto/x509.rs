@@ -1,5 +1,6 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
+use base64::Engine;
 use deno_core::op2;
 
 use x509_parser::der_parser::asn1_rs::Any;
@@ -277,4 +278,31 @@ pub fn op_node_x509_key_usage(#[cppgc] cert: &Certificate) -> u16 {
     });
 
   key_usage.map(|k| k.flags).unwrap_or(0)
+}
+
+#[op2]
+#[string]
+pub fn op_node_x509_to_string(#[cppgc] cert: &Certificate) -> String {
+  let der_bytes = match cert.inner.backing_cart().as_ref() {
+    CertificateSources::Pem(pem) => &pem.contents,
+    CertificateSources::Der(der) => der.as_ref(),
+  };
+
+  let b64 = base64::engine::general_purpose::STANDARD.encode(der_bytes);
+  let mut pem_str = String::from("-----BEGIN CERTIFICATE-----\n");
+  for chunk in b64.as_bytes().chunks(64) {
+    pem_str.push_str(std::str::from_utf8(chunk).unwrap());
+    pem_str.push('\n');
+  }
+  pem_str.push_str("-----END CERTIFICATE-----\n");
+  pem_str
+}
+
+#[op2]
+#[buffer]
+pub fn op_node_x509_get_raw(#[cppgc] cert: &Certificate) -> Box<[u8]> {
+  match cert.inner.backing_cart().as_ref() {
+    CertificateSources::Pem(pem) => pem.contents.clone().into_boxed_slice(),
+    CertificateSources::Der(der) => der.clone(),
+  }
 }

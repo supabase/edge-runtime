@@ -3588,6 +3588,74 @@ async fn test_ort_string_tensor() {
   assert_eq!(resp.status().as_u16(), StatusCode::OK);
 }
 
+// -- ext_ai: inference API
+#[tokio::test]
+#[serial]
+async fn test_supabase_ai_inference_api_decodes_split_utf8() {
+  // Answers with an NDJSON line split in the middle of a multibyte character.
+  let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+  let host = format!("http://{}", listener.local_addr().unwrap());
+  let token = CancellationToken::new();
+  let server = tokio::spawn({
+    let token = token.clone();
+    async move {
+      loop {
+        tokio::select! {
+          Ok((stream, _)) = listener.accept() => {
+            tokio::spawn(async move {
+              hyper::server::conn::Http::new()
+                .serve_connection(
+                  stream,
+                  hyper::service::service_fn(|_req: Request<Body>| async {
+                    let line = "{\"response\":\"世界\",\"done\":true}\n";
+                    let cut = line.find('世').unwrap() + 1;
+                    let (mut tx, body) = Body::channel();
+
+                    tokio::spawn(async move {
+                      let bytes = line.as_bytes();
+                      tx.send_data(bytes[..cut].to_vec().into()).await.ok();
+                      tokio::time::sleep(Duration::from_millis(100)).await;
+                      tx.send_data(bytes[cut..].to_vec().into()).await.ok();
+                    });
+
+                    Ok::<_, hyper::Error>(HttpResponse::new(body))
+                  }),
+                )
+                .await
+                .ok();
+            });
+          }
+          _ = token.cancelled() => break,
+        }
+      }
+    }
+  });
+
+  let tb = TestBedBuilder::new("./test_cases/ai-inference-api/main")
+    .with_per_worker_policy(None)
+    .build()
+    .await;
+
+  let mut resp = tb
+    .request(|b| {
+      b.uri("/utf8")
+        .header("x-inference-host", host.as_str())
+        .body(Body::empty())
+        .context("can't make request")
+    })
+    .await
+    .unwrap();
+
+  let status = resp.status();
+  let body = to_bytes(resp.body_mut()).await.unwrap();
+
+  assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+
+  tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
+  token.cancel();
+  server.await.unwrap();
+}
+
 // -- ext_ai: ORT @huggingface/transformers
 async fn test_ort_transformers_js(script_path: &str) {
   fn visit_json(value: &mut serde_json::Value) {

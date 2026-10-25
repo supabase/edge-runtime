@@ -235,9 +235,10 @@ impl Service<Request<Body>> for WorkerService {
         }
       };
 
-      // If the token has already been canceled, return 503 instead of
-      // dropping the socket connection without a response.
-      if cancel.is_cancelled() {
+      // User-worker teardown also cancels this shared token. The main worker
+      // can recover from that failure and return a valid response, so only use
+      // the cancellation fallback when it could not produce a response.
+      if res.is_err() && cancel.is_cancelled() {
         error!("connection aborted (uri: {:?})", req_uri.to_string());
         return Ok(
           Response::builder()
@@ -1004,4 +1005,92 @@ fn accept_stream<I>(
       }
     }
   });
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[tokio::test]
+  async fn cancelled_request_preserves_main_worker_response() {
+    let (tx, mut rx) = mpsc::unbounded_channel::<WorkerRequestMsg>();
+    let (mut service, connection_token) =
+      WorkerService::new(SharedMetricSource::default(), tx);
+
+    // Force teardown to win the race, without relying on scheduling or CPU
+    // timing. The main worker can still recover and provide a complete response.
+    let main_worker = tokio::spawn(async move {
+      let msg = rx.recv().await.unwrap();
+      msg.conn_token.unwrap().cancel();
+      let (mut body_tx, body) = Body::channel();
+      msg
+        .res_tx
+        .send(Ok(
+          Response::builder()
+            .status(http_v02::StatusCode::INTERNAL_SERVER_ERROR)
+            .header("content-type", "application/json")
+            .header("x-main-worker", "recovered")
+            .body(body)
+            .unwrap(),
+        ))
+        .unwrap();
+      body_tx.send_data("{\"msg\":".into()).await.unwrap();
+      body_tx
+        .send_data("\"worker failed\"}".into())
+        .await
+        .unwrap();
+    });
+
+    let response = service.call(Request::new(Body::empty())).await.unwrap();
+    assert_eq!(
+      response.status(),
+      http_v02::StatusCode::INTERNAL_SERVER_ERROR
+    );
+    assert_eq!(response.headers()["x-main-worker"], "recovered");
+    assert_eq!(response.headers()["content-type"], "application/json");
+    assert!(!response.headers().contains_key("x-served-by"));
+    let body = hyper_v014::body::to_bytes(response.into_body())
+      .await
+      .unwrap();
+    assert_eq!(body.as_ref(), br#"{"msg":"worker failed"}"#);
+    main_worker.await.unwrap();
+    assert!(!connection_token.is_cancelled());
+  }
+
+  #[tokio::test]
+  async fn response_drop_cancels_request_but_not_keep_alive_connection() {
+    let (tx, mut rx) = mpsc::unbounded_channel::<WorkerRequestMsg>();
+    let (mut service, connection_token) =
+      WorkerService::new(SharedMetricSource::default(), tx);
+    let main_worker = tokio::spawn(async move {
+      let msg = rx.recv().await.unwrap();
+      let token = msg.conn_token.unwrap();
+      msg
+        .res_tx
+        .send(Ok(Response::new(Body::from("ok"))))
+        .unwrap();
+      token
+    });
+    let response = service.call(Request::new(Body::empty())).await.unwrap();
+    let request_token = main_worker.await.unwrap();
+    assert!(!request_token.is_cancelled());
+    drop(response);
+    assert!(request_token.is_cancelled());
+    assert!(!connection_token.is_cancelled());
+  }
+
+  #[tokio::test]
+  async fn connection_close_still_cancels_pending_request() {
+    let (tx, mut rx) = mpsc::unbounded_channel::<WorkerRequestMsg>();
+    let (mut service, connection_token) =
+      WorkerService::new(SharedMetricSource::default(), tx);
+    let response = tokio::spawn(service.call(Request::new(Body::empty())));
+    let msg = rx.recv().await.unwrap();
+    let request_token = msg.conn_token.unwrap();
+    assert!(!request_token.is_cancelled());
+    connection_token.cancel();
+    assert!(request_token.is_cancelled());
+    drop(msg.res_tx);
+    response.await.unwrap().unwrap();
+  }
 }

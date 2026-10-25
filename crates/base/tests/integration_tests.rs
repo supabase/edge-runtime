@@ -3564,6 +3564,52 @@ async fn test_supabase_ai_gte() {
   assert_eq!(resp.status().as_u16(), StatusCode::OK);
 }
 
+#[tokio::test]
+#[serial]
+async fn test_supabase_ai_inference_api_honors_timeout_and_signal() {
+  // Accepts connections and never answers, so only the abort signal can end
+  // `session.run()`.
+  let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+  let host = format!("http://{}", listener.local_addr().unwrap());
+  let token = CancellationToken::new();
+  let server = tokio::spawn({
+    let token = token.clone();
+    async move {
+      let mut conns = vec![];
+      loop {
+        tokio::select! {
+          Ok((stream, _)) = listener.accept() => conns.push(stream),
+          _ = token.cancelled() => break,
+        }
+      }
+    }
+  });
+
+  let tb = TestBedBuilder::new("./test_cases/ai-inference-api/main")
+    .with_per_worker_policy(None)
+    .build()
+    .await;
+
+  let mut resp = tb
+    .request(|b| {
+      b.uri("/abort")
+        .header("x-inference-host", host.as_str())
+        .body(Body::empty())
+        .context("can't make request")
+    })
+    .await
+    .unwrap();
+
+  let status = resp.status();
+  let body = to_bytes(resp.body_mut()).await.unwrap();
+
+  assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+
+  tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
+  token.cancel();
+  server.await.unwrap();
+}
+
 // -- ext_ai: ORT base api
 #[tokio::test]
 #[serial]

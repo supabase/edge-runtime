@@ -8,6 +8,13 @@ license.workspace = true
 [lib]
 path = "lib.rs"
 
+[features]
+# When disabled (the default), `${VAR}`-style placeholders in `.npmrc` files
+# are left untouched instead of being expanded from the process environment,
+# so untrusted `.npmrc` content cannot be used to exfiltrate env vars into
+# resolved registry/auth config.
+npmrc-env-expansion = []
+
 [dependencies]
 deno_ast = { workspace = true, features = ["bundler", "cjs", "codegen", "proposal", "react", "sourcemap", "transforms", "typescript", "view", "visit"] }
 deno_core.workspace = true
@@ -91,3 +98,6 @@ winapi = { workspace = true, features = ["knownfolders", "mswsock", "objbase", "
 
 [target.'cfg(unix)'.dependencies]
 nix.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

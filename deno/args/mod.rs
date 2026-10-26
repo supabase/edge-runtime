@@ -195,7 +195,15 @@ fn discover_npmrc(
   const NPMRC_NAME: &str = ".npmrc";
 
   fn get_env_var(var_name: &str) -> Option<String> {
-    std::env::var(var_name).ok()
+    #[cfg(feature = "npmrc-env-expansion")]
+    {
+      std::env::var(var_name).ok()
+    }
+    #[cfg(not(feature = "npmrc-env-expansion"))]
+    {
+      let _ = var_name;
+      None
+    }
   }
 
   #[derive(Debug, Error)]

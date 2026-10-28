@@ -2,6 +2,6 @@
   "workspace": [],
   "compilerOptions": {
     "jsx": "react-jsx",
-    "jsxImportSource": "https://esm.sh/preact"
+    "jsxImportSource": "https://esm.sh/preact@10.29.8"
   }
 }

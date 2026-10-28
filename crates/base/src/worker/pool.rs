@@ -216,9 +216,24 @@ impl ActiveWorkerRegistry {
         let _ = self.workers.replace(WorkerId(key, true));
       }
 
-      let (notify_tx, _) = self.notify_pair.clone();
-      let _ = notify_tx.send(Some(key));
+      wake_one(&self.notify_pair.0, Some(key));
     }
+  }
+}
+
+fn num_waiters(notify_tx: &flume::Sender<Option<Uuid>>) -> usize {
+  notify_tx.receiver_count().saturating_sub(1)
+}
+
+fn wake_one(notify_tx: &flume::Sender<Option<Uuid>>, msg: Option<Uuid>) {
+  if num_waiters(notify_tx) > 0 {
+    let _ = notify_tx.send(msg);
+  }
+}
+
+fn wake_all(notify_tx: &flume::Sender<Option<Uuid>>, msg: Option<Uuid>) {
+  for _ in 0..num_waiters(notify_tx) {
+    let _ = notify_tx.send(msg);
   }
 }
 
@@ -393,6 +408,7 @@ impl WorkerPool {
       }
     };
 
+    let notify_tx = self.active_workers[&worker_pool_key].notify_pair.0.clone();
     let flags = self.flags.clone();
     let worker_pool_msgs_tx = self.worker_pool_msgs_tx.clone();
     let events_msg_tx = self.worker_event_sender.clone();
@@ -540,6 +556,12 @@ impl WorkerPool {
         }
         Err(err) => {
           error!("{err:#}");
+
+          // Whoever queued behind this boot would otherwise wait out the whole
+          // timeout for a worker that is never coming.
+          drop(permit);
+          wake_all(&notify_tx, None);
+
           if tx.send(Err(err)).is_err() {
             error!("main worker receiver dropped")
           }
@@ -549,6 +571,7 @@ impl WorkerPool {
   }
 
   pub fn add_user_worker(&mut self, key: Uuid, profile: UserWorkerProfile) {
+    let is_per_worker = self.policy.supervisor_policy.is_per_worker();
     let registry = self
       .active_workers
       .entry(profile.pool_key.clone())
@@ -556,12 +579,17 @@ impl WorkerPool {
         ActiveWorkerRegistry::new(self.policy.max_parallelism)
       });
 
-    registry
-      .workers
-      .insert(WorkerId(key, self.policy.supervisor_policy.is_per_worker()));
+    registry.workers.insert(WorkerId(key, is_per_worker));
 
     self.user_workers.insert(key, profile);
     self.metric_src.incl_active_user_workers();
+
+    // A per-worker worker serves requests concurrently, so everyone who queued
+    // while it booted can have it now. Otherwise they wait until a request on
+    // it finishes, which may be well past the wait timeout.
+    if is_per_worker {
+      wake_all(&registry.notify_pair.0, Some(key));
+    }
   }
 
   pub fn send_request(
@@ -690,16 +718,16 @@ impl WorkerPool {
   pub fn shutdown(&mut self, key: &Uuid) {
     self.retire(key);
 
-    let Some((notify_tx, _)) = self
+    let Some(notify_tx) = self
       .user_workers
       .remove(key)
       .and_then(|it| self.active_workers.get(&it.pool_key))
-      .map(|it| it.notify_pair.clone())
+      .map(|it| it.notify_pair.0.clone())
     else {
       return;
     };
 
-    let _ = notify_tx.send(None);
+    wake_one(&notify_tx, None);
 
     self.metric_src.decl_active_user_workers();
   }
@@ -730,11 +758,7 @@ impl WorkerPool {
         .expect("registry must be initialized at this point");
 
       let _ = profile.permit.take();
-      let (notify_tx, _) = registry.notify_pair.clone();
-
-      for _ in 0..notify_tx.receiver_count() {
-        let _ = notify_tx.send(None);
-      }
+      wake_all(&registry.notify_pair.0, None);
 
       if registry.workers.contains(key) {
         registry.workers.remove(key);
@@ -909,4 +933,42 @@ pub async fn create_user_worker_pool(
   });
 
   Ok((metric_src, user_worker_msgs_tx))
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn idle_workers_do_not_queue_notifications_without_waiters() {
+    let mut registry = ActiveWorkerRegistry::new(1);
+    let key = Uuid::new_v4();
+    registry.workers.insert(WorkerId(key, true));
+
+    // Every finished request reports its worker idle.
+    for _ in 0..1000 {
+      registry.mark_idle(&key, SupervisorPolicy::PerWorker);
+    }
+
+    assert_eq!(registry.notify_pair.1.len(), 0);
+  }
+
+  #[test]
+  fn notifications_do_not_outnumber_waiters() {
+    let registry = ActiveWorkerRegistry::new(1);
+    let notify_tx = &registry.notify_pair.0;
+    let waiters = [
+      registry.notify_pair.1.clone(),
+      registry.notify_pair.1.clone(),
+    ];
+
+    wake_all(notify_tx, None);
+    assert_eq!(registry.notify_pair.1.len(), waiters.len());
+
+    drop(waiters);
+    let queued = registry.notify_pair.1.len();
+    wake_all(notify_tx, None);
+    wake_one(notify_tx, None);
+    assert_eq!(registry.notify_pair.1.len(), queued);
+  }
 }

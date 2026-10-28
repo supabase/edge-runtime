@@ -1022,6 +1022,74 @@ async fn req_failure_case_timeout() {
 
 #[tokio::test]
 #[serial]
+async fn test_request_queued_during_boot_does_not_wait_for_long_request() {
+  // Both requests reach the pool while the only worker this function may have
+  // is still booting, so the second one queues up. Each request takes longer
+  // than the wait timeout, so the queued one has to be handed the worker as soon
+  // as it is up, not when the first request on it finishes.
+  let tb = TestBedBuilder::new("./test_cases/main")
+    .with_per_worker_policy(Some(2000))
+    .build()
+    .await;
+
+  let req_body_fn = |b: http::request::Builder| {
+    b.uri("/respond-after-4000ms")
+      .method("GET")
+      .body(Body::empty())
+      .context("can't make request")
+  };
+
+  let (res1, res2) = join!(tb.request(req_body_fn), tb.request(req_body_fn));
+
+  for res in [res1, res2] {
+    let mut res = res.unwrap();
+    let buf = to_bytes(res.body_mut()).await.unwrap();
+
+    assert_eq!(
+      res.status(),
+      StatusCode::OK,
+      "{}",
+      String::from_utf8_lossy(&buf)
+    );
+  }
+
+  tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
+}
+
+#[tokio::test]
+#[serial]
+async fn test_request_queued_during_failed_boot_gets_boot_error() {
+  // A request that queued up behind a boot that fails should get to try booting
+  // the worker itself, rather than sit out the whole wait timeout and report
+  // that the pool did not respond.
+  let tb = TestBedBuilder::new("./test_cases/main")
+    .with_per_worker_policy(Some(2000))
+    .build()
+    .await;
+
+  let req_body_fn = |b: http::request::Builder| {
+    b.uri("/graph-error-2")
+      .method("GET")
+      .body(Body::empty())
+      .context("can't make request")
+  };
+
+  let (res1, res2) = join!(tb.request(req_body_fn), tb.request(req_body_fn));
+
+  for res in [res1, res2] {
+    let mut res = res.unwrap();
+    let buf = to_bytes(res.body_mut()).await.unwrap();
+    let body = String::from_utf8_lossy(&buf);
+
+    assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR, "{body}");
+    assert!(body.contains("worker boot error"), "{body}");
+  }
+
+  tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
+}
+
+#[tokio::test]
+#[serial]
 async fn req_failure_case_cpu_time_exhausted() {
   let tb = TestBedBuilder::new("./test_cases/main_small_cpu_time")
     .with_oneshot_policy(None)

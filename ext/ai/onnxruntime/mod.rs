@@ -50,7 +50,7 @@ pub async fn op_ai_ort_init_session(
     }
     Err(_) => {
       trace!(kind = "bytes", len = model_bytes.len());
-      Model::from_bytes(&model_bytes).await?
+      Model::from_bytes(model_bytes).await?
     }
   };
 

@@ -36,9 +36,17 @@ use super::Arguments;
 use super::CPUUsageMetrics;
 use super::V8HandleTerminationData;
 
+// Minimum time a worker must sit at req_ack_count == req_demand before a
+// `TryCleanupIdleWorkers` sweep is allowed to drop it. Guards against
+// dropping a worker whose next request is already in flight but hasn't yet
+// reached it (most prominently right after boot, where demand stays at 0
+// until the first request arrives).
+const DEFAULT_CLEANUP_IDLE_GRACE_MS: u64 = 100;
+
 #[derive(Debug, Default)]
 struct State {
   req_absent_duration: Option<Duration>,
+  cleanup_idle_grace: Duration,
 
   is_worker_entered: bool,
   is_wall_clock_limit_disabled: bool,
@@ -116,6 +124,13 @@ impl State {
       && self.promise.have_all_promises_been_resolved()
   }
 
+  fn has_been_idle_past_grace(&self) -> bool {
+    self
+      .last_req_ack
+      .and_then(|t| t.checked_add(self.cleanup_idle_grace))
+      .is_some_and(|t| t <= SystemTime::now())
+  }
+
   fn can_early_drop(&self) -> bool {
     self.has_resource_alert() && self.have_all_pending_tasks_been_resolved()
   }
@@ -167,6 +182,15 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
           .and_then(|it| it.as_u64())
           .map(Duration::from_millis)
       }),
+
+    cleanup_idle_grace: runtime_opts
+      .context
+      .as_ref()
+      .and_then(|it| it.get("supervisor"))
+      .and_then(|it| it.get("cleanupIdleGraceMs"))
+      .and_then(|it| it.as_u64())
+      .map(Duration::from_millis)
+      .unwrap_or(Duration::from_millis(DEFAULT_CLEANUP_IDLE_GRACE_MS)),
 
     is_wall_clock_limit_disabled: worker_timeout_ms == 0,
     is_cpu_time_limit_disabled: cpu_time_soft_limit_ms == 0
@@ -471,7 +495,9 @@ pub async fn supervise(args: Arguments) -> (ShutdownReason, i64) {
 
       Some(tx) = early_drop_rx.recv() => {
         let mut acknowledged = false;
-        if state.have_all_pending_tasks_been_resolved() {
+        if state.has_been_idle_past_grace()
+          && state.have_all_pending_tasks_been_resolved()
+        {
           if let Some(func) = dispatch_early_drop_beforeunload_fn.take() {
             early_retire_fn();
             func();

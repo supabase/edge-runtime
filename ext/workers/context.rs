@@ -15,6 +15,7 @@ use deno_core::FastString;
 use deno_facade::EszipPayloadKind;
 use deno_telemetry::OtelConfig;
 use enum_as_inner::EnumAsInner;
+use ext_event_worker::events::ShutdownReason;
 use ext_event_worker::events::UncaughtExceptionEvent;
 use ext_event_worker::events::WorkerEventWithMetadata;
 use ext_runtime::MetricSource;
@@ -39,6 +40,8 @@ pub enum WorkerExitStatus {
   #[default]
   Normal,
   WithUncaughtException(UncaughtExceptionEvent),
+  /// The supervisor stopped the worker, and why.
+  Terminated(ShutdownReason),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -47,11 +50,23 @@ pub struct WorkerExit(Arc<Mutex<WorkerExitStatus>>);
 impl WorkerExit {
   pub async fn error(&self) -> Option<anyhow::Error> {
     match &*self.0.lock().await {
-      WorkerExitStatus::Normal => None,
+      WorkerExitStatus::Normal | WorkerExitStatus::Terminated(_) => None,
       WorkerExitStatus::WithUncaughtException(UncaughtExceptionEvent {
         exception,
         ..
       }) => Some(anyhow!("{exception}")),
+    }
+  }
+
+  /// Why the supervisor stopped this worker, once it has been recorded.
+  ///
+  /// Separate from `error`, which reports an exception thrown by the user code.
+  /// This reports the runtime's decision to stop running it, and a worker can
+  /// finish with neither.
+  pub async fn shutdown_reason(&self) -> Option<ShutdownReason> {
+    match &*self.0.lock().await {
+      WorkerExitStatus::Terminated(reason) => Some(*reason),
+      _ => None,
     }
   }
 

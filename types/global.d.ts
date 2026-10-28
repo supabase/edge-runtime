@@ -265,6 +265,8 @@ declare namespace Deno {
     class WorkerRequestCancelled extends Error {}
     class WorkerAlreadyRetired extends Error {}
     class WorkerRequestIdleTimeout extends Error {}
+    class WorkerResourceExhausted extends Error {}
+    class WorkerReclaimed extends Error {}
 
     /** Thrown when an outbound HTTP request is blocked by the rate limiter. */
     class RateLimitError extends Error {

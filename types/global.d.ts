@@ -66,6 +66,7 @@ interface UserWorkerCreateContext {
   useReadSyncFileAPI?: boolean | null;
   supervisor?: {
     requestAbsentTimeoutMs?: number | null;
+    cleanupIdleGraceMs?: number | null;
   };
   otel?: {
     [attribute: string]: string;
@@ -75,6 +76,7 @@ interface UserWorkerCreateContext {
 }
 
 interface UserWorkerCreateOptions {
+  poolKey?: string | null;
   servicePath?: string | null;
   envVars?: string[][] | [string, string][] | null;
   noModuleCache?: boolean | null;
@@ -203,6 +205,49 @@ declare namespace EdgeRuntime {
   export function systemMemoryInfo(): MemInfo;
   export function raiseSegfault(): void;
   export function miCollect(): void;
+
+  /** Snapshot handle returned by {@linkcode enterSpan}. */
+  interface AsyncContextSnapshot {
+    __brand: "AsyncContextSnapshot";
+  }
+
+  /**
+   * Returns the tracer backing the runtime's built-in OpenTelemetry support.
+   *
+   * @remarks
+   * **Environment:** Event Worker only.
+   * This feature is only available when running as `--event-worker` environment.
+   */
+  export function builtinTracer(): import("npm:@opentelemetry/api").Tracer;
+
+  /**
+   * Makes the given span the current span of the active context.
+   *
+   * @remarks
+   * **Environment:** Event Worker only.
+   * This feature is only available when running as `--event-worker` environment.
+   */
+  export function enterSpan(
+    span: import("npm:@opentelemetry/api").Span,
+  ): AsyncContextSnapshot | undefined;
+
+  /**
+   * Whether OpenTelemetry metrics collection is enabled.
+   *
+   * @remarks
+   * **Environment:** Event Worker only.
+   * This feature is only available when running as `--event-worker` environment.
+   */
+  export const METRICS_ENABLED: boolean;
+
+  /**
+   * Whether OpenTelemetry tracing is enabled.
+   *
+   * @remarks
+   * **Environment:** Event Worker only.
+   * This feature is only available when running as `--event-worker` environment.
+   */
+  export const TRACING_ENABLED: boolean;
 
   export { UserWorker as userWorkers };
 }

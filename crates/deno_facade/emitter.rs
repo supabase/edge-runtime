@@ -99,6 +99,7 @@ impl<T> Deferred<T> {
 }
 
 pub struct EmitterFactory {
+  caches: Deferred<Arc<Caches>>,
   cjs_tracker: Deferred<Arc<CjsTracker>>,
   deno_resolver: Deferred<Arc<CliDenoResolver>>,
   emitter: Deferred<Arc<Emitter>>,
@@ -139,6 +140,7 @@ impl EmitterFactory {
     let deno_dir = DenoDir::new(None).unwrap();
 
     Self {
+      caches: Default::default(),
       cjs_tracker: Default::default(),
       deno_resolver: Default::default(),
       emitter: Default::default(),
@@ -210,11 +212,13 @@ impl EmitterFactory {
     Arc::new(DenoDirProvider::new(None))
   }
 
-  pub fn caches(&self) -> Result<Arc<Caches>, anyhow::Error> {
-    let caches = Arc::new(Caches::new(self.deno_dir_provider()));
-    let _ = caches.dep_analysis_db();
-    let _ = caches.node_analysis_db();
-    Ok(caches)
+  pub fn caches(&self) -> Result<&Arc<Caches>, anyhow::Error> {
+    Ok(self.caches.get_or_init(|| {
+      let caches = Arc::new(Caches::new(self.deno_dir_provider()));
+      let _ = caches.dep_analysis_db();
+      let _ = caches.node_analysis_db();
+      caches
+    }))
   }
 
   pub fn module_info_cache(

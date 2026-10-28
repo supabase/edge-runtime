@@ -218,15 +218,30 @@ impl ActiveWorkerRegistry {
         let _ = self.workers.replace(WorkerId(key, true));
       }
 
-      let (notify_tx, _) = self.notify_pair.clone();
-      let _ = notify_tx.send(Some(key));
+      wake_one(&self.notify_pair.0, Some(key));
     }
+  }
+}
+
+fn num_waiters(notify_tx: &flume::Sender<Option<Uuid>>) -> usize {
+  notify_tx.receiver_count().saturating_sub(1)
+}
+
+fn wake_one(notify_tx: &flume::Sender<Option<Uuid>>, msg: Option<Uuid>) {
+  if num_waiters(notify_tx) > 0 {
+    let _ = notify_tx.send(msg);
+  }
+}
+
+fn wake_all(notify_tx: &flume::Sender<Option<Uuid>>, msg: Option<Uuid>) {
+  for _ in 0..num_waiters(notify_tx) {
+    let _ = notify_tx.send(msg);
   }
 }
 
 // every new worker gets a new UUID (can reuse execution_id)
 // user_workers - maintain a hashmap of (uuid - workerProfile (include service path))
-// active_workers - hashmap of (service_path - uuid)
+// active_workers - hashmap of (pool_key - uuid)
 
 /// The error to fail an in-flight request with when its worker is stopped.
 ///
@@ -318,6 +333,11 @@ impl WorkerPool {
       .unwrap_or("")
       .to_string();
 
+    let worker_pool_key = worker_options
+      .pool_key
+      .to_owned()
+      .unwrap_or(service_path.clone());
+
     let is_oneshot_policy = self.policy.supervisor_policy.is_oneshot();
     let inspector = self.maybe_inspector.clone();
     let force_create = worker_options
@@ -326,7 +346,7 @@ impl WorkerPool {
       .is_some_and(|it| !is_oneshot_policy && it.force_create);
 
     if let Some(ref active_worker_uuid) =
-      self.maybe_active_worker(&service_path, force_create)
+      self.maybe_active_worker(&worker_pool_key, force_create)
     {
       if tx
         .send(Ok(CreateUserWorkerResult {
@@ -352,7 +372,7 @@ impl WorkerPool {
     let wait_fence_fut = {
       let registry = self
         .active_workers
-        .entry(service_path.clone())
+        .entry(worker_pool_key.clone())
         .or_insert_with(|| {
           ActiveWorkerRegistry::new(self.policy.max_parallelism)
         });
@@ -420,6 +440,7 @@ impl WorkerPool {
       }
     };
 
+    let notify_tx = self.active_workers[&worker_pool_key].notify_pair.0.clone();
     let flags = self.flags.clone();
     let worker_pool_msgs_tx = self.worker_pool_msgs_tx.clone();
     let events_msg_tx = self.worker_event_sender.clone();
@@ -431,6 +452,7 @@ impl WorkerPool {
         FlowAfterFence::Stop => return,
         FlowAfterFence::Resend(tx) => {
           let WorkerContextInitOpts {
+            pool_key: worker_pool_key,
             service_path,
             no_module_cache,
             no_npm,
@@ -449,6 +471,7 @@ impl WorkerPool {
           if worker_pool_msgs_tx
             .send(UserWorkerMsgs::Create(
               WorkerContextInitOpts {
+                pool_key: worker_pool_key,
                 service_path,
                 no_module_cache,
                 no_npm,
@@ -535,6 +558,7 @@ impl WorkerPool {
       match builder.build().await {
         Ok(surface) => {
           let profile = UserWorkerProfile {
+            pool_key: worker_pool_key,
             worker_request_msg_tx: surface.msg_tx,
             early_drop_tx,
             timing_tx_pair: (req_start_timing_tx, req_end_timing_tx),
@@ -564,6 +588,12 @@ impl WorkerPool {
         }
         Err(err) => {
           error!("{err:#}");
+
+          // Whoever queued behind this boot would otherwise wait out the whole
+          // timeout for a worker that is never coming.
+          drop(permit);
+          wake_all(&notify_tx, None);
+
           if tx.send(Err(err)).is_err() {
             error!("main worker receiver dropped")
           }
@@ -573,19 +603,25 @@ impl WorkerPool {
   }
 
   pub fn add_user_worker(&mut self, key: Uuid, profile: UserWorkerProfile) {
+    let is_per_worker = self.policy.supervisor_policy.is_per_worker();
     let registry = self
       .active_workers
-      .entry(profile.service_path.clone())
+      .entry(profile.pool_key.clone())
       .or_insert_with(|| {
         ActiveWorkerRegistry::new(self.policy.max_parallelism)
       });
 
-    registry
-      .workers
-      .insert(WorkerId(key, self.policy.supervisor_policy.is_per_worker()));
+    registry.workers.insert(WorkerId(key, is_per_worker));
 
     self.user_workers.insert(key, profile);
     self.metric_src.incl_active_user_workers();
+
+    // A per-worker worker serves requests concurrently, so everyone who queued
+    // while it booted can have it now. Otherwise they wait until a request on
+    // it finishes, which may be well past the wait timeout.
+    if is_per_worker {
+      wake_all(&registry.notify_pair.0, Some(key));
+    }
   }
 
   pub fn send_request(
@@ -696,7 +732,7 @@ impl WorkerPool {
     if let Some(registry) = self
       .user_workers
       .get_mut(key)
-      .and_then(|it| self.active_workers.get_mut(&it.service_path))
+      .and_then(|it| self.active_workers.get_mut(&it.pool_key))
     {
       registry.mark_idle(key, self.policy.supervisor_policy);
     }
@@ -705,16 +741,16 @@ impl WorkerPool {
   pub fn shutdown(&mut self, key: &Uuid) {
     self.retire(key);
 
-    let Some((notify_tx, _)) = self
+    let Some(notify_tx) = self
       .user_workers
       .remove(key)
-      .and_then(|it| self.active_workers.get(&it.service_path))
-      .map(|it| it.notify_pair.clone())
+      .and_then(|it| self.active_workers.get(&it.pool_key))
+      .map(|it| it.notify_pair.0.clone())
     else {
       return;
     };
 
-    let _ = notify_tx.send(None);
+    wake_one(&notify_tx, None);
 
     self.metric_src.decl_active_user_workers();
   }
@@ -741,15 +777,11 @@ impl WorkerPool {
     if let Some(profile) = self.user_workers.get_mut(key) {
       let registry = self
         .active_workers
-        .get_mut(&profile.service_path)
+        .get_mut(&profile.pool_key)
         .expect("registry must be initialized at this point");
 
       let _ = profile.permit.take();
-      let (notify_tx, _) = registry.notify_pair.clone();
-
-      for _ in 0..notify_tx.receiver_count() {
-        let _ = notify_tx.send(None);
-      }
+      wake_all(&registry.notify_pair.0, None);
 
       if registry.workers.contains(key) {
         registry.workers.remove(key);
@@ -760,14 +792,14 @@ impl WorkerPool {
 
   fn maybe_active_worker(
     &mut self,
-    service_path: &String,
+    pool_key: &String,
     force_create: bool,
   ) -> Option<Uuid> {
     if force_create {
       return None;
     }
 
-    let registry = self.active_workers.get_mut(service_path)?;
+    let registry = self.active_workers.get_mut(pool_key)?;
     let policy = self.policy.supervisor_policy;
 
     let mut advance_fn =
@@ -783,7 +815,7 @@ impl WorkerPool {
 
       _ => {
         self.retire(&worker_uuid);
-        self.maybe_active_worker(service_path, force_create)
+        self.maybe_active_worker(pool_key, force_create)
       }
     }
   }
@@ -924,4 +956,42 @@ pub async fn create_user_worker_pool(
   });
 
   Ok((metric_src, user_worker_msgs_tx))
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn idle_workers_do_not_queue_notifications_without_waiters() {
+    let mut registry = ActiveWorkerRegistry::new(1);
+    let key = Uuid::new_v4();
+    registry.workers.insert(WorkerId(key, true));
+
+    // Every finished request reports its worker idle.
+    for _ in 0..1000 {
+      registry.mark_idle(&key, SupervisorPolicy::PerWorker);
+    }
+
+    assert_eq!(registry.notify_pair.1.len(), 0);
+  }
+
+  #[test]
+  fn notifications_do_not_outnumber_waiters() {
+    let registry = ActiveWorkerRegistry::new(1);
+    let notify_tx = &registry.notify_pair.0;
+    let waiters = [
+      registry.notify_pair.1.clone(),
+      registry.notify_pair.1.clone(),
+    ];
+
+    wake_all(notify_tx, None);
+    assert_eq!(registry.notify_pair.1.len(), waiters.len());
+
+    drop(waiters);
+    let queued = registry.notify_pair.1.len();
+    wake_all(notify_tx, None);
+    wake_one(notify_tx, None);
+    assert_eq!(registry.notify_pair.1.len(), queued);
+  }
 }

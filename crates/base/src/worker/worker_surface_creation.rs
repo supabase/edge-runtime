@@ -627,6 +627,7 @@ impl MainWorkerSurfaceBuilder {
     }
 
     inner.set_init_opts(Some(WorkerContextInitOpts {
+      pool_key: None,
       service_path,
       no_module_cache: no_module_cache.unwrap_or(flags.no_module_cache),
       no_npm: None,
@@ -781,6 +782,7 @@ impl EventWorkerSurfaceBuilder {
     }
 
     inner.set_init_opts(Some(WorkerContextInitOpts {
+      pool_key: None,
       service_path,
       no_module_cache: no_module_cache.unwrap_or(flags.no_module_cache),
       no_npm: None,

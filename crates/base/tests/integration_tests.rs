@@ -225,6 +225,7 @@ async fn test_not_trigger_pku_sigsegv_due_to_jit_compilation_non_cli() {
 
   let surface = worker::WorkerSurfaceBuilder::new()
     .init_opts(WorkerContextInitOpts {
+      pool_key: None,
       service_path: "./test_cases/slow_resp".into(),
       no_module_cache: false,
       no_npm: None,
@@ -386,6 +387,7 @@ async fn test_main_worker_boot_error() {
 
   let result = worker::WorkerSurfaceBuilder::new()
     .init_opts(WorkerContextInitOpts {
+      pool_key: None,
       service_path: "./test_cases/meow".into(),
       no_module_cache: false,
       no_npm: None,
@@ -510,6 +512,7 @@ async fn test_main_worker_user_worker_mod_evaluate_exception() {
 
   let surface = worker::WorkerSurfaceBuilder::new()
     .init_opts(WorkerContextInitOpts {
+      pool_key: None,
       service_path: "./test_cases/main".into(),
       no_module_cache: false,
       no_npm: None,
@@ -895,6 +898,7 @@ async fn test_user_imports_npm() {
 #[serial]
 async fn test_worker_boot_invalid_imports() {
   let opts = WorkerContextInitOpts {
+    pool_key: None,
     service_path: "./test_cases/invalid_imports".into(),
     no_module_cache: false,
     no_npm: None,
@@ -924,6 +928,7 @@ async fn test_worker_boot_invalid_imports() {
 #[serial]
 async fn test_worker_boot_with_0_byte_eszip() {
   let opts = WorkerContextInitOpts {
+    pool_key: None,
     service_path: "./test_cases/meow".into(),
     no_module_cache: false,
     no_npm: None,
@@ -952,6 +957,7 @@ async fn test_worker_boot_with_0_byte_eszip() {
 #[serial]
 async fn test_worker_boot_with_invalid_entrypoint() {
   let opts = WorkerContextInitOpts {
+    pool_key: None,
     service_path: "./test_cases/meow".into(),
     no_module_cache: false,
     no_npm: None,
@@ -1012,6 +1018,74 @@ async fn req_failure_case_timeout() {
 
   tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
   assert!(found_timeout);
+}
+
+#[tokio::test]
+#[serial]
+async fn test_request_queued_during_boot_does_not_wait_for_long_request() {
+  // Both requests reach the pool while the only worker this function may have
+  // is still booting, so the second one queues up. Each request takes longer
+  // than the wait timeout, so the queued one has to be handed the worker as soon
+  // as it is up, not when the first request on it finishes.
+  let tb = TestBedBuilder::new("./test_cases/main")
+    .with_per_worker_policy(Some(2000))
+    .build()
+    .await;
+
+  let req_body_fn = |b: http::request::Builder| {
+    b.uri("/respond-after-4000ms")
+      .method("GET")
+      .body(Body::empty())
+      .context("can't make request")
+  };
+
+  let (res1, res2) = join!(tb.request(req_body_fn), tb.request(req_body_fn));
+
+  for res in [res1, res2] {
+    let mut res = res.unwrap();
+    let buf = to_bytes(res.body_mut()).await.unwrap();
+
+    assert_eq!(
+      res.status(),
+      StatusCode::OK,
+      "{}",
+      String::from_utf8_lossy(&buf)
+    );
+  }
+
+  tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
+}
+
+#[tokio::test]
+#[serial]
+async fn test_request_queued_during_failed_boot_gets_boot_error() {
+  // A request that queued up behind a boot that fails should get to try booting
+  // the worker itself, rather than sit out the whole wait timeout and report
+  // that the pool did not respond.
+  let tb = TestBedBuilder::new("./test_cases/main")
+    .with_per_worker_policy(Some(2000))
+    .build()
+    .await;
+
+  let req_body_fn = |b: http::request::Builder| {
+    b.uri("/graph-error-2")
+      .method("GET")
+      .body(Body::empty())
+      .context("can't make request")
+  };
+
+  let (res1, res2) = join!(tb.request(req_body_fn), tb.request(req_body_fn));
+
+  for res in [res1, res2] {
+    let mut res = res.unwrap();
+    let buf = to_bytes(res.body_mut()).await.unwrap();
+    let body = String::from_utf8_lossy(&buf);
+
+    assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR, "{body}");
+    assert!(body.contains("worker boot error"), "{body}");
+  }
+
+  tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
 }
 
 #[tokio::test]
@@ -4028,6 +4102,13 @@ async fn test_user_workers_cleanup_idle_workers() {
     .request(|b| {
       b.uri("/sleep-5000ms")
         .header("x-worker-timeout-ms", HeaderValue::from_static("3600000"))
+        // Disable the cleanup-idle grace period so the worker becomes
+        // eligible for cleanup as soon as this request is acknowledged,
+        // matching this test's assumption that it's dropped immediately.
+        .header(
+          "x-context-supervisor-cleanup-idle-grace-ms",
+          HeaderValue::from_static("0"),
+        )
         .body(Body::empty())
         .context("can't make request")
     })
@@ -4269,6 +4350,53 @@ async fn test_brotli_async() {
     }),
     TerminationToken::new()
   );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_pool_key_async() {
+  let tb = TestBedBuilder::new("./test_cases/pool-key/main")
+    .with_per_worker_policy(None)
+    .build()
+    .await;
+
+  let resp = tb
+    .request(|b| {
+      b.uri("/hello-200")
+        .header("x-pool-key", "key200")
+        .body(Body::empty())
+        .context("can't make request")
+    })
+    .await
+    .unwrap();
+
+  assert_eq!(resp.status().as_u16(), StatusCode::OK);
+
+  // The same key will not spawn a new Worker, even when 'service_path' changed
+  let resp = tb
+    .request(|b| {
+      b.uri("/hello-201")
+        .header("x-pool-key", "key200")
+        .body(Body::empty())
+        .context("can't make request")
+    })
+    .await
+    .unwrap();
+
+  assert_eq!(resp.status().as_u16(), StatusCode::OK);
+
+  // Using different key doesn't reuse the same Worker
+  let resp = tb
+    .request(|b| {
+      b.uri("/hello-201")
+        .header("x-pool-key", "key201")
+        .body(Body::empty())
+        .context("can't make request")
+    })
+    .await
+    .unwrap();
+
+  assert_eq!(resp.status().as_u16(), StatusCode::CREATED);
 }
 
 async fn assert_rate_limit_error(

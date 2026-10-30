@@ -3317,6 +3317,32 @@ async fn test_tmp_fs_usage() {
 
 #[tokio::test]
 #[serial]
+async fn test_seek_mode() {
+  integration_test!(
+    "./test_cases/main",
+    NON_SECURE_PORT,
+    "use-seek-mode",
+    None,
+    None,
+    None,
+    (|resp| async {
+      let resp = resp.unwrap();
+
+      assert_eq!(resp.status().as_u16(), 200);
+
+      let body = resp.json::<serde_json::Value>().await.unwrap();
+
+      assert_eq!(
+        body,
+        json!({ "start": 2, "read": "cd", "current": 3, "end": 6 })
+      );
+    }),
+    TerminationToken::new()
+  );
+}
+
+#[tokio::test]
+#[serial]
 async fn test_tmp_fs_should_not_be_available_in_import_stmt() {
   // The s3 fs and tmp fs are not currently attached to the module loader, so the import statement
   // should not recognize their prefixes. (But, depending on the case, they may be attached in the

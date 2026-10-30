@@ -5045,3 +5045,106 @@ async fn test_websocket_handshake_user_agent_is_stamped_with_project_ref() {
     [deno::versions::user_agent(Some(PROJECT_REF))]
   );
 }
+
+#[tokio::test]
+#[serial]
+async fn test_user_worker_fetch_settles_when_worker_already_retired() {
+  async fn dispatch_to_retired_worker(
+    tb: &TestBed,
+    body_mode: &'static str,
+  ) -> serde_json::Value {
+    // The retire flag is raised at half of the wall clock limit (2000ms) and
+    // the worker is terminated once the limit (4000ms) has elapsed.
+    let resp = tb
+      .request(|b| {
+        b.uri("/boot")
+          .header("x-worker-timeout-ms", HeaderValue::from_static("4000"))
+          .body(Body::empty())
+          .context("can't make request")
+      })
+      .await
+      .unwrap();
+
+    assert_eq!(resp.status().as_u16(), StatusCode::OK);
+
+    sleep(Duration::from_millis(2500)).await;
+
+    let mut resp = tb
+      .request(|b| {
+        b.uri("/stale")
+          .method(Method::POST)
+          .header("x-body-mode", HeaderValue::from_static(body_mode))
+          .header("x-settle-timeout-ms", HeaderValue::from_static("1000"))
+          .body(Body::from("meow"))
+          .context("can't make request")
+      })
+      .await
+      .unwrap();
+
+    assert_eq!(resp.status().as_u16(), StatusCode::OK);
+
+    let bytes = to_bytes(resp.body_mut()).await.unwrap();
+
+    serde_json::from_slice(&bytes).unwrap()
+  }
+
+  let tb = TestBedBuilder::new("./test_cases/main_retired_worker_fetch")
+    .with_per_worker_policy(None)
+    .build()
+    .await;
+
+  for body_mode in ["none", "passthrough", "clone"] {
+    let outcome = dispatch_to_retired_worker(&tb, body_mode).await;
+
+    assert_eq!(outcome["kind"], "error", "mode={body_mode}: {outcome}");
+    assert_eq!(
+      outcome["name"], "WorkerAlreadyRetired",
+      "mode={body_mode}: {outcome}"
+    );
+  }
+
+  tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
+}
+
+#[tokio::test]
+#[serial]
+async fn test_user_worker_fetch_settles_when_response_arrives_before_body_is_sent(
+) {
+  let tb = TestBedBuilder::new("./test_cases/main_retired_worker_fetch")
+    .with_per_worker_policy(None)
+    .build()
+    .await;
+
+  // The second chunk is only produced after the worker has already responded,
+  // so piping it to the user worker fails once the response is in hand.
+  let chunk = "x".repeat(16 * 1024);
+  let body = Body::wrap_stream(
+    futures_util::stream::iter([Ok::<_, std::io::Error>(chunk.clone())]).chain(
+      futures_util::stream::once(async move {
+        sleep(Duration::from_millis(500)).await;
+        Ok(chunk)
+      }),
+    ),
+  );
+
+  let mut resp = tb
+    .request(|b| {
+      b.uri("/early-response")
+        .method(Method::POST)
+        .header("x-settle-timeout-ms", HeaderValue::from_static("2000"))
+        .body(body)
+        .context("can't make request")
+    })
+    .await
+    .unwrap();
+
+  assert_eq!(resp.status().as_u16(), StatusCode::OK);
+
+  let bytes = to_bytes(resp.body_mut()).await.unwrap();
+  let outcome = serde_json::from_slice::<serde_json::Value>(&bytes).unwrap();
+
+  assert_eq!(outcome["kind"], "response", "{outcome}");
+  assert_eq!(outcome["status"], 413, "{outcome}");
+
+  tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
+}

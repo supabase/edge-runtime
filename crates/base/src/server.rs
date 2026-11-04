@@ -328,6 +328,7 @@ impl RequestIdleTimeout {
 #[derive(Debug, Default, Clone, Copy)]
 pub struct ServerFlags {
   pub otel: Option<OtelKind>,
+  pub otel_metrics: bool,
   pub otel_console: Option<OtelConsoleConfig>,
 
   pub no_module_cache: bool,
@@ -467,6 +468,7 @@ impl Server {
       if let Some(OtelKind::Event | OtelKind::Both) = flags.otel {
         builder.set_otel_config(Some(OtelConfig {
           tracing_enabled: true,
+          metrics_enabled: flags.otel_metrics,
           console: flags.otel_console.unwrap_or_default(),
           propagators: HashSet::from([
             OtelPropagators::TraceContext,
@@ -522,6 +524,7 @@ impl Server {
       if let Some(OtelKind::Main | OtelKind::Both) = flags.otel {
         builder.set_otel_config(Some(OtelConfig {
           tracing_enabled: true,
+          metrics_enabled: flags.otel_metrics,
           console: flags.otel_console.unwrap_or_default(),
           propagators: HashSet::from([
             OtelPropagators::TraceContext,

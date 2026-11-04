@@ -330,6 +330,11 @@ fn get_start_command() -> Command {
         .action(ArgAction::Append),
     )
     .arg(
+      arg!(--"enable-otel-metrics")
+        .help("Also export OpenTelemetry metrics from the workers --enable-otel instruments")
+        .action(ArgAction::SetTrue),
+    )
+    .arg(
       arg!(--"otel-console" <MODE>)
         // .env("OTEL_DENO_CONSOLE")
         .help("Configure console auto instrumentation for OpenTelemetry Logs")

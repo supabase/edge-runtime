@@ -940,7 +940,10 @@ where
       unsafely_ignore_certificate_errors: options
         .unsafely_ignore_certificate_errors
         .clone(),
-      client_cert_chain_and_key: tls_keys.take().try_into().unwrap(),
+      client_cert_chain_and_key: tls_keys
+        .take()
+        .try_into()
+        .map_err(|_| HttpClientCreateError::UnsupportedTlsKeyResolver)?,
       pool_max_idle_per_host: args.pool_max_idle_per_host,
       pool_idle_timeout: args.pool_idle_timeout.and_then(
         |timeout| match timeout {
@@ -1009,6 +1012,8 @@ pub enum HttpClientCreateError {
   HttpVersionSelectionInvalid,
   #[error(transparent)]
   RootCertStore(deno_core::error::AnyError),
+  #[error("Cannot create Http Client: a TLS key resolver is not supported")]
+  UnsupportedTlsKeyResolver,
 }
 
 /// Create new instance of async Client. This client supports

@@ -2620,6 +2620,50 @@ async fn test_issue_208() {
 
 #[tokio::test]
 #[serial]
+async fn test_tls_invalid_client_cert_should_not_abort_the_process() {
+  // `Deno.connectTls` only builds the client config after the TCP connection
+  // is established, so it needs something to connect to.
+  let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+  let port = listener.local_addr().unwrap().port();
+  let client = Client::new();
+  let builder = client
+    .request(
+      Method::GET,
+      format!(
+        "http://localhost:{}/tls-invalid-client-cert",
+        NON_SECURE_PORT
+      ),
+    )
+    .header("x-port", port);
+
+  integration_test!(
+    "./test_cases/main",
+    NON_SECURE_PORT,
+    "",
+    None,
+    Some(builder),
+    None,
+    (|resp| async {
+      let resp = resp.unwrap();
+      assert_eq!(resp.status().as_u16(), 200);
+      let body = resp.json::<serde_json::Value>().await.unwrap();
+      assert_eq!(
+        body,
+        json!({
+          "createHttpClient": "TypeError",
+          "createHttpClientWithResolver": "TypeError",
+          "connectTls": "Error",
+        })
+      );
+    }),
+    TerminationToken::new()
+  );
+
+  drop(listener);
+}
+
+#[tokio::test]
+#[serial]
 async fn test_issue_420() {
   integration_test!(
     "./test_cases/main",

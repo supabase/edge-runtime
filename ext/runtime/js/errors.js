@@ -30,6 +30,8 @@ const InvalidWorkerCreation = buildErrorClass("InvalidWorkerCreation");
 const WorkerRequestCancelled = buildErrorClass("WorkerRequestCancelled");
 const WorkerAlreadyRetired = buildErrorClass("WorkerAlreadyRetired");
 const WorkerRequestIdleTimeout = buildErrorClass("WorkerRequestIdleTimeout");
+const WorkerResourceExhausted = buildErrorClass("WorkerResourceExhausted");
+const WorkerReclaimed = buildErrorClass("WorkerReclaimed");
 const NotFound = buildErrorClass("NotFound");
 const PermissionDenied = buildErrorClass("PermissionDenied");
 const ConnectionRefused = buildErrorClass("ConnectionRefused");
@@ -80,6 +82,8 @@ function registerErrors() {
   core.registerErrorClass("WorkerRequestCancelled", WorkerRequestCancelled);
   core.registerErrorClass("WorkerAlreadyRetired", WorkerAlreadyRetired);
   core.registerErrorClass("WorkerRequestIdleTimeout", WorkerRequestIdleTimeout);
+  core.registerErrorClass("WorkerResourceExhausted", WorkerResourceExhausted);
+  core.registerErrorClass("WorkerReclaimed", WorkerReclaimed);
   core.registerErrorClass("NotFound", NotFound);
   core.registerErrorClass("PermissionDenied", PermissionDenied);
   core.registerErrorClass("ConnectionRefused", ConnectionRefused);

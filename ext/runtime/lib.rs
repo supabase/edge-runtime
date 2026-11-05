@@ -72,6 +72,14 @@ impl SharedMetricSource {
     self.handled_requests.load(Ordering::Relaxed)
   }
 
+  pub fn active_user_workers(&self) -> usize {
+    self.active_user_workers.load(Ordering::Relaxed)
+  }
+
+  pub fn retired_user_workers(&self) -> usize {
+    self.retired_user_workers.load(Ordering::Relaxed)
+  }
+
   pub fn incl_active_user_workers(&self) {
     self.active_user_workers.fetch_add(1, Ordering::Relaxed);
   }
@@ -443,9 +451,8 @@ fn op_cancel_drop_token(
   Ok(())
 }
 
-#[op2(fast)]
-fn op_mi_collect() {
-  #[cfg(target_os = "linux")]
+pub fn reclaim_host_memory() {
+  #[cfg(unix)]
   {
     use std::sync::OnceLock;
 
@@ -466,6 +473,43 @@ fn op_mi_collect() {
       unsafe { mi_collect(true) };
     }
   }
+
+  #[cfg(target_os = "linux")]
+  unsafe {
+    libc::malloc_trim(0);
+  }
+
+  #[cfg(target_os = "macos")]
+  {
+    use std::sync::OnceLock;
+
+    type PressureFn = unsafe extern "C" fn(*mut libc::c_void, usize) -> usize;
+
+    static PRESSURE: OnceLock<Option<PressureFn>> = OnceLock::new();
+
+    let f = PRESSURE.get_or_init(|| unsafe {
+      let sym = libc::dlsym(
+        libc::RTLD_DEFAULT,
+        c"malloc_zone_pressure_relief".as_ptr(),
+      );
+      if sym.is_null() {
+        None
+      } else {
+        Some(std::mem::transmute::<*mut libc::c_void, PressureFn>(sym))
+      }
+    });
+
+    if let Some(pressure) = f {
+      unsafe {
+        pressure(std::ptr::null_mut(), 0);
+      }
+    }
+  }
+}
+
+#[op2(fast)]
+fn op_mi_collect() {
+  reclaim_host_memory();
 }
 
 #[op2]

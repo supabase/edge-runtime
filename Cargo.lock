@@ -2567,8 +2567,6 @@ dependencies = [
 [[package]]
 name = "deno_tls"
 version = "0.169.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c2948f68c634d354133a0dc4ce826129c5be354ae9f62b02c52f5f86766e807c"
 dependencies = [
  "deno_core",
  "deno_native_certs",

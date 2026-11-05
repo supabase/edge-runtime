@@ -10,6 +10,7 @@ use x509_parser::extensions;
 use x509_parser::pem;
 use x509_parser::prelude::*;
 
+use super::sign::KeyObjectHandlePrehashedSignAndVerifyError;
 use super::KeyObjectHandle;
 
 use std::ops::Deref;
@@ -35,6 +36,13 @@ pub(crate) struct Certificate {
 impl deno_core::GarbageCollected for Certificate {}
 
 impl Certificate {
+  fn der_bytes(&self) -> &[u8] {
+    match self.inner.backing_cart().as_ref() {
+      CertificateSources::Der(der) => der,
+      CertificateSources::Pem(pem) => &pem.contents,
+    }
+  }
+
   fn fingerprint<D: Digest>(&self) -> Option<String> {
     if let CertificateSources::Pem(pem) = self.inner.backing_cart().as_ref() {
       let mut hasher = D::new();
@@ -66,6 +74,10 @@ impl<'a> Deref for CertificateView<'a> {
 pub fn op_node_x509_parse(
   #[buffer] buf: &[u8],
 ) -> Result<Certificate, X509Error> {
+  parse_certificate(buf)
+}
+
+fn parse_certificate(buf: &[u8]) -> Result<Certificate, X509Error> {
   let source = match pem::parse_x509_pem(buf) {
     Ok((_, pem)) => CertificateSources::Pem(pem),
     Err(_) => CertificateSources::Der(buf.to_vec().into_boxed_slice()),
@@ -181,6 +193,107 @@ pub fn op_node_x509_public_key(
   KeyObjectHandle::new_x509_public_key(public_key)
 }
 
+#[op2]
+#[buffer]
+pub fn op_node_x509_raw(#[cppgc] cert: &Certificate) -> Box<[u8]> {
+  cert.der_bytes().to_vec().into_boxed_slice()
+}
+
+#[op2]
+#[string]
+pub fn op_node_x509_to_string(#[cppgc] cert: &Certificate) -> String {
+  certificate_to_pem(cert)
+}
+
+fn certificate_to_pem(cert: &Certificate) -> String {
+  let encoded = data_encoding::BASE64.encode(cert.der_bytes());
+  let mut pem = String::from("-----BEGIN CERTIFICATE-----\n");
+  for line in encoded.as_bytes().chunks(64) {
+    pem.push_str(std::str::from_utf8(line).expect("base64 is ASCII"));
+    pem.push('\n');
+  }
+  pem.push_str("-----END CERTIFICATE-----\n");
+  pem
+}
+
+#[op2]
+#[string]
+pub fn op_node_x509_info_access(#[cppgc] cert: &Certificate) -> Option<String> {
+  certificate_info_access(cert)
+}
+
+fn certificate_info_access(cert: &Certificate) -> Option<String> {
+  let cert = cert.inner.get().deref();
+  let aia = cert.extensions().iter().find_map(|ext| {
+    if let extensions::ParsedExtension::AuthorityInfoAccess(aia) =
+      ext.parsed_extension()
+    {
+      Some(aia)
+    } else {
+      None
+    }
+  })?;
+
+  let descriptions: Vec<String> = aia
+    .iter()
+    .map(|entry| {
+      let method = match entry.access_method.to_id_string().as_str() {
+        "1.3.6.1.5.5.7.48.1" => "OCSP".to_string(),
+        "1.3.6.1.5.5.7.48.2" => "CA Issuers".to_string(),
+        _ => entry.access_method.to_id_string(),
+      };
+      match &entry.access_location {
+        extensions::GeneralName::URI(uri) => format!("{method} - URI:{uri}"),
+        location => format!("{method} - {location}"),
+      }
+    })
+    .collect();
+  Some(descriptions.join("\n"))
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum X509VerifyError {
+  #[error("unsupported X.509 signature algorithm: {0}")]
+  UnsupportedSignatureAlgorithm(String),
+  #[error(transparent)]
+  Key(#[from] KeyObjectHandlePrehashedSignAndVerifyError),
+}
+
+#[op2(fast)]
+pub fn op_node_x509_verify(
+  #[cppgc] cert: &Certificate,
+  #[cppgc] public_key: &KeyObjectHandle,
+) -> Result<bool, X509VerifyError> {
+  verify_certificate(cert, public_key)
+}
+
+fn verify_certificate(
+  cert: &Certificate,
+  public_key: &KeyObjectHandle,
+) -> Result<bool, X509VerifyError> {
+  let cert = cert.inner.get().deref();
+  if cert.signature_algorithm != cert.tbs_certificate.signature {
+    return Ok(false);
+  }
+  let tbs = cert.tbs_certificate.as_ref();
+  let signature = cert.signature_value.data.as_ref();
+  let oid = cert.signature_algorithm.algorithm.to_id_string();
+  let (digest_name, digest): (&str, Vec<u8>) = match oid.as_str() {
+    "1.2.840.113549.1.1.5" => ("sha1", sha1::Sha1::digest(tbs).to_vec()),
+    "1.2.840.113549.1.1.11" | "1.2.840.10045.4.3.2" => {
+      ("sha256", sha2::Sha256::digest(tbs).to_vec())
+    }
+    "1.2.840.113549.1.1.12" | "1.2.840.10045.4.3.3" => {
+      ("sha384", sha2::Sha384::digest(tbs).to_vec())
+    }
+    "1.2.840.113549.1.1.13" | "1.2.840.10045.4.3.4" => {
+      ("sha512", sha2::Sha512::digest(tbs).to_vec())
+    }
+    _ => return Err(X509VerifyError::UnsupportedSignatureAlgorithm(oid)),
+  };
+  Ok(public_key.verify_prehashed(digest_name, &digest, signature, None, 0)?)
+}
+
 // Attempt to convert attribute to string. If type is not a string, return value is the hex
 // encoding of the attribute value
 fn attribute_value_to_string(
@@ -277,4 +390,35 @@ pub fn op_node_x509_key_usage(#[cppgc] cert: &Certificate) -> u16 {
     });
 
   key_usage.map(|k| k.flags).unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn x509_certificate_encoding_access_and_signature() {
+    let pem = include_bytes!("testdata/x509-test-cert.pem");
+    let cert = parse_certificate(pem).unwrap();
+    let der = cert.der_bytes();
+
+    assert_eq!(certificate_to_pem(&cert).as_bytes(), pem);
+    assert_eq!(
+      certificate_info_access(&cert).as_deref(),
+      Some("OCSP - URI:http://ocsp.example.test")
+    );
+    assert_eq!(parse_certificate(der).unwrap().der_bytes(), der);
+
+    let public_key = KeyObjectHandle::new_x509_public_key(
+      &cert.inner.get().deref().tbs_certificate.subject_pki,
+    )
+    .unwrap();
+    assert!(verify_certificate(&cert, &public_key).unwrap());
+
+    let mut corrupted = der.to_vec();
+    let last = corrupted.last_mut().unwrap();
+    *last ^= 1;
+    let tampered = parse_certificate(&corrupted).unwrap();
+    assert!(!verify_certificate(&tampered, &public_key).unwrap());
+  }
 }

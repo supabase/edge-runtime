@@ -15,12 +15,18 @@ import {
   op_node_x509_get_subject,
   op_node_x509_get_valid_from,
   op_node_x509_get_valid_to,
+  op_node_x509_info_access,
   op_node_x509_key_usage,
   op_node_x509_parse,
   op_node_x509_public_key,
+  op_node_x509_raw,
+  op_node_x509_to_string,
+  op_node_x509_verify,
 } from "ext:core/ops";
 
 import {
+  getKeyObjectHandle,
+  kConsumePublic,
   KeyObject,
   PublicKeyObject,
 } from "ext:deno_node/internal/crypto/keys.ts";
@@ -119,9 +125,7 @@ export class X509Certificate {
   }
 
   get infoAccess(): string | undefined {
-    notImplemented("crypto.X509Certificate.prototype.infoAccess");
-
-    return "";
+    return op_node_x509_info_access(this.#handle);
   }
 
   get issuer(): string {
@@ -154,9 +158,7 @@ export class X509Certificate {
   }
 
   get raw(): Buffer {
-    notImplemented("crypto.X509Certificate.prototype.raw");
-
-    return {} as Buffer;
+    return Buffer.from(op_node_x509_raw(this.#handle));
   }
 
   get serialNumber(): string {
@@ -180,7 +182,7 @@ export class X509Certificate {
   }
 
   toString(): string {
-    notImplemented("crypto.X509Certificate.prototype.toString");
+    return op_node_x509_to_string(this.#handle);
   }
 
   get validFrom(): string {
@@ -191,8 +193,14 @@ export class X509Certificate {
     return op_node_x509_get_valid_to(this.#handle);
   }
 
-  verify(_publicKey: KeyObject): boolean {
-    notImplemented("crypto.X509Certificate.prototype.verify");
+  verify(publicKey: KeyObject): boolean {
+    if (!(publicKey instanceof KeyObject)) {
+      throw new ERR_INVALID_ARG_TYPE("publicKey", "KeyObject", publicKey);
+    }
+    return op_node_x509_verify(
+      this.#handle,
+      getKeyObjectHandle(publicKey, kConsumePublic),
+    );
   }
 }
 

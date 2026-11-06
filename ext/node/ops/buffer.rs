@@ -43,9 +43,13 @@ fn latin1_ascii_to_utf16le(source: &[u8]) -> Vec<u8> {
 }
 
 fn utf16le_to_utf8(source: &[u8]) -> Result<Vec<u8>> {
+  // Only complete code units are converted; a trailing odd byte is dropped,
+  // matching Node.js and upstream Deno.
   let ucs2_vec: Vec<u16> = source
-    .chunks(2)
-    .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+    .as_chunks::<2>()
+    .0
+    .iter()
+    .map(|chunk| u16::from_le_bytes(*chunk))
     .collect();
   String::from_utf16(&ucs2_vec)
     .map(|utf8_string| utf8_string.into_bytes())
@@ -116,4 +120,25 @@ fn utf8_to_ascii(source: &[u8]) -> Vec<u8> {
     }
   }
   ascii_bytes
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  // Regression: an odd-length utf16le buffer used to index out of bounds on
+  // the final 1-byte chunk and panic. The op runs on the V8 extern "C" path,
+  // so that panic aborts the whole runtime process instead of returning a JS
+  // error. Matches Node/Deno: the incomplete trailing code unit is dropped.
+  #[test]
+  fn utf16le_to_utf8_odd_length_does_not_panic() {
+    let out = utf16le_to_utf8(&[0x41, 0x00, 0x42]).unwrap();
+    assert_eq!(out, b"A");
+  }
+
+  #[test]
+  fn utf16le_to_utf8_even_length_unchanged() {
+    let out = utf16le_to_utf8(&[0x41, 0x00, 0x42, 0x00]).unwrap();
+    assert_eq!(out, b"AB");
+  }
 }

@@ -582,7 +582,7 @@ fn scrypt(
     parallelization,
     keylen as usize,
   )
-  .unwrap();
+  .map_err(|_| generic_error("Invalid scrypt param"))?;
 
   // Call into scrypt
   let res = scrypt::scrypt(&password, &salt, &params, output_buffer);
@@ -1076,4 +1076,57 @@ pub fn op_node_verify_ed25519(
   .is_ok();
 
   Ok(verified)
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+  }
+
+  fn run_scrypt(
+    keylen: u32,
+    log_n: u32,
+    r: u32,
+    p: u32,
+  ) -> Result<Vec<u8>, deno_core::error::AnyError> {
+    let mut out = vec![0u8; keylen as usize];
+    super::scrypt(
+      StringOrBuffer::String("password".into()),
+      StringOrBuffer::String("salt".into()),
+      keylen,
+      log_n,
+      r,
+      p,
+      32 << 20,
+      &mut out,
+    )?;
+    Ok(out)
+  }
+
+  // Regression: `scrypt::Params::new` used to be `unwrap()`ed, so parameters
+  // that pass the JS layer but fail the crate's validation panicked inside a
+  // sync op. Ops run on the V8 extern "C" path, so that panic aborts the whole
+  // runtime process instead of surfacing as a JS error.
+  #[test]
+  fn scrypt_invalid_params_return_error_instead_of_panicking() {
+    // keylen 128 passes `Buffer.alloc` in JS but is outside the output
+    // length the scrypt crate accepts (10..=64).
+    assert!(run_scrypt(128, 14, 8, 1).is_err());
+    // N = 2^16 with r = 1 violates N < 2^(16 * r); Node rejects it with
+    // ERR_CRYPTO_INVALID_SCRYPT_PARAMS.
+    assert!(run_scrypt(32, 16, 1, 1).is_err());
+  }
+
+  #[test]
+  fn scrypt_valid_params_unchanged() {
+    // Node.js: crypto.scryptSync("password", "salt", 32) with default options
+    // (N = 16384, r = 8, p = 1).
+    assert_eq!(
+      hex(&run_scrypt(32, 14, 8, 1).unwrap()),
+      "745731af4484f323968969eda289aeee005b5903ac561e64a5aca121797bf773"
+    );
+  }
 }

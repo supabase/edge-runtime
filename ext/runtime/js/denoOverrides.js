@@ -90,6 +90,7 @@ const fsVars = {
 };
 
 const ioVars = {
+  SeekMode: io.SeekMode,
   stdout: io.stdout,
   stderr: io.stderr,
   stdin: io.stdin,

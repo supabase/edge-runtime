@@ -7,8 +7,10 @@ const ONNX_DEPRECATION_MESSAGE =
 const warnedOnnxEntryPoints = new Set();
 
 /**
- * Warns once per worker per entry point, so the user's function logs show
- * which ONNX API they are calling without repeating on every invocation.
+ * Warns once per worker per entry point when a model is run, so the user's
+ * function logs show which ONNX API they are calling without repeating on
+ * every invocation. Creating a session alone does not warn: the main worker
+ * creates one to warm the model cache, which is not user usage.
  * @param {string} entryPoint
  */
 export function warnOnnxUsage(entryPoint) {
@@ -98,8 +100,6 @@ class InferenceSession {
   }
 
   static async fromBuffer(modelBuffer) {
-    warnOnnxUsage("onnxruntime InferenceSession.create");
-
     const [id, inputs, outputs] = await core.ops.op_ai_ort_init_session(
       modelBuffer,
     );
@@ -108,6 +108,8 @@ class InferenceSession {
   }
 
   async run(inputs) {
+    warnOnnxUsage("onnxruntime InferenceSession.run");
+
     const sessionInputs = {};
 
     for (const key in inputs) {

@@ -3678,7 +3678,7 @@ async fn test_supabase_ai_gte() {
   assert_eq!(resp.status().as_u16(), StatusCode::OK);
 
   tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
-  assert_onnx_usage_warned(rx, r#"Supabase.ai.Session("gte-small")"#).await;
+  assert_onnx_usage_warned(rx, r#"Supabase.ai.Session("gte-small").run"#).await;
 }
 
 async fn assert_onnx_usage_warned(
@@ -3727,7 +3727,7 @@ async fn test_ort_string_tensor() {
   assert_eq!(resp.status().as_u16(), StatusCode::OK);
 
   tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
-  assert_onnx_usage_warned(rx, "onnxruntime InferenceSession.create").await;
+  assert_onnx_usage_warned(rx, "onnxruntime InferenceSession.run").await;
 }
 
 // -- ext_ai: ORT @huggingface/transformers

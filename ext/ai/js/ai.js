@@ -94,7 +94,6 @@ class Session {
     this.is_ext_inference_api = false;
 
     if (model === "gte-small") {
-      warnOnnxUsage(`Supabase.ai.Session("${model}")`);
       this.init = core.ops.op_ai_init_model(model);
     } else {
       this.inferenceAPIHost = core.ops.op_get_env("AI_INFERENCE_API_HOST");
@@ -238,6 +237,8 @@ class Session {
     if (this.init) {
       await this.init;
     }
+
+    warnOnnxUsage(`Supabase.ai.Session("${this.model}").run`);
 
     const mean_pool = opts.mean_pool ?? true;
     const normalize = opts.normalize ?? true;

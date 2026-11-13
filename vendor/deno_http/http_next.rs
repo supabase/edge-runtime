@@ -20,7 +20,7 @@ use crate::websocket_upgrade::WebSocketUpgrade;
 use crate::LocalExecutor;
 use crate::Options;
 use cache_control::CacheControl;
-use deno_core::external;
+use deno_core::error::bad_resource_id;
 use deno_core::futures::future::poll_fn;
 use deno_core::futures::TryFutureExt;
 use deno_core::op2;
@@ -35,7 +35,6 @@ use deno_core::ByteString;
 use deno_core::CancelFuture;
 use deno_core::CancelHandle;
 use deno_core::CancelTryFuture;
-use deno_core::ExternalPointer;
 use deno_core::JsBuffer;
 use deno_core::OpState;
 use deno_core::RcRef;
@@ -65,6 +64,7 @@ use once_cell::sync::Lazy;
 use smallvec::SmallVec;
 use std::borrow::Cow;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::ffi::c_void;
 use std::future::Future;
 use std::io;
@@ -121,28 +121,56 @@ impl<
 {
 }
 
-#[repr(transparent)]
-struct RcHttpRecord(Rc<HttpRecord>);
+/// Records handed out to JavaScript, keyed by the handle stored in their
+/// `v8::External`. The handle is an id that is never reused rather than a
+/// pointer, so a handle that was already consumed resolves to nothing.
+#[derive(Default)]
+pub(crate) struct HttpRecordHandles {
+  next_id: usize,
+  records: HashMap<usize, Rc<HttpRecord>>,
+}
 
-// Register the [`HttpRecord`] as an external.
-external!(RcHttpRecord, "http record");
+impl HttpRecordHandles {
+  fn insert(&mut self, record: Rc<HttpRecord>) -> *const c_void {
+    self.next_id += 1;
+    self.records.insert(self.next_id, record);
+    self.next_id as *const c_void
+  }
+}
 
-/// Construct Rc<HttpRecord> from raw external pointer, consuming
-/// refcount. You must make sure the external is deleted on the JS side.
+impl Drop for HttpRecordHandles {
+  fn drop(&mut self) {
+    // Records that JavaScript still holds when the runtime goes away were
+    // never released before either. Releasing them here would run their
+    // destructors while the `OpState` is mutably borrowed.
+    for (_, record) in self.records.drain() {
+      std::mem::forget(record);
+    }
+  }
+}
+
+/// Take the Rc<HttpRecord> behind a handle, invalidating the handle.
 macro_rules! take_external {
-  ($external:expr, $args:tt) => {{
-    let ptr = ExternalPointer::<RcHttpRecord>::from_raw($external);
-    let record = ptr.unsafely_take().0;
+  ($state:expr, $external:expr, $args:tt) => {{
+    let record = $state
+      .borrow_mut::<HttpRecordHandles>()
+      .records
+      .remove(&($external as usize))
+      .ok_or_else(|| HttpNextError::Resource(bad_resource_id()))?;
     http_trace!(record, $args);
     record
   }};
 }
 
-/// Clone Rc<HttpRecord> from raw external pointer.
+/// Clone the Rc<HttpRecord> behind a handle.
 macro_rules! clone_external {
-  ($external:expr, $args:tt) => {{
-    let ptr = ExternalPointer::<RcHttpRecord>::from_raw($external);
-    ptr.unsafely_deref().0.clone()
+  ($state:expr, $external:expr) => {{
+    $state
+      .borrow::<HttpRecordHandles>()
+      .records
+      .get(&($external as usize))
+      .cloned()
+      .ok_or_else(|| HttpNextError::Resource(bad_resource_id()))?
   }};
 }
 
@@ -172,8 +200,7 @@ pub fn op_http_upgrade_raw(
   state: &mut OpState,
   external: *const c_void,
 ) -> Result<ResourceId, HttpNextError> {
-  // SAFETY: external is deleted before calling this op.
-  let http = unsafe { take_external!(external, "op_http_upgrade_raw") };
+  let http = take_external!(state, external, "op_http_upgrade_raw");
 
   // Stage 1: extract the upgrade future
   let upgrade = http.upgrade()?;
@@ -244,9 +271,11 @@ pub async fn op_http_upgrade_websocket_next(
   external: *const c_void,
   #[serde] headers: Vec<(ByteString, ByteString)>,
 ) -> Result<ResourceId, HttpNextError> {
-  let http =
-    // SAFETY: external is deleted before calling this op.
-    unsafe { take_external!(external, "op_http_upgrade_websocket_next") };
+  let http = take_external!(
+    state.borrow_mut(),
+    external,
+    "op_http_upgrade_websocket_next"
+  );
   // Stage 1: set the response to 101 Switching Protocols and send it
   let upgrade = http.upgrade()?;
   {
@@ -274,11 +303,18 @@ pub async fn op_http_upgrade_websocket_next(
 }
 
 #[op2(fast)]
-pub fn op_http_set_promise_complete(external: *const c_void, status: u16) {
-  let http =
-    // SAFETY: external is deleted before calling this op.
-    unsafe { take_external!(external, "op_http_set_promise_complete") };
+pub fn op_http_set_promise_complete(
+  state: Rc<RefCell<OpState>>,
+  external: *const c_void,
+  status: u16,
+) -> Result<(), HttpNextError> {
+  let http = take_external!(
+    state.borrow_mut(),
+    external,
+    "op_http_set_promise_complete"
+  );
   set_promise_complete(http, status);
+  Ok(())
 }
 
 fn set_promise_complete(http: Rc<HttpRecord>, status: u16) {
@@ -293,14 +329,13 @@ fn set_promise_complete(http: Rc<HttpRecord>, status: u16) {
 #[op2]
 pub fn op_http_get_request_method_and_url<'scope, HTTP>(
   scope: &mut v8::HandleScope<'scope>,
+  state: Rc<RefCell<OpState>>,
   external: *const c_void,
-) -> v8::Local<'scope, v8::Array>
+) -> Result<v8::Local<'scope, v8::Array>, HttpNextError>
 where
   HTTP: HttpPropertyExtractor,
 {
-  let http =
-    // SAFETY: op is called with external.
-    unsafe { clone_external!(external, "op_http_get_request_method_and_url") };
+  let http = clone_external!(state.borrow(), external);
   let request_info = http.request_info();
   let request_parts = http.request_parts();
   let request_properties = HTTP::request_properties(
@@ -363,31 +398,29 @@ where
   };
 
   let vec = [method, authority, path, peer_address, port];
-  v8::Array::new_with_elements(scope, vec.as_slice())
+  Ok(v8::Array::new_with_elements(scope, vec.as_slice()))
 }
 
 #[op2]
 #[serde]
 pub fn op_http_get_request_header(
+  state: Rc<RefCell<OpState>>,
   external: *const c_void,
   #[string] name: String,
-) -> Option<ByteString> {
-  let http =
-    // SAFETY: op is called with external.
-    unsafe { clone_external!(external, "op_http_get_request_header") };
+) -> Result<Option<ByteString>, HttpNextError> {
+  let http = clone_external!(state.borrow(), external);
   let request_parts = http.request_parts();
   let value = request_parts.headers.get(name);
-  value.map(|value| value.as_bytes().into())
+  Ok(value.map(|value| value.as_bytes().into()))
 }
 
 #[op2]
 pub fn op_http_get_request_headers<'scope>(
   scope: &mut v8::HandleScope<'scope>,
+  state: Rc<RefCell<OpState>>,
   external: *const c_void,
-) -> v8::Local<'scope, v8::Array> {
-  let http =
-    // SAFETY: op is called with external.
-    unsafe { clone_external!(external, "op_http_get_request_headers") };
+) -> Result<v8::Local<'scope, v8::Array>, HttpNextError> {
+  let http = clone_external!(state.borrow(), external);
   let headers = &http.request_parts().headers;
   // Two slots for each header key/value pair
   let mut vec: SmallVec<[v8::Local<v8::Value>; 32]> =
@@ -447,7 +480,7 @@ pub fn op_http_get_request_headers<'scope>(
     );
   }
 
-  v8::Array::new_with_elements(scope, vec.as_slice())
+  Ok(v8::Array::new_with_elements(scope, vec.as_slice()))
 }
 
 #[op2(fast)]
@@ -455,10 +488,8 @@ pub fn op_http_get_request_headers<'scope>(
 pub fn op_http_read_request_body(
   state: Rc<RefCell<OpState>>,
   external: *const c_void,
-) -> ResourceId {
-  let http =
-    // SAFETY: op is called with external.
-    unsafe { clone_external!(external, "op_http_read_request_body") };
+) -> Result<ResourceId, HttpNextError> {
+  let http = clone_external!(state.borrow(), external);
   let rid = if let Some(incoming) = http.take_request_body() {
     let body_resource = Rc::new(HttpRequestBody::new(incoming));
     state.borrow_mut().resource_table.add_rc(body_resource)
@@ -468,18 +499,17 @@ pub fn op_http_read_request_body(
     ResourceId::MAX
   };
   http.put_resource(HttpRequestBodyAutocloser::new(rid, state.clone()));
-  rid
+  Ok(rid)
 }
 
 #[op2(fast)]
 pub fn op_http_set_response_header(
+  state: Rc<RefCell<OpState>>,
   external: *const c_void,
   #[string(onebyte)] name: Cow<[u8]>,
   #[string(onebyte)] value: Cow<[u8]>,
-) {
-  let http =
-    // SAFETY: op is called with external.
-    unsafe { clone_external!(external, "op_http_set_response_header") };
+) -> Result<(), HttpNextError> {
+  let http = clone_external!(state.borrow(), external);
   let mut response_parts = http.response_parts();
   // These are valid latin-1 strings
   let name = HeaderName::from_bytes(&name).unwrap();
@@ -491,17 +521,17 @@ pub fn op_http_set_response_header(
     },
   };
   response_parts.headers.append(name, value);
+  Ok(())
 }
 
 #[op2(fast)]
 pub fn op_http_set_response_headers(
   scope: &mut v8::HandleScope,
+  state: Rc<RefCell<OpState>>,
   external: *const c_void,
   headers: v8::Local<v8::Array>,
-) {
-  let http =
-    // SAFETY: op is called with external.
-    unsafe { clone_external!(external, "op_http_set_response_headers") };
+) -> Result<(), HttpNextError> {
+  let http = clone_external!(state.borrow(), external);
   // TODO(mmastrac): Invalid headers should be handled?
   let mut response_parts = http.response_parts();
 
@@ -525,16 +555,16 @@ pub fn op_http_set_response_headers(
       unsafe { HeaderValue::from_maybe_shared_unchecked(v8_value) };
     response_parts.headers.append(header_name, header_value);
   }
+  Ok(())
 }
 
 #[op2]
 pub fn op_http_set_response_trailers(
+  state: Rc<RefCell<OpState>>,
   external: *const c_void,
   #[serde] trailers: Vec<(ByteString, ByteString)>,
-) {
-  let http =
-    // SAFETY: op is called with external.
-    unsafe { clone_external!(external, "op_http_set_response_trailers") };
+) -> Result<(), HttpNextError> {
+  let http = clone_external!(state.borrow(), external);
   let mut trailer_map: HeaderMap = HeaderMap::with_capacity(trailers.len());
   for (name, value) in trailers {
     // These are valid latin-1 strings
@@ -544,6 +574,7 @@ pub fn op_http_set_response_trailers(
     trailer_map.append(name, value);
   }
   *http.trailers() = Some(trailer_map);
+  Ok(())
 }
 
 fn is_request_compressible(
@@ -703,24 +734,27 @@ fn set_response(
 }
 
 #[op2(fast)]
-pub fn op_http_get_request_cancelled(external: *const c_void) -> bool {
-  let http =
-    // SAFETY: op is called with external.
-    unsafe { clone_external!(external, "op_http_get_request_cancelled") };
-  http.cancelled()
+pub fn op_http_get_request_cancelled(
+  state: Rc<RefCell<OpState>>,
+  external: *const c_void,
+) -> Result<bool, HttpNextError> {
+  let http = clone_external!(state.borrow(), external);
+  Ok(http.cancelled())
 }
 
 #[op2(async)]
-pub async fn op_http_request_on_cancel(external: *const c_void) {
-  let http =
-    // SAFETY: op is called with external.
-    unsafe { clone_external!(external, "op_http_request_on_cancel") };
+pub async fn op_http_request_on_cancel(
+  state: Rc<RefCell<OpState>>,
+  external: *const c_void,
+) -> Result<(), HttpNextError> {
+  let http = clone_external!(state.borrow(), external);
   let (tx, rx) = tokio::sync::oneshot::channel();
 
   http.on_cancel(tx);
   drop(http);
 
   rx.await.ok();
+  Ok(())
 }
 
 /// Returned promise resolves when body streaming finishes.
@@ -733,9 +767,7 @@ pub async fn op_http_set_response_body_resource(
   auto_close: bool,
   status: u16,
 ) -> Result<bool, HttpNextError> {
-  let http =
-    // SAFETY: op is called with external.
-    unsafe { clone_external!(external, "op_http_set_response_body_resource") };
+  let http = clone_external!(state.borrow(), external);
 
   // IMPORTANT: We might end up requiring the OpState lock in set_response if we need to drop the request
   // body resource so we _cannot_ hold the OpState lock longer than necessary.
@@ -775,22 +807,28 @@ pub async fn op_http_set_response_body_resource(
 }
 
 #[op2(fast)]
-pub fn op_http_close_after_finish(external: *const c_void) {
+pub fn op_http_close_after_finish(
+  state: Rc<RefCell<OpState>>,
+  external: *const c_void,
+) -> Result<(), HttpNextError> {
   let http =
-    // SAFETY: external is deleted before calling this op.
-    unsafe { take_external!(external, "op_http_close_after_finish") };
+    take_external!(state.borrow_mut(), external, "op_http_close_after_finish");
   http.close_after_finish();
+  Ok(())
 }
 
 #[op2(fast)]
 pub fn op_http_set_response_body_text(
+  state: Rc<RefCell<OpState>>,
   external: *const c_void,
   #[string] text: String,
   status: u16,
-) {
-  let http =
-    // SAFETY: external is deleted before calling this op.
-    unsafe { take_external!(external, "op_http_set_response_body_text") };
+) -> Result<(), HttpNextError> {
+  let http = take_external!(
+    state.borrow_mut(),
+    external,
+    "op_http_set_response_body_text"
+  );
   if !text.is_empty() {
     set_response(http, Some(text.len()), status, false, |compression| {
       ResponseBytesInner::from_vec(compression, text.into_bytes())
@@ -798,17 +836,21 @@ pub fn op_http_set_response_body_text(
   } else {
     set_promise_complete(http, status);
   }
+  Ok(())
 }
 
 #[op2]
 pub fn op_http_set_response_body_bytes(
+  state: Rc<RefCell<OpState>>,
   external: *const c_void,
   #[buffer] buffer: JsBuffer,
   status: u16,
-) {
-  let http =
-    // SAFETY: external is deleted before calling this op.
-    unsafe { take_external!(external, "op_http_set_response_body_bytes") };
+) -> Result<(), HttpNextError> {
+  let http = take_external!(
+    state.borrow_mut(),
+    external,
+    "op_http_set_response_body_bytes"
+  );
   if !buffer.is_empty() {
     set_response(http, Some(buffer.len()), status, false, |compression| {
       ResponseBytesInner::from_bufview(compression, BufView::from(buffer))
@@ -816,6 +858,7 @@ pub fn op_http_set_response_body_bytes(
   } else {
     set_promise_complete(http, status);
   }
+  Ok(())
 }
 
 fn serve_http11_unconditional(
@@ -1177,8 +1220,7 @@ pub fn op_http_try_wait(
     return null();
   };
 
-  let ptr = ExternalPointer::new(RcHttpRecord(record));
-  ptr.into_raw()
+  state.borrow_mut::<HttpRecordHandles>().insert(record)
 }
 
 #[op2(async)]
@@ -1204,8 +1246,12 @@ pub async fn op_http_wait(
 
   // Do we have a request?
   if let Some(record) = next {
-    let ptr = ExternalPointer::new(RcHttpRecord(record));
-    return Ok(ptr.into_raw());
+    return Ok(
+      state
+        .borrow_mut()
+        .borrow_mut::<HttpRecordHandles>()
+        .insert(record),
+    );
   }
 
   // No - we're shutting down

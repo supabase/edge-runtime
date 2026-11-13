@@ -11,6 +11,14 @@
     }
   ],
   "plugins": [
+    [
+      "@semantic-release/commit-analyzer",
+      {
+        "releaseRules": [
+          { "type": "refactor", "release": "patch" }
+        ]
+      }
+    ],
     "@semantic-release/release-notes-generator",
     "@semantic-release/github"
   ]

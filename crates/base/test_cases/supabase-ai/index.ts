@@ -1,6 +1,8 @@
 import { assertGreater, assertLessOrEqual } from "jsr:@std/assert";
 
 const session = new Supabase.ai.Session("gte-small");
+// A second session in the same worker must not repeat the ONNX usage warning.
+await new Supabase.ai.Session("gte-small").init;
 
 function dotProduct(a: number[], b: number[]) {
   let result = 0;

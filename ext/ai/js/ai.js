@@ -1,4 +1,4 @@
-import "ext:ai/onnxruntime/onnx.js";
+import { warnOnnxUsage } from "ext:ai/onnxruntime/onnx.js";
 import EventSourceStream from "ext:ai/util/event_source_stream.mjs";
 
 const core = globalThis.Deno.core;
@@ -94,6 +94,7 @@ class Session {
     this.is_ext_inference_api = false;
 
     if (model === "gte-small") {
+      warnOnnxUsage(`Supabase.ai.Session("${model}")`);
       this.init = core.ops.op_ai_init_model(model);
     } else {
       this.inferenceAPIHost = core.ops.op_get_env("AI_INFERENCE_API_HOST");

@@ -1,5 +1,24 @@
 const core = globalThis.Deno.core;
 
+const ONNX_DEPRECATION_MESSAGE =
+  "Built-in ONNX inference is being considered for deprecation. " +
+  "If you rely on it, consider moving to an external embeddings or inference API.";
+
+const warnedOnnxEntryPoints = new Set();
+
+/**
+ * Warns once per worker per entry point, so the user's function logs show
+ * which ONNX API they are calling without repeating on every invocation.
+ * @param {string} entryPoint
+ */
+export function warnOnnxUsage(entryPoint) {
+  if (warnedOnnxEntryPoints.has(entryPoint)) {
+    return;
+  }
+  warnedOnnxEntryPoints.add(entryPoint);
+  globalThis.console.warn(`${ONNX_DEPRECATION_MESSAGE} (used: ${entryPoint})`);
+}
+
 const DataTypeMap = Object.freeze({
   float32: Float32Array,
   float64: Float64Array,
@@ -79,6 +98,8 @@ class InferenceSession {
   }
 
   static async fromBuffer(modelBuffer) {
+    warnOnnxUsage("onnxruntime InferenceSession.create");
+
     const [id, inputs, outputs] = await core.ops.op_ai_ort_init_session(
       modelBuffer,
     );

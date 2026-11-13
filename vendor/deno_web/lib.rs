@@ -126,6 +126,7 @@ deno_core::extension!(deno_web,
       state.put(Location(location));
     }
     state.put(StartTime::default());
+    state.put(stream_resource::StreamResourceSinks::default());
   }
 );
 

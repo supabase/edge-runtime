@@ -1,6 +1,5 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 use bytes::BytesMut;
-use deno_core::external;
 use deno_core::op2;
 use deno_core::serde_v8::V8Slice;
 use deno_core::unsync::TaskQueue;
@@ -8,7 +7,6 @@ use deno_core::AsyncResult;
 use deno_core::BufView;
 use deno_core::CancelFuture;
 use deno_core::CancelHandle;
-use deno_core::ExternalPointer;
 use deno_core::JsBuffer;
 use deno_core::OpState;
 use deno_core::RcLike;
@@ -20,6 +18,7 @@ use futures::TryFutureExt;
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::cell::RefMut;
+use std::collections::HashMap;
 use std::ffi::c_void;
 use std::future::Future;
 use std::marker::PhantomData;
@@ -505,34 +504,61 @@ pub fn op_readable_stream_resource_get_sink(
   else {
     return std::ptr::null();
   };
-  ExternalPointer::new(resource.channel.clone()).into_raw()
+  state
+    .borrow_mut::<StreamResourceSinks>()
+    .insert(resource.channel.clone())
 }
 
-external!(BoundedBufferChannel, "stream resource channel");
+/// Sinks handed out to JavaScript, keyed by the handle stored in their
+/// `v8::External`. The handle is an id that is never reused rather than a
+/// pointer, so a handle that was already closed resolves to nothing.
+#[derive(Default)]
+pub struct StreamResourceSinks {
+  next_id: usize,
+  sinks: HashMap<usize, BoundedBufferChannel>,
+}
 
-fn get_sender(sender: *const c_void) -> BoundedBufferChannel {
-  // SAFETY: We know this is a valid v8::External
-  unsafe {
-    ExternalPointer::<BoundedBufferChannel>::from_raw(sender)
-      .unsafely_deref()
-      .clone()
+impl StreamResourceSinks {
+  fn insert(&mut self, sink: BoundedBufferChannel) -> *const c_void {
+    self.next_id += 1;
+    self.sinks.insert(self.next_id, sink);
+    self.next_id as *const c_void
   }
 }
 
-fn drop_sender(sender: *const c_void) {
-  // SAFETY: We know this is a valid v8::External
-  unsafe {
-    ExternalPointer::<BoundedBufferChannel>::from_raw(sender).unsafely_take();
-  }
+/// Returns `None` if the sink has already been closed.
+fn get_sender(
+  state: &OpState,
+  sender: *const c_void,
+) -> Option<BoundedBufferChannel> {
+  state
+    .borrow::<StreamResourceSinks>()
+    .sinks
+    .get(&(sender as usize))
+    .cloned()
+}
+
+fn drop_sender(
+  state: &mut OpState,
+  sender: *const c_void,
+) -> Option<BoundedBufferChannel> {
+  state
+    .borrow_mut::<StreamResourceSinks>()
+    .sinks
+    .remove(&(sender as usize))
 }
 
 #[op2(async)]
 pub fn op_readable_stream_resource_write_buf(
+  state: &OpState,
   sender: *const c_void,
   #[buffer] buffer: JsBuffer,
 ) -> impl Future<Output = bool> {
-  let sender = get_sender(sender);
+  let sender = get_sender(state, sender);
   async move {
+    let Some(sender) = sender else {
+      return false;
+    };
     poll_fn(|cx| sender.poll_write_ready(cx)).await;
     sender.write(buffer.into_parts()).unwrap();
     !sender.closed()
@@ -543,10 +569,13 @@ pub fn op_readable_stream_resource_write_buf(
 /// successfully, 2 if the channel was full and we need to block.
 #[op2]
 pub fn op_readable_stream_resource_write_sync(
+  state: &OpState,
   sender: *const c_void,
   #[buffer] buffer: JsBuffer,
 ) -> u32 {
-  let sender = get_sender(sender);
+  let Some(sender) = get_sender(state, sender) else {
+    return 0;
+  };
   if sender.can_write() {
     if sender.closed() {
       0
@@ -561,10 +590,13 @@ pub fn op_readable_stream_resource_write_sync(
 
 #[op2(fast)]
 pub fn op_readable_stream_resource_write_error(
+  state: &OpState,
   sender: *const c_void,
   #[string] error: String,
 ) -> bool {
-  let sender = get_sender(sender);
+  let Some(sender) = get_sender(state, sender) else {
+    return false;
+  };
   // We can always write an error, no polling required
   sender.write_error(StreamResourceError::Js(error));
   !sender.closed()
@@ -572,9 +604,13 @@ pub fn op_readable_stream_resource_write_error(
 
 #[op2(fast)]
 #[smi]
-pub fn op_readable_stream_resource_close(sender: *const c_void) {
-  get_sender(sender).close();
-  drop_sender(sender);
+pub fn op_readable_stream_resource_close(
+  state: &mut OpState,
+  sender: *const c_void,
+) {
+  if let Some(sender) = drop_sender(state, sender) {
+    sender.close();
+  }
 }
 
 #[op2(async)]

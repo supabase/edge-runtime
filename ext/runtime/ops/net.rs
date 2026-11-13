@@ -38,6 +38,10 @@ deno_core::extension!(
       op.with_implementation_from(&op_net_unsupported()),
     "op_node_unstable_net_listen_unixpacket" =>
       op.with_implementation_from(&op_net_unsupported()),
+
+    // there are no windows to draw on
+    "op_webgpu_surface_create" =>
+      op.with_implementation_from(&op_net_unsupported()),
     _ => op,
   }
 );

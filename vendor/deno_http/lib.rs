@@ -161,6 +161,7 @@ deno_core::extension!(
   },
   state = |state, options| {
     state.put::<Options>(options.options);
+    state.put(http_next::HttpRecordHandles::default());
   }
 );
 

@@ -3659,8 +3659,10 @@ async fn test_deno_workspace() {
 #[tokio::test]
 #[serial]
 async fn test_supabase_ai_gte() {
+  let (tx, rx) = mpsc::unbounded_channel();
   let tb = TestBedBuilder::new("./test_cases/main")
     .with_per_worker_policy(None)
+    .with_worker_event_sender(Some(tx))
     .build()
     .await;
 
@@ -3674,6 +3676,29 @@ async fn test_supabase_ai_gte() {
     .unwrap();
 
   assert_eq!(resp.status().as_u16(), StatusCode::OK);
+
+  tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
+  assert_onnx_usage_warned(rx, r#"Supabase.ai.Session("gte-small").run"#).await;
+}
+
+async fn assert_onnx_usage_warned(
+  mut rx: mpsc::UnboundedReceiver<WorkerEventWithMetadata>,
+  entry_point: &str,
+) {
+  let mut count = 0;
+  while let Some(ev) = rx.recv().await {
+    let WorkerEvents::Log(ev) = ev.event else {
+      continue;
+    };
+    if ev.level == LogLevel::Warning
+      && ev.msg.contains("considered for deprecation")
+      && ev.msg.contains(entry_point)
+    {
+      count += 1;
+    }
+  }
+
+  assert_eq!(count, 1, "expected exactly one ONNX usage warning");
 }
 
 // -- ext_ai: ORT base api
@@ -3683,8 +3708,10 @@ async fn test_ort_string_tensor() {
   let base_path = "./test_cases/ai-ort-rust-backend";
   let main_path = format!("{}/main", base_path);
 
+  let (tx, rx) = mpsc::unbounded_channel();
   let tb = TestBedBuilder::new(main_path)
     .with_per_worker_policy(None)
+    .with_worker_event_sender(Some(tx))
     .build()
     .await;
 
@@ -3698,6 +3725,9 @@ async fn test_ort_string_tensor() {
     .unwrap();
 
   assert_eq!(resp.status().as_u16(), StatusCode::OK);
+
+  tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
+  assert_onnx_usage_warned(rx, "onnxruntime InferenceSession.run").await;
 }
 
 // -- ext_ai: ORT @huggingface/transformers

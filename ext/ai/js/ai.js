@@ -1,4 +1,4 @@
-import "ext:ai/onnxruntime/onnx.js";
+import { warnOnnxUsage } from "ext:ai/onnxruntime/onnx.js";
 import EventSourceStream from "ext:ai/util/event_source_stream.mjs";
 
 const core = globalThis.Deno.core;
@@ -237,6 +237,8 @@ class Session {
     if (this.init) {
       await this.init;
     }
+
+    warnOnnxUsage(`Supabase.ai.Session("${this.model}").run`);
 
     const mean_pool = opts.mean_pool ?? true;
     const normalize = opts.normalize ?? true;

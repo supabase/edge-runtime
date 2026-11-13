@@ -228,6 +228,7 @@ v8 = { git = "https://github.com/supabase/rusty_v8", tag = "v130.0.7-patch.1" }
 deno_unsync = { path = "./vendor/deno_unsync" }
 deno_crypto = { path = "./vendor/deno_crypto" }
 deno_tls = { path = "./vendor/deno_tls" }
+deno_web = { path = "./vendor/deno_web" }
 deno_fetch = { path = "./vendor/deno_fetch" }
 deno_telemetry = { path = "./vendor/deno_telemetry" }
 deno_http = { path = "./vendor/deno_http" }

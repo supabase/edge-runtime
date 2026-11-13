@@ -2604,8 +2604,6 @@ dependencies = [
 [[package]]
 name = "deno_web"
 version = "0.213.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f1486b7a6d5cac668cde67d406a13cdfa3682b12259500f140ef227def805e5"
 dependencies = [
  "async-trait",
  "base64-simd 0.8.0",

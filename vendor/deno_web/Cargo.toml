@@ -1,0 +1,28 @@
+# Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+
+[package]
+name = "deno_web"
+version = "0.213.0"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+readme = "README.md"
+repository.workspace = true
+description = "Collection of Web APIs"
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+async-trait = "0.1.73"
+base64-simd = "0.8"
+bytes = "1.4.0"
+deno_core.workspace = true
+deno_permissions = "0.42.0"
+encoding_rs = "=0.8.33"
+flate2 = { version = "1.0.30", default-features = false, features = ["default"] }
+futures = "0.3.21"
+serde = "1.0.149"
+thiserror = "2.0.3"
+tokio = { version = "1.36.0", features = ["full"] }
+uuid = { version = "1.3.0", features = ["v4", "serde"] }

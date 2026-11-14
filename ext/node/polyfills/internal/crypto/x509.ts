@@ -7,10 +7,13 @@
 import {
   op_node_x509_ca,
   op_node_x509_check_email,
+  op_node_x509_check_issued,
   op_node_x509_fingerprint,
   op_node_x509_fingerprint256,
   op_node_x509_fingerprint512,
+  op_node_x509_get_info_access,
   op_node_x509_get_issuer,
+  op_node_x509_get_raw,
   op_node_x509_get_serial_number,
   op_node_x509_get_subject,
   op_node_x509_get_valid_from,
@@ -18,6 +21,8 @@ import {
   op_node_x509_key_usage,
   op_node_x509_parse,
   op_node_x509_public_key,
+  op_node_x509_to_string,
+  op_node_x509_verify,
 } from "ext:core/ops";
 
 import {
@@ -25,7 +30,11 @@ import {
   PublicKeyObject,
 } from "ext:deno_node/internal/crypto/keys.ts";
 import { Buffer } from "node:buffer";
-import { ERR_INVALID_ARG_TYPE } from "ext:deno_node/internal/errors.ts";
+import {
+  ERR_INVALID_ARG_TYPE,
+  ERR_INVALID_ARG_VALUE,
+} from "ext:deno_node/internal/errors.ts";
+import { kHandle } from "ext:deno_node/internal/crypto/constants.ts";
 import { isArrayBufferView } from "ext:deno_node/internal/util/types.ts";
 import { validateString } from "ext:deno_node/internal/validators.mjs";
 import { notImplemented } from "ext:deno_node/_utils.ts";
@@ -98,8 +107,11 @@ export class X509Certificate {
     notImplemented("crypto.X509Certificate.prototype.checkIP");
   }
 
-  checkIssued(_otherCert: X509Certificate): boolean {
-    notImplemented("crypto.X509Certificate.prototype.checkIssued");
+  checkIssued(otherCert: X509Certificate): boolean {
+    if (!(otherCert instanceof X509Certificate)) {
+      throw new ERR_INVALID_ARG_TYPE("otherCert", "X509Certificate", otherCert);
+    }
+    return op_node_x509_check_issued(this.#handle, otherCert.#handle);
   }
 
   checkPrivateKey(_privateKey: KeyObject): boolean {
@@ -119,9 +131,7 @@ export class X509Certificate {
   }
 
   get infoAccess(): string | undefined {
-    notImplemented("crypto.X509Certificate.prototype.infoAccess");
-
-    return "";
+    return op_node_x509_get_info_access(this.#handle) ?? undefined;
   }
 
   get issuer(): string {
@@ -154,9 +164,7 @@ export class X509Certificate {
   }
 
   get raw(): Buffer {
-    notImplemented("crypto.X509Certificate.prototype.raw");
-
-    return {} as Buffer;
+    return Buffer.from(op_node_x509_get_raw(this.#handle));
   }
 
   get serialNumber(): string {
@@ -180,7 +188,7 @@ export class X509Certificate {
   }
 
   toString(): string {
-    notImplemented("crypto.X509Certificate.prototype.toString");
+    return op_node_x509_to_string(this.#handle);
   }
 
   get validFrom(): string {
@@ -191,8 +199,18 @@ export class X509Certificate {
     return op_node_x509_get_valid_to(this.#handle);
   }
 
-  verify(_publicKey: KeyObject): boolean {
-    notImplemented("crypto.X509Certificate.prototype.verify");
+  verify(publicKey: KeyObject): boolean {
+    if (!(publicKey instanceof KeyObject)) {
+      throw new ERR_INVALID_ARG_TYPE("publicKey", "KeyObject", publicKey);
+    }
+    if (publicKey.type !== "public") {
+      throw new ERR_INVALID_ARG_VALUE(
+        "publicKey",
+        publicKey,
+        "must be a public key",
+      );
+    }
+    return op_node_x509_verify(this.#handle, publicKey[kHandle]);
   }
 }
 

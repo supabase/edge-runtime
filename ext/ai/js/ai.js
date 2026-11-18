@@ -1,4 +1,3 @@
-import { warnOnnxUsage } from "ext:ai/onnxruntime/onnx.js";
 import EventSourceStream from "ext:ai/util/event_source_stream.mjs";
 
 const core = globalThis.Deno.core;
@@ -85,7 +84,8 @@ const parseJSONOverEventStream = async function* (itr, signal) {
 
 class Session {
   model;
-  init;
+  /** @deprecated Kept for compatibility; always resolved. */
+  init = Promise.resolve();
   is_ext_inference_api;
   inferenceAPIHost;
 
@@ -93,16 +93,26 @@ class Session {
     this.model = model;
     this.is_ext_inference_api = false;
 
+    // NOTE: `gte-small` used built-in ONNX inference, which was removed. We
+    // fail in `run()` rather than here so that a top-level session does not
+    // prevent the whole worker from booting.
     if (model === "gte-small") {
-      this.init = core.ops.op_ai_init_model(model);
-    } else {
-      this.inferenceAPIHost = core.ops.op_get_env("AI_INFERENCE_API_HOST");
-      this.is_ext_inference_api = !!this.inferenceAPIHost; // only enable external inference API if env variable is set
+      return;
     }
+
+    this.inferenceAPIHost = core.ops.op_get_env("AI_INFERENCE_API_HOST");
+    this.is_ext_inference_api = !!this.inferenceAPIHost; // only enable external inference API if env variable is set
   }
 
   /** @param {string | object} prompt Either a String (ollama) or an OpenAI chat completion body object (openaicompatible): https://platform.openai.com/docs/api-reference/chat/create */
   async run(prompt, opts = {}) {
+    if (this.model === "gte-small") {
+      throw new Error(
+        'Built-in ONNX inference has been removed; Supabase.ai.Session("gte-small") is no longer supported. ' +
+          "Generate embeddings with an external inference API instead.",
+      );
+    }
+
     if (this.is_ext_inference_api) {
       const stream = opts.stream ?? false;
 
@@ -234,28 +244,15 @@ class Session {
       }
     }
 
-    if (this.init) {
-      await this.init;
-    }
-
-    warnOnnxUsage(`Supabase.ai.Session("${this.model}").run`);
-
-    const mean_pool = opts.mean_pool ?? true;
-    const normalize = opts.normalize ?? true;
-    const result = await core.ops.op_ai_run_model(
-      this.model,
-      prompt,
-      mean_pool,
-      normalize,
+    throw new Error(
+      `model not supported: "${this.model}" requires AI_INFERENCE_API_HOST to be set`,
     );
-
-    return result;
   }
 }
 
 const MAIN_WORKER_API = {
-  tryCleanupUnusedSession: () =>
-    /* async */ core.ops.op_ai_try_cleanup_unused_session(),
+  /** @deprecated Built-in ONNX sessions were removed; always resolves to 0. */
+  tryCleanupUnusedSession: () => Promise.resolve(0),
 };
 
 const USER_WORKER_API = {

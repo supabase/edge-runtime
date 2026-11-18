@@ -21,7 +21,6 @@
     ".git",
     "target",
     "crates/base/test_cases/invalid_imports",
-    "crates/base/test_cases/ai-ort-rust-backend/**/__snapshot__",
     "vendor/**"
   ],
   "plugins": [

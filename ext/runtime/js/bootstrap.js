@@ -33,8 +33,6 @@ import * as eventSource from "ext:deno_fetch/27_eventsource.js";
 import * as WebGPU from "ext:deno_webgpu/00_init.js";
 import * as WebGPUSurface from "ext:deno_webgpu/02_surface.js";
 
-import "ext:ai/onnxruntime/cache_adapter.js";
-
 import { SUPABASE_ENV } from "ext:env/env.js";
 
 import { SupabaseEventListener } from "ext:user_event_worker/event_worker.js";

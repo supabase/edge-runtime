@@ -180,6 +180,7 @@ interface MemInfo {
 
 declare namespace EdgeRuntime {
   export namespace ai {
+    /** @deprecated Built-in ONNX sessions were removed; always resolves to `0`. */
     function tryCleanupUnusedSession(): Promise<number>;
   }
 
@@ -256,16 +257,6 @@ declare namespace Supabase {
   export namespace ai {
     interface ModelOptions {
       /**
-       * Pool embeddings by taking their mean. Applies only for `gte-small` model
-       */
-      mean_pool?: boolean;
-
-      /**
-       * Normalize the embeddings result. Applies only for `gte-small` model
-       */
-      normalize?: boolean;
-
-      /**
        * Stream response from model. Applies only for LLMs like `mistral` (default: false)
        */
       stream?: boolean;
@@ -283,6 +274,7 @@ declare namespace Supabase {
     }
 
     export class Session {
+      /** @deprecated Kept for compatibility; always resolved. */
       init: Promise<void>;
       /**
        * Create a new model session using given model

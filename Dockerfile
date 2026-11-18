@@ -46,31 +46,7 @@ COPY --from=builder /root/edge-runtime.debug /usr/local/bin/edge-runtime.debug
 # ONNX Runtime provider
 # Application runtime with ONNX
 FROM builder as ort
-RUN ./scripts/install_onnx.sh $ONNXRUNTIME_VERSION linux $TARGETPLATFORM /root/onnxruntime
-
-
-# ONNX Runtime CUDA provider
-# Application runtime with ONNX CUDA
-FROM builder as ort-cuda
-RUN ./scripts/install_onnx.sh $ONNXRUNTIME_VERSION linux $TARGETPLATFORM /root/onnxruntime --gpu
-
-
-# With CUDA
-FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04 as edge-runtime-cuda
-
-RUN apt-get update && apt-get install -y ca-certificates \
-    && update-ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY --from=edge-runtime-base /usr/local/bin/edge-runtime /usr/local/bin/edge-runtime
-COPY --from=builder /root/edge-runtime.debug /usr/local/bin/edge-runtime.debug
-COPY --from=ort-cuda /root/onnxruntime/lib/libonnxruntime.so* /usr/lib
-
-ENV NVIDIA_VISIBLE_DEVICES=all
-ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
-
-ENTRYPOINT ["edge-runtime"]
-
+COPY "./vendor/onnxruntime/$TARGETPLATFORM" /root/onnxruntime/lib
 
 # Base
 FROM edge-runtime-base as edge-runtime

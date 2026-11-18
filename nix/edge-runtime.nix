@@ -2,8 +2,6 @@
   lib,
   stdenv,
   rustPlatform,
-  openblas,
-  onnxruntime,
   pkg-config,
   patchelf,
   curl,
@@ -70,8 +68,7 @@ let
     version = "v1.73.3";
     src = ../.;
     nativeBuildInputs = [ pkg-config curl cmake ];
-    buildInputs = [ openblas onnxruntime openssl zstd ];
-    propagatedBuildInputs = [ onnxruntime ];
+    buildInputs = [ openssl zstd ];
     doCheck = false;
 
     cargoLock = {
@@ -89,7 +86,6 @@ let
 
     RUSTY_V8_ARCHIVE = v8Archive;
     RUSTY_V8_SRC_BINDING_PATH = v8Binding;
-    DYLD_LIBRARY_PATH = "${onnxruntime}/lib";
   });
 in
 stdenv.mkDerivation {
@@ -137,28 +133,15 @@ buildPhase = ''
     [ -f "$dep" ] && cp "$dep" $out/lib/ 2>/dev/null || true
   }
 
-  # Helper function to get the library file pattern based on platform
-  get_lib_pattern() {
-    if [ "$(uname)" = "Darwin" ]; then
-      echo "*.dylib*"
-    else
-      echo "*.so*"
-    fi
-  }
-
   # Copy binaries from cargo build to wrapped style
   for bin in $binaries; do
     cp ${build_step}/bin/$bin $out/bin/.$bin-wrapped 2>/dev/null || true
   done
 
-  # Seed: direct deps of binary + onnxruntime and all its siblings
+  # Seed: direct deps of binary
   for dep in $(get_deps $out/bin/.*-wrapped); do
     copy_dep "$dep"
   done
-
-  # Copy onnxruntime
-  lib_pattern=$(get_lib_pattern)
-  cp ${onnxruntime}/lib/libonnxruntime$lib_pattern $out/lib/ 2>/dev/null || true
 
   # Iterative crawl until no new deps appear
   for iteration in {1..5}; do

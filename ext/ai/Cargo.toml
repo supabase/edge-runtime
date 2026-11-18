@@ -10,3 +10,23 @@ path = "lib.rs"
 
 [dependencies]
 deno_core.workspace = true
+
+base_rt.workspace = true
+
+anyhow.workspace = true
+faster-hex.workspace = true
+futures.workspace = true
+reqwest.workspace = true
+sha2.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+# Inference runs on tract (pure Rust). No prebuilt native libraries are
+# downloaded or dynamically loaded; `onig` builds vendored Oniguruma from
+# source. Versions are held back so the rest of the workspace (serde, time)
+# keeps its locked versions.
+tokenizers = { version = "=0.15.2", default-features = false, features = ["onig"] }
+tract-onnx = { version = "0.21", default-features = false }
+
+[dev-dependencies]
+serde_json.workspace = true

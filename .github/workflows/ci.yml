@@ -35,6 +35,7 @@ env:
   RUSTUP_MAX_RETRIES: 10
   RUST_LOG: ext_event_worker=trace
   ESZIP_TESTDATA_REPO: supabase/edge-runtime-test-eszip
+  EXT_AI_CACHE_DIR: /home/runner/.cache/ext-ai-cache
 
 jobs:
   cargo-fmt:
@@ -135,6 +136,19 @@ jobs:
           REGION: ${{ secrets.SUPABASE_S3_REGION }}
           ACCESS_KEY_ID: ${{ secrets.SUPABASE_S3_ACCESS_KEY }}
           SECRET_ACCESS_KEY: ${{ secrets.SUPABASE_S3_SECRET }}
+
+      - name: Set AI model cache directory
+        run: |
+          echo "EXT_AI_CACHE_DIR=$HOME/.cache/ext-ai-cache" >> .env
+        shell: bash
+
+      # Model files are pinned by revision and SHA-256, so the cache key only
+      # needs bumping when the pinned files change.
+      - name: Cache AI models
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ env.EXT_AI_CACHE_DIR }}
+          key: ext-ai-cache-${{ runner.os }}-gte-small-93b36ff
 
       - name: Generate code coverage
         id: coverage

@@ -8,12 +8,6 @@ import { upload } from "../utils";
 
 export const options: Options = {
   scenarios: {
-    gteSmallSimple: {
-      executor: "constant-vus",
-      vus: 12,
-      duration: "3m",
-      exec: "gteSmallSimple",
-    },
     npmSupabaseJs: {
       executor: "constant-vus",
       vus: 12,
@@ -38,12 +32,6 @@ export const options: Options = {
       duration: "3m",
       exec: "tmpWrite100mib",
     },
-    transformerFillMask: {
-      executor: "constant-vus",
-      vus: 12,
-      duration: "3m",
-      exec: "transformerFillMask",
-    },
     wasteCpuTime: {
       executor: "constant-vus",
       vus: 12,
@@ -56,14 +44,10 @@ export const options: Options = {
 export function setup() {
   return {
     url: {
-      gteSmallSimple: upload(open("../functions/gte-small-simple.ts")),
       npmSupabaseJs: upload(open("../functions/npm-supabase-js.ts")),
       simple: upload(open("../functions/simple.ts")),
       sleep5000ms: upload(open("../functions/sleep-5000ms.ts")),
       tmpWrite100mib: upload(open("../functions/tmp-write-100mib.ts")),
-      transformerFillMask: upload(
-        open("../functions/transformer-fill-mask.ts"),
-      ),
       wasteCpuTime: upload(open("../functions/waste-cpu-time.ts")),
     },
   };
@@ -73,13 +57,6 @@ type Data = {
   url: { [_: string]: string };
 };
 
-export function gteSmallSimple(data: Data) {
-  const res = http.get(`${target}${data.url["gteSmallSimple"]}`);
-
-  check(res, {
-    "status is 200": (r) => r.status === 200,
-  });
-}
 export function npmSupabaseJs(data: Data) {
   const res = http.get(`${target}${data.url["npmSupabaseJs"]}`);
 
@@ -103,13 +80,6 @@ export function sleep5000ms(data: Data) {
 }
 export function tmpWrite100mib(data: Data) {
   const res = http.get(`${target}${data.url["tmpWrite100mib"]}`);
-
-  check(res, {
-    "status is 200": (r) => r.status === 200,
-  });
-}
-export function transformerFillMask(data: Data) {
-  const res = http.get(`${target}${data.url["transformerFillMask"]}`);
 
   check(res, {
     "status is 200": (r) => r.status === 200,

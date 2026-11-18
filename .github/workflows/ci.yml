@@ -100,7 +100,7 @@ jobs:
           envFile: '.env'
 
       - name: Install ONNX Runtime Library
-        run: cp -r vendor/onnxruntime/linux/amd64 /tmp/onnxruntime
+        run: cp -r vendor/onnxruntime/linux/amd64 /tmp/onnxruntime/lib
 
       - name: Prepare test eszip binaries
         if: |

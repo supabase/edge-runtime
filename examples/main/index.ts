@@ -26,30 +26,8 @@ addEventListener("unhandledrejection", (ev) => {
   ev.preventDefault();
 });
 
-// (async () => {
-//   try {
-//     const session = new Supabase.ai.Session("gte-small");
-//     await session.init;
-//   } catch (e) {
-//     console.error("failed to init gte-small session in main worker", e);
-//   }
-// })();
-
 // log system memory usage every 30s
 // setInterval(() => console.log(EdgeRuntime.systemMemoryInfo()), 30 * 1000);
-
-// cleanup unused sessions every 30s
-// setInterval(async () => {
-//     try {
-//         const cleanupCount = await EdgeRuntime.ai.tryCleanupUnusedSession();
-//         if (cleanupCount == 0) {
-//             return;
-//         }
-//         console.log('EdgeRuntime.ai.tryCleanupUnusedSession', cleanupCount);
-//     } catch (e) {
-//         console.error(e.toString());
-//     }
-// }, 30 * 1000);
 
 Deno.serve(async (req: Request) => {
   const ctx = propagation.extract(context.active(), req.headers, {

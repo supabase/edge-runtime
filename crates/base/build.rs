@@ -352,9 +352,8 @@ mod supabase_startup_snapshot {
       ext_runtime::runtime_http::init_ops_and_esm(),
       ext_runtime::runtime_http_start::init_ops_and_esm(),
       ext_node::deno_node::init_ops_and_esm::<Permissions>(None, fs),
-      // NOTE(kallebysantos):
-      // Full `Web Cache API` via `SqliteBackedCache` is disabled. Cache flow is
-      // handled by `ext_ai: Cache Adapter`
+      // NOTE: No cache backend is provided, so the `Web Cache API` is
+      // disabled; every `caches.*` call rejects as not available.
       deno_cache::deno_cache::init_ops_and_esm::<SqliteBackedCache>(None),
       deno::runtime::ops::permissions::deno_permissions::init_ops(),
       ext_runtime::runtime::init_ops_and_esm(),

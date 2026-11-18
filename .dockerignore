@@ -6,4 +6,3 @@ assets/
 .github/
 
 scripts/*
-!scripts/install_onnx.sh

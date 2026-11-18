@@ -13,7 +13,6 @@ export $(grep -v '^#' $SCRIPTPATH/../.env | xargs)
 docker build \
   -t edge_runtime \
   --build-arg GIT_V_TAG=$GIT_V_TAG \
-  --build-arg ONNXRUNTIME_VERSION=$ONNXRUNTIME_VERSION \
   --build-arg PROFILE=$PROFILE \
   --build-arg FEATURES=$FEATURES \
   "$SCRIPTPATH/.."

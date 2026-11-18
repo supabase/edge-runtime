@@ -74,7 +74,6 @@ jobs:
           cache-to: type=gha,mode=max
           build-args: |
             GIT_V_TAG=${{ needs.release.outputs.version }}
-            ONNXRUNTIME_VERSION=${{ env.ONNXRUNTIME_VERSION }}
 
   publish_arm:
     needs:
@@ -121,7 +120,6 @@ jobs:
           no-cache: true
           build-args: |
             GIT_V_TAG=${{ needs.release.outputs.version }}
-            ONNXRUNTIME_VERSION=${{ env.ONNXRUNTIME_VERSION }}
 
   merge_manifest:
     needs: [release, publish_x86, publish_arm]

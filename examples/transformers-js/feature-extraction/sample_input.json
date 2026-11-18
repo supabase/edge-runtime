@@ -1,7 +1,0 @@
-{
-  "inputs": [
-    "This framework generates embeddings for each input sentence",
-    "Sentences are passed as a list of string.",
-    "The quick brown fox jumps over the lazy dog."
-  ]
-}

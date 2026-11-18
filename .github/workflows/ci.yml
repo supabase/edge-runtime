@@ -33,10 +33,8 @@ env:
   CARGO_NET_RETRY: 10
   CARGO_TERM_COLOR: always
   RUSTUP_MAX_RETRIES: 10
-  ORT_DYLIB_PATH: /tmp/onnxruntime/lib/libonnxruntime.so
   RUST_LOG: ext_event_worker=trace
   ESZIP_TESTDATA_REPO: supabase/edge-runtime-test-eszip
-  EXT_AI_CACHE_DIR: /home/runner/.cache/ext-ai-cache
 
 jobs:
   cargo-fmt:
@@ -57,10 +55,6 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: Install deps
-        run: |
-          sudo apt-get update
-          sudo apt-get -y install libblas-dev liblapack-dev libopenblas-dev
       - run: rustup show
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - run: ./scripts/clippy.sh
@@ -70,11 +64,6 @@ jobs:
     name: 'cargo test'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - name: Install deps
-        run: |
-          sudo apt-get update
-          sudo apt-get -y install libblas-dev liblapack-dev libopenblas-dev
-
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@328a871ad8f62ecac78390391f463ccabc974b72 # v2.69.9
         with:
@@ -98,9 +87,6 @@ jobs:
       - uses: cardinalby/export-env-action@b16a08b396d047e3f9e1446e3946440e2be02a73 # 2.2.2
         with:
           envFile: '.env'
-
-      - name: Install ONNX Runtime Library
-        run: ./scripts/install_onnx.sh "${{ env.ONNXRUNTIME_VERSION }}" linux x64 /tmp/onnxruntime
 
       - name: Prepare test eszip binaries
         if: |
@@ -149,19 +135,6 @@ jobs:
           REGION: ${{ secrets.SUPABASE_S3_REGION }}
           ACCESS_KEY_ID: ${{ secrets.SUPABASE_S3_ACCESS_KEY }}
           SECRET_ACCESS_KEY: ${{ secrets.SUPABASE_S3_SECRET }}
-
-      - name: Set AI model cache directory
-        run: |
-          echo "EXT_AI_CACHE_DIR=$HOME/.cache/ext-ai-cache" >> .env
-        shell: bash
-
-      - name: Cache AI models
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: ${{ env.EXT_AI_CACHE_DIR }}
-          key: ext-ai-cache-${{ runner.os }}-v1
-          restore-keys: |
-            ext-ai-cache-${{ runner.os }}-
 
       - name: Generate code coverage
         id: coverage

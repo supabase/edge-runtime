@@ -163,6 +163,16 @@ import workerThreads from "node:worker_threads";
 import wasi from "node:wasi";
 import zlib from "node:zlib";
 
+const pathToFileURL = url.pathToFileURL;
+
+function moduleSpecifierFromFilename(filename) {
+  const specifier = pathToFileURL(filename).toString();
+  if (!StringPrototypeStartsWith(specifier, "file:")) {
+    throw new TypeError("Invalid module specifier");
+  }
+  return specifier;
+}
+
 const nativeModuleExports = ObjectCreate(null);
 const builtinModules = [];
 
@@ -982,7 +992,7 @@ function wrapSafe(
   const wrapper = Module.wrap(content);
   const [f, err] = core.evalContext(
     wrapper,
-    url.pathToFileURL(filename).toString(),
+    moduleSpecifierFromFilename(filename),
     [format !== "module"],
   );
   if (err) {
@@ -1096,7 +1106,7 @@ function loadCjs(module, filename) {
 
 function loadESMFromCJS(module, filename, code) {
   const namespace = op_import_sync(
-    url.pathToFileURL(filename).toString(),
+    moduleSpecifierFromFilename(filename),
     code,
   );
 

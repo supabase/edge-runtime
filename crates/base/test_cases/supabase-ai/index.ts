@@ -1,6 +1,8 @@
 import { assertGreater, assertLessOrEqual } from "jsr:@std/assert";
 
 const session = new Supabase.ai.Session("gte-small");
+// Creating a session without running it must not warn.
+await new Supabase.ai.Session("gte-small").init;
 
 function dotProduct(a: number[], b: number[]) {
   let result = 0;

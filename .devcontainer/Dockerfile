@@ -8,11 +8,12 @@ RUN apt-get update && apt-get install -y build-essential cmake libclang-dev lldb
 
 COPY .env /tmp/.env
 COPY .devcontainer/install.sh /tmp/install.sh
-COPY scripts/install_onnx.sh /tmp/install_onnx.sh
+COPY "vendor/onnxruntime/$TARGETPLATFORM" /usr/lib
+
 
 WORKDIR /tmp
 
 ENV DENO_INSTALL=/usr/local
 ENV DPRINT_INSTALL=/usr/local
 
-RUN /tmp/install.sh $TARGETPLATFORM
+RUN /tmp/install.sh

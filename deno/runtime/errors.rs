@@ -726,6 +726,7 @@ fn get_http_client_create_error(error: &HttpClientCreateError) -> &'static str {
     HttpClientCreateError::InvalidProxyUrl => "TypeError",
     HttpClientCreateError::HttpVersionSelectionInvalid => "TypeError",
     HttpClientCreateError::RootCertStore(_) => "TypeError",
+    HttpClientCreateError::UnsupportedTlsKeyResolver => "TypeError",
   }
 }
 

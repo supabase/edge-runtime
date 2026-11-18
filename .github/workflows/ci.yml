@@ -33,7 +33,7 @@ env:
   CARGO_NET_RETRY: 10
   CARGO_TERM_COLOR: always
   RUSTUP_MAX_RETRIES: 10
-  ORT_DYLIB_PATH: /tmp/onnxruntime/lib/libonnxruntime.so
+  ORT_DYLIB_PATH: /tmp/onnxruntime/libonnxruntime.so
   RUST_LOG: ext_event_worker=trace
   ESZIP_TESTDATA_REPO: supabase/edge-runtime-test-eszip
   EXT_AI_CACHE_DIR: /home/runner/.cache/ext-ai-cache
@@ -100,7 +100,7 @@ jobs:
           envFile: '.env'
 
       - name: Install ONNX Runtime Library
-        run: ./scripts/install_onnx.sh "${{ env.ONNXRUNTIME_VERSION }}" linux x64 /tmp/onnxruntime
+        run: cp -r vendor/onnxruntime/linux/amd64 /tmp/onnxruntime
 
       - name: Prepare test eszip binaries
         if: |

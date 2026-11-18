@@ -141,6 +141,11 @@ fn main() -> Result<ExitCode, anyhow::Error> {
           .cloned()
           .collect::<Vec<_>>();
 
+        let otel_metrics = sub_matches
+          .get_one::<bool>("enable-otel-metrics")
+          .cloned()
+          .unwrap_or_default();
+
         let otel_console = sub_matches
           .get_one::<OtelConsoleConfig>("otel-console")
           .cloned()
@@ -251,6 +256,7 @@ fn main() -> Result<ExitCode, anyhow::Error> {
           } else {
             None
           },
+          otel_metrics,
           otel_console,
 
           no_module_cache,

@@ -301,7 +301,7 @@ impl Worker {
         thread = ?std::thread::current().id(),
       );
 
-      let supervise_fut = match imp.clone().supervise(&mut new_runtime) {
+      let supervise_fut = match imp.clone().supervise(&mut new_runtime, &exit) {
         Some(v) => v.boxed(),
         None if worker_kind.is_user_worker() => return None,
         None => ready(Ok(())).boxed(),
@@ -332,12 +332,6 @@ impl Worker {
 
         if let Some(ev) = maybe_uncaught_exception_event {
           exit.set(WorkerExitStatus::WithUncaughtException(ev)).await;
-        } else if let Ok(WorkerEvents::Shutdown(ev)) = result.as_ref() {
-          // The supervisor already computed why it stopped this worker and sent
-          // it to the event worker. Record it here too, so a request cancelled
-          // on the way out can be attributed to a cause rather than reported as
-          // an unqualified cancellation. See `WorkerExit::shutdown_reason`.
-          exit.set(WorkerExitStatus::Terminated(ev.reason)).await;
         }
 
         drop(new_runtime);

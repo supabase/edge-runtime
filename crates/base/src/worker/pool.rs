@@ -250,7 +250,7 @@ fn wake_all(notify_tx: &flume::Sender<Option<Uuid>>, msg: Option<Uuid>) {
 /// up its own budget from one the host reclaimed, so an embedder can attribute
 /// the failure without parsing a message. A worker stopped before a reason was
 /// recorded falls back to the unqualified cancellation.
-async fn cancellation_error(exit: &WorkerExit) -> Error {
+pub(crate) async fn cancellation_error(exit: &WorkerExit) -> Error {
   if let Some(err) = exit.error().await {
     return err;
   }
@@ -961,6 +961,7 @@ pub async fn create_user_worker_pool(
 #[cfg(test)]
 mod tests {
   use super::*;
+  use ext_workers::context::WorkerExitStatus;
 
   #[test]
   fn idle_workers_do_not_queue_notifications_without_waiters() {
@@ -993,5 +994,78 @@ mod tests {
     wake_all(notify_tx, None);
     wake_one(notify_tx, None);
     assert_eq!(registry.notify_pair.1.len(), queued);
+  }
+
+  async fn cancellation_error_for(reason: Option<ShutdownReason>) -> Error {
+    let exit = WorkerExit::default();
+
+    if let Some(reason) = reason {
+      exit.record_shutdown_reason(reason).await;
+    }
+
+    cancellation_error(&exit).await
+  }
+
+  #[tokio::test]
+  async fn cancellation_error_attributes_the_shutdown_reason() {
+    for reason in [
+      ShutdownReason::CPUTime,
+      ShutdownReason::Memory,
+      ShutdownReason::WallClockTime,
+    ] {
+      let err = cancellation_error_for(Some(reason)).await;
+      assert!(
+        matches!(
+          err.downcast_ref(),
+          Some(WorkerError::WorkerResourceExhausted)
+        ),
+        "{reason:?}: {err}"
+      );
+    }
+
+    for reason in [
+      ShutdownReason::EarlyDrop,
+      ShutdownReason::TerminationRequested,
+    ] {
+      let err = cancellation_error_for(Some(reason)).await;
+      assert!(
+        matches!(err.downcast_ref(), Some(WorkerError::WorkerReclaimed)),
+        "{reason:?}: {err}"
+      );
+    }
+
+    for reason in [Some(ShutdownReason::EventLoopCompleted), None] {
+      let err = cancellation_error_for(reason).await;
+      assert!(
+        matches!(
+          err.downcast_ref(),
+          Some(WorkerError::RequestCancelledBySupervisor)
+        ),
+        "{reason:?}: {err}"
+      );
+    }
+  }
+
+  #[tokio::test]
+  async fn uncaught_exception_wins_over_the_shutdown_reason() {
+    let exception = ext_event_worker::events::UncaughtExceptionEvent {
+      cpu_time_used: 0,
+      exception: "boom".to_string(),
+    };
+
+    // Whichever is recorded first, the exception is what the request reports.
+    let exit = WorkerExit::default();
+    exit
+      .set(WorkerExitStatus::WithUncaughtException(exception.clone()))
+      .await;
+    exit.record_shutdown_reason(ShutdownReason::EarlyDrop).await;
+    assert_eq!(cancellation_error(&exit).await.to_string(), "boom");
+
+    let exit = WorkerExit::default();
+    exit.record_shutdown_reason(ShutdownReason::EarlyDrop).await;
+    exit
+      .set(WorkerExitStatus::WithUncaughtException(exception))
+      .await;
+    assert_eq!(cancellation_error(&exit).await.to_string(), "boom");
   }
 }

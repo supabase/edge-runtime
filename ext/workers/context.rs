@@ -70,6 +70,16 @@ impl WorkerExit {
     }
   }
 
+  /// Record why the supervisor stopped this worker, unless an uncaught
+  /// exception is already recorded, because that explains the failure better.
+  pub async fn record_shutdown_reason(&self, reason: ShutdownReason) {
+    let mut status = self.0.lock().await;
+
+    if !matches!(&*status, WorkerExitStatus::WithUncaughtException(_)) {
+      *status = WorkerExitStatus::Terminated(reason);
+    }
+  }
+
   pub async fn set(&self, exit_status: WorkerExitStatus) {
     *self.0.lock().await = exit_status;
   }

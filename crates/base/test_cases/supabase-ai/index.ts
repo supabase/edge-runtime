@@ -1,18 +1,49 @@
-import { assertRejects } from "jsr:@std/assert";
+import { assertGreater, assertLessOrEqual } from "jsr:@std/assert";
 
-// Built-in ONNX inference was removed. Creating a `gte-small` session at the
-// top level must not break worker boot; only `run()` should fail.
 const session = new Supabase.ai.Session("gte-small");
-await session.init;
+await new Supabase.ai.Session("gte-small").init;
+
+function dotProduct(a: number[], b: number[]) {
+  let result = 0;
+  for (let i = 0; i < a.length; i++) {
+    result += a[i] * b[i];
+  }
+
+  return result;
+}
 
 export default {
   async fetch() {
-    await assertRejects(
-      () => session.run("meow"),
-      Error,
-      "Built-in ONNX inference has been removed",
-    );
+    // Generate embedding
+    // @ts-ignore unkwnow type
+    const meow: number[] = await session.run("meow", {
+      mean_pool: true,
+      normalize: true,
+    });
 
-    return new Response(null, { status: 200 });
+    // @ts-ignore unkwnow type
+    const love: number[] = await session.run("I love cats", {
+      mean_pool: true,
+      normalize: true,
+    });
+
+    // Ensures `mean_pool` and `normalize`
+    const sameScore = dotProduct(meow, meow);
+    const diffScore = dotProduct(meow, love);
+
+    assertGreater(sameScore, 0.9);
+    assertGreater(diffScore, 0.5);
+    assertGreater(sameScore, diffScore);
+
+    // Allow for float32 rounding in the normalized vectors.
+    assertLessOrEqual(sameScore, 1 + 1e-6);
+    assertLessOrEqual(diffScore, 1 + 1e-6);
+
+    return new Response(
+      null,
+      {
+        status: meow instanceof Array && meow.length == 384 ? 200 : 500,
+      },
+    );
   },
 };

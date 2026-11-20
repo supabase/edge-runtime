@@ -11,6 +11,7 @@ const {
   TypedArrayPrototypeSlice,
   TypedArrayPrototypeSubarray,
   TypedArrayPrototypeGetByteLength,
+  TypedArrayPrototypeGetByteOffset,
   DataViewPrototypeGetBuffer,
   TypedArrayPrototypeGetBuffer,
 } = primordials;
@@ -47,6 +48,16 @@ const toU8 = (input) => {
 
   return input;
 };
+
+// A decompress op's result is the only view of a fresh ArrayBuffer, so the
+// Buffer can share its memory; Buffer.from(result) would copy it, and
+// decompressed payloads can be hundreds of MB.
+const decompressedToBuffer = (result) =>
+  Buffer.from(
+    TypedArrayPrototypeGetBuffer(result),
+    TypedArrayPrototypeGetByteOffset(result),
+    TypedArrayPrototypeGetByteLength(result),
+  );
 
 export function createBrotliCompress(options) {
   return new BrotliCompress(options);
@@ -204,12 +215,12 @@ export function brotliDecompress(input, options, callback) {
   return PromisePrototypeCatch(
     PromisePrototypeThen(
       op_brotli_decompress_async(buf),
-      (result) => callback(null, Buffer.from(result)),
+      (result) => callback(null, decompressedToBuffer(result)),
     ),
     (err) => callback(err),
   );
 }
 
 export function brotliDecompressSync(input) {
-  return Buffer.from(op_brotli_decompress(toU8(input)));
+  return decompressedToBuffer(op_brotli_decompress(toU8(input)));
 }

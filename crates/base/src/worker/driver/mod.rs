@@ -6,6 +6,7 @@ use anyhow::Error;
 use ext_event_worker::events::BootFailureEvent;
 use ext_event_worker::events::WorkerEvents;
 use ext_workers::context::WorkerContextInitOpts;
+use ext_workers::context::WorkerExit;
 use ext_workers::context::WorkerKind;
 use futures_util::FutureExt;
 use tokio::sync::mpsc;
@@ -104,11 +105,12 @@ impl WorkerDriver for WorkerDriverImpl {
   fn supervise(
     &self,
     runtime: &mut DenoRuntime,
+    exit: &WorkerExit,
   ) -> Option<impl Future<Output = Result<(), JoinError>> + 'static> {
     match self {
-      Self::User(user) => user.supervise(runtime).map(FutureExt::boxed),
+      Self::User(user) => user.supervise(runtime, exit).map(FutureExt::boxed),
       Self::Managed(managed) => {
-        managed.supervise(runtime).map(FutureExt::boxed)
+        managed.supervise(runtime, exit).map(FutureExt::boxed)
       }
     }
   }
@@ -160,9 +162,12 @@ pub(super) trait WorkerDriver: Send {
     runtime: &'l mut DenoRuntime,
   ) -> impl Future<Output = Result<WorkerEvents, Error>> + 'l;
 
+  /// `exit` is where a supervisor records why it stopped the worker, so that
+  /// requests cancelled as a result can report the cause.
   fn supervise(
     &self,
     runtime: &mut DenoRuntime,
+    exit: &WorkerExit,
   ) -> Option<impl Future<Output = Result<(), JoinError>> + 'static>;
 
   fn runtime_handle(&self) -> &'static LocalPoolHandle;

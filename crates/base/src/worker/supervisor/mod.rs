@@ -19,6 +19,7 @@ use ext_runtime::PromiseMetrics;
 use ext_workers::context::Timing;
 use ext_workers::context::UserWorkerMsgs;
 use ext_workers::context::UserWorkerRuntimeOpts;
+use ext_workers::context::WorkerExit;
 use futures_util::pin_mut;
 use futures_util::task::AtomicWaker;
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -130,6 +131,7 @@ pub fn create_supervisor(
   timing: Option<Timing>,
   termination_token: Option<TerminationToken>,
   flags: Arc<ServerFlags>,
+  exit: WorkerExit,
 ) -> Result<CancellationToken, anyhow::Error> {
   let (memory_limit_tx, memory_limit_rx) = mpsc::unbounded_channel();
   let (waker, thread_safe_handle) = (
@@ -228,6 +230,10 @@ pub fn create_supervisor(
           }
         }
       };
+
+      // Record the reason before cancelling, because cancelling wakes the
+      // in-flight requests and they read it straight away to pick their error.
+      exit.record_shutdown_reason(reason).await;
 
       // NOTE: Sending a signal to the pooler that it is the user worker going
       // disposed down and will not accept awaiting subsequent requests, so

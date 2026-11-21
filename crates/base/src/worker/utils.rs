@@ -3,7 +3,6 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-use anyhow::anyhow;
 use anyhow::bail;
 use deno_core::serde_json::Value;
 use ext_event_worker::events::EventMetadata;
@@ -19,6 +18,8 @@ use hyper_v014::Response;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
+
+use super::pool::cancellation_error;
 
 pub fn get_event_metadata(conf: &WorkerRuntimeOpts) -> EventMetadata {
   let mut otel_attributes = HashMap::new();
@@ -80,12 +81,7 @@ pub async fn send_user_worker_request(
   // wait for the response back from the worker
   let res = tokio::select! {
     () = cancel.cancelled() => {
-      bail!(
-        exit
-          .error()
-          .await
-          .unwrap_or(anyhow!(WorkerError::RequestCancelledBySupervisor))
-      )
+      bail!(cancellation_error(&exit).await)
     }
 
     res = res_rx => res,

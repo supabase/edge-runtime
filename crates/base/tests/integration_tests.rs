@@ -1110,7 +1110,7 @@ async fn req_failure_case_cpu_time_exhausted() {
 
   assert_eq!(
     buf,
-    "{\"msg\":\"WorkerRequestCancelled: request has been cancelled by supervisor\"}"
+    "{\"msg\":\"WorkerResourceExhausted: request cancelled: worker exceeded its resource limits\"}"
   );
 
   tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
@@ -1138,7 +1138,7 @@ async fn req_failure_case_cpu_time_exhausted_2() {
 
   assert_eq!(
     buf,
-    "{\"msg\":\"WorkerRequestCancelled: request has been cancelled by supervisor\"}"
+    "{\"msg\":\"WorkerResourceExhausted: request cancelled: worker exceeded its resource limits\"}"
   );
 
   tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
@@ -1167,7 +1167,7 @@ async fn req_failure_case_wall_clock_reached() {
   assert!(
     buf == "{\"msg\":\"InvalidWorkerResponse: user worker failed to respond\"}"
     || buf
-      == "{\"msg\":\"WorkerRequestCancelled: request has been cancelled by supervisor\"}"
+      == "{\"msg\":\"WorkerResourceExhausted: request cancelled: worker exceeded its resource limits\"}"
   );
 
   tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
@@ -1195,7 +1195,7 @@ async fn req_failture_case_memory_limit_1() {
 
   assert_eq!(
     buf,
-    "{\"msg\":\"WorkerRequestCancelled: request has been cancelled by supervisor\"}"
+    "{\"msg\":\"WorkerResourceExhausted: request cancelled: worker exceeded its resource limits\"}"
   );
 
   tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
@@ -1223,7 +1223,7 @@ async fn req_failture_case_memory_limit_2() {
 
   assert_eq!(
     buf,
-    "{\"msg\":\"WorkerRequestCancelled: request has been cancelled by supervisor\"}"
+    "{\"msg\":\"WorkerResourceExhausted: request cancelled: worker exceeded its resource limits\"}"
   );
 
   tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
@@ -1257,7 +1257,7 @@ async fn req_failure_case_wall_clock_reached_less_than_100ms() {
     buf == "{\"msg\":\"InvalidWorkerResponse: user worker failed to respond\"}"
     || buf == "{\"msg\":\"InvalidWorkerCreation: worker did not respond in time\"}"
     || buf
-      == "{\"msg\":\"WorkerRequestCancelled: request has been cancelled by supervisor\"}"
+      == "{\"msg\":\"WorkerResourceExhausted: request cancelled: worker exceeded its resource limits\"}"
   );
 
   tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
@@ -1364,7 +1364,7 @@ async fn req_failure_case_op_cancel_from_server_due_to_cpu_resource_limit_2() {
 ///
 /// 1. The connection token is canceled before the main worker's response is
 ///    handed back to the server, so the server serves 503 on its own.
-/// 2. The main worker's `WorkerRequestCancelled` handler wins the race, and its
+/// 2. The main worker's `WorkerResourceExhausted` handler wins the race, and its
 ///    own 500 payload is relayed to the client untouched.
 ///
 /// Which one wins depends on scheduling alone, so accept either, but keep
@@ -1403,7 +1403,7 @@ async fn assert_op_cancel_from_server_response(
       );
       assert!(
         msg
-          == "WorkerRequestCancelled: request has been cancelled by supervisor"
+          == "WorkerResourceExhausted: request cancelled: worker exceeded its resource limits"
           || msg == "broken pipe",
         "unexpected error message: {msg}"
       );

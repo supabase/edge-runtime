@@ -105,8 +105,11 @@ impl<'scope> VfsBuilder<'scope> {
     let read_dir = std::fs::read_dir(path)
       .with_context(|| format!("Reading {}", path.display()))?;
 
-    for entry in read_dir {
-      let entry = entry?;
+    let mut dir_entries =
+      read_dir.into_iter().collect::<Result<Vec<_>, _>>()?;
+    dir_entries.sort_by_cached_key(|entry| entry.file_name()); // determinism
+
+    for entry in dir_entries {
       let file_type = entry.file_type()?;
       let path = entry.path();
 
@@ -935,5 +938,43 @@ impl FileBackedVfs {
       VfsEntryRef::Symlink(_) => unreachable!(),
       VfsEntryRef::File(file) => Ok(file),
     }
+  }
+}
+
+#[cfg(test)]
+mod test {
+  use super::*;
+
+  #[test]
+  fn add_dir_recursive_visits_entries_in_name_order() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let root_path = canonicalize_path(temp_dir.path()).unwrap();
+
+    // created out of order so that neither the creation order nor the order in
+    // which the file system happens to list them matches the name order
+    let names = [
+      "m.txt", "c.txt", "x.txt", "a.txt", "q.txt", "f.txt", "z.txt", "b.txt",
+      "s.txt", "h.txt", "v.txt", "d.txt", "o.txt", "k.txt", "u.txt", "e.txt",
+    ];
+    for name in names {
+      std::fs::write(root_path.join(name), name).unwrap();
+    }
+
+    let mut visited = Vec::new();
+    {
+      let mut builder = VfsBuilder::new(
+        root_path.clone(),
+        |_path: &Path, name: &str, _data: Vec<u8>| {
+          visited.push(name.to_string());
+          name.to_string()
+        },
+      )
+      .unwrap();
+      builder.add_dir_recursive(&root_path).unwrap();
+    }
+
+    let mut expected = names.map(String::from).to_vec();
+    expected.sort();
+    assert_eq!(visited, expected);
   }
 }

@@ -36,6 +36,20 @@ The edge runtime can be divided into two runtimes with different purposes.
 
 To learn how to build / test Edge Runtime, visit [DEVELOPERS.md](DEVELOPERS.md)
 
+## Verifying native release assets
+
+Each native release publishes a `SHA256SUMS` file and a GitHub build provenance
+attestation for every `edge-runtime-v<version>-<target>.tar.gz` asset, where
+`<target>` is `aarch64-darwin`, `x86_64-linux` or `aarch64-linux`. Verify a
+download before using it:
+
+```sh
+sha256sum --check --ignore-missing SHA256SUMS   # macOS: shasum -a 256 --check --ignore-missing SHA256SUMS
+gh attestation verify edge-runtime-v<version>-<target>.tar.gz \
+  --repo supabase/edge-runtime \
+  --signer-workflow supabase/edge-runtime/.github/workflows/release-native.yml
+```
+
 ## Contributions
 
 We welcome contributions to Supabase Edge Runtime!

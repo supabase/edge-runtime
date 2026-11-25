@@ -184,7 +184,11 @@ declare namespace EdgeRuntime {
   }
 
   class UserWorker {
-    constructor(key: string);
+    constructor(key: string, reused?: boolean);
+
+    readonly key: string;
+    /** Whether `create` returned an existing worker from the pool instead of booting a new one. */
+    readonly reused: boolean;
 
     fetch(
       request: Request,

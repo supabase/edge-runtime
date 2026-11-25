@@ -4445,6 +4445,7 @@ async fn test_pool_key_async() {
     .unwrap();
 
   assert_eq!(resp.status().as_u16(), StatusCode::OK);
+  assert_eq!(resp.headers().get("x-worker-reused").unwrap(), "false");
 
   // The same key will not spawn a new Worker, even when 'service_path' changed
   let resp = tb
@@ -4458,6 +4459,7 @@ async fn test_pool_key_async() {
     .unwrap();
 
   assert_eq!(resp.status().as_u16(), StatusCode::OK);
+  assert_eq!(resp.headers().get("x-worker-reused").unwrap(), "true");
 
   // Using different key doesn't reuse the same Worker
   let resp = tb
@@ -4471,6 +4473,7 @@ async fn test_pool_key_async() {
     .unwrap();
 
   assert_eq!(resp.status().as_u16(), StatusCode::CREATED);
+  assert_eq!(resp.headers().get("x-worker-reused").unwrap(), "false");
 }
 
 async fn assert_rate_limit_error(

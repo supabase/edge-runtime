@@ -45,7 +45,9 @@ Deno.serve(async (req: Request) => {
   const callWorker = async () => {
     try {
       const worker = await createWorker();
-      return await worker.fetch(req);
+      const res = await worker.fetch(req);
+      res.headers.set("x-worker-reused", String(worker.reused));
+      return res;
     } catch (e) {
       console.error(e);
 

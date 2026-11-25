@@ -56,7 +56,7 @@ let
       };
       binding = {
         url = "https://github.com/supabase/rusty_v8/releases/download/v130.0.7/src_binding_release_x86_64-unknown-linux-gnu.rs";
-        sha256 = "sha256-sq8JII71BvnI43jNMm5yCj8WgGQ1K9n7AcOCJsfklRQ=";
+        sha256 = "sha256-pR88m+XXpSUyxHQiRoDPgxA3OdLJfmcvJfy8kdvSavw=";
       };
     };
   };

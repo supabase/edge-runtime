@@ -10,6 +10,7 @@ import {
 } from "ext:deno_fetch/23_response.js";
 import { upgradeWebSocket } from "ext:deno_http/02_websocket.ts";
 import { HttpConn } from "ext:runtime/01_http.js";
+import { performance } from "ext:deno_web/15_performance.js";
 import {
   builtinTracer,
   ContextManager,
@@ -35,9 +36,15 @@ const {
   ArrayPrototypeFind,
   ArrayPrototypeMap,
   ArrayPrototypePush,
+  DateNow,
+  MathAbs,
+  MathRound,
+  NumberParseInt,
+  RegExpPrototypeExec,
   SafeArrayIterator,
   ObjectPrototypeIsPrototypeOf,
   SafePromisePrototypeFinally,
+  String,
 } = primordials;
 
 const HttpConnPrototypeNextRequest = HttpConn.prototype.nextRequest;
@@ -61,6 +68,71 @@ function badGatewayError() {
   return new Response("Bad Gateway", { status: 502 });
 }
 
+// When the platform's front door received the request: `t=<microseconds since the Unix epoch>`.
+const REQUEST_START_HEADER = "x-request-start";
+const REQUEST_START_PATTERN = /^t=(\d{16})$/;
+// How long the request took from the front door to here, in microseconds. Set on a user
+// worker's response for the main worker, which records it and strips it.
+const START_LATENCY_HEADER = "sb-start-latency-us";
+
+/**
+ * Microseconds from the front door's `x-request-start` until now, or null when the request
+ * carries no stamp. Read when the request is handed to the function's code, so it covers
+ * everything the platform did before that: routing, fetching the bundle, booting the worker
+ * and evaluating the module.
+ */
+function startLatencyUs(request) {
+  const stamp = request.headers.get(REQUEST_START_HEADER);
+  if (stamp === null) {
+    return null;
+  }
+  const match = RegExpPrototypeExec(REQUEST_START_PATTERN, stamp);
+  if (match === null) {
+    return null;
+  }
+  return MathRound(wallClockMs() * 1000 - NumberParseInt(match[1], 10));
+}
+
+/**
+ * Wall-clock time in milliseconds, which is what the front door stamps. DateNow has only
+ * millisecond resolution, so this uses the high-resolution clock while it agrees with
+ * DateNow, which also bounds what a function patching `performance` can do to the result.
+ */
+function wallClockMs() {
+  const coarse = DateNow();
+  const fine = performance.timeOrigin + performance.now();
+  return MathAbs(fine - coarse) < 2 ? fine : coarse;
+}
+
+/**
+ * Sets the start latency on a user worker's response, replacing any value the function set,
+ * or removes the header when the request carried no stamp. Either way the main worker only
+ * ever sees a value the runtime measured.
+ */
+function withStartLatency(response, latencyUs) {
+  // A 101 carries the upgraded connection; copying it would lose that.
+  if (response.status === 101) {
+    return response;
+  }
+  try {
+    setStartLatency(response.headers, latencyUs);
+    return response;
+  } catch {
+    // Immutable headers, as on a fetch() response passed straight through.
+    const copy = new Response(response.body, response);
+    setStartLatency(copy.headers, latencyUs);
+    return copy;
+  }
+}
+
+function setStartLatency(headers, latencyUs) {
+  if (latencyUs === null) {
+    headers.delete(START_LATENCY_HEADER);
+  } else {
+    headers.set(START_LATENCY_HEADER, String(latencyUs));
+  }
+}
+
 function serveHttp(conn) {
   let closed = false;
 
@@ -79,6 +151,9 @@ function serveHttp(conn) {
       streamRid: nextRequest.streamRid,
     };
 
+    const isUserWorker = internals.worker?.kind === "user";
+    const latencyUs = isUserWorker ? startLatencyUs(nextRequest.request) : null;
+
     return {
       ...nextRequest,
       respondWith: async function (resp) {
@@ -91,6 +166,9 @@ function serveHttp(conn) {
             throw new TypeError(
               "First argument to 'respondWith' must be a Response or a promise resolving to a Response",
             );
+          }
+          if (isUserWorker) {
+            resp = withStartLatency(resp, latencyUs);
           }
           return await nextRequest.respondWith(resp);
         } catch (error) {

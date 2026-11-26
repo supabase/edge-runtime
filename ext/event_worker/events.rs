@@ -24,7 +24,7 @@ pub struct WorkerMemoryUsed {
   pub mem_check_captured: MemCheckState,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
 pub enum ShutdownReason {
   EventLoopCompleted,
   WallClockTime,

@@ -16,6 +16,7 @@ use ext_event_worker::events::ShutdownReason;
 use ext_event_worker::events::UncaughtExceptionEvent;
 use ext_event_worker::events::WorkerEvents;
 use ext_event_worker::events::WorkerMemoryUsed;
+use ext_workers::context::WorkerExit;
 use futures_util::FutureExt;
 use log::error;
 use tokio::sync::mpsc;
@@ -111,6 +112,7 @@ impl WorkerDriver for Managed {
   fn supervise(
     &self,
     runtime: &mut DenoRuntime,
+    _exit: &WorkerExit,
   ) -> Option<impl Future<Output = Result<(), JoinError>> + 'static> {
     let Managed { inner, cx } = self.clone();
     let mut cx = cx.try_lock().ok()?;

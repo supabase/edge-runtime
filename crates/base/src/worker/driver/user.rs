@@ -13,6 +13,7 @@ use ext_event_worker::events::UncaughtExceptionEvent;
 use ext_event_worker::events::WorkerEvents;
 use ext_workers::context::Timing;
 use ext_workers::context::WorkerContextInitOpts;
+use ext_workers::context::WorkerExit;
 use tokio::sync::mpsc;
 use tokio::sync::Mutex;
 use tokio::task::JoinError;
@@ -127,6 +128,7 @@ impl WorkerDriver for User {
   fn supervise(
     &self,
     runtime: &mut DenoRuntime,
+    exit: &WorkerExit,
   ) -> Option<impl Future<Output = Result<(), JoinError>> + 'static> {
     let User { inner, cx } = self.clone();
     let mut cx = cx.try_lock().ok()?;
@@ -160,6 +162,7 @@ impl WorkerDriver for User {
       timing.take(),
       inner.termination_token.clone(),
       inner.flags.clone(),
+      exit.clone(),
     ) else {
       return None;
     };

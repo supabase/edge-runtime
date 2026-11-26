@@ -301,7 +301,7 @@ impl Worker {
         thread = ?std::thread::current().id(),
       );
 
-      let supervise_fut = match imp.clone().supervise(&mut new_runtime) {
+      let supervise_fut = match imp.clone().supervise(&mut new_runtime, &exit) {
         Some(v) => v.boxed(),
         None if worker_kind.is_user_worker() => return None,
         None => ready(Ok(())).boxed(),

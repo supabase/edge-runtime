@@ -4473,6 +4473,74 @@ async fn test_pool_key_async() {
   assert_eq!(resp.status().as_u16(), StatusCode::CREATED);
 }
 
+/// Sends one request to a test case through the shared main worker, stamped 25 ms in the
+/// past when `stamp` is set, and returns the `sb-start-latency-us` the response carried.
+async fn start_latency_of(
+  tb: &TestBed,
+  service: &str,
+  stamp: bool,
+) -> Option<i64> {
+  let stamped_us = std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)
+    .unwrap()
+    .as_micros()
+    - 25_000;
+  let resp = tb
+    .request(|b| {
+      let b = b.uri(format!("/{service}"));
+      let b = if stamp {
+        b.header("x-request-start", format!("t={stamped_us}"))
+      } else {
+        b
+      };
+      b.body(Body::empty()).context("can't make request")
+    })
+    .await
+    .unwrap();
+  assert!(resp.status().as_u16() < 500, "{service}: {}", resp.status());
+  resp
+    .headers()
+    .get("sb-start-latency-us")
+    .map(|v| v.to_str().unwrap().parse().unwrap())
+}
+
+#[tokio::test]
+#[serial]
+async fn test_start_latency_header() {
+  let tb = TestBedBuilder::new("./test_cases/main")
+    .with_per_worker_policy(None)
+    .build()
+    .await;
+
+  // Deno.serve, the std serve path (Deno.serveHttp), and a response with immutable headers.
+  for service in [
+    "start-latency-serve",
+    "start-latency-serve-http",
+    "start-latency-fetch",
+  ] {
+    // The first request also boots the worker, which the latency includes.
+    for _ in 0..2 {
+      let latency_us = start_latency_of(&tb, service, true).await.unwrap();
+      assert!(
+        (25_000..30_000_000).contains(&latency_us),
+        "{service}: {latency_us}"
+      );
+    }
+  }
+
+  // Without a stamp the runtime removes the header, even one the function set itself.
+  assert_eq!(
+    start_latency_of(&tb, "start-latency-serve", false).await,
+    None
+  );
+  assert_eq!(
+    start_latency_of(&tb, "start-latency-serve-http", false).await,
+    None
+  );
+
+  tb.exit(Duration::from_secs(TESTBED_DEADLINE_SEC)).await;
+}
+
 async fn assert_rate_limit_error(
   resp: Result<reqwest::Response, reqwest::Error>,
 ) {

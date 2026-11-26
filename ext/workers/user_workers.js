@@ -35,8 +35,10 @@ function redirectStatus(status) {
 }
 
 class UserWorker {
-  constructor(key) {
+  constructor(key, reused = false) {
     this.key = key;
+    // Whether the pool handed back an existing worker instead of booting one.
+    this.reused = reused;
   }
 
   async fetch(request, options = {}) {
@@ -158,7 +160,7 @@ class UserWorker {
         span.setAttribute("worker.id", key);
         span.setAttribute("worker.reused", reused);
       }
-      return new UserWorker(key);
+      return new UserWorker(key, reused);
     } catch (err) {
       if (TRACING_ENABLED) {
         try {

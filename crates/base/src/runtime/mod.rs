@@ -405,7 +405,8 @@ pub struct DenoRuntime<RuntimeContext = DefaultRuntimeContext> {
 
 impl<RuntimeContext> Drop for DenoRuntime<RuntimeContext> {
   fn drop(&mut self) {
-    if self.conf.is_user_worker() {
+    let is_user_worker = self.conf.is_user_worker();
+    if is_user_worker {
       self.js_runtime.v8_isolate().remove_gc_prologue_callback(
         mem_check_gc_prologue_callback_fn,
         Arc::as_ptr(&self.mem_check) as *mut _,
@@ -414,11 +415,20 @@ impl<RuntimeContext> Drop for DenoRuntime<RuntimeContext> {
 
     cleanup_js_runtime(&mut self.js_runtime);
 
+    if is_user_worker {
+      self.js_runtime.v8_isolate().low_memory_notification();
+    }
+
     unsafe {
       ManuallyDrop::drop(&mut self.js_runtime);
     }
 
     self.drop_token.cancel();
+
+    // Drop isolate host pages on the worker thread; pool counts already hit 0.
+    if is_user_worker {
+      ext_runtime::reclaim_host_memory();
+    }
   }
 }
 

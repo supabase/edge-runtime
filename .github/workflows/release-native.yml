@@ -56,42 +56,9 @@ jobs:
           path: edge-runtime-${{ github.ref_name }}-${{ matrix.target }}.tar.gz
           retention-days: 1
 
-  attest:
-    name: Checksums & Provenance
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-      attestations: write
-
-    steps:
-      - name: Download build artifacts
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          pattern: edge-runtime-*
-          path: dist
-          merge-multiple: true
-
-      - name: Generate checksums
-        working-directory: dist
-        run: sha256sum edge-runtime-*.tar.gz > SHA256SUMS
-
-      - name: Attest build provenance
-        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
-        with:
-          subject-path: dist/edge-runtime-*.tar.gz
-
-      - name: Upload checksums
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: checksums
-          path: dist/SHA256SUMS
-          retention-days: 1
-
   release:
     name: Create Release
-    needs: [build, attest]
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
